@@ -3,7 +3,7 @@ import { OwnerAttentionQueue } from "@/components/admin/owner-attention-queue";
 
 import { currencyText, moneyText } from "@/components/ui/currency-text";
 import { ActionFeedback, useActionFeedbackState } from "@/components/ui/action-feedback";
-import { normalizeRegistrationWhatsApp } from "@alpha-traders/contracts";
+import { normalizeRegistrationWhatsApp, formatCommissionAmount, commissionAmountInput } from "@alpha-traders/contracts";
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -240,7 +240,7 @@ function formatCurrency(value: number) {
 }
 
 function formatUsdt(value: number) {
-  return `${value.toLocaleString("en-IL", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDT`;
+  return `${formatCommissionAmount(value)} USDT`;
 }
 
 function formatExactUsdt(value: number) {
@@ -261,6 +261,7 @@ function operationalIncidentLabel(kind: MarketplaceOperationalIncidentKind, isAr
     stalled_trade: { en: "Trade still idle after buyer reminder", ar: "الصفقة ما زالت متوقفة بعد تذكير المشتري" },
     orphaned_listing_lock: { en: "Listing lock has no active trade", ar: "قفل العرض غير مرتبط بصفقة نشطة" },
     unlinked_active_trade: { en: "Active trade is not linked to its listing", ar: "الصفقة النشطة غير مرتبطة بعرضها" },
+    pending_trade_trust: { en: "Trade reputation update is delayed", ar: "تأخر تحديث سمعة الصفقة" },
   };
   return isArabic ? labels[kind].ar : labels[kind].en;
 }
@@ -486,6 +487,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
     if (!isArabic) return event.message;
     const labels: Record<PurchaseRequest["timeline"][number]["type"], string> = {
       request_submitted: "تم إرسال طلب الشراء", price_offer_submitted: "تم إرسال عرض السعر", request_accepted: "وافق البائع على الطلب", price_offer_accepted: "وافق البائع على عرض السعر", payment_sent: "أكد المشتري إرسال الدفعة",
+      buyer_confirmed_funds: "أكد المشتري استلام البائع للنقد",
       seller_confirmed_funds: "أكد البائع استلام الدفعة", usdt_release_started: "بدأ البائع إرسال USDT", usdt_sent: "أكد البائع إرسال USDT",
       trade_completed: "اكتملت الصفقة بنجاح", trade_timed_out: "انتهت مهلة الصفقة", trade_locked: "تم إغلاق الصفقة",
       review_unlocked: "أصبح التقييم متاحًا", dispute_opened: "تم فتح نزاع للصفقة", dispute_resolved: "تم حل نزاع الصفقة", commission_recorded: "تم تسجيل عمولة الصفقة",
@@ -988,7 +990,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
       if (!query) return true;
       const tradeId = request?.tradeId ?? record.tradeId ?? record.purchaseRequestId ?? "";
       const tradeLabel = request || tradeId ? displayTradeId(request, tradeId) : "";
-      const sourceLabel = record.source === "admin_manual" ? "admin-issued manual commission" : "trade commission";
+      const sourceLabel = record.source === "tolerance_carry_forward" ? "carried commission balance" : record.source === "admin_manual" ? "admin-issued manual commission" : "trade commission";
       const haystack = `${record.id} ${displayCommissionId(record)} ${tradeId} ${tradeLabel} ${request?.buyerName ?? record.buyerId ?? ""} ${accountLabel(record.sellerId)} ${sourceLabel} ${record.issueReason ?? ""}`.toLowerCase();
       return haystack.includes(query);
     });
@@ -1586,10 +1588,10 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
         const tradeId = request || record.tradeId || record.purchaseRequestId
           ? displayTradeId(request, record.tradeId ?? record.purchaseRequestId)
           : "";
-        const source = record.source === "admin_manual" ? "Admin-issued" : "Trade";
-        const tradeValue = record.source === "admin_manual" ? "" : record.grossAmount.toFixed(2);
+        const source = record.source === "tolerance_carry_forward" ? "Carried balance" : record.source === "admin_manual" ? "Admin-issued" : "Trade";
+        const tradeValue = record.source === "admin_manual" || record.source === "tolerance_carry_forward" ? "" : record.grossAmount.toFixed(2);
         const reason = `"${String(record.issueReason ?? "").replace(/"/g, '""')}"`;
-        return [source, tradeId, buyerName, sellerName, tradeValue, record.commissionAmount.toFixed(2), record.paymentStatus, reason, record.createdAt].join(",");
+        return [source, tradeId, buyerName, sellerName, tradeValue, commissionAmountInput(record.commissionAmount), record.paymentStatus, reason, record.createdAt].join(",");
       }),
     ];
     const blob = new Blob([csvRows.join("\n")], { type: "text/csv;charset=utf-8;" });
@@ -3108,9 +3110,10 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                               ? (data.purchaseRequests ?? []).find((item) => item.id === record.purchaseRequestId)
                               : undefined;
                             const sellerName = accountLabel(record.sellerId);
-                            const isAdminIssued = record.source === "admin_manual";
+                            const isCarried = record.source === "tolerance_carry_forward";
+                            const isAdminIssued = record.source === "admin_manual" || isCarried;
                             const sourceLabel = isAdminIssued
-                              ? `${t("Admin-issued", "صادرة عن الإدارة")} · ${displayCommissionId(record)}`
+                              ? `${(isCarried ? t("Carried balance", "رصيد مرحّل") : t("Admin-issued", "صادرة عن الإدارة"))} · ${displayCommissionId(record)}`
                               : displayTradeId(request, record.tradeId ?? record.purchaseRequestId);
                             const exactPayment = typeof record.paymentExpectedAmount === "number"
                               ? record.paymentExpectedAmount
@@ -3131,7 +3134,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                     {isAdminIssued ? (
                                       <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-1.5">
                                         <span className="rounded-full border border-[#C9A227]/30 bg-[#C9A227]/10 px-2 py-0.5 text-[10px] font-semibold text-[#F4D87A]">
-                                          {t("Admin-issued", "صادرة عن الإدارة")}
+                                          {(isCarried ? t("Carried balance", "رصيد مرحّل") : t("Admin-issued", "صادرة عن الإدارة"))}
                                         </span>
                                         <span className="break-all font-mono text-[11px] text-[#9CA3AF]">{currencyText(displayCommissionId(record))}</span>
                                       </div>
@@ -3167,7 +3170,9 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                 <div className="mt-3 rounded-xl border border-white/10 bg-black/20 px-3 py-2.5 text-sm">
                                   <p className="text-[10px] uppercase tracking-[0.12em] text-[#7F8490]">{isAdminIssued ? t("Reason", "السبب") : t("Buyer", "المشتري")}</p>
                                   <p className="mt-1 whitespace-pre-wrap break-words text-[#D1D5DB]">
-                                    {currencyText(isAdminIssued
+                                    {currencyText(isCarried
+                                      ? t("Unpaid balance from an earlier verified commission payment. This is not an additional trading fee.", "رصيد غير مدفوع من دفعة عمولة سابقة تم التحقق منها. هذه ليست رسوم تداول إضافية.")
+                                      : isAdminIssued
                                       ? record.issueReason || t("Admin-issued seller obligation", "التزام بائع صادر عن الإدارة")
                                       : request?.buyerName ?? record.buyerId ?? "—")}
                                   </p>

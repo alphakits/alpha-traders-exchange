@@ -2,9 +2,16 @@
 import { NextRequest } from "next/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AlphaExchangeDb } from "@/types/alpha-exchange";
+import type { Pool } from "pg";
+import { commissionHistoryTestPool } from "@/test/commission-history-pool";
 
 const delivery = vi.hoisted(() => ({ sendEmail: vi.fn() }));
+const history = vi.hoisted(() => ({ pool: null as unknown as Pick<Pool, "query"> }));
 vi.mock("@/lib/postgres-runtime", () => ({ getRuntimePostgresPool: () => null }));
+vi.mock("@/lib/commission-deposit-history", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/commission-deposit-history")>();
+  return { ...actual, getCommissionHistoryStore: () => actual.postgresCommissionHistoryStore(history.pool) };
+});
 vi.mock("@/lib/marketplace-email-delivery", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/lib/marketplace-email-delivery")>(),
   sendMarketplaceEmail: delivery.sendEmail,
@@ -101,6 +108,7 @@ function runCron() {
 
 function installDepositHistory(amount: string) {
   let binanceReads = 0;
+  const creditedAt = Date.now() - 1000;
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(String(input));
     if (url.hostname === "api.trongrid.io"
@@ -125,7 +133,7 @@ function installDepositHistory(amount: string) {
         amount,
         status: 1,
         transferType: 1,
-        insertTime: Date.now(),
+        insertTime: creditedAt,
         travelRuleStatus: 0,
       }]);
     }
@@ -137,6 +145,7 @@ function installDepositHistory(amount: string) {
 
 describe("automatic commission settlement through the scheduler and receiving-account history", () => {
   beforeEach(() => {
+    history.pool = commissionHistoryTestPool() as unknown as Pick<Pool, "query">;
     delivery.sendEmail.mockReset().mockResolvedValue({ ok: true });
     vi.stubEnv("CRON_SECRET", SECRET);
     vi.stubEnv("ALPHA_EXCHANGE_BINANCE_READ_API_KEY", "local-read-only-key");

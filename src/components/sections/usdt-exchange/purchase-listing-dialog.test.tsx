@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 vi.mock("@/i18n/navigation", () => ({ Link: () => null }));
 import { PurchaseListingDialog } from "./purchase-listing-dialog";
+import { getPriceOfferBounds, validatePriceOffer } from "@/lib/price-offer";
 import { getWalletAddressValidationError } from "@/lib/wallet-address";
 import { getPurchaseMinimumTrade, calculateCardlessUsdtAmount, calculateFiatAmount, calculateTradeBuyerFiatFee, calculateTradePaymentTotal } from "@alpha-traders/contracts";
 type Props = ComponentProps<typeof PurchaseListingDialog>;
@@ -18,7 +19,7 @@ function Harness({ locale = "en", sellerProfileData = null, selectedMinTrade = 1
     sellerProfileData={sellerProfileData} isSellerProfileLoading={false} selectedAmount={selectedMaxTrade} selectedPrice={selectedPrice} estimatedTradeValue={Number(calculateFiatAmount(String(amount), price.toFixed(2)) ?? 0)} estimatedBuyerFee={Number(calculateTradeBuyerFiatFee(String(amount), price.toFixed(2)) ?? 0)} estimatedTotal={Number(calculateTradePaymentTotal(String(amount), price.toFixed(2), true) ?? 0)}
     purchaseSubmitted={false} buyerInfo={buyerInfo} onBuyerDetailsChange={(changes) => setBuyerInfo((current) => ({ ...current, ...changes }))}
     selectedPaymentMethods={[selectedPaymentMethod!]} selectedPaymentMethod={selectedPaymentMethod} buyerTradeAmount={amount} selectedMinTrade={selectedMinTrade} selectedMaxTrade={selectedMaxTrade} buyerTradeAmountInvalid={amount <= 0 || amount < getPurchaseMinimumTrade(selectedMinTrade, selectedPaymentMethod === "Cardless ATM Withdrawal") || amount > selectedMaxTrade}
-    buyerWalletValidationError={null} buyerWalletInvalid={invalid} priceMode={priceMode} offeredPrice={offeredPrice} minimumOfferedPrice="2.85" offerPriceInvalid={price < 2.85} offeredTradePrice={Number(offeredPrice)}
+    buyerWalletValidationError={null} buyerWalletInvalid={invalid} priceMode={priceMode} offeredPrice={offeredPrice} minimumOfferedPrice={getPriceOfferBounds(selectedPrice)!.minimumPrice} maximumOfferedPrice={getPriceOfferBounds(selectedPrice)!.maximumPrice} offerPriceInvalid={!validatePriceOffer(selectedPrice, offeredPrice).ok} offeredTradePrice={Number(offeredPrice)}
     requiresSafetyNotice={false} safetyAcknowledged={false} showVerificationCta={false} isRedirectingToVerification={false} statusMessage={null} isSubmittingPurchase={isSubmittingPurchase}
     onClose={onClose} onSubmit={onSubmit} onPaymentMethodChange={noop} onBuyerAmountChange={(usdtAmount) => setBuyerInfo((current) => ({ ...current, usdtAmount }))}
     onBuyerWalletChange={(receivingWalletAddress) => setBuyerInfo((current) => ({ ...current, receivingWalletAddress }))} onOfferedPriceChange={(value) => {
@@ -204,4 +205,15 @@ it.each(["Bank Transfer", "Face-to-Face (Meet in Person)"])("blocks a zero-round
   expect(screen.getByRole("alert").textContent).toContain("at least 0.01");
   fireEvent.change(screen.getByLabelText(/USDT Amount/), { target: { value: "1" } });
   expect((screen.getByRole("button", { name: "Start Trade" }) as HTMLButtonElement).disabled).toBe(false);
+});
+
+it("shows and enforces the symmetric buyer offer range", () => {
+  render(<Harness priceMode="buyer_offer" selectedPrice={3.2} />);
+  const field = screen.getByRole("spinbutton", { name: /price|offer/i }) as HTMLInputElement;
+  expect(field.min).toBe("2.85");
+  expect(field.max).toBe("3.55");
+  fireEvent.change(field, { target: { value: "3.55" } });
+  expect(field.getAttribute("aria-invalid")).not.toBe("true");
+  fireEvent.change(field, { target: { value: "3.56" } });
+  expect(field.getAttribute("aria-invalid")).toBe("true");
 });

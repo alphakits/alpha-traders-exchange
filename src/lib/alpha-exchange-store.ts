@@ -1,9 +1,11 @@
+import { materializeCommissionShortfalls } from "./commission-shortfall-ledger";
 import { calculateTradeTermsQuote } from "@alpha-traders/contracts";
+import { requireManualCommissionOperationId } from "@/lib/manual-commission-operation";
 import { priceAlertSchema, priceAlertMatchesListing, readMarketplacePriceAlert, type MarketplacePriceAlert } from "@/lib/marketplace-price-alert";
 import { accountSessionId, presentAccountSession } from "@/lib/account-session-presentation";
 import { buildMarketplaceOperationalSnapshot } from "@/lib/marketplace-operational-health";
 import { ownerFollowUpAlerts, OWNER_FOLLOW_UP_REASON } from "@/lib/owner-follow-up-alerts";
-import { measureSellerActivity, withMeasuredSellerActivity } from "@/lib/seller-activity-metrics";
+import { measureSellerActivity } from "@/lib/seller-activity-metrics";
 import { readUserPresence, visibleUserPresence, endPresenceSession } from "@/lib/user-presence-store";
 import { deriveUserPresence } from "@alpha-traders/contracts";
 import { normalizePrivateContact, requiresBuyerContact } from "@/lib/buyer-contact";
@@ -41,7 +43,6 @@ import { getSellerPrestigeProgress, getSellerPublicVolumeLabel, resolveSellerPre
 import { getBuyerPrestigeProgress } from "@/lib/buyer-rank";
 import {
   ALLOWED_LISTING_EXPIRATION_HOURS,
-  BUYER_CONFIRMATION_TIMEOUT_MINUTES,
   COMMISSION_GRACE_PERIOD_DAYS,
   COMMISSION_RATE,
   DEFAULT_LISTING_EXPIRATION_HOURS,
@@ -49,7 +50,7 @@ import {
 } from "@/lib/marketplace-policy";
 import { evaluateSellerAchievements } from "@/lib/seller-achievements";
 import { runEnvValidation } from "@/lib/env-validation";
-import { getAlphaExchangeRepository, type SnapshotTableName } from "@/lib/alpha-exchange-repository";
+import { getAlphaExchangeRepository, type SnapshotTableName, type TradeLifecycleTransaction } from "@/lib/alpha-exchange-repository";
 import { addRole, dedupeRoles, hasRole, isUserRole, normalizeRolesForUser, removeRole, resolvePrimaryRole } from "@/lib/roles";
 import { publishRealtimeEvent } from "@/lib/realtime";
 import { scheduleMobilePushDelivery } from "@/lib/mobile-push";
@@ -83,6 +84,7 @@ import { getSmsTemplate, isTwilioSendEnabled, normalizeE164, resolveSmsDeliveryS
 import { normalizeIsraeliPhone, canonicalPhoneNumber } from "@/lib/phone-number-normalization";
 import { assertAccountPhoneAvailable } from "@/lib/account-phone-ownership";
 import { isMarketplacePhoneVerificationEnabled, needsMarketplacePhoneVerification } from "@/lib/phone-verification";
+import { ADULT_CONFIRMATION_METHOD, hasAdultConfirmation, needsAdultConfirmation } from "@/lib/age-eligibility";
 import { normalizeSellerLevel } from "@/types/alpha-exchange";
 import { accountRoleIdentity } from "@/lib/account-role-identity";
 import { publicAccountId, publicAccountName, accountNameForViewer, isPublicOwnerIdentity, ownerIdentityText, identityTextRedactor } from "@/lib/public-account-identity";
@@ -94,6 +96,7 @@ import { logEvent } from "@/lib/structured-logging";
 import {
   MAX_LISTING_PAYMENT_METHODS,
   isBankTransferPaymentMethod,
+  isBankDetailsDisclosureStage,
   isBuyerEvidenceRequiredForPaymentMethod,
   isCardlessAtmPaymentMethod,
   isCashTradeCompletionAvailable,
@@ -203,7 +206,7 @@ import { isNewListingBroadcastNotification, listingNotificationViewDestination, 
 import { COMMISSION_PAYMENT_DUE_NOTIFICATION_REASON, commissionPaymentDestination } from "@/lib/commission-payment-destination";
 import { normalizePreferredLocale } from "@/lib/preferred-locale";
 import { getPriceOfferBounds, normalizeListingPrice, validatePriceOffer } from "@/lib/price-offer";
-import { calculateTradePaymentTotal, calculateBuyerCommissionAmount, calculateSellerCommissionAmount, calculateSellerTotalAlphaDue, MARKETPLACE_FEE_CUTOVER_VERSION, canonicalizeNonNegativeTradeAmount, canonicalizeTradeAmount, isTradeAmountLessThan, subtractTradeAmounts } from "@/lib/trade-amount";
+import { calculateTradePaymentTotal, calculateBuyerCommissionAmount, calculateSellerCommissionAmount, calculateSellerTotalAlphaDue, calculateLegacySellerCommissionAmount, calculateLegacySellerTotalAlphaDue, COMMISSION_CALCULATION_VERSION, formatCommissionAmount, sumCommissionAmounts, MARKETPLACE_FEE_CUTOVER_VERSION, canonicalizeNonNegativeTradeAmount, canonicalizeTradeAmount, isTradeAmountLessThan, subtractTradeAmounts } from "@/lib/trade-amount";
 import { purgeMarketplaceSmokeTestSnapshot } from "@/lib/marketplace-smoke-test";
 
 const SELLER_EVIDENCE_TRACE_PATH = path.join(process.cwd(), "tmp", "seller-evidence-server.log");
@@ -549,8 +552,7 @@ function resolveTradeRequiredAction(request: PurchaseRequest, recipientIsSeller:
         : "Wait for seller USDT release";
   }
   if (request.status === "usdt_sent") {
-    if (cashTrade) return recipientIsSeller ? "Complete the cash trade" : "Confirm USDT received";
-    return recipientIsSeller ? "Complete the trade" : "Confirm trade completed";
+    return recipientIsSeller ? "Complete the trade" : "Wait for seller completion";
   }
   if (request.status === "review_open" || request.status === "completed") {
     return "Leave your trade review";
@@ -1034,6 +1036,7 @@ function isQaResetModeEnabled() {
 }
 
 function getCommissionAmountDueUsdt(db: AlphaExchangeDb, record: CommissionRecord) {
+  const precise = record.commissionCalculationVersion === COMMISSION_CALCULATION_VERSION;
   const request = record.purchaseRequestId
     ? db.purchaseRequests.find((item) => item.id === record.purchaseRequestId)
     : undefined;
@@ -1042,18 +1045,24 @@ function getCommissionAmountDueUsdt(db: AlphaExchangeDb, record: CommissionRecor
     // The seller owes both shares on new-policy trades even if they failed to
     // collect the buyer share. Never reduce the debt from a missing/zero split.
     if (request.feePolicyVersion === MARKETPLACE_FEE_CUTOVER_VERSION || record.feePolicyVersion === MARKETPLACE_FEE_CUTOVER_VERSION) {
-      const combined = calculateSellerTotalAlphaDue(request.usdtAmount);
+      const combined = precise ? calculateSellerTotalAlphaDue(request.usdtAmount) : calculateLegacySellerTotalAlphaDue(request.usdtAmount);
       if (combined !== null) return combined;
     }
-    const calculated = calculateSellerCommissionAmount(request.usdtAmount);
+    const calculated = precise ? calculateSellerCommissionAmount(request.usdtAmount) : calculateLegacySellerCommissionAmount(request.usdtAmount);
     if (calculated !== null) return calculated;
   }
   if (isQaCommissionModeEnabled()) return 1;
-  return roundUsdt(record.commissionAmount);
+  return precise ? sumCommissionAmounts([record.commissionAmount]) : roundUsdt(record.commissionAmount);
+}
+
+function assertPayableTradeCommission(amount: string) {
+  if (calculateSellerTotalAlphaDue(amount) === null) {
+    throw new TradeBlockedError("trade-commission-precision", "Trade quantity must produce a positive 1% fee at six-decimal USDT precision and remain within supported amount limits.");
+  }
 }
 
 function getCommissionSubject(record: CommissionRecord) {
-  return record.purchaseRequestId ? `trade ${record.purchaseRequestId}` : "this admin-issued commission";
+  return record.purchaseRequestId ? `trade ${record.purchaseRequestId}` : record.source === "tolerance_carry_forward" ? "this carried commission balance" : "this admin-issued commission";
 }
 
 const USDT_MICROS_PER_TOKEN = 1_000_000;
@@ -1078,13 +1087,14 @@ function microsToUsdt(value: number) {
  * be claimed for a future commission during its payment window.
  */
 function ensureCommissionPaymentExpectedAmounts(db: AlphaExchangeDb) {
+  const shortfallsChanged = materializeCommissionShortfalls(db, nowIso());
   const assignments = new Map<string, number>();
   const issuedUniqueExpectedMicros = new Map<number, string>();
   const usedExpectedMicros = new Set<number>();
   const payableRecords = db.commissionRecords.filter(
     (record) => normalizeCommissionPaymentStatus(record.paymentStatus, record.dueAt) !== "paid",
   );
-  let changed = false;
+  let changed = shortfallsChanged;
   const assignmentUpdatedAt = nowIso();
   const markAssignmentChanged = (record: CommissionRecord) => {
     record.updatedAt = assignmentUpdatedAt;
@@ -1863,17 +1873,8 @@ function isTrustEligibleSeller(user: AlphaExchangeUser) {
 }
 
 function computeTrustSnapshotMap(db: AlphaExchangeDb) {
-  const measured = (snapshot: SellerReputationSnapshot) => withMeasuredSellerActivity(snapshot, db.purchaseRequests.filter(request => request.sellerId === snapshot.sellerId));
-  if (db.trustSnapshots.length) {
-    const sellers = new Map(db.users.map(user => [user.id, user]));
-    return new Map(db.trustSnapshots.map(entry => {
-      const seller = sellers.get(entry.sellerId);
-      if (!seller) return [entry.sellerId, entry.snapshot];
-      const volume = Math.max(0, entry.snapshot.totalUsdtVolume, seller.lifetimeCompletedVolumeUsdt ?? 0);
-      const rank = seller.sellerRankOverride?.rank ?? resolveSellerPrestigeRankWithFloor(volume, seller.sellerPrestigeRank);
-      return [entry.sellerId, measured({ ...entry.snapshot, totalUsdtVolume: volume, level: rank, ...buildPrestigeFieldsForSnapshot({ volumeUsdt: volume, rank, isOverridden: Boolean(seller.sellerRankOverride) }) })];
-    }));
-  }
+  // Cached legacy snapshots included estimated facts. Recompute from current
+  // records so public pages, owner reports and worker decisions agree.
   const listingsBySeller = new Map<string, MarketplaceListing[]>();
   for (const listing of db.marketplaceListings) {
     const rows = listingsBySeller.get(listing.sellerId);
@@ -1900,6 +1901,7 @@ function computeTrustSnapshotMap(db: AlphaExchangeDb) {
         listings: listingsBySeller.get(seller.id) ?? [],
         requests: requestsBySeller.get(seller.id) ?? [],
         commissions: commissionsBySeller.get(seller.id) ?? [],
+        enforcementRecords: getMarketplaceEnforcementRecords(db),
       });
       snapshot.totalUsdtVolume = Math.max(snapshot.totalUsdtVolume, seller.lifetimeCompletedVolumeUsdt ?? 0);
       const effectiveRank = seller.sellerRankOverride?.rank ?? resolveSellerPrestigeRankWithFloor(snapshot.totalUsdtVolume, seller.sellerPrestigeRank);
@@ -1916,7 +1918,7 @@ function computeTrustSnapshotMap(db: AlphaExchangeDb) {
       return snapshot;
     });
   const ranked = rankTrustSnapshots(base);
-  return new Map(ranked.map((snapshot) => [snapshot.sellerId, measured(snapshot)]));
+  return new Map(ranked.map((snapshot) => [snapshot.sellerId, snapshot]));
 }
 
 function computeSellerReputationSnapshot(db: AlphaExchangeDb, sellerId: string): SellerReputationSnapshot {
@@ -1944,18 +1946,18 @@ function computeSellerReputationSnapshot(db: AlphaExchangeDb, sellerId: string):
       cancellationRate: 0,
       completionRate: 0,
       responseTimeMinutes: 0,
-      customerSatisfaction: 0,
+      customerSatisfaction: undefined,
       recentActivityScore: 0,
       accountAgeDays: 0,
       profileCompletion: 0,
       verificationScore: 0,
-      disputesLost: 0,
+      disputesLost: undefined,
       marketplaceViolations: 0,
       listingQualityScore: 0,
-      profileViews: 0,
-      listingViews: 0,
+      profileViews: undefined,
+      listingViews: undefined,
       tradeRequests: 0,
-      monthlyGrowthPercent: 0,
+      monthlyGrowthPercent: undefined,
       estimatedCommissionPaid: 0,
       revenueGenerated: 0,
       repeatBuyers: 0,
@@ -1973,6 +1975,7 @@ function computeSellerReputationSnapshot(db: AlphaExchangeDb, sellerId: string):
     listings: db.marketplaceListings.filter((listing) => listing.sellerId === seller.id),
     requests: db.purchaseRequests.filter((request) => request.sellerId === seller.id),
     commissions: db.commissionRecords.filter((record) => record.sellerId === seller.id),
+    enforcementRecords: getMarketplaceEnforcementRecords(db),
     marketplacePosition: 0,
   });
   snapshot.totalUsdtVolume = Math.max(snapshot.totalUsdtVolume, seller.lifetimeCompletedVolumeUsdt ?? 0);
@@ -1987,7 +1990,7 @@ function computeSellerReputationSnapshot(db: AlphaExchangeDb, sellerId: string):
       isOverridden: Boolean(seller.sellerRankOverride),
     }),
   );
-  return withMeasuredSellerActivity(snapshot, db.purchaseRequests.filter(request => request.sellerId === sellerId));
+  return snapshot;
 }
 
 const LISTING_END_STATUSES = new Set<ListingStatus>(["completed", "cancelled", "closed", "expired"]);
@@ -2457,7 +2460,7 @@ export async function getPremiumSellerProfile(input: {
     completedTrades: completedTrades.length,
     tradeVolume: canSeeExactSellerStats ? Number(trustSnapshot.totalUsdtVolume.toFixed(2)) : undefined,
     exactTradeVolume: canSeeExactSellerStats ? Number(trustSnapshot.totalUsdtVolume.toFixed(2)) : undefined,
-    commissionPaid: canSeeExactSellerStats ? Number(trustSnapshot.estimatedCommissionPaid.toFixed(2)) : undefined,
+    commissionPaid: canSeeExactSellerStats ? Number(trustSnapshot.estimatedCommissionPaid.toFixed(6)) : undefined,
     averageTradeSize: canSeeExactSellerStats ? Number(trustSnapshot.averageTradeSize.toFixed(2)) : undefined,
     averageRating: Number(trustSnapshot.rating.toFixed(2)),
     responseTimeMinutes: Number(responseTimeMinutes.toFixed(2)),
@@ -2545,6 +2548,7 @@ const VALID_TRADE_TIMELINE_TYPES = {
   price_offer_accepted: true,
   payment_sent: true,
   seller_confirmed_funds: true,
+  buyer_confirmed_funds: true,
   usdt_release_started: true,
   usdt_sent: true,
   trade_completed: true,
@@ -3571,7 +3575,8 @@ export async function runAlphaExchangeMaintenance() {
   if (changed || numberingChanged) {
     await writeDb(db);
   }
-  return { changed: changed || numberingChanged };
+  const trust = await reconcilePendingTradeTrust();
+  return { changed: changed || numberingChanged || trust.reconciled > 0 };
 }
 
 export const TRADE_ACTION_REMINDER_INTERVAL_MS = 60 * 60_000;
@@ -3713,7 +3718,7 @@ function tradeActionReminderPlan(request: PurchaseRequest): TradeActionReminderP
   }
 
   if (request.status === "funds_received") {
-    const actionStartedAt = stageTimestamp(request.fundsReceivedAt, ["seller_confirmed_funds"]);
+    const actionStartedAt = stageTimestamp(request.fundsReceivedAt, ["seller_confirmed_funds", "buyer_confirmed_funds"]);
     if (!actionStartedAt) return null;
     return {
       stage: request.status,
@@ -4073,9 +4078,9 @@ const PURCHASE_REQUEST_CREATE_TABLES = ["purchase_requests", "notifications", "a
 const PASSWORD_RESET_TABLES = ["password_reset_tokens"] as const satisfies readonly SnapshotTableName[];
 const TRADE_STATUS_BASE_TABLES = ["purchase_requests", "listings", "notifications", "audit_logs", "sms_deliveries"] as const satisfies readonly SnapshotTableName[];
 // For completed/declined/cancelled: core trade state written synchronously (critical path).
-const TRADE_COMPLETION_CORE_TABLES = ["purchase_requests", "listings", "notifications", "audit_logs", "commissions", "sms_deliveries"] as const satisfies readonly SnapshotTableName[];
+const TRADE_COMPLETION_CORE_TABLES = ["purchase_requests", "listings", "notifications", "audit_logs", "commissions", "activity_logs", "sms_deliveries"] as const satisfies readonly SnapshotTableName[];
 // For completed/declined/cancelled: trust data written after the response via after() (non-critical path).
-const TRADE_COMPLETION_TRUST_TABLES = [...USER_PROFILE_TABLES, "activity_logs", "trust_snapshots", "trust_score_history"] as const satisfies readonly SnapshotTableName[];
+const TRADE_COMPLETION_TRUST_TABLES = [...USER_PROFILE_TABLES, "purchase_requests", "notifications", "audit_logs", "activity_logs", "trust_snapshots", "trust_score_history"] as const satisfies readonly SnapshotTableName[];
 const TRADE_EVIDENCE_BASE_TABLES = ["purchase_requests", "audit_logs", "activity_logs", "evidence"] as const satisfies readonly SnapshotTableName[];
 const TRADE_EVIDENCE_PAYMENT_TABLES = ["purchase_requests", "listings", "notifications", "audit_logs", "activity_logs", "evidence"] as const satisfies readonly SnapshotTableName[];
 const TRADE_REVIEW_TABLES = ["purchase_requests", "notifications", "audit_logs", "activity_logs"] as const satisfies readonly SnapshotTableName[];
@@ -4094,7 +4099,11 @@ const TRADE_STATUS_FAST_READ_TABLES = ["users", "seller_applications", "listings
 const TRADE_STATUS_TERMINAL_READ_TABLES = [
   ...TRADE_STATUS_FAST_READ_TABLES,
   "activity_logs",
-  "disputes",
+] as const satisfies readonly SnapshotTableName[];
+// Derived trust history is read by the recoverable follow-up, after the
+// financial transaction has committed. It is not a lifecycle dependency.
+const TRADE_TRUST_READ_TABLES = [
+  ...TRADE_STATUS_TERMINAL_READ_TABLES,
   "trust_snapshots",
   "trust_score_history",
 ] as const satisfies readonly SnapshotTableName[];
@@ -4608,9 +4617,8 @@ async function readDbForListingCreation(): Promise<{ db: AlphaExchangeDb; fromCa
 }
 
 // Targeted write — persists only the rows that changed during createMarketplaceListing.
-// The listing INSERT + trust_snapshot UPSERTs run in one transaction; all other
-// writes (audit_logs, notifications, activity_log, trust_score_history) are
-// independent parallel INSERTs with no advisory lock or version-check overhead.
+// The listing, trust, audit, notifications and activity commit atomically so
+// a failed required event cannot leave an apparently successful partial save.
 // Cache is updated when db came from the full cached read (fromCache=true) so
 // subsequent in-process hits reflect the new listing immediately. When the read
 // was a targeted partial read the cache is invalidated to force a fresh full load.
@@ -4991,7 +4999,7 @@ type CommissionPaymentConfirmationContext = {
 
 function buildCommissionPaymentConfirmation(input: CommissionPaymentConfirmationContext) {
   const commissionLabel = formatCommissionId(input.commission.displayNumber, input.commission.id);
-  const amountLabel = input.amountDueUsdt.toFixed(2);
+  const amountLabel = formatCommissionAmount(input.amountDueUsdt);
   const remainingCommissionCount = input.remainingCommissions.length;
   const fullyUnlocked = remainingCommissionCount === 0;
   const nextCommission = input.remainingCommissions[0];
@@ -5167,6 +5175,94 @@ type DeferredNotificationPublication = {
   notification: AlphaExchangeNotification;
 };
 
+// Each lifecycle attempt owns a fresh snapshot. Effects from a rejected attempt
+// are discarded with it, including notifications created by nested helpers.
+type TradeMutationPublications = {
+  notifications: DeferredNotificationPublication[];
+  trustNotifications: DeferredNotificationPublication[];
+  trustEvents: Parameters<typeof publishRealtimeEvent>[0][];
+  promotionEmails: Parameters<typeof sendSellerPrestigePromotionEmail>[0][];
+  calculatingTrust: boolean;
+};
+const tradeMutationPublications = new WeakMap<AlphaExchangeDb, TradeMutationPublications>();
+
+let tradeTrustReconciliationInFlight: Promise<{ reconciled: number }> | null = null;
+
+/** Recoverable derived-state work. No stale account snapshot is ever replayed. */
+export function reconcilePendingTradeTrust(): Promise<{ reconciled: number }> {
+  if (tradeTrustReconciliationInFlight) return tradeTrustReconciliationInFlight;
+  const task = (async () => {
+    let reconciled = 0;
+    // Bound each invocation so continuous trading cannot monopolize a worker.
+    // Every unprocessed intent remains in the committed request for the next run.
+    for (let batch = 0; batch < 4; batch++) {
+      const repository = await getAlphaExchangeRepository();
+      const transaction = typeof repository.beginTradeTrustTransaction === "function"
+        ? await repository.beginTradeTrustTransaction(TRADE_TRUST_READ_TABLES) : null;
+      try {
+        const db = transaction ? normalizeDb(transaction.snapshot)
+          : (await readDbForCriticalTradeMutation(TRADE_TRUST_READ_TABLES)).db;
+        if (!db.purchaseRequests.some(request => request.trustReconciliation && !request.trustReconciliation.reconciledAt)) break;
+        let publications: TradeMutationPublications;
+        let committedCount = 0;
+        const apply = async (snapshot: AlphaExchangeDb) => {
+          publications = { notifications: [], trustNotifications: [], trustEvents: [], promotionEmails: [], calculatingTrust: true };
+          const pending = snapshot.purchaseRequests.filter(request => request.trustReconciliation && !request.trustReconciliation.reconciledAt);
+          committedCount = pending.length;
+          if (!pending.length) return snapshot;
+          tradeMutationPublications.set(snapshot, publications);
+          try {
+            await recalculateTrustEngine(snapshot, {
+              reason: "Committed trade lifecycle reconciliation",
+              triggeredBy: pending.length === 1 ? pending[0].trustReconciliation!.requestedByUserId : SYSTEM_ACTOR_USER_ID,
+            });
+          } finally { tradeMutationPublications.delete(snapshot); }
+          const reconciledAt = nowIso();
+          for (const request of pending) request.trustReconciliation = { ...request.trustReconciliation!, reconciledAt };
+          return snapshot;
+        };
+        await apply(db);
+        if (transaction) {
+          // Read, derive and persist against the same canonical account state.
+          // Row deltas preserve sessions and avoid rewriting unrelated history.
+          const normalized = normalizeDb(db);
+          ensureDisplayNumbers(normalized);
+          await transaction.commit(normalized, { selectedTables: TRADE_COMPLETION_TRUST_TABLES });
+          invalidateAlphaExchangeStoreCache();
+        } else {
+          await writeDb(db, {
+            selectedTables: TRADE_COMPLETION_TRUST_TABLES,
+            rebaseOnLatest: apply,
+            rebaseTables: TRADE_TRUST_READ_TABLES,
+            cacheResult: false,
+          });
+        }
+        // Publish only after commit acknowledgement. A failed transaction leaves
+        // the durable intent pending for the next maintenance run.
+        publications!.trustNotifications.forEach(publishNotificationPublication);
+        publications!.trustEvents.forEach(publishRealtimeEvent);
+        for (const email of publications!.promotionEmails) await sendSellerPrestigePromotionEmail(email);
+        reconciled += committedCount;
+      } finally { await transaction?.close(); }
+    }
+    return { reconciled };
+  })();
+  tradeTrustReconciliationInFlight = task;
+  void task.finally(() => {
+    if (tradeTrustReconciliationInFlight === task) tradeTrustReconciliationInFlight = null;
+  }).catch(() => undefined);
+  return task;
+}
+
+function publishOrDeferNotification(db: AlphaExchangeDb, publication: DeferredNotificationPublication) {
+  const pending = tradeMutationPublications.get(db);
+  if (pending) {
+    (pending.calculatingTrust ? pending.trustNotifications : pending.notifications).push(publication);
+  } else {
+    publishNotificationPublication(publication);
+  }
+}
+
 function publishNotificationPublication(publication: DeferredNotificationPublication | null | undefined) {
   if (!publication) return;
   if (publication.notification.whatsappChannelOnly !== true) {
@@ -5291,7 +5387,7 @@ function pushNotification(
       });
       db.notifications[duplicateIndex] = updated;
       const publication = { type: "notification.updated" as const, notification: updated };
-      if (input.deferRealtime !== true) publishNotificationPublication(publication);
+      if (input.deferRealtime !== true) publishOrDeferNotification(db, publication);
       return publication;
     }
   }
@@ -5331,7 +5427,7 @@ function pushNotification(
   db.notifications.unshift(notification);
   pruneNotificationBacklog(db);
   const publication = { type: "notification.created" as const, notification };
-  if (input.deferRealtime !== true) publishNotificationPublication(publication);
+  if (input.deferRealtime !== true) publishOrDeferNotification(db, publication);
   return publication;
 }
 
@@ -5667,38 +5763,8 @@ async function applyMarketplaceReliabilityRules(db: AlphaExchangeDb) {
     });
   }
 
-  const buyerConfirmationTimeoutMs = BUYER_CONFIRMATION_TIMEOUT_MINUTES * 60 * 1000;
-  const buyerConfirmationTimeoutRequestIds: string[] = [];
-  for (const request of db.purchaseRequests) {
-    if (request.status !== "usdt_sent") continue;
-    // Cash trades never wait for buyer receipt. Only the seller may run their
-    // explicit completion action, so the legacy Bank Transfer timeout must
-    // never auto-complete Face-to-Face or Cardless ATM trades.
-    if (isCashTradePaymentMethod(request.paymentMethod)) continue;
-    if (request.completedAt) continue;
-    if (!request.usdtSentAt) continue;
-    const usdtSentMs = new Date(request.usdtSentAt).getTime();
-    if (!usdtSentMs || Number.isNaN(usdtSentMs) || usdtSentMs + buyerConfirmationTimeoutMs > nowMs) continue;
-    buyerConfirmationTimeoutRequestIds.push(request.id);
-  }
-
-  for (const requestId of buyerConfirmationTimeoutRequestIds) {
-    const completion = await updatePurchaseRequestStatus({
-      requestId,
-      actorUserId: SYSTEM_ACTOR_USER_ID,
-      actorRole: "admin",
-      nextStatus: "completed",
-    });
-    // HTTP-triggered completions schedule this write with Next.js after().
-    // Maintenance has no response lifecycle, so it must persist the same
-    // recalculated seller trust, activity, and profile state itself.
-    await completion.deferredTrustWrite?.();
-  }
-  if (buyerConfirmationTimeoutRequestIds.length > 0) {
-    const refreshed = await readDb({ bypassCache: true });
-    Object.assign(db, refreshed);
-    changed = true;
-  }
+  // Completion requires the seller's explicit action or a verified owner
+  // override. Elapsed time must not settle inventory or commission.
 
   for (const listing of db.marketplaceListings) {
     // A listing's single pointer is only a representative of its active
@@ -5871,13 +5937,13 @@ function isSellerTrustFlagged(snapshot: SellerReputationSnapshot | undefined) {
   if (!snapshot) return false;
   return snapshot.trustScore < 55
     || snapshot.marketplaceViolations > 0
-    || snapshot.disputesLost >= 3
+    || snapshot.accountSuspended === true
     || snapshot.cancellationRate >= 20;
 }
 
 function hasConcreteSellerRiskSignal(snapshot: SellerReputationSnapshot) {
   return snapshot.marketplaceViolations > 0
-    || snapshot.disputesLost >= 3
+    || snapshot.accountSuspended === true
     || snapshot.cancellationRate >= 20;
 }
 
@@ -5923,6 +5989,7 @@ async function recalculateTrustEngine(db: AlphaExchangeDb, input: { reason: stri
           listings: listingsBySeller.get(seller.id) ?? [],
           requests: requestsBySeller.get(seller.id) ?? [],
           commissions: commissionsBySeller.get(seller.id) ?? [],
+          enforcementRecords: getMarketplaceEnforcementRecords(db),
         });
         snapshot.totalUsdtVolume = Math.max(snapshot.totalUsdtVolume, seller.lifetimeCompletedVolumeUsdt ?? 0);
       const effectiveRank = seller.sellerRankOverride?.rank ?? resolveSellerPrestigeRankWithFloor(snapshot.totalUsdtVolume, seller.sellerPrestigeRank);
@@ -5985,14 +6052,17 @@ async function recalculateTrustEngine(db: AlphaExchangeDb, input: { reason: stri
     );
 
     if (scoreChanged && !input.suppressSideEffects) {
-      publishRealtimeEvent({
+      const reputationEvent: Parameters<typeof publishRealtimeEvent>[0] = {
         type: "reputation.updated",
         payload: {
           sellerId: snapshot.sellerId,
           trustScore: newScore,
           reviewCount: visibleReviewCountBySeller.get(snapshot.sellerId) ?? 0,
         },
-      });
+      };
+      const pending = tradeMutationPublications.get(db);
+      if (pending) pending.trustEvents.push(reputationEvent);
+      else publishRealtimeEvent(reputationEvent);
       db.trustScoreHistory.unshift({
         id: `trust-score-${randomUUID()}`,
         sellerId: snapshot.sellerId,
@@ -6076,7 +6146,10 @@ async function recalculateTrustEngine(db: AlphaExchangeDb, input: { reason: stri
         title: "Prestige promotion unlocked",
         details: `Promoted to ${snapshot.level} seller.`,
       });
-      await sendSellerPrestigePromotionEmail({ seller: db.users[sellerIndex], rank: snapshot.level, promotionId: entry.id });
+      const promotionEmail = { seller: db.users[sellerIndex], rank: snapshot.level, promotionId: entry.id };
+      const pending = tradeMutationPublications.get(db);
+      if (pending) pending.promotionEmails.push(promotionEmail);
+      else await sendSellerPrestigePromotionEmail(promotionEmail);
     }
 
     if (owner && sharpDrop && sellerNotificationContext && !input.suppressSideEffects) {
@@ -6242,6 +6315,8 @@ export async function upsertUserProfileForAuth(input: {
   whatsappNumber: string;
   emailVerified?: boolean;
   preferredLocale?: PreferredLocale;
+  /** Only the registration handler supplies this; provider metadata is not authoritative. */
+  ageConfirmed?: boolean;
 }) {
   // Authentication must never synchronize a cached account snapshot back over
   // a newer disable, role demotion, or seller suspension. Start from durable
@@ -6370,6 +6445,7 @@ export async function upsertUserProfileForAuth(input: {
     roles,
     sellerStatus: "buyer",
     emailVerified: input.emailVerified === true,
+    ageEligibility: input.ageConfirmed === true ? { method: ADULT_CONFIRMATION_METHOD, confirmedAt: timestamp } : undefined,
     emailVerifiedAt: input.emailVerified === true ? timestamp : undefined,
     emailVerificationTokenHash: undefined,
     emailVerificationTokenExpiresAt: undefined,
@@ -6399,6 +6475,19 @@ export async function upsertUserProfileForAuth(input: {
     rebaseOnLatest: addAccount, cacheResult: false,
   });
   return user;
+}
+
+export async function confirmAdultEligibility(userId: string, confirmed: unknown) {
+  if (confirmed !== true) throw new Error("Adult confirmation is required.");
+  return mutateCanonicalAccountRecords(AUTH_USER_READ_TABLES, USER_PROFILE_TABLES, snapshot => {
+    const user = snapshot.users.find(candidate => candidate.id === userId);
+    if (!user || user.disabled) throw new Error("Account access is restricted.");
+    if (hasAdultConfirmation(user)) return { changed: false, result: user };
+    const timestamp = nowIso();
+    user.ageEligibility = { method: ADULT_CONFIRMATION_METHOD, confirmedAt: timestamp };
+    user.updatedAt = nowIsoAfter(user.updatedAt);
+    return { changed: true, result: user };
+  });
 }
 
 /** Reject duplicate contact numbers before creating a provider auth account. */
@@ -6500,36 +6589,38 @@ export async function confirmProfilePhoneVerification(input: { userId: string; p
 }
 
 export async function grantStudentRole(userId: string) {
-  const db = await readDb();
-  const index = db.users.findIndex((user) => user.id === userId);
-  if (index === -1) throw new Error("User not found.");
-  const user = db.users[index];
-  const roles = addRole(removeRole(user.roles ?? [user.role], "guest"), "student");
-  db.users[index] = {
-    ...user,
-    roles,
-    role: resolvePrimaryRole(roles),
-    onboardingSelection: "student",
-    onboardingCompletedAt: nowIso(),
-    updatedAt: nowIso(),
-  };
-  await writeDb(db, { selectedTables: USER_PROFILE_TABLES });
-  return db.users[index];
+  return mutateCanonicalAccountRecords(AUTH_USER_READ_TABLES, USER_PROFILE_TABLES, db => {
+    const index = db.users.findIndex((user) => user.id === userId);
+    if (index === -1) throw new Error("User not found.");
+    const user = db.users[index];
+    if (user.disabled) throw new Error("Account access is restricted.");
+    const roles = addRole(removeRole(user.roles ?? [user.role], "guest"), "student");
+    db.users[index] = {
+      ...user,
+      roles,
+      role: resolvePrimaryRole(roles),
+      onboardingSelection: "student",
+      onboardingCompletedAt: nowIso(),
+      updatedAt: nowIso(),
+    };
+    return { changed: true, result: db.users[index] };
+  });
 }
 
 export async function selectGuestOnboarding(userId: string) {
-  const db = await readDb();
-  const index = db.users.findIndex((user) => user.id === userId);
-  if (index === -1) throw new Error("User not found.");
-  const user = db.users[index];
-  db.users[index] = {
-    ...user,
-    onboardingSelection: "guest",
-    onboardingCompletedAt: nowIso(),
-    updatedAt: nowIso(),
-  };
-  await writeDb(db, { selectedTables: USER_PROFILE_TABLES });
-  return db.users[index];
+  return mutateCanonicalAccountRecords(AUTH_USER_READ_TABLES, USER_PROFILE_TABLES, db => {
+    const index = db.users.findIndex((user) => user.id === userId);
+    if (index === -1) throw new Error("User not found.");
+    const user = db.users[index];
+    if (user.disabled) throw new Error("Account access is restricted.");
+    db.users[index] = {
+      ...user,
+      onboardingSelection: "guest",
+      onboardingCompletedAt: nowIso(),
+      updatedAt: nowIso(),
+    };
+    return { changed: true, result: db.users[index] };
+  });
 }
 
 export async function activateBuyerOnboardingWithoutPhone(input: {
@@ -6538,34 +6629,36 @@ export async function activateBuyerOnboardingWithoutPhone(input: {
   lastName: string;
   displayName?: string;
 }) {
-  const db = await readDb();
-  const index = db.users.findIndex((user) => user.id === input.userId);
-  if (index === -1) throw new Error("User not found.");
-  const user = db.users[index];
-  // The legacy function name predates mandatory SMS. All callers, including
-  // native onboarding, must now prove phone verification before granting Buyer.
-  if (needsMarketplacePhoneVerification(user)) throw new Error("Verify your phone number before activating Buyer access.");
-  const firstName = input.firstName.trim();
-  const lastName = input.lastName.trim();
-  if (!firstName || !lastName) {
-    throw new Error("First name and last name are required.");
-  }
-  assertNoExchangeDirectContact(firstName, lastName, input.displayName);
+  return mutateCanonicalAccountRecords(AUTH_USER_READ_TABLES, USER_PROFILE_TABLES, db => {
+    const index = db.users.findIndex((user) => user.id === input.userId);
+    if (index === -1) throw new Error("User not found.");
+    const user = db.users[index];
+    if (user.disabled) throw new Error("Account access is restricted.");
+    // The legacy function name predates mandatory SMS. All callers, including
+    // native onboarding, must now prove phone verification before granting Buyer.
+    if (needsMarketplacePhoneVerification(user)) throw new Error("Verify your phone number before activating Buyer access.");
+    if (needsAdultConfirmation(user)) throw new Error("Confirm that you are 18 or older before activating Buyer access.");
+    const firstName = input.firstName.trim();
+    const lastName = input.lastName.trim();
+    if (!firstName || !lastName) {
+      throw new Error("First name and last name are required.");
+    }
+    assertNoExchangeDirectContact(firstName, lastName, input.displayName);
 
-  const roles = addRole(removeRole(user.roles ?? [user.role], "guest"), "buyer");
-  db.users[index] = {
-    ...user,
-    roles,
-    role: resolvePrimaryRole(roles),
-    buyerFirstName: firstName,
-    buyerLastName: lastName,
-    buyerDisplayName: input.displayName?.trim() || undefined,
-    onboardingSelection: "buyer",
-    onboardingCompletedAt: nowIso(),
-    updatedAt: nowIso(),
-  };
-  await writeDb(db, { selectedTables: USER_PROFILE_TABLES });
-  return db.users[index];
+    const roles = addRole(removeRole(user.roles ?? [user.role], "guest"), "buyer");
+    db.users[index] = {
+      ...user,
+      roles,
+      role: resolvePrimaryRole(roles),
+      buyerFirstName: firstName,
+      buyerLastName: lastName,
+      buyerDisplayName: input.displayName?.trim() || undefined,
+      onboardingSelection: "buyer",
+      onboardingCompletedAt: nowIso(),
+      updatedAt: nowIso(),
+    };
+    return { changed: true, result: db.users[index] };
+  });
 }
 
 export async function beginBuyerVerification(input: {
@@ -6577,197 +6670,170 @@ export async function beginBuyerVerification(input: {
 }) {
   if (!isMarketplacePhoneVerificationEnabled()) throw new Error("Phone verification is disabled.");
   assertNoExchangeDirectContact(input.firstName, input.lastName, input.displayName);
-  const db = await readDb();
-  const index = db.users.findIndex((user) => user.id === input.userId);
-  if (index === -1) throw new Error("User not found.");
-  const user = db.users[index];
-  const normalizedPhone = normalizeIsraeliPhone(input.phone);
-  if (!normalizedPhone) {
-    throw new Error("This marketplace is currently available only for verified Israeli buyers.");
-  }
+  return mutateCanonicalAccountRecords(AUTH_USER_READ_TABLES, USER_PROFILE_TABLES, db => {
+    const index = db.users.findIndex((user) => user.id === input.userId);
+    if (index === -1) throw new Error("User not found.");
+    const user = db.users[index];
+    if (user.disabled) throw new Error("Account access is restricted.");
+    const normalizedPhone = normalizeIsraeliPhone(input.phone);
+    if (!normalizedPhone) {
+      throw new Error("This marketplace is currently available only for verified Israeli buyers.");
+    }
 
-  const today = formatIsraelCalendarDateKey(Date.now());
-  const sendsDate = user.buyerOtpSendsDate ?? today;
-  const sendsToday = sendsDate === today ? Number(user.buyerOtpSendsToday ?? 0) : 0;
-  if (sendsToday >= 5) throw new Error("OTP send limit reached for today.");
+    const today = formatIsraelCalendarDateKey(Date.now());
+    const sendsDate = user.buyerOtpSendsDate ?? today;
+    const sendsToday = sendsDate === today ? Number(user.buyerOtpSendsToday ?? 0) : 0;
+    if (sendsToday >= 5) throw new Error("OTP send limit reached for today.");
 
-  assertAccountPhoneAvailable(db.users, user, normalizedPhone);
+    assertAccountPhoneAvailable(db.users, user, normalizedPhone);
 
-  db.users[index] = {
-    ...user,
-    buyerFirstName: input.firstName.trim(),
-    buyerLastName: input.lastName.trim(),
-    buyerDisplayName: input.displayName?.trim() || undefined,
-    buyerVerificationStatus: "otp_sent",
-    buyerOtpRequestedAt: nowIso(),
-    buyerOtpSendsDate: today,
-    buyerOtpSendsToday: sendsToday + 1,
-    updatedAt: nowIso(),
-  };
-  await writeDb(db, { selectedTables: USER_PROFILE_TABLES });
-  return { phone: normalizedPhone, user: db.users[index] };
+    db.users[index] = {
+      ...user,
+      buyerFirstName: input.firstName.trim(),
+      buyerLastName: input.lastName.trim(),
+      buyerDisplayName: input.displayName?.trim() || undefined,
+      buyerVerificationStatus: "otp_sent",
+      buyerOtpRequestedAt: nowIso(),
+      buyerOtpSendsDate: today,
+      buyerOtpSendsToday: sendsToday + 1,
+      updatedAt: nowIso(),
+    };
+    return { changed: true, result: { phone: normalizedPhone, user: db.users[index] } };
+  });
 }
 
 export async function completeBuyerVerification(input: { userId: string; phone: string }) {
   if (!isMarketplacePhoneVerificationEnabled()) throw new Error("Phone verification is disabled.");
-  const db = await readDb();
-  const index = db.users.findIndex((user) => user.id === input.userId);
-  if (index === -1) throw new Error("User not found.");
-  const user = db.users[index];
-  const normalizedPhone = normalizeIsraeliPhone(input.phone);
-  if (!normalizedPhone) throw new Error("Invalid Israeli phone number.");
-  assertAccountPhoneAvailable(db.users, user, normalizedPhone);
+  const committed = await mutateCanonicalAccountRecords(AUTH_USER_READ_TABLES, USER_PROFILE_TABLES, db => {
+    const index = db.users.findIndex((user) => user.id === input.userId);
+    if (index === -1) throw new Error("User not found.");
+    const user = db.users[index];
+    if (user.disabled) throw new Error("Account access is restricted.");
+    const normalizedPhone = normalizeIsraeliPhone(input.phone);
+    if (!normalizedPhone) throw new Error("Invalid Israeli phone number.");
+    assertAccountPhoneAvailable(db.users, user, normalizedPhone);
 
-  const roles = addRole(removeRole(user.roles ?? [user.role], "guest"), "buyer");
-  db.users[index] = {
-    ...user,
-    roles,
-    role: resolvePrimaryRole(roles),
-    verifiedPhone: normalizedPhone,
-    phoneVerifiedAt: nowIso(),
-    buyerVerificationStatus: "verified",
-    buyerVerificationAttempts: Math.max(0, Number(user.buyerVerificationAttempts ?? 0)),
-    onboardingSelection: "buyer",
-    onboardingCompletedAt: nowIso(),
-    updatedAt: nowIso(),
-  };
-  await writeDb(db, { selectedTables: USER_PROFILE_TABLES });
-  if (canonicalPhoneNumber(user.verifiedPhone ?? user.whatsappNumber) !== normalizedPhone) schedulePhoneSecurityNotice(input.userId);
-  return db.users[index];
+    const roles = addRole(removeRole(user.roles ?? [user.role], "guest"), "buyer");
+    db.users[index] = {
+      ...user,
+      roles,
+      role: resolvePrimaryRole(roles),
+      verifiedPhone: normalizedPhone,
+      phoneVerifiedAt: nowIso(),
+      buyerVerificationStatus: "verified",
+      buyerVerificationAttempts: Math.max(0, Number(user.buyerVerificationAttempts ?? 0)),
+      onboardingSelection: "buyer",
+      onboardingCompletedAt: nowIso(),
+      updatedAt: nowIso(),
+    };
+    return { changed: true, result: { user: db.users[index], phoneChanged: canonicalPhoneNumber(user.verifiedPhone ?? user.whatsappNumber) !== normalizedPhone } };
+  });
+  if (committed.phoneChanged) schedulePhoneSecurityNotice(input.userId);
+  return committed.user;
 }
 
 export async function recordBuyerVerificationAttempt(userId: string) {
-  const db = await readDb();
-  const index = db.users.findIndex((user) => user.id === userId);
-  if (index === -1) return;
-  const user = db.users[index];
-  const now = Date.now();
-  const windowStart = user.buyerVerificationWindowStartedAt ? new Date(user.buyerVerificationWindowStartedAt).getTime() : 0;
-  const withinWindow = Number.isFinite(windowStart) && windowStart > 0 && now - windowStart < 60 * 60 * 1000;
-  const attempts = withinWindow ? Number(user.buyerVerificationAttempts ?? 0) + 1 : 1;
-  db.users[index] = {
-    ...user,
-    buyerVerificationAttempts: attempts,
-    buyerVerificationWindowStartedAt: withinWindow ? user.buyerVerificationWindowStartedAt : nowIso(),
-    updatedAt: nowIso(),
-  };
-  await writeDb(db, { selectedTables: USER_PROFILE_TABLES });
+  return mutateCanonicalAccountRecords(AUTH_USER_READ_TABLES, USER_PROFILE_TABLES, db => {
+    const index = db.users.findIndex((user) => user.id === userId);
+    if (index === -1) return { changed: false, result: undefined };
+    const user = db.users[index];
+    if (user.disabled) throw new Error("Account access is restricted.");
+    const now = Date.now();
+    const windowStart = user.buyerVerificationWindowStartedAt ? new Date(user.buyerVerificationWindowStartedAt).getTime() : 0;
+    const withinWindow = Number.isFinite(windowStart) && windowStart > 0 && now - windowStart < 60 * 60 * 1000;
+    const attempts = withinWindow ? Number(user.buyerVerificationAttempts ?? 0) + 1 : 1;
+    db.users[index] = {
+      ...user,
+      buyerVerificationAttempts: attempts,
+      buyerVerificationWindowStartedAt: withinWindow ? user.buyerVerificationWindowStartedAt : nowIso(),
+      updatedAt: nowIso(),
+    };
+    return { changed: true, result: undefined };
+  });
+}
+
+/** Apply account changes against canonical records if another writer wins. */
+async function mutateCanonicalAccountRecords<T>(
+  readTables: readonly SnapshotTableName[],
+  writeTables: readonly SnapshotTableName[],
+  apply: (snapshot: AlphaExchangeDb) => { changed: boolean; result: T } | Promise<{ changed: boolean; result: T }>,
+): Promise<T> {
+  const { db } = await readDbForCriticalTradeMutation(readTables);
+  let outcome = await apply(db);
+  if (outcome.changed) {
+    await writeDb(db, {
+      selectedTables: writeTables,
+      rebaseTables: readTables,
+      rebaseOnLatest: async latest => { outcome = await apply(latest); return latest; },
+      cacheResult: false,
+    });
+  }
+  return outcome.result;
 }
 
 export async function createEmailVerificationTokenForUser(userId: string, durationHours = EMAIL_VERIFICATION_EXPIRY_HOURS) {
-  const db = await readDb();
-  const userIndex = db.users.findIndex((user) => user.id === userId);
-  if (userIndex === -1) {
-    throw new Error("User not found.");
-  }
-
   const token = randomBytes(EMAIL_VERIFICATION_TOKEN_BYTES).toString("hex");
   const tokenHash = hashToken(token);
   const expiresAt = new Date(Date.now() + durationHours * 60 * 60 * 1000).toISOString();
   const sentAt = nowIso();
-
-  db.users[userIndex] = {
-    ...db.users[userIndex],
-    emailVerificationTokenHash: tokenHash,
-    emailVerificationTokenExpiresAt: expiresAt,
-    emailVerificationSentAt: sentAt,
-    updatedAt: sentAt,
-  };
-
-  await writeDb(db, { selectedTables: USER_PROFILE_TABLES });
-  return {
-    token,
-    expiresAt,
-    user: db.users[userIndex],
-  };
+  return mutateCanonicalAccountRecords(AUTH_USER_READ_TABLES, USER_PROFILE_TABLES, db => {
+    const user = db.users.find(candidate => candidate.id === userId);
+    if (!user) throw new Error("User not found.");
+    Object.assign(user, { emailVerificationTokenHash: tokenHash, emailVerificationTokenExpiresAt: expiresAt,
+      emailVerificationSentAt: sentAt, updatedAt: sentAt });
+    return { changed: true, result: { token, expiresAt, user } };
+  });
 }
+
+type EmailVerificationIssue = { skipped: "already_verified"; user: AlphaExchangeUser }
+  | { skipped: null; token: string; expiresAt: string; user: AlphaExchangeUser } | null;
 
 export async function createEmailVerificationTokenForEmail(email: string, durationHours = EMAIL_VERIFICATION_EXPIRY_HOURS) {
-  const db = await readDb();
   const normalizedEmail = normalizeEmail(email);
-  const userIndex = db.users.findIndex((user) => normalizeEmail(user.email) === normalizedEmail);
-  if (userIndex === -1) {
-    return null;
-  }
-
-  if (db.users[userIndex].emailVerified === true) {
-    return {
-      skipped: "already_verified" as const,
-      user: db.users[userIndex],
-    };
-  }
-
   const token = randomBytes(EMAIL_VERIFICATION_TOKEN_BYTES).toString("hex");
   const tokenHash = hashToken(token);
   const expiresAt = new Date(Date.now() + durationHours * 60 * 60 * 1000).toISOString();
   const sentAt = nowIso();
-  db.users[userIndex] = {
-    ...db.users[userIndex],
-    emailVerificationTokenHash: tokenHash,
-    emailVerificationTokenExpiresAt: expiresAt,
-    emailVerificationSentAt: sentAt,
-    updatedAt: sentAt,
-  };
-  await writeDb(db, { selectedTables: USER_PROFILE_TABLES });
-  return {
-    skipped: null,
-    token,
-    expiresAt,
-    user: db.users[userIndex],
-  };
+  return mutateCanonicalAccountRecords<EmailVerificationIssue>(AUTH_USER_READ_TABLES, USER_PROFILE_TABLES, db => {
+    const user = db.users.find(candidate => normalizeEmail(candidate.email) === normalizedEmail);
+    if (!user) return { changed: false, result: null };
+    if (user.emailVerified === true) return { changed: false, result: { skipped: "already_verified", user } };
+    Object.assign(user, { emailVerificationTokenHash: tokenHash, emailVerificationTokenExpiresAt: expiresAt,
+      emailVerificationSentAt: sentAt, updatedAt: sentAt });
+    return { changed: true, result: { skipped: null, token, expiresAt, user } };
+  });
 }
 
-export async function consumeEmailVerificationToken(rawToken: string) {
+type EmailVerificationConsumption = { status: "invalid" | "expired" } | { status: "verified"; user: AlphaExchangeUser };
+
+export async function consumeEmailVerificationToken(rawToken: string): Promise<EmailVerificationConsumption> {
   const token = String(rawToken ?? "").trim();
-  if (!token) return { status: "invalid" as const };
-
-  const db = await readDb();
+  if (!token) return { status: "invalid" };
   const candidateHash = hashToken(token);
-  const now = Date.now();
-
-  for (let index = 0; index < db.users.length; index += 1) {
-    const user = db.users[index];
-    if (!user.emailVerificationTokenHash) continue;
-    if (!constantTimeHexEquals(user.emailVerificationTokenHash, candidateHash)) continue;
-
-    const expiresAt = user.emailVerificationTokenExpiresAt ? new Date(user.emailVerificationTokenExpiresAt).getTime() : 0;
-    if (!expiresAt || Number.isNaN(expiresAt) || expiresAt <= now) {
-      db.users[index] = {
-        ...user,
-        emailVerificationTokenHash: undefined,
-        emailVerificationTokenExpiresAt: undefined,
-        updatedAt: nowIso(),
-      };
-      await writeDb(db, { selectedTables: USER_PROFILE_TABLES });
-      return { status: "expired" as const };
-    }
-
+  return mutateCanonicalAccountRecords<EmailVerificationConsumption>(AUTH_USER_READ_TABLES, USER_PROFILE_TABLES, db => {
+    const user = db.users.find(candidate => candidate.emailVerificationTokenHash
+      && constantTimeHexEquals(candidate.emailVerificationTokenHash, candidateHash));
+    if (!user) return { changed: false, result: { status: "invalid" } };
+    const expiresAt = Date.parse(user.emailVerificationTokenExpiresAt ?? "");
     const verifiedAt = nowIso();
-    db.users[index] = {
-      ...user,
-      emailVerified: true,
-      emailVerifiedAt: verifiedAt,
-      emailVerificationTokenHash: undefined,
-      emailVerificationTokenExpiresAt: undefined,
-      updatedAt: verifiedAt,
-    };
-    await writeDb(db, { selectedTables: USER_PROFILE_TABLES });
-    return { status: "verified" as const, user: db.users[index] };
-  }
-
-  return { status: "invalid" as const };
+    user.emailVerificationTokenHash = undefined;
+    user.emailVerificationTokenExpiresAt = undefined;
+    user.updatedAt = verifiedAt;
+    if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) return { changed: true, result: { status: "expired" } };
+    user.emailVerified = true;
+    user.emailVerifiedAt = verifiedAt;
+    return { changed: true, result: { status: "verified", user } };
+  });
 }
 
 export async function updateUserPassword(userId: string, passwordHash: string) {
-  const db = await readDb();
-  const index = db.users.findIndex((user) => user.id === userId);
-  if (index === -1) throw new Error("User not found.");
-  db.users[index] = {
-    ...db.users[index],
-    passwordHash,
-    updatedAt: nowIso(),
-  };
-  await writeDb(db, { selectedTables: USER_PROFILE_TABLES });
+  await mutateCanonicalAccountRecords(AUTH_USER_READ_TABLES, USER_PROFILE_TABLES, db => {
+    const user = db.users.find(candidate => candidate.id === userId);
+    if (!user) throw new Error("User not found.");
+    user.passwordHash = passwordHash;
+    user.updatedAt = nowIso();
+    return { changed: true, result: undefined };
+  });
 }
 
 function getSellerBankAccounts(user: AlphaExchangeUser) {
@@ -6875,6 +6941,17 @@ export async function getSellerBankAccountsForUser(userId: string) {
   return getSellerBankAccounts(user).map(toPublicSellerBankAccount);
 }
 
+const SELLER_BANK_WRITE_TABLES = [...USER_PROFILE_TABLES, "listings", "audit_logs"] as const;
+const SELLER_BANK_READ_TABLES = [...SELLER_BANK_WRITE_TABLES, "seller_applications", "purchase_requests"] as const;
+
+function assertSellerBankAccountActor(db: AlphaExchangeDb, sellerId: string, actorUserId: string) {
+  if (actorUserId !== sellerId) throw new Error("You can only manage your own bank accounts.");
+  const seller = db.users.find(user => user.id === sellerId);
+  if (!seller) throw new Error("Seller not found.");
+  if (seller.disabled) throw new Error("This account is restricted.");
+  if (!canPublishListings(seller)) throw new Error("Seller approval is required for this marketplace setting.");
+}
+
 export async function addSellerBankAccount(input: {
   sellerId: string;
   actorUserId: string;
@@ -6884,49 +6961,51 @@ export async function addSellerBankAccount(input: {
   accountNumber: string;
   isDefault?: boolean;
 }) {
-  const db = await readDb();
-  const userIndex = db.users.findIndex((user) => user.id === input.sellerId);
-  if (userIndex === -1) throw new Error("Seller not found.");
-  const user = db.users[userIndex];
-  const existing = getSellerBankAccounts(user);
-  if (existing.length >= MAX_SELLER_BANK_ACCOUNTS) {
-    throw new Error(`You can save up to ${MAX_SELLER_BANK_ACCOUNTS} bank accounts.`);
-  }
-  const sanitized = sanitizeSellerBankAccountInput(input);
-  const now = nowIso();
-  const newAccount: SellerBankAccount = {
-    id: `seller-bank-${randomUUID()}`,
-    sellerId: input.sellerId,
-    accountHolderName: sanitized.accountHolderName,
-    bankName: sanitized.bankName,
-    branchNumber: sanitized.branchNumber,
-    accountNumber: sanitized.accountNumber,
-    accountLast4: sanitized.accountLast4,
-    isDefault: input.isDefault === true || existing.length === 0,
-    createdAt: now,
-    updatedAt: now,
-  };
-  const nextAccounts = [newAccount, ...existing].map((account, index) => ({
-    ...account,
-    isDefault: index === 0 ? newAccount.isDefault === true : (newAccount.isDefault === true ? false : account.isDefault === true),
-  }));
-  if (!nextAccounts.some((account) => account.isDefault === true) && nextAccounts.length > 0) {
-    nextAccounts[0] = { ...nextAccounts[0], isDefault: true, updatedAt: now };
-  }
-  db.users[userIndex] = {
-    ...user,
-    sellerBankAccounts: nextAccounts,
-    updatedAt: now,
-  };
-  await appendAuditLog(db, {
-    action: "seller_bank_account_added",
-    actorUserId: input.actorUserId,
-    targetUserId: input.sellerId,
-    details: `Seller added bank account ${newAccount.id}.`,
-    newValue: { bankAccountId: newAccount.id, bankName: newAccount.bankName, branchNumber: newAccount.branchNumber, accountLast4: newAccount.accountLast4 },
+  const accountId = `seller-bank-${randomUUID()}`;
+  return mutateCanonicalAccountRecords(SELLER_BANK_READ_TABLES, SELLER_BANK_WRITE_TABLES, async db => {
+    assertSellerBankAccountActor(db, input.sellerId, input.actorUserId);
+    const userIndex = db.users.findIndex((user) => user.id === input.sellerId);
+    if (userIndex === -1) throw new Error("Seller not found.");
+    const user = db.users[userIndex];
+    const existing = getSellerBankAccounts(user);
+    if (existing.length >= MAX_SELLER_BANK_ACCOUNTS) {
+      throw new Error(`You can save up to ${MAX_SELLER_BANK_ACCOUNTS} bank accounts.`);
+    }
+    const sanitized = sanitizeSellerBankAccountInput(input);
+    const now = nowIso();
+    const newAccount: SellerBankAccount = {
+      id: accountId,
+      sellerId: input.sellerId,
+      accountHolderName: sanitized.accountHolderName,
+      bankName: sanitized.bankName,
+      branchNumber: sanitized.branchNumber,
+      accountNumber: sanitized.accountNumber,
+      accountLast4: sanitized.accountLast4,
+      isDefault: input.isDefault === true || existing.length === 0,
+      createdAt: now,
+      updatedAt: now,
+    };
+    const nextAccounts = [newAccount, ...existing].map((account, index) => ({
+      ...account,
+      isDefault: index === 0 ? newAccount.isDefault === true : (newAccount.isDefault === true ? false : account.isDefault === true),
+    }));
+    if (!nextAccounts.some((account) => account.isDefault === true) && nextAccounts.length > 0) {
+      nextAccounts[0] = { ...nextAccounts[0], isDefault: true, updatedAt: now };
+    }
+    db.users[userIndex] = {
+      ...user,
+      sellerBankAccounts: nextAccounts,
+      updatedAt: now,
+    };
+    await appendAuditLog(db, {
+      action: "seller_bank_account_added",
+      actorUserId: input.actorUserId,
+      targetUserId: input.sellerId,
+      details: `Seller added bank account ${newAccount.id}.`,
+      newValue: { bankAccountId: newAccount.id, bankName: newAccount.bankName, branchNumber: newAccount.branchNumber, accountLast4: newAccount.accountLast4 },
+    });
+    return { changed: true, result: toPublicSellerBankAccount(newAccount) };
   });
-  await writeDb(db, { selectedTables: LISTING_TRUST_WRITE_TABLES });
-  return toPublicSellerBankAccount(newAccount);
 }
 
 export async function updateSellerBankAccount(input: {
@@ -6939,70 +7018,62 @@ export async function updateSellerBankAccount(input: {
   accountNumber: string;
   isDefault?: boolean;
 }) {
-  const db = await readDb();
-  const userIndex = db.users.findIndex((user) => user.id === input.sellerId);
-  if (userIndex === -1) throw new Error("Seller not found.");
-  const user = db.users[userIndex];
-  const accounts = getSellerBankAccounts(user);
-  const accountIndex = accounts.findIndex((account) => account.id === input.bankAccountId);
-  if (accountIndex === -1) throw new Error("Bank account not found.");
-  const sanitized = sanitizeSellerBankAccountInput(input);
-  const currentAccount = accounts[accountIndex];
-  const bankDetailsChanging = currentAccount.accountHolderName !== sanitized.accountHolderName
-    || currentAccount.bankName !== sanitized.bankName
-    || currentAccount.branchNumber !== sanitized.branchNumber
-    || currentAccount.accountNumber !== sanitized.accountNumber;
-  if (bankDetailsChanging && hasInProgressTradeForSellerBankAccount(db, input.sellerId, input.bankAccountId)) {
-    throw new Error("Bank account details cannot be changed while they are locked to an active trade.");
-  }
-  const now = nowIso();
-  const updatedAccount: SellerBankAccount = {
-    ...accounts[accountIndex],
-    accountHolderName: sanitized.accountHolderName,
-    bankName: sanitized.bankName,
-    branchNumber: sanitized.branchNumber,
-    accountNumber: sanitized.accountNumber,
-    accountLast4: sanitized.accountLast4,
-    isDefault: input.isDefault === true ? true : accounts[accountIndex].isDefault === true,
-    updatedAt: now,
-  };
-  const nextAccounts = accounts.map((account, index) => {
-    if (index === accountIndex) return updatedAccount;
-    if (updatedAccount.isDefault === true) return { ...account, isDefault: false, updatedAt: now };
-    return account;
-  });
-  if (!nextAccounts.some((account) => account.isDefault === true) && nextAccounts.length > 0) {
-    nextAccounts[0] = { ...nextAccounts[0], isDefault: true, updatedAt: now };
-  }
-  db.users[userIndex] = {
-    ...user,
-    sellerBankAccounts: nextAccounts,
-    updatedAt: now,
-  };
+  return mutateCanonicalAccountRecords(SELLER_BANK_READ_TABLES, SELLER_BANK_WRITE_TABLES, async db => {
+    assertSellerBankAccountActor(db, input.sellerId, input.actorUserId);
+    const userIndex = db.users.findIndex((user) => user.id === input.sellerId);
+    if (userIndex === -1) throw new Error("Seller not found.");
+    const user = db.users[userIndex];
+    const accounts = getSellerBankAccounts(user);
+    const accountIndex = accounts.findIndex((account) => account.id === input.bankAccountId);
+    if (accountIndex === -1) throw new Error("Bank account not found.");
+    const sanitized = sanitizeSellerBankAccountInput(input);
+    const currentAccount = accounts[accountIndex];
+    const bankDetailsChanging = currentAccount.accountHolderName !== sanitized.accountHolderName
+      || currentAccount.bankName !== sanitized.bankName
+      || currentAccount.branchNumber !== sanitized.branchNumber
+      || currentAccount.accountNumber !== sanitized.accountNumber;
+    if (bankDetailsChanging && hasInProgressTradeForSellerBankAccount(db, input.sellerId, input.bankAccountId)) {
+      throw new Error("Bank account details cannot be changed while they are locked to an active trade.");
+    }
+    const now = nowIso();
+    const updatedAccount: SellerBankAccount = {
+      ...accounts[accountIndex],
+      accountHolderName: sanitized.accountHolderName,
+      bankName: sanitized.bankName,
+      branchNumber: sanitized.branchNumber,
+      accountNumber: sanitized.accountNumber,
+      accountLast4: sanitized.accountLast4,
+      isDefault: input.isDefault === true ? true : accounts[accountIndex].isDefault === true,
+      updatedAt: now,
+    };
+    const nextAccounts = accounts.map((account, index) => {
+      if (index === accountIndex) return updatedAccount;
+      if (updatedAccount.isDefault === true) return { ...account, isDefault: false, updatedAt: now };
+      return account;
+    });
+    if (!nextAccounts.some((account) => account.isDefault === true) && nextAccounts.length > 0) {
+      nextAccounts[0] = { ...nextAccounts[0], isDefault: true, updatedAt: now };
+    }
+    db.users[userIndex] = {
+      ...user,
+      sellerBankAccounts: nextAccounts,
+      updatedAt: now,
+    };
 
-  for (const listing of db.marketplaceListings) {
-    if (listing.sellerId !== input.sellerId || listing.bankAccountId !== updatedAccount.id) continue;
-    listing.bankName = updatedAccount.bankName;
-    listing.updatedAt = now;
-  }
-  await appendAuditLog(db, {
-    action: "seller_bank_account_updated",
-    actorUserId: input.actorUserId,
-    targetUserId: input.sellerId,
-    details: `Seller updated bank account ${updatedAccount.id}.`,
-    newValue: { bankAccountId: updatedAccount.id, bankName: updatedAccount.bankName, branchNumber: updatedAccount.branchNumber, accountLast4: updatedAccount.accountLast4 },
+    for (const listing of db.marketplaceListings) {
+      if (listing.sellerId !== input.sellerId || listing.bankAccountId !== updatedAccount.id) continue;
+      listing.bankName = updatedAccount.bankName;
+      listing.updatedAt = now;
+    }
+    await appendAuditLog(db, {
+      action: "seller_bank_account_updated",
+      actorUserId: input.actorUserId,
+      targetUserId: input.sellerId,
+      details: `Seller updated bank account ${updatedAccount.id}.`,
+      newValue: { bankAccountId: updatedAccount.id, bankName: updatedAccount.bankName, branchNumber: updatedAccount.branchNumber, accountLast4: updatedAccount.accountLast4 },
+    });
+    return { changed: true, result: toPublicSellerBankAccount(updatedAccount) };
   });
-  await writeDb(db, {
-    selectedTables: LISTING_TRUST_WRITE_TABLES,
-    validateBeforeCommit: bankDetailsChanging
-      ? (snapshot) => {
-          if (hasInProgressTradeForSellerBankAccount(snapshot, input.sellerId, input.bankAccountId)) {
-            throw new Error("Bank account details cannot be changed while they are locked to an active trade.");
-          }
-        }
-      : undefined,
-  });
-  return toPublicSellerBankAccount(updatedAccount);
 }
 
 export async function deleteSellerBankAccount(input: {
@@ -7010,35 +7081,36 @@ export async function deleteSellerBankAccount(input: {
   actorUserId: string;
   bankAccountId: string;
 }) {
-  const db = await readDb();
-  const userIndex = db.users.findIndex((user) => user.id === input.sellerId);
-  if (userIndex === -1) throw new Error("Seller not found.");
-  const user = db.users[userIndex];
-  const accounts = getSellerBankAccounts(user);
-  const account = accounts.find((item) => item.id === input.bankAccountId);
-  if (!account) throw new Error("Bank account not found.");
-  if (hasActiveUsageForSellerBankAccount(db, input.sellerId, input.bankAccountId)) {
-    throw new Error("This bank account is linked to active trades or listings and cannot be deleted right now.");
-  }
-  const now = nowIso();
-  const nextAccounts = accounts.filter((item) => item.id !== input.bankAccountId);
-  if (!nextAccounts.some((item) => item.isDefault === true) && nextAccounts.length > 0) {
-    nextAccounts[0] = { ...nextAccounts[0], isDefault: true, updatedAt: now };
-  }
-  db.users[userIndex] = {
-    ...user,
-    sellerBankAccounts: nextAccounts,
-    updatedAt: now,
-  };
-  await appendAuditLog(db, {
-    action: "seller_bank_account_deleted",
-    actorUserId: input.actorUserId,
-    targetUserId: input.sellerId,
-    details: `Seller deleted bank account ${account.id}.`,
-    oldValue: { bankAccountId: account.id, bankName: account.bankName, branchNumber: account.branchNumber, accountLast4: account.accountLast4 },
+  return mutateCanonicalAccountRecords(SELLER_BANK_READ_TABLES, SELLER_BANK_WRITE_TABLES, async db => {
+    assertSellerBankAccountActor(db, input.sellerId, input.actorUserId);
+    const userIndex = db.users.findIndex((user) => user.id === input.sellerId);
+    if (userIndex === -1) throw new Error("Seller not found.");
+    const user = db.users[userIndex];
+    const accounts = getSellerBankAccounts(user);
+    const account = accounts.find((item) => item.id === input.bankAccountId);
+    if (!account) throw new Error("Bank account not found.");
+    if (hasActiveUsageForSellerBankAccount(db, input.sellerId, input.bankAccountId)) {
+      throw new Error("This bank account is linked to active trades or listings and cannot be deleted right now.");
+    }
+    const now = nowIso();
+    const nextAccounts = accounts.filter((item) => item.id !== input.bankAccountId);
+    if (!nextAccounts.some((item) => item.isDefault === true) && nextAccounts.length > 0) {
+      nextAccounts[0] = { ...nextAccounts[0], isDefault: true, updatedAt: now };
+    }
+    db.users[userIndex] = {
+      ...user,
+      sellerBankAccounts: nextAccounts,
+      updatedAt: now,
+    };
+    await appendAuditLog(db, {
+      action: "seller_bank_account_deleted",
+      actorUserId: input.actorUserId,
+      targetUserId: input.sellerId,
+      details: `Seller deleted bank account ${account.id}.`,
+      oldValue: { bankAccountId: account.id, bankName: account.bankName, branchNumber: account.branchNumber, accountLast4: account.accountLast4 },
+    });
+    return { changed: true, result: { deleted: true } };
   });
-  await writeDb(db, { selectedTables: LISTING_TRUST_WRITE_TABLES });
-  return { deleted: true };
 }
 
 export async function updateUserPreferredLocale(input: {
@@ -7342,14 +7414,14 @@ export async function getCommissionResetTraceByEmail(email: string) {
       }))
       .filter((record) => record.paymentStatus !== "paid");
     const pendingCount = pendingRecords.length;
-    const amountDue = pendingRecords.reduce((sum, record) => sum + getCommissionAmountDueUsdt(db, record), 0);
+    const amountDue = sumCommissionAmounts(pendingRecords.map(record => getCommissionAmountDueUsdt(db, record)));
     const blockedReason = getSellerListingBlockReason(db, user.id);
     return {
       userId: user.id,
       normalizedEmail: normalizeEmail(user.email),
       role: user.role,
       pendingCommissionCount: pendingCount,
-      commissionDueUsdt: Number(amountDue.toFixed(2)),
+      commissionDueUsdt: amountDue,
       sellerLocked: pendingCount > 0 || blockedReason !== null,
       canCreateListing: blockedReason === null,
       blockedReason,
@@ -7554,35 +7626,27 @@ export async function deleteSessionsForUser(userId: string) {
 }
 
 export async function createPasswordResetToken(userId: string, rawToken: string, durationMinutes = 30) {
-  const db = await readDb();
   const createdAt = new Date();
-  const expiresAt = new Date(createdAt.getTime() + durationMinutes * 60 * 1000);
-  const reset: PasswordResetToken = {
-    id: `pwd-reset-${randomUUID()}`,
-    userId,
-    tokenHash: hashToken(rawToken),
-    createdAt: createdAt.toISOString(),
-    expiresAt: expiresAt.toISOString(),
-  };
-  db.passwordResetTokens = db.passwordResetTokens.filter((item) => item.userId !== userId);
-  db.passwordResetTokens.push(reset);
-  await writeDb(db, { selectedTables: PASSWORD_RESET_TABLES });
-  return reset;
+  const reset: PasswordResetToken = { id: `pwd-reset-${randomUUID()}`, userId, tokenHash: hashToken(rawToken),
+    createdAt: createdAt.toISOString(), expiresAt: new Date(createdAt.getTime() + durationMinutes * 60 * 1000).toISOString() };
+  return mutateCanonicalAccountRecords(["users", "password_reset_tokens"], PASSWORD_RESET_TABLES, db => {
+    if (!db.users.some(user => user.id === userId)) throw new Error("User not found.");
+    db.passwordResetTokens = [...db.passwordResetTokens.filter(item => item.userId !== userId), reset];
+    return { changed: true, result: reset };
+  });
 }
 
 export async function consumePasswordResetToken(rawToken: string) {
-  const db = await readDb();
-  const hashed = hashToken(rawToken);
-  const token = db.passwordResetTokens.find((item) => item.tokenHash === hashed);
-  if (!token) return null;
-  if (new Date(token.expiresAt) < new Date()) {
-    db.passwordResetTokens = db.passwordResetTokens.filter((item) => item.tokenHash !== hashed);
-    await writeDb(db, { selectedTables: PASSWORD_RESET_TABLES });
-    return null;
-  }
-  db.passwordResetTokens = db.passwordResetTokens.filter((item) => item.tokenHash !== hashed);
-  await writeDb(db, { selectedTables: PASSWORD_RESET_TABLES });
-  return token;
+  const value = String(rawToken ?? "").trim();
+  if (!value) return null;
+  const hashed = hashToken(value);
+  return mutateCanonicalAccountRecords<PasswordResetToken | null>(["password_reset_tokens"], PASSWORD_RESET_TABLES, db => {
+    const token = db.passwordResetTokens.find(item => constantTimeHexEquals(item.tokenHash, hashed));
+    if (!token) return { changed: false, result: null };
+    db.passwordResetTokens = db.passwordResetTokens.filter(item => item.tokenHash !== hashed);
+    const expiresAt = Date.parse(token.expiresAt);
+    return { changed: true, result: Number.isFinite(expiresAt) && expiresAt > Date.now() ? token : null };
+  });
 }
 
 export async function createSellerApplication(input: {
@@ -9023,45 +9087,50 @@ export async function updateSellerProfileStateByAdmin(input: {
   feature?: boolean;
   hidden?: boolean;
 }) {
-  const db = await readDb();
-  const index = db.users.findIndex((user) => user.id === input.sellerId);
-  if (index === -1) throw new Error("Seller not found.");
-  const seller = db.users[index];
-  if (hasRole(seller, "owner")) throw new Error("Owner account cannot be modified.");
-  if (seller.sellerStatus !== "approved_seller" && seller.sellerStatus !== "suspended") {
-    throw new Error("Seller profile state can be managed only for approved sellers.");
-  }
-  if (input.feature === true && !isTrustEligibleSeller(seller)) {
-    throw new Error("Seller identity verification must be recorded before featuring this profile.");
-  }
-  const nextFeatured = typeof input.feature === "boolean" ? input.feature : seller.isFeaturedSeller === true;
-  const nextHidden = typeof input.hidden === "boolean" ? input.hidden : seller.isProfileHidden === true;
-  db.users[index] = {
-    ...seller,
-    isFeaturedSeller: nextFeatured,
-    isProfileHidden: nextHidden,
-    updatedAt: nowIso(),
-  };
+  return mutateCanonicalAccountRecords([...SELLER_PROFILE_STATE_TABLES, "seller_applications"], SELLER_PROFILE_STATE_TABLES, async db => {
+    assertAccountAdministrationActor(db, input.adminUserId, false);
+    const index = db.users.findIndex((user) => user.id === input.sellerId);
+    if (index === -1) throw new Error("Seller not found.");
+    const seller = db.users[index];
+    if (hasRole(seller, "owner")) throw new Error("Owner account cannot be modified.");
+    if (seller.sellerStatus !== "approved_seller" && seller.sellerStatus !== "suspended") {
+      throw new Error("Seller profile state can be managed only for approved sellers.");
+    }
+    if (input.feature === true && !isTrustEligibleSeller(seller)) {
+      throw new Error("Seller identity verification must be recorded before featuring this profile.");
+    }
+    const nextFeatured = typeof input.feature === "boolean" ? input.feature : seller.isFeaturedSeller === true;
+    const nextHidden = typeof input.hidden === "boolean" ? input.hidden : seller.isProfileHidden === true;
+    db.users[index] = {
+      ...seller,
+      isFeaturedSeller: nextFeatured,
+      isProfileHidden: nextHidden,
+      updatedAt: nowIso(),
+    };
 
-  if (seller.isFeaturedSeller !== nextFeatured) {
-    await appendAuditLog(db, {
-      action: "seller_featured",
-      actorUserId: input.adminUserId,
-      targetUserId: seller.id,
-      details: `${nextFeatured ? "Featured" : "Unfeatured"} seller profile.`,
-    });
-  }
-  if (seller.isProfileHidden !== nextHidden) {
-    await appendAuditLog(db, {
-      action: nextHidden ? "seller_hidden" : "seller_unhidden",
-      actorUserId: input.adminUserId,
-      targetUserId: seller.id,
-      details: `${nextHidden ? "Hidden" : "Unhidden"} seller profile.`,
-    });
-  }
+    if (seller.isFeaturedSeller !== nextFeatured) {
+      await appendAuditLog(db, {
+        action: "seller_featured",
+        actorUserId: input.adminUserId,
+        targetUserId: seller.id,
+        details: `${nextFeatured ? "Featured" : "Unfeatured"} seller profile.`,
+        oldValue: { isFeaturedSeller: seller.isFeaturedSeller === true },
+        newValue: { isFeaturedSeller: nextFeatured },
+      });
+    }
+    if (seller.isProfileHidden !== nextHidden) {
+      await appendAuditLog(db, {
+        action: nextHidden ? "seller_hidden" : "seller_unhidden",
+        actorUserId: input.adminUserId,
+        targetUserId: seller.id,
+        details: `${nextHidden ? "Hidden" : "Unhidden"} seller profile.`,
+        oldValue: { isProfileHidden: seller.isProfileHidden === true },
+        newValue: { isProfileHidden: nextHidden },
+      });
+    }
 
-  await writeDb(db, { selectedTables: SELLER_PROFILE_STATE_TABLES });
-  return db.users[index];
+    return { changed: true, result: db.users[index] };
+  });
 }
 
 export async function getMarketplaceListingsForAdmin(dbInput?: AlphaExchangeDb, viewerUserId?: string) {
@@ -9206,17 +9275,10 @@ function canRevealTradeBankDetailsToActor(request: PurchaseRequest, actorUserId:
   const participant = request.buyerId === actorUserId || request.sellerId === actorUserId;
   const elevated = actorRole === "admin" || actorRole === "owner";
   if (!participant && !elevated) return false;
-  const disclosureStatuses = new Set<PurchaseRequestStatus>([
-    "accepted",
-    "payment_sent",
-    "funds_received",
-    "usdt_release_pending",
-    "usdt_sent",
-  ]);
   return Boolean(
     request.sellerBankAccountId
     && isBankTransferPaymentMethod(request.paymentMethod)
-    && disclosureStatuses.has(request.status),
+    && isBankDetailsDisclosureStage(request.status),
   );
 }
 export async function createMarketplaceListing(input: {
@@ -9328,6 +9390,11 @@ export async function createMarketplaceListing(input: {
   const activityCountBefore = db.activityLog.length;
   const trustHistoryCountBefore = db.trustScoreHistory.length;
 
+  const pendingPublications: TradeMutationPublications = {
+    notifications: [], trustNotifications: [], trustEvents: [], promotionEmails: [], calculatingTrust: false,
+  };
+  tradeMutationPublications.set(db, pendingPublications);
+
   await appendAuditLog(db, {
     action: "listing_created",
     actorUserId: input.actorUserId,
@@ -9347,6 +9414,7 @@ export async function createMarketplaceListing(input: {
       relatedHref: reviewDestination,
       actionHref: reviewDestination,
       actionLabel: "Review Listing",
+      dedupeKey: reviewDestination,
       priority: "critical",
       forceInApp: true,
     });
@@ -9358,6 +9426,7 @@ export async function createMarketplaceListing(input: {
     message: `Listing ${listing.id} was submitted for admin review.`,
     relatedListingId: listing.id,
     relatedHref: sellerListingWorkspaceDestination(listing),
+    dedupeKey: sellerListingWorkspaceDestination(listing),
   });
   logProfile("pushNotification");
   pushActivityLog(db, {
@@ -9376,14 +9445,20 @@ export async function createMarketplaceListing(input: {
   const newActivityLogs = db.activityLog.slice(0, db.activityLog.length - activityCountBefore);
   const newTrustHistoryEntries = db.trustScoreHistory.slice(0, db.trustScoreHistory.length - trustHistoryCountBefore);
 
-  await writeDbForListingCreation(db, {
-    newListing: listing,
-    newAuditLogs,
-    newNotifications,
-    newActivityLogs,
-    newTrustHistoryEntries,
-    updatedTrustSnapshots: db.trustSnapshots,
-  }, fromCache);
+  try {
+    await writeDbForListingCreation(db, {
+      newListing: listing,
+      newAuditLogs,
+      newNotifications,
+      newActivityLogs,
+      newTrustHistoryEntries,
+      updatedTrustSnapshots: db.trustSnapshots,
+    }, fromCache);
+  } finally { tradeMutationPublications.delete(db); }
+  pendingPublications.notifications.forEach(publishNotificationPublication);
+  pendingPublications.trustNotifications.forEach(publishNotificationPublication);
+  pendingPublications.trustEvents.forEach(publishRealtimeEvent);
+  for (const email of pendingPublications.promotionEmails) await sendSellerPrestigePromotionEmail(email);
   await dispatchOwnerActionRequiredEmails(db, {
     event: "owner_listing_review_required",
     title: { ar: "إعلان يحتاج إلى الموافقة", en: "Listing Approval Required" },
@@ -10090,7 +10165,10 @@ export async function reviewMarketplaceListingByOwner(input: {
     throw new Error("Reason is required.");
   }
   if (input.decision === "approve") await assertListingPriceAtCurrentReference(current);
-  const now = nowIso();
+  // A cached create can leave this snapshot one version behind its committed
+  // listing. Give the review a strictly newer revision even within one clock
+  // tick so the repository's stale-snapshot merge retains the owner decision.
+  const now = nowIsoAfter(current.updatedAt);
   const nextStatus: ListingStatus = input.decision === "approve" ? "active" : "draft";
   const nextApprovalStatus: ListingApprovalStatus =
     input.decision === "approve" ? "approved" : input.decision === "reject" ? "rejected" : "changes_requested";
@@ -10290,7 +10368,7 @@ export async function getSellerCommissionStatus(
   const primaryRecord = requestedCommissionId
     ? pendingRecords.find((record) => record.id === requestedCommissionId)
     : pendingRecords[0];
-  const totalAmountDue = pendingRecords.reduce((sum, record) => sum + getCommissionAmountDueUsdt(db, record), 0);
+  const totalAmountDue = sumCommissionAmounts(pendingRecords.map(record => getCommissionAmountDueUsdt(db, record)));
   const payableAmountDue = primaryRecord ? getCommissionPaymentAmountDueUsdt(primaryRecord) : 0;
   const hasOverdue = pendingRecords.some((record) => record.paymentStatus === "overdue");
   const primaryRequest = primaryRecord
@@ -10457,7 +10535,7 @@ export async function updateTradeTerms(input: {
       const lockedPrice = normalizeListingPrice(request.pricePerUsdt || request.listingPriceAtRequest || listing.price) || "";
       if (counter) {
         const bounds = getPriceOfferBounds(request.listingPriceAtRequest || listing.price);
-        if (request.currency !== "ILS" || !bounds || Number(raw) < Number(bounds.minimumPrice) || Number(raw) > Number(bounds.listingPrice)) throw new TradeBlockedError("trade-terms-invalid", "Counter-offer must be within the listing's allowed price range.", input.requestId);
+        if (request.currency !== "ILS" || !bounds || Number(raw) < Number(bounds.minimumPrice) || Number(raw) > Number(bounds.maximumPrice)) throw new TradeBlockedError("trade-terms-invalid", "Counter-offer must be within the listing's allowed price range.", input.requestId);
       } else if (input.action === "propose_ils_amount" && request.currency !== "ILS") {
         throw new TradeBlockedError("trade-terms-invalid", "ILS correction requires an ILS trade.", input.requestId);
       }
@@ -10468,6 +10546,7 @@ export async function updateTradeTerms(input: {
         ? "ATM withdrawal must be 100–10,000 ILS in multiples of 100. Adjust the ILS withdrawal amount before sharing a new code."
         : "Enter a valid amount with a positive payment total and at most two decimal places for ILS.", input.requestId);
       const { usdtAmount: amount, fiatAmount: fiat, pricePerUsdt: price } = quote;
+      if (request.commissionCalculationVersion === COMMISSION_CALCULATION_VERSION) assertPayableTradeCommission(amount);
       if (!Number.isFinite(Number(fiat)) || Number(fiat) <= 0 || Number(amount) > Number(listingUnreservedAmount(snapshot, listing, request.id)) || Number(amount) < getPurchaseMinimumTrade(listing.minimumTrade, isCardlessAtmPaymentMethod(request.paymentMethod)) || Number(amount) > Number(listing.maximumTrade || listing.availableAmount)) throw new TradeBlockedError("trade-terms-invalid", "Amount exceeds the available balance or trade limits.", input.requestId);
       request.amountAdjustmentCount = getTradeAmountAdjustmentCount(request) + 1;
       request.termsProposal = { id: randomUUID(), kind: counter ? "counter_offer" : "amount_correction", status: "pending", pricePerUsdt: price, usdtAmount: amount, fiatAmount: fiat, createdAt: now };
@@ -10478,6 +10557,7 @@ export async function updateTradeTerms(input: {
       if (input.action === "withdraw_terms" ? !seller : seller) throw new TradeBlockedError("trade-terms-invalid", "Only the intended participant can respond to this proposal.", input.requestId);
       if (proposal.kind === "counter_offer" ? request.status !== "pending" : !["pending", "accepted"].includes(request.status)) throw new TradeBlockedError("trade-terms-invalid", "Trade terms can no longer be changed.", input.requestId);
       if (input.action === "accept_amount") {
+        if (request.commissionCalculationVersion === COMMISSION_CALCULATION_VERSION) assertPayableTradeCommission(proposal.usdtAmount);
         if (proposal.kind !== "amount_correction") throw new TradeBlockedError("trade-terms-invalid", "Use the counter-offer acceptance action.", input.requestId);
         if ((request.status !== "pending" && !isRequestStatusLockingListing(request.status)) || Number(proposal.usdtAmount) > Number(listingUnreservedAmount(snapshot, listing, request.id)) || Number(proposal.usdtAmount) < getPurchaseMinimumTrade(listing.minimumTrade, isCardlessAtmPaymentMethod(request.paymentMethod)) || Number(proposal.usdtAmount) > Number(listing.maximumTrade || listing.availableAmount)) throw new TradeBlockedError("trade-terms-invalid", "The proposed amount is no longer available.", input.requestId);
         if (isCardlessAtmPaymentMethod(request.paymentMethod) && Number(request.fiatAmount) !== Number(proposal.fiatAmount)) {
@@ -10567,7 +10647,7 @@ export async function createPurchaseRequest(input: {
   if (pendingConfirmationTrade) {
     throw new TradeBlockedError(
       "AWAITING_BUYER_CONFIRMATION",
-      "You have an outstanding trade awaiting your confirmation. Please confirm that you received your USDT before starting another purchase.",
+      "Your previous trade is waiting for the seller to complete it. Open the Trade Room to contact the seller before starting another purchase.",
       pendingConfirmationTrade.id,
     );
   }
@@ -10719,6 +10799,7 @@ export async function createPurchaseRequest(input: {
     throw new TradeBlockedError(priceOffer.code, priceOffer.message, undefined, {
       listingId: listing.id,
       minimumPrice: priceOffer.minimumPrice,
+      maximumPrice: priceOffer.maximumPrice,
       listingPrice: priceOffer.listingPrice ?? priceBounds.listingPrice,
     });
   }
@@ -10746,6 +10827,7 @@ export async function createPurchaseRequest(input: {
   const usdtAmount = requestedUsdtAmount;
   const fiatAmount = calculateTradePaymentTotal(usdtAmount, pricePerUsdt, input.feePolicyVersion === MARKETPLACE_FEE_CUTOVER_VERSION);
   if (!fiatAmount || Number(fiatAmount) <= 0) throw new Error("Trade amount must produce a payment total of at least 0.01 in the listing currency.");
+  assertPayableTradeCommission(usdtAmount);
   const preparedCardless = isCardlessAtmPaymentMethod(primaryPaymentMethod) ? parseCardlessWithdrawalDetails({
     withdrawalCode: input.cardlessWithdrawalCode,
     verificationKind: input.cardlessVerificationKind,
@@ -10763,6 +10845,7 @@ export async function createPurchaseRequest(input: {
   const tradeId = `trade-${randomUUID()}`;
   const request: PurchaseRequest = {
     feePolicyVersion: input.feePolicyVersion,
+    commissionCalculationVersion: COMMISSION_CALCULATION_VERSION,
     id: `purchase-${randomUUID()}`,
     buyerId: input.buyerId,
     listingId: input.listingId,
@@ -11004,7 +11087,7 @@ export async function createPurchaseRequest(input: {
       if (awaitingConfirmation) {
         throw new TradeBlockedError(
           "AWAITING_BUYER_CONFIRMATION",
-          "You have an outstanding trade awaiting your confirmation. Please confirm that you received your USDT before starting another purchase.",
+          "Your previous trade is waiting for the seller to complete it. Open the Trade Room to contact the seller before starting another purchase.",
           awaitingConfirmation.id,
           { guard: "single-active-buyer-trade-at-commit" },
         );
@@ -11102,29 +11185,7 @@ export async function createPurchaseRequest(input: {
 }
 
 export async function getMyPurchaseRequests(userId: string, role: UserRole, dbInput?: AlphaExchangeDb) {
-  let db = dbInput ?? await readDbForPurchaseRequestActor(userId, role);
-  if (!dbInput) {
-    const nowMs = Date.now();
-    const timeoutMs = BUYER_CONFIRMATION_TIMEOUT_MINUTES * 60 * 1000;
-    const dueBankTransferCompletions = db.purchaseRequests.filter((request) => {
-      if (request.status !== "usdt_sent" || request.completedAt || !request.usdtSentAt) return false;
-      if (isCashTradePaymentMethod(request.paymentMethod)) return false;
-      const sentAtMs = new Date(request.usdtSentAt).getTime();
-      return Number.isFinite(sentAtMs) && sentAtMs > 0 && sentAtMs + timeoutMs <= nowMs;
-    });
-    for (const request of dueBankTransferCompletions) {
-      const completion = await updatePurchaseRequestStatus({
-        requestId: request.id,
-        actorUserId: SYSTEM_ACTOR_USER_ID,
-        actorRole: "admin",
-        nextStatus: "completed",
-      });
-      await completion.deferredTrustWrite?.();
-    }
-    if (dueBankTransferCompletions.length > 0) {
-      db = await readDbForPurchaseRequestActor(userId, role);
-    }
-  }
+  const db = dbInput ?? await readDbForPurchaseRequestActor(userId, role);
   if (role === "admin" || role === "owner") {
     return db.purchaseRequests.map((request) =>
       sanitizePurchaseRequestForActor(enrichRequestWithEvidence(db, request, userId), userId, role));
@@ -11154,6 +11215,7 @@ export function sanitizePurchaseRequestForActor(request: PurchaseRequest, actorU
   const redacted: PurchaseRequest = {
     ...request,
     amountAdjustmentCount: getTradeAmountAdjustmentCount(request),
+    trustReconciliation: undefined,
     sellerBankAccountSnapshot: undefined,
     buyerName: canViewPrivateContent || request.buyerIsOwner ? request.buyerName : publicAccountName({ id: request.buyerId }),
     timeline: (request.timeline ?? []).map((entry) => sanitizeTradeTimelineForCounterparty(entry, canViewPrivateContent)),
@@ -11745,12 +11807,12 @@ export async function getTradeRoomData(input: {
     hasOpenDispute: Boolean(openDispute),
     canOpenDispute: isBuyerActor && (request.status === "payment_sent" || request.status === "funds_received" || request.status === "usdt_release_pending" || request.status === "usdt_sent"),
     sellerCommissionDueAmount: canViewSellerCommission
-      ? Number(sellerPendingCommissions.reduce((sum, record) => sum + getCommissionAmountDueUsdt(db, record), 0).toFixed(2))
+      ? sumCommissionAmounts(sellerPendingCommissions.map(record => getCommissionAmountDueUsdt(db, record)))
       : 0,
     sellerCommissionDueCount: canViewSellerCommission ? sellerPendingCommissions.length : 0,
     sellerPayableCommissionId: canViewSellerCommission ? payableSellerCommission?.id : undefined,
     sellerPayableCommissionAmount: canViewSellerCommission && payableSellerCommission
-      ? Number(getCommissionAmountDueUsdt(db, payableSellerCommission).toFixed(2))
+      ? getCommissionAmountDueUsdt(db, payableSellerCommission)
       : undefined,
     ...(input.ownerHistory ? {
       ownerHistory: {
@@ -11820,8 +11882,7 @@ export async function getTradeRoomBankDetails(input: {
   actorUserId: string;
   actorRole: UserRole;
 }) {
-  // Bank account numbers are sensitive and become available immediately after
-  // acceptance. Bypass the short-lived read cache so another instance cannot
+  // Bank account numbers are sensitive. Bypass the short-lived read cache so another instance cannot
   // authorize disclosure from a trade state that has already been cancelled.
   const db = await readDb({ bypassCache: true });
   const lookupCandidates = buildPurchaseRequestLookupCandidates(input.purchaseRequestId);
@@ -11838,7 +11899,7 @@ export async function getTradeRoomBankDetails(input: {
     // prevent the stale request from receiving the account number.
     assertTradeParticipantOrAdmin(request, input.actorUserId, input.actorRole);
     if (!canRevealTradeBankDetailsToActor(request, input.actorUserId, input.actorRole)) {
-      throw new Error("Bank details are available only after the seller accepts the trade.");
+      throw new Error("Bank details are available only for an active Bank Transfer request.");
     }
 
     const seller = snapshot.users.find((user) => user.id === request.sellerId);
@@ -11851,7 +11912,7 @@ export async function getTradeRoomBankDetails(input: {
       requestId: request.id,
       tradeId: request.tradeId ?? request.id,
       bankAccountId: bankAccount.id,
-      accountHolderName: input.actorUserId === request.sellerId || input.actorRole === "admin" || input.actorRole === "owner" ? bankAccount.accountHolderName : "",
+      accountHolderName: input.actorUserId === request.sellerId || input.actorRole === "owner" ? bankAccount.accountHolderName : "",
       bankName: bankAccount.bankName,
       branchNumber: bankAccount.branchNumber,
       accountNumber: bankAccount.accountNumber,
@@ -12630,7 +12691,7 @@ export async function getAccountProfileData(userId: string): Promise<{
       progressToNextLevelPercent: Number(prestigeProgress.progressPercent.toFixed(2)),
       amountToNextLevelUsdt: Number(prestigeProgress.remainingUsdt.toFixed(2)),
       lifetimeCompletedVolumeUsdt: Number(reputation.totalUsdtVolume.toFixed(2)),
-      commissionPaid: Number(reputation.estimatedCommissionPaid.toFixed(2)),
+      commissionPaid: Number(reputation.estimatedCommissionPaid.toFixed(6)),
       averageTradeSize: Number(reputation.averageTradeSize.toFixed(2)),
       promotionHistory: [...(user.sellerPromotionHistory ?? [])].slice(0, 10),
       trustScore: reputation.trustScore,
@@ -12961,7 +13022,7 @@ async function uploadTradeEvidenceAttempt(
       userId: request.buyerId,
       category: "trade",
       title: "Seller marked USDT sent",
-      message: "Seller marked USDT as sent and can complete the trade. Check your receiving wallet; you may also confirm receipt.",
+      message: "Seller marked USDT as sent and will complete the trade. Check your receiving wallet.",
       relatedTradeId: nextRequest.tradeId,
       relatedListingId: request.listingId,
       relatedHref: requestDetailsHref(request.id),
@@ -13628,6 +13689,7 @@ type UpdatePurchaseRequestStatusInput = {
   cardlessWithdrawalCode?: string;
   cardlessVerificationKind?: string;
   cardlessVerificationValue?: string;
+  usePreparedCardlessDetails?: boolean;
   clientOperationId?: string;
   traceId?: string;
   acceptCounterOfferId?: string;
@@ -13651,12 +13713,27 @@ type UpdatePurchaseRequestStatusResult = {
 };
 
 export async function updatePurchaseRequestStatus(input: UpdatePurchaseRequestStatusInput): Promise<UpdatePurchaseRequestStatusResult> {
-  return updatePurchaseRequestStatusAttempt(input, 0);
+  const startedAt = Date.now();
+  const repository = await getAlphaExchangeRepository();
+  const terminal = ["completed", "declined", "cancelled"].includes(input.nextStatus);
+  const transaction = typeof repository.beginTradeLifecycleTransaction === "function"
+    ? await repository.beginTradeLifecycleTransaction(terminal ? TRADE_STATUS_TERMINAL_READ_TABLES : TRADE_STATUS_FAST_READ_TABLES, input.requestId, input.nextStatus, input.actorUserId)
+    : null;
+  if (!transaction) return updatePurchaseRequestStatusAttempt(input, 0);
+  const transactionReadMs = Date.now() - startedAt;
+  try {
+    const result = await updatePurchaseRequestStatusAttempt(input, 0, false, transaction);
+    return { ...result, metrics: { ...result.metrics, readDbMs: result.metrics.readDbMs + transactionReadMs, totalMs: Date.now() - startedAt } };
+  } finally {
+    await transaction.close();
+  }
 }
 
 async function updatePurchaseRequestStatusAttempt(
   input: UpdatePurchaseRequestStatusInput,
   concurrencyRetryCount: number,
+  reconcileOnly = false,
+  transaction?: TradeLifecycleTransaction,
 ): Promise<UpdatePurchaseRequestStatusResult> {
   const startedAt = Date.now();
   const debugTradeRoom = allowsRuntimeDiagnostics() && process.env.ALPHA_EXCHANGE_DEBUG_TRADE_ROOM === "1";
@@ -13672,9 +13749,10 @@ async function updatePurchaseRequestStatusAttempt(
   const useFastStatusRead = input.nextStatus !== "completed"
     && input.nextStatus !== "declined"
     && input.nextStatus !== "cancelled";
-  const statusRead = await readDbForCriticalTradeMutation(
-    useFastStatusRead ? TRADE_STATUS_FAST_READ_TABLES : TRADE_STATUS_TERMINAL_READ_TABLES,
-  );
+  const statusRead = transaction
+    ? { db: normalizeDb(transaction.snapshot), fromFullCache: false }
+    : await readDbForCriticalTradeMutation(useFastStatusRead ? TRADE_STATUS_FAST_READ_TABLES : TRADE_STATUS_TERMINAL_READ_TABLES);
+  ensureDisplayNumbers(statusRead.db);
   let db = statusRead.db;
   const priorSmsCount = db.smsDeliveries?.length ?? 0;
   const readDbMs = Date.now() - startedAt;
@@ -13716,15 +13794,31 @@ async function updatePurchaseRequestStatusAttempt(
   const isFaceToFaceTrade = isFaceToFacePaymentMethod(requestPaymentMethod);
   const isAtmTrade = isCardlessAtmPaymentMethod(requestPaymentMethod);
   const isCashTrade = isCashTradePaymentMethod(requestPaymentMethod);
-  const cardlessWithdrawalCode = normalizeCardlessDigits(String(input.cardlessWithdrawalCode ?? "")).replace(/\s+/g, "");
+  let preparedCardlessMessage: TradeChatMessage | undefined;
+  let preparedCardlessPayload: string | undefined;
+  let preparedCardlessDetails: Record<string, unknown> = {};
+  if (input.usePreparedCardlessDetails) {
+    if (!isBuyer || !isAtmTrade || input.nextStatus !== "payment_sent") {
+      throw new TradeBlockedError("buyer-cardless-confirmation-required", "Only the buyer can confirm sending prepared withdrawal details.", request.id);
+    }
+    preparedCardlessMessage = request.messages?.find(message => message.credentialKind === "cardless_code");
+    preparedCardlessPayload = preparedCardlessMessage
+      ? decryptCardlessCredential(preparedCardlessMessage.message, request.id, preparedCardlessMessage.id) ?? undefined
+      : undefined;
+    try { preparedCardlessDetails = JSON.parse(preparedCardlessPayload ?? "{}"); } catch { /* validate below */ }
+    if (!parseCardlessWithdrawalDetails(preparedCardlessDetails).ok || !validateCardlessIlsAmount(preparedCardlessDetails.ilsAmount, request.fiatAmount)) {
+      throw new TradeBlockedError("CARDLESS_DETAILS_UNAVAILABLE", "The protected withdrawal details are unavailable or no longer match the agreed cash amount. Refresh the trade before continuing.", request.id);
+    }
+  }
+  const cardlessWithdrawalCode = normalizeCardlessDigits(String(preparedCardlessDetails.withdrawalCode ?? input.cardlessWithdrawalCode ?? "")).replace(/\s+/g, "");
   const cardlessDetails = parseCardlessWithdrawalDetails({
     withdrawalCode: cardlessWithdrawalCode,
-    verificationKind: input.cardlessVerificationKind,
-    verificationValue: input.cardlessVerificationValue,
+    verificationKind: preparedCardlessDetails.verificationKind ?? input.cardlessVerificationKind,
+    verificationValue: preparedCardlessDetails.verificationValue ?? input.cardlessVerificationValue,
   });
-  const cardlessCredentialPayload = cardlessDetails.ok
+  const cardlessCredentialPayload = preparedCardlessPayload ?? (cardlessDetails.ok
     ? JSON.stringify(cardlessDetails.details)
-    : cardlessWithdrawalCode;
+    : cardlessWithdrawalCode);
   const cardlessOperationId = String(input.clientOperationId ?? "").trim().toLowerCase();
   const cardlessCodeIsValid = /^\d{4,12}$/.test(cardlessWithdrawalCode);
   const cardlessOperationIdIsValid = /^[a-f0-9]{32}$|^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(cardlessOperationId);
@@ -13820,6 +13914,13 @@ async function updatePurchaseRequestStatusAttempt(
     });
   }
 
+  // Completion belongs to the trade seller (or the verified, reasoned owner
+  // override). Enforce this before idempotent/terminal shortcuts as old clients
+  // can still submit a bare { status: "completed" } after USDT is sent.
+  if (input.nextStatus === "completed" && !isSeller && !isAdminCompletion) {
+    throw new TradeBlockedError("seller-completion-required", "Only this trade's seller can confirm completion.", request.id);
+  }
+
   if (isSeller && !["accepted", "declined", "cancelled", "funds_received", "usdt_release_pending", "usdt_sent"].includes(input.nextStatus) && !isCompletionOverride) {
     throw new TradeBlockedError("seller-transition-not-allowed", "Seller can only set accepted, declined, cancelled, funds_received, usdt_release_pending, or usdt_sent.", request.id, {
       guard: "seller-next-status-allowlist",
@@ -13828,8 +13929,9 @@ async function updatePurchaseRequestStatusAttempt(
     });
   }
   if (isBuyer && input.nextStatus === "cancelled" && hasRevealedBankDetails(request)) throw new TradeBlockedError("buyer-cancellation-locked", "Bank details have been revealed. Only the seller can cancel while the trade is unpaid.", request.id);
-  if (isBuyer && !acceptingCounter && !["cancelled", "payment_sent", "completed"].includes(input.nextStatus)) {
-    throw new TradeBlockedError("buyer-transition-not-allowed", "Buyer can only set cancelled, payment_sent, or completed.", request.id, {
+  const isBuyerFaceToFaceCashConfirmation = isBuyer && isFaceToFaceTrade && input.nextStatus === "funds_received";
+  if (isBuyer && !isAdminCompletion && !acceptingCounter && !isBuyerFaceToFaceCashConfirmation && !["cancelled", "payment_sent"].includes(input.nextStatus)) {
+    throw new TradeBlockedError("buyer-transition-not-allowed", "Buyer can cancel before payment, confirm payment sent, or confirm cash received for a face-to-face trade.", request.id, {
       guard: "buyer-next-status-allowlist",
       nextStatus: input.nextStatus,
       actorUserId: input.actorUserId,
@@ -13885,7 +13987,15 @@ async function updatePurchaseRequestStatusAttempt(
       },
     };
   }
-  if (input.nextStatus === "completed" && !isCompletionOverride && currentStatus !== "usdt_sent") {
+  if (reconcileOnly) {
+    // A competing request may have committed during the last failed attempt.
+    // The authorized idempotency checks above can acknowledge that result.
+    // Otherwise stop here: reconciliation must never start another write.
+    throw new TradeBlockedError("concurrent-status-change",
+      "This trade changed while your action was being saved. Refresh the Trade Room and try again.", input.requestId,
+      { guard: "canonical-transition-reconcile", nextStatus: input.nextStatus, currentStatus });
+  }
+  if (!transaction && input.nextStatus === "completed" && !isCompletionOverride && currentStatus !== "usdt_sent") {
     const strongDb = await readDb({ bypassCache: true });
     const strongIndex = strongDb.purchaseRequests.findIndex((item) => item.id === input.requestId);
     if (strongIndex !== -1) {
@@ -13949,7 +14059,7 @@ async function updatePurchaseRequestStatusAttempt(
     : [];
   const allowedByStatus: Record<PurchaseRequestStatus, PurchaseRequestStatus[]> = {
     pending: ["accepted", "declined", "cancelled"],
-    accepted: isFaceToFaceTrade && isSeller ? ["payment_sent", "funds_received", "cancelled"] : ["payment_sent", "cancelled"],
+    accepted: isFaceToFaceTrade && (isSeller || isBuyer) ? ["payment_sent", "funds_received", "cancelled"] : ["payment_sent", "cancelled"],
     payment_sent: ["funds_received"],
     funds_received: ["usdt_release_pending"],
     usdt_release_pending: ["usdt_sent"],
@@ -13983,7 +14093,7 @@ async function updatePurchaseRequestStatusAttempt(
     });
   }
   if (input.nextStatus === "completed" && !isCompletionOverride && currentStatus !== "usdt_sent") {
-    throw new TradeBlockedError("confirmation-prerequisite-missing", "Buyer confirmation requires seller release (status usdt_sent) before completion.", request.id, {
+    throw new TradeBlockedError("confirmation-prerequisite-missing", "Seller release (status usdt_sent) is required before completion.", request.id, {
       guard: "completed-requires-usdt-sent",
       currentStatus,
       expectedStatus: "usdt_sent",
@@ -14013,6 +14123,10 @@ async function updatePurchaseRequestStatusAttempt(
   }
   const actorRole = resolveActorRole(db, input.actorUserId);
   const now = nowIsoAfter(request.updatedAt, listing?.updatedAt);
+  const pendingPublications: TradeMutationPublications = {
+    notifications: [], trustNotifications: [], trustEvents: [], promotionEmails: [], calculatingTrust: false,
+  };
+  tradeMutationPublications.set(db, pendingPublications);
   const archivedActionReminders = archiveSatisfiedTradeActionReminders(db, request, now);
   const next: PurchaseRequest = {
     ...request,
@@ -14142,6 +14256,7 @@ async function updatePurchaseRequestStatusAttempt(
         { guard: "buyer-seller-commission-at-accept", commissionId: buyerSellerCommission.id },
       );
     }
+    if (next.commissionCalculationVersion === COMMISSION_CALCULATION_VERSION) assertPayableTradeCommission(next.usdtAmount);
     if (toNumber(next.usdtAmount) > toNumber(listing.availableAmount) || toNumber(next.usdtAmount) < getPurchaseMinimumTrade(listing.minimumTrade, isAtmTrade) || toNumber(next.usdtAmount) > toNumber(listing.maximumTrade || listing.availableAmount)) {
       throw new TradeBlockedError(
         "listing-amount-unavailable",
@@ -14189,16 +14304,11 @@ async function updatePurchaseRequestStatusAttempt(
       if (!parseCardlessWithdrawalDetails(prepared).ok || !validateCardlessIlsAmount(prepared.ilsAmount, next.fiatAmount)) {
         throw new TradeBlockedError("CARDLESS_DETAILS_UNAVAILABLE", "The protected withdrawal details are unavailable. Ask the buyer to cancel this pending request and submit again.", request.id);
       }
-      next.paymentSentAt = now;
-      next.sensitivePaymentSharedAt = now;
-      next.sensitivePaymentKind = "cardless_code";
-      db.tradeMessages = [preparedCredential, ...(db.tradeMessages ?? []).filter((message) => message.id !== preparedCredential.id)];
     }
-    next.status = preparedCredential ? "payment_sent" : "accepted";
-    if (preparedCredential) {
-      appendTradeTimelineEntry(next, { type: "payment_sent", actorUserId: request.buyerId, actorRole: "buyer", message: "Prepared withdrawal details shared after seller acceptance", createdAt: now });
-      pushNotification(db, { userId: request.sellerId, category: "trade", title: "Cardless withdrawal code ready", message: "Buyer sent the cardless withdrawal code. Collect the ATM cash, then confirm receipt in the Trade Room.", relatedTradeId: next.tradeId, relatedRequestId: request.id, relatedHref: requestDetailsHref(request.id), whatsappEvent: "trade_update" });
-    }
+    // Acceptance reserves inventory; only a later buyer command can disclose
+    // prepared ATM credentials and cross the irreversible payment boundary.
+    next.status = "accepted";
+    next.cardlessCodeAwaitingBuyerConfirmation = Boolean(preparedCredential);
     const isPriceOffer = next.priceMode === "buyer_offer";
     if (acceptingCounter) {
       pushNotification(db, {
@@ -14217,7 +14327,7 @@ async function updatePurchaseRequestStatusAttempt(
     }
     next.tradeId = next.tradeId ?? `trade-${randomUUID()}`;
     next.tradeCreatedAt = now;
-    listing.status = preparedCredential ? "in_trade" : "matched";
+    listing.status = "matched";
     listing.activeTradeRequestId = request.id;
     listing.lockedAt = now;
     listing.updatedAt = now;
@@ -14236,7 +14346,7 @@ async function updatePurchaseRequestStatusAttempt(
       message: isFaceToFaceTrade
         ? "Seller accepted the Face-to-Face trade. Buyer hands over the full cash total. Seller can confirm receipt without waiting for the buyer button, then sends the full USDT amount to the revealed wallet and completes the trade. No photo is required."
         : isAtmTrade
-          ? preparedCredential ? "Seller accepted the Cardless ATM trade. The prepared withdrawal details are now available. Collect the ATM cash and confirm receipt to reveal the buyer wallet." : "Seller accepted the Cardless ATM trade. Buyer should send the withdrawal code and confirm it with one button; no photo is required. After the seller collects and confirms the cash, the buyer wallet is revealed so the seller can confirm USDT sent and then complete the trade with a separate button."
+          ? "Seller accepted the Cardless ATM trade. Buyer should send the withdrawal code and confirm it with one button; no photo is required. After the seller collects and confirms the cash, the buyer wallet is revealed so the seller can confirm USDT sent and then complete the trade with a separate button."
         : isPriceOffer
           ? `Seller accepted the price offer of ₪${next.pricePerUsdt ?? next.listingPriceAtRequest} per USDT. Buyer can now upload the payment receipt.`
           : "Seller accepted the trade request. Buyer can now upload the payment receipt.",
@@ -14259,7 +14369,7 @@ async function updatePurchaseRequestStatusAttempt(
         : isFaceToFaceTrade
           ? "Your meeting is ready. After handing over the cash, confirm it in the Trade Room. No photo is required."
           : isAtmTrade
-            ? preparedCredential ? "The seller accepted and can now collect your prepared ATM withdrawal. Your wallet remains hidden until cash collection is confirmed." : "Your Cardless ATM trade is active. Send the withdrawal code, then confirm it in the Trade Room. No photo is required."
+            ? "Your Cardless ATM trade is active. Send the withdrawal code, then confirm it in the Trade Room. No photo is required."
           : "Seller accepted your trade request. You can now upload your payment receipt.",
       relatedTradeId: next.tradeId,
       relatedListingId: request.listingId,
@@ -14339,7 +14449,13 @@ async function updatePurchaseRequestStatusAttempt(
         });
       }
       const credentialMessageId = `trade-credential-${createHash("sha256").update(`${request.id}:${request.buyerId}:${cardlessOperationId}`).digest("hex").slice(0, 32)}`;
-      const credentialMessage: TradeChatMessage = {
+      const credentialMessage: TradeChatMessage = preparedCardlessMessage ? {
+        ...preparedCardlessMessage,
+        sentAt: now,
+        readByUserIds: [request.buyerId],
+        deliveredAt: undefined,
+        seenAt: undefined,
+      } : {
         id: credentialMessageId,
         purchaseRequestId: request.id,
         kind: "user",
@@ -14353,10 +14469,11 @@ async function updatePurchaseRequestStatusAttempt(
         sentAt: now,
         readByUserIds: [request.buyerId],
       };
-      next.messages = [credentialMessage, ...(next.messages ?? [])];
-      db.tradeMessages = [credentialMessage, ...(db.tradeMessages ?? [])];
+      next.messages = [credentialMessage, ...(next.messages ?? []).filter(message => message.credentialKind !== "cardless_code")];
+      db.tradeMessages = [credentialMessage, ...(db.tradeMessages ?? []).filter(message => message.purchaseRequestId !== request.id || message.credentialKind !== "cardless_code")];
       next.sensitivePaymentSharedAt = now;
       next.sensitivePaymentKind = "cardless_code";
+      next.cardlessCodeAwaitingBuyerConfirmation = false;
     }
     next.status = "payment_sent";
     if (buyerEvidence) {
@@ -14421,29 +14538,33 @@ async function updatePurchaseRequestStatusAttempt(
       db.tradeMessages = (db.tradeMessages ?? []).map((message) => message.purchaseRequestId === request.id ? redactCredential(message) : message);
     }
     appendTradeTimelineEntry(next, {
-      type: "seller_confirmed_funds",
+      type: isBuyer ? "buyer_confirmed_funds" : "seller_confirmed_funds",
       actorUserId: input.actorUserId,
       actorRole,
       message: isAtmTrade
         ? "Seller confirmed ATM cash collected"
         : isFaceToFaceTrade
-          ? "Seller confirmed cash received"
+          ? isBuyer ? "Buyer confirmed the seller received the cash" : "Seller confirmed cash received"
           : "Seller confirmed funds received",
       createdAt: now,
     });
     appendSystemTradeMessage(db, next, {
       senderUserId: input.actorUserId,
       senderRole: actorRole,
-      message: isCashTrade
+      message: isBuyer
+        ? "Buyer confirmed the seller received the cash. The buyer wallet is now revealed. The seller must send the full USDT amount and complete the trade."
+        : isCashTrade
         ? "Seller confirmed receiving the cash. The buyer wallet is now revealed to the seller, who should send USDT and confirm it was sent. No photo is required."
         : "Seller confirmed the funds were received. USDT release is now unlocked.",
       createdAt: now,
     });
     pushNotification(db, {
-      userId: request.buyerId,
+      userId: isBuyer ? request.sellerId : request.buyerId,
       category: "trade",
-      title: isAtmTrade ? "Seller confirmed cash collected" : "Seller confirmed funds received",
-      message: isBankTransferTrade
+      title: isBuyer ? "Buyer confirmed cash received" : isAtmTrade ? "Seller confirmed cash collected" : "Seller confirmed funds received",
+      message: isBuyer
+        ? "Buyer confirmed handing the full cash total to you. Verify the cash, send USDT to the revealed wallet, then complete the trade."
+        : isBankTransferTrade
         ? "Seller verified the bank transfer and confirmed funds received."
         : isAtmTrade
           ? "Seller confirmed cash was collected from the cardless ATM. Your wallet is now visible to the seller for the USDT transfer."
@@ -14453,7 +14574,8 @@ async function updatePurchaseRequestStatusAttempt(
       relatedHref: requestDetailsHref(request.id),
       whatsappEvent: "trade_update",
     });
-    queueSmsDelivery(db, { eventType: "funds_received", eventKey: `trade:${request.id}:funds-received:buyer:${request.buyerId}`, recipientUserId: request.buyerId, destinationPath: requestDetailsHref(request.id) });
+    const cashConfirmationRecipient = isBuyer ? request.sellerId : request.buyerId;
+    queueSmsDelivery(db, { eventType: "funds_received", eventKey: `trade:${request.id}:funds-received:${isBuyer ? "seller" : "buyer"}:${cashConfirmationRecipient}`, recipientUserId: cashConfirmationRecipient, destinationPath: requestDetailsHref(request.id) });
   } else if (input.nextStatus === "usdt_release_pending") {
     if (isCashTrade) {
       throw new TradeBlockedError("cash-release-stage-not-allowed", "Cash trades move directly from funds confirmation to USDT sent.", request.id, {
@@ -14506,7 +14628,7 @@ async function updatePurchaseRequestStatusAttempt(
       title: "Seller marked USDT sent",
       message: isCashTrade
         ? "The seller marked USDT as sent and will complete the cash trade. Check your receiving wallet."
-        : "Seller marked USDT as sent and can complete the trade. Check your receiving wallet; you may also confirm receipt.",
+        : "Seller marked USDT as sent and will complete the trade. Check your receiving wallet.",
       relatedTradeId: next.tradeId,
       relatedListingId: request.listingId,
       relatedHref: requestDetailsHref(request.id),
@@ -14549,7 +14671,7 @@ async function updatePurchaseRequestStatusAttempt(
       next.usdtSentAt = now;
       appendTradeTimelineEntry(next, { type: "usdt_sent", actorUserId: input.actorUserId, actorRole, message: "Seller marked USDT sent", createdAt: now });
     }
-    const completionActorLabel = isAdminCompletion ? "Admin" : isSeller ? "Seller" : "Buyer";
+    const completionActorLabel = isAdminCompletion ? "Admin" : "Seller";
     const cashTradeLabel = isAtmTrade ? "Cardless ATM" : "Face-to-Face";
     const cashExchangeLabel = isAtmTrade ? "cash and USDT exchange" : "in-person exchange";
     const completionTitle = isAdminCompletion ? "Trade completed by admin" : isCashTradeCompletion ? `${cashTradeLabel} trade completed` : "Trade completed";
@@ -14557,7 +14679,7 @@ async function updatePurchaseRequestStatusAttempt(
       ? "Admin force-completed this trade."
       : isCashTradeCompletion
       ? `${completionActorLabel} marked the ${cashTradeLabel} trade complete.`
-      : isSellerCompletion ? "Seller confirmed trade completed" : "Buyer confirmed trade completed";
+      : "Seller confirmed trade completed";
     next.completedAt = now;
     appendTradeTimelineEntry(next, { type: "trade_completed", actorUserId: input.actorUserId, actorRole, message: completionMessage, createdAt: now });
     next.lockedAt = now;
@@ -14572,9 +14694,7 @@ async function updatePurchaseRequestStatusAttempt(
         ? "Admin confirmed this trade as completed. The trade has moved to history and review, and the seller commission is due."
         : isCashTradeCompletion
         ? `${completionActorLabel} marked the ${cashTradeLabel} trade complete. The trade has moved to history and review, and the seller commission is due.`
-        : isSellerCompletion
-          ? "Seller confirmed USDT delivery and completed the trade. The trade has moved to history and review, and the seller commission is due."
-          : "Buyer confirmed USDT receipt. The trade is complete and has moved to history.",
+        : "Seller confirmed USDT delivery and completed the trade. The trade has moved to history and review, and the seller commission is due.",
       createdAt: now,
     });
 
@@ -14631,16 +14751,17 @@ async function updatePurchaseRequestStatusAttempt(
     let commission = db.commissionRecords.find((record) => record.purchaseRequestId === request.id);
     if (!commission) {
       const normalizedGross = toNumber(next.fiatAmount);
+      const preciseCommission = next.commissionCalculationVersion === COMMISSION_CALCULATION_VERSION;
       const sellerFeeAmount = isQaCommissionModeEnabled()
         ? (next.feePolicyVersion === MARKETPLACE_FEE_CUTOVER_VERSION ? 0.5 : 1)
-        : calculateSellerCommissionAmount(next.usdtAmount);
+        : preciseCommission ? calculateSellerCommissionAmount(next.usdtAmount) : calculateLegacySellerCommissionAmount(next.usdtAmount);
       const hasBuyerFee = next.feePolicyVersion === MARKETPLACE_FEE_CUTOVER_VERSION;
       const buyerFeeCollectedAmount = hasBuyerFee
-        ? (isQaCommissionModeEnabled() ? 0.5 : calculateBuyerCommissionAmount(next.usdtAmount))
+        ? (isQaCommissionModeEnabled() ? 0.5 : preciseCommission ? calculateBuyerCommissionAmount(next.usdtAmount) : calculateLegacySellerCommissionAmount(next.usdtAmount))
         : 0;
       const commissionAmount = isQaCommissionModeEnabled()
         ? 1
-        : hasBuyerFee ? calculateSellerTotalAlphaDue(next.usdtAmount) : sellerFeeAmount;
+        : hasBuyerFee ? (preciseCommission ? calculateSellerTotalAlphaDue(next.usdtAmount) : calculateLegacySellerTotalAlphaDue(next.usdtAmount)) : sellerFeeAmount;
       if (sellerFeeAmount === null || buyerFeeCollectedAmount === null || commissionAmount === null) {
         throw new Error("Unable to calculate marketplace fees.");
       }
@@ -14655,6 +14776,7 @@ async function updatePurchaseRequestStatusAttempt(
         rate: COMMISSION_RATE,
         grossAmount: normalizedGross,
         feePolicyVersion: hasBuyerFee ? MARKETPLACE_FEE_CUTOVER_VERSION : undefined,
+        commissionCalculationVersion: next.commissionCalculationVersion,
         sellerFeeAmount,
         buyerFeeCollectedAmount,
         commissionAmount,
@@ -14671,13 +14793,13 @@ async function updatePurchaseRequestStatusAttempt(
         type: "commission_recorded",
         actorUserId: input.actorUserId,
         actorRole,
-        message: hasBuyerFee ? `Alpha fees created: seller 1% (${sellerFeeAmount.toFixed(2)} USDT) + buyer 1% collected by seller (${buyerFeeCollectedAmount.toFixed(2)} USDT); total due ${commission.commissionAmount.toFixed(2)} USDT.` : `Seller fee (1%): ${sellerFeeAmount.toFixed(2)} USDT.`,
+        message: hasBuyerFee ? `Alpha fees created: seller 1% (${formatCommissionAmount(sellerFeeAmount)} USDT) + buyer 1% collected by seller (${formatCommissionAmount(buyerFeeCollectedAmount)} USDT); total due ${formatCommissionAmount(commission.commissionAmount)} USDT.` : `Seller fee (1%): ${formatCommissionAmount(sellerFeeAmount)} USDT.`,
         createdAt: now,
       });
       appendSystemTradeMessage(db, next, {
         senderUserId: input.actorUserId,
         senderRole: actorRole,
-        message: hasBuyerFee ? `Total due to Alpha is ${commission.commissionAmount.toFixed(2)} USDT. Your own seller fee is ${sellerFeeAmount.toFixed(2)} USDT (1%); ${buyerFeeCollectedAmount.toFixed(2)} USDT (1%) is the buyer share included in the agreed payment. You owe the full 2% even if you failed to collect the buyer share; any shortfall is your responsibility.` : `Your seller fee (1%) is ${sellerFeeAmount.toFixed(2)} USDT.`,
+        message: hasBuyerFee ? `Total due to Alpha is ${formatCommissionAmount(commission.commissionAmount)} USDT. Your own seller fee is ${formatCommissionAmount(sellerFeeAmount)} USDT (1%); ${formatCommissionAmount(buyerFeeCollectedAmount)} USDT (1%) is the buyer share included in the agreed payment. You owe the full 2% even if you failed to collect the buyer share; any shortfall is your responsibility.` : `Your seller fee (1%) is ${formatCommissionAmount(sellerFeeAmount)} USDT.`,
         createdAt: now,
       });
       await appendAuditLog(db, {
@@ -14735,9 +14857,7 @@ async function updatePurchaseRequestStatusAttempt(
         ? "An admin confirmed this trade as complete. Check your commission due."
         : isCashTradeCompletion
         ? `${completionActorLabel} marked the ${cashExchangeLabel} complete. The trade is in review; check your commission due.`
-        : isSellerCompletion
-          ? "You completed the trade. Check your commission due."
-          : `Buyer confirmed receipt. The trade is complete. Check your commission due.`,
+        : "You completed the trade. Check your commission due.",
       relatedTradeId: next.tradeId,
       relatedRequestId: request.id,
       relatedListingId: request.listingId,
@@ -14753,8 +14873,8 @@ async function updatePurchaseRequestStatusAttempt(
         category: "trade",
         title: "Commission payment required",
         message: commission.feePolicyVersion === MARKETPLACE_FEE_CUTOVER_VERSION
-          ? `Your seller fee (1%): ${commission.sellerFeeAmount?.toFixed(2)} USDT. Buyer share (1%): ${commission.buyerFeeCollectedAmount?.toFixed(2)} USDT. You must cover any uncollected buyer share. Pay both fees: ${commission.commissionAmount.toFixed(2)} USDT base amount. Open payment instructions for the exact transfer amount.`
-          : `Pay ${commission.commissionAmount.toFixed(2)} USDT commission before accepting, publishing, renewing, or starting another trade.`,
+          ? `Your seller fee (1%): ${formatCommissionAmount(commission.sellerFeeAmount ?? 0)} USDT. Buyer share (1%): ${formatCommissionAmount(commission.buyerFeeCollectedAmount ?? 0)} USDT. You must cover any uncollected buyer share. Pay both fees: ${formatCommissionAmount(commission.commissionAmount)} USDT base amount. Open payment instructions for the exact transfer amount.`
+          : `Pay ${formatCommissionAmount(commission.commissionAmount)} USDT commission before accepting, publishing, renewing, or starting another trade.`,
         relatedTradeId: next.tradeId,
         relatedRequestId: request.id,
         relatedListingId: request.listingId,
@@ -14770,7 +14890,7 @@ async function updatePurchaseRequestStatusAttempt(
           userId: adminUser.id,
           category: "trade",
           title: "Seller commission created",
-          message: `${completedTradeSeller?.fullName?.trim() || "A seller"} owes ${commission.commissionAmount.toFixed(2)} USDT commission for the completed trade.`,
+          message: `${completedTradeSeller?.fullName?.trim() || "A seller"} owes ${formatCommissionAmount(commission.commissionAmount)} USDT commission for the completed trade.`,
           relatedTradeId: next.tradeId,
           relatedRequestId: request.id,
           relatedListingId: request.listingId,
@@ -14854,14 +14974,11 @@ async function updatePurchaseRequestStatusAttempt(
     });
   }
   const shouldRecalculateTrust = input.nextStatus === "completed" || input.nextStatus === "declined" || input.nextStatus === "cancelled";
-  const beforeTrustMs = Date.now();
   if (shouldRecalculateTrust) {
-    await recalculateTrustEngine(db, {
-      reason: input.nextStatus === "completed" ? "Trade completed" : "Trade lifecycle updated",
-      triggeredBy: input.actorUserId,
-    });
+    next.trustReconciliation = { requestedAt: now, requestedByUserId: input.actorUserId };
   }
-  const trustMs = Date.now() - beforeTrustMs;
+  // Trust work is durable and runs after this commit from canonical records.
+  const trustMs = 0;
 
   if (debugTradeRoom && isUsdtSentTrace) {
     console.log("[usdt-sent-trace] before DB write", { traceId: input.traceId ?? null, requestId: input.requestId });
@@ -14872,11 +14989,19 @@ async function updatePurchaseRequestStatusAttempt(
     actorUserId: input.actorUserId,
     nextStatus: input.nextStatus,
   });
-  // For trust-affecting transitions, write only the core trade tables synchronously so the
-  // response returns quickly (≤5s target). Trust-related tables (user profiles, snapshots,
-  // activity logs) are written in a deferred task via after() in the route handler.
+  // Commit financial state and its durable follow-up together. Trust calculation
+  // and publication are recovered by maintenance if the after() task is lost.
+  const persist = async (snapshot: AlphaExchangeDb, options: NonNullable<Parameters<typeof writeDb>[1]>) => {
+    if (!transaction) return writeDb(snapshot, options);
+    const normalized = normalizeDb(snapshot);
+    ensureDisplayNumbers(normalized);
+    await transaction.commit(normalized, { selectedTables: options.selectedTables!, validateBeforeCommit: options.validateBeforeCommit });
+    Object.assign(snapshot, normalized);
+    dbCache = null;
+    dbReadInFlight = null;
+  };
   try {
-    await writeDb(db, {
+    await persist(db, {
       traceTag: debugTradeRoom && isUsdtSentTrace ? input.traceId : undefined,
       selectedTables: isOwnerCompletion ? [...TRADE_COMPLETION_CORE_TABLES, "disputes"] : shouldRecalculateTrust ? TRADE_COMPLETION_CORE_TABLES : TRADE_STATUS_BASE_TABLES,
       cacheResult: statusRead.fromFullCache,
@@ -14983,20 +15108,17 @@ async function updatePurchaseRequestStatusAttempt(
         : undefined,
     });
   } catch (error) {
-    if (error instanceof ConcurrentTradeMutationError && concurrencyRetryCount < 2) {
+    if (!transaction && error instanceof ConcurrentTradeMutationError && concurrencyRetryCount < 2) {
       return updatePurchaseRequestStatusAttempt(input, concurrencyRetryCount + 1);
     }
-    if (error instanceof ConcurrentTradeMutationError) {
-      throw new TradeBlockedError(
-        "concurrent-status-change",
-        "This trade changed while your action was being saved. Refresh the Trade Room and try again.",
-        input.requestId,
-        { guard: "canonical-transition-retry", nextStatus: input.nextStatus },
-      );
+    if (!transaction && error instanceof ConcurrentTradeMutationError) {
+      return updatePurchaseRequestStatusAttempt(input, concurrencyRetryCount + 1, true);
     }
     throw error;
   }
   const writeDbMs = Date.now() - beforeWriteMs;
+  tradeMutationPublications.delete(db);
+  pendingPublications.notifications.forEach(publishNotificationPublication);
   await dispatchCommittedSms(db, priorSmsCount);
   logLocalMarketplaceDiagnostic("info", "[trade-consistency] mutation commit-complete", {
     requestId: input.requestId,
@@ -15049,6 +15171,7 @@ async function updatePurchaseRequestStatusAttempt(
       },
     });
   }
+  let deferredTrustTask: Promise<void> | undefined;
   return {
     request: enriched,
     statusChanged: true,
@@ -15056,9 +15179,9 @@ async function updatePurchaseRequestStatusAttempt(
     // When trust was recalculated, return a deferred task that writes the trust tables.
     // The route handler runs this via after() so the HTTP response is sent first.
     deferredTrustWrite: shouldRecalculateTrust
-      ? async () => {
-          await writeDb(db, { selectedTables: TRADE_COMPLETION_TRUST_TABLES });
-        }
+      ? () => deferredTrustTask ??= (async () => {
+          await reconcilePendingTradeTrust();
+        })()
       : undefined,
     metrics: {
       readDbMs,
@@ -15104,7 +15227,9 @@ export async function issueSellerCommissionByAdmin(input: {
   commissionAmount: number;
   reason: string;
   dueAt?: string;
+  clientOperationId: string;
 }) {
+  const operationId = requireManualCommissionOperationId(input.clientOperationId);
   const sellerId = input.sellerId.trim();
   const reason = input.reason.trim();
   const amountInput = Number(input.commissionAmount);
@@ -15124,13 +15249,12 @@ export async function issueSellerCommissionByAdmin(input: {
   if (input.dueAt?.trim()) {
     const parsedDueAt = new Date(input.dueAt);
     if (!Number.isFinite(parsedDueAt.getTime())) throw new Error("Commission due date is invalid.");
-    if (parsedDueAt.getTime() <= new Date(createdAt).getTime()) {
-      throw new Error("Commission due date must be in the future.");
-    }
     dueAt = parsedDueAt.toISOString();
   }
 
-  const commissionId = `commission-${randomUUID()}`;
+  const commissionId = `commission-${createHash("sha256").update(JSON.stringify([input.actorUserId, operationId])).digest("hex")}`;
+  const requestHash = createHash("sha256").update(JSON.stringify({ sellerId, commissionAmount, reason,
+    requestedDueAt: input.dueAt?.trim() ? dueAt : null })).digest("hex");
   type AssignmentResult = {
     commission: CommissionRecord;
     notificationPublications: DeferredNotificationPublication[];
@@ -15151,14 +15275,21 @@ export async function issueSellerCommissionByAdmin(input: {
 
     const existing = snapshot.commissionRecords.find((record) => record.id === commissionId);
     if (existing) {
+      if (existing.source !== "admin_manual" || existing.issuedByUserId !== input.actorUserId
+        || existing.issueOperationId !== operationId || existing.issueRequestHash !== requestHash) {
+        throw new TradeBlockedError("manual-commission-operation-conflict", "This operation already issued a different commission. Refresh the owner dashboard before continuing.");
+      }
       // A repository retry may replay this closure after the record and its
       // notification were already built. Keep the deferred publication so a
       // successful commit still wakes the seller's open workspace.
       const notificationPublications = committed?.commission.id === existing.id
-        ? committed.notificationPublications
+        ? committed.notificationPublications.filter(publication => snapshot.notifications.some(row => row.id === publication.notification.id))
         : [];
       committed = { commission: existing, notificationPublications };
       return snapshot;
+    }
+    if (new Date(dueAt).getTime() <= new Date(createdAt).getTime()) {
+      throw new Error("Commission due date must be in the future.");
     }
 
     const commission: CommissionRecord = {
@@ -15166,6 +15297,8 @@ export async function issueSellerCommissionByAdmin(input: {
       source: "admin_manual",
       sellerId,
       issuedByUserId: input.actorUserId,
+      issueOperationId: operationId,
+      issueRequestHash: requestHash,
       issueReason: reason,
       rate: 0,
       grossAmount: 0,
@@ -15459,14 +15592,14 @@ async function verifyEvmUsdtPaymentViaRpc(input: {
     return {
       verified: false,
       reference: txHash,
-      notes: `Insufficient payment. Received ${amountReceived.toFixed(2)} ${tokenMeta.symbol} on ${networkLabel}, but ${input.amountDueUsdt.toFixed(2)} USD is required.`,
+      notes: `Insufficient payment. Received ${formatCommissionAmount(amountReceived)} ${tokenMeta.symbol} on ${networkLabel}, but ${formatCommissionAmount(input.amountDueUsdt)} USD is required.`,
     };
   }
   logLocalMarketplaceDiagnostic("info", "[commission-verify] rpc-verified", {
     network: input.network, txHash, rpcUrl,
     token: tokenMeta.symbol, amountReceived, confirmations,
   });
-  return { verified: true, reference: txHash, notes: `Verified: ${amountReceived.toFixed(2)} ${tokenMeta.symbol} received on ${networkLabel}.` };
+  return { verified: true, reference: txHash, notes: `Verified: ${formatCommissionAmount(amountReceived)} ${tokenMeta.symbol} received on ${networkLabel}.` };
 }
 
 async function verifyEvmUsdtPayment(input: {
@@ -15658,10 +15791,10 @@ async function verifyEvmUsdtPayment(input: {
     const amountReceived = Number(BigInt(transferLog.data)) / Math.pow(10, tokenMeta.decimals);
     if (amountReceived + 0.000001 < input.amountDueUsdt) {
       logLocalMarketplaceDiagnostic("info", "[commission-verify] evm-insufficient-amount", { network: input.network, txHash: input.txHash, token: tokenMeta.symbol, amountReceived, amountDueUsdt: input.amountDueUsdt });
-      return { verified: false, reference: input.txHash, notes: `Insufficient payment. Received ${amountReceived.toFixed(2)} ${tokenMeta.symbol} on ${networkLabel}, but ${input.amountDueUsdt.toFixed(2)} USD is required.` };
+      return { verified: false, reference: input.txHash, notes: `Insufficient payment. Received ${formatCommissionAmount(amountReceived)} ${tokenMeta.symbol} on ${networkLabel}, but ${formatCommissionAmount(input.amountDueUsdt)} USD is required.` };
     }
     logLocalMarketplaceDiagnostic("info", "[commission-verify] evm-verified", { network: input.network, txHash: input.txHash, token: tokenMeta.symbol, amountReceived, confirmations, via: "explorer" });
-    return { verified: true, reference: input.txHash, notes: `Verified: ${amountReceived.toFixed(2)} ${tokenMeta.symbol} received on ${networkLabel}.` };
+    return { verified: true, reference: input.txHash, notes: `Verified: ${formatCommissionAmount(amountReceived)} ${tokenMeta.symbol} received on ${networkLabel}.` };
   } catch (explorerError) {
     primaryError = explorerError instanceof Error ? explorerError.message : String(explorerError);
     logLocalMarketplaceDiagnostic("warn", "[commission-verify] evm-explorer-failed-trying-rpc", { network: input.network, txHash: input.txHash, error: primaryError });
@@ -15852,7 +15985,7 @@ async function verifyTronUsdtPayment(input: {
   return {
     verified: true,
     reference: input.txHash,
-    notes: `Verified: ${amountReceived.toFixed(2)} USDT received on TRON (TRC20).`,
+    notes: `Verified: ${formatCommissionAmount(amountReceived)} USDT received on TRON (TRC20).`,
   };
 }
 
@@ -15948,7 +16081,7 @@ async function verifySolanaUsdtPayment(input: {
     return {
       verified: false,
       reference: input.txHash,
-      notes: `Insufficient payment. Received ${received.toFixed(2)} USDT on Solana, but ${input.amountDueUsdt.toFixed(2)} USDT is required.`,
+      notes: `Insufficient payment. Received ${formatCommissionAmount(received)} USDT on Solana, but ${formatCommissionAmount(input.amountDueUsdt)} USDT is required.`,
     };
   }
 
@@ -15956,7 +16089,7 @@ async function verifySolanaUsdtPayment(input: {
     amountReceived: received,
     recipientWalletAddress: input.recipientWalletAddress,
   });
-  return { verified: true, reference: input.txHash, notes: `Verified: ${received.toFixed(2)} USDT received on Solana.` };
+  return { verified: true, reference: input.txHash, notes: `Verified: ${formatCommissionAmount(received)} USDT received on Solana.` };
 }
 
 /**
@@ -15979,6 +16112,7 @@ async function verifyCommissionWalletPayment(input: {
   existingSignatures?: string[];
   earliestPaymentTimestampMs?: number;
   allowLegacyTronOverpayment?: boolean;
+  observedDepositTimestamp?: number;
 }): Promise<CommissionWalletVerificationResult> {
   const normalizedHash = normalizeTransactionHash(input.paymentSignature);
   const txHash = input.network === "TRC20" && /^0x/i.test(normalizedHash)
@@ -15996,6 +16130,7 @@ async function verifyCommissionWalletPayment(input: {
     return verifyBinanceInternalCommissionDeposit({
       signature: txHash, network: input.network, recipient: input.recipientWalletAddress,
       amount: input.amountDue, earliestTimestamp: input.earliestPaymentTimestampMs ?? Number.NaN,
+      depositTimestamp: input.observedDepositTimestamp,
     });
   }
 
@@ -16084,6 +16219,7 @@ export async function submitSellerCommissionWalletPayment(input: {
   paymentSignature: string;
   network: string;
   automaticReverification?: boolean;
+  observedDepositTimestamp?: number;
 }) {
   const startedAt = Date.now();
   const dbReadStartedAt = Date.now();
@@ -16179,6 +16315,7 @@ export async function submitSellerCommissionWalletPayment(input: {
     existingSignatures,
     earliestPaymentTimestampMs,
     allowLegacyTronOverpayment: current.paymentExpectedAmountMode === "legacy_base",
+    observedDepositTimestamp: input.observedDepositTimestamp,
   });
   const submittedPaymentAgeMs = Date.now() - new Date(paymentSubmittedAt).getTime();
   if (
@@ -16513,7 +16650,7 @@ export async function clearSellerQaCommissionDues(input: {
           type: "commission_paid",
           actorUserId: input.sellerUserId,
           actorRole: resolveActorRole(snapshot, input.sellerUserId),
-          message: `QA commission cleanup cleared ${amountDueUsdt.toFixed(2)} USDT.`,
+          message: `QA commission cleanup cleared ${formatCommissionAmount(amountDueUsdt)} USDT.`,
           createdAt: now,
         });
       }
@@ -16578,7 +16715,7 @@ export async function clearSellerCommissionDuesByAdmin(input: {
           type: "commission_paid",
           actorUserId: input.adminUserId,
           actorRole: resolveActorRole(snapshot, input.adminUserId),
-          message: `Admin cleared ${amountDueUsdt.toFixed(2)} USDT commission.`,
+          message: `Admin cleared ${formatCommissionAmount(amountDueUsdt)} USDT commission.`,
           createdAt: now,
         });
         committedRequests.push(request);
@@ -16701,7 +16838,7 @@ export async function updateCommissionPaymentStatus(input: {
           type: "commission_paid",
           actorUserId: input.actorUserId,
           actorRole: resolveActorRole(snapshot, input.actorUserId),
-          message: `Commission marked paid (${amountDueUsdt.toFixed(2)} USDT).`,
+          message: `Commission marked paid (${formatCommissionAmount(amountDueUsdt)} USDT).`,
           createdAt: now,
         });
       }
@@ -17474,9 +17611,9 @@ export async function getOwnerBusinessDashboardForAdmin(dbInput?: AlphaExchangeD
       responseTimeMinutes: Number(snapshot.responseTimeMinutes.toFixed(2)),
     }));
 
-  const todayCommission = db.commissionRecords.filter((record) => isToday(record.createdAt)).reduce((sum, record) => sum + record.commissionAmount, 0);
-  const weekCommission = db.commissionRecords.filter((record) => isThisWeek(record.createdAt)).reduce((sum, record) => sum + record.commissionAmount, 0);
-  const monthCommission = db.commissionRecords.filter((record) => isThisMonth(record.createdAt)).reduce((sum, record) => sum + record.commissionAmount, 0);
+  const todayCommission = sumCommissionAmounts(db.commissionRecords.filter((record) => isToday(record.createdAt)).map(record => record.commissionAmount));
+  const weekCommission = sumCommissionAmounts(db.commissionRecords.filter((record) => isThisWeek(record.createdAt)).map(record => record.commissionAmount));
+  const monthCommission = sumCommissionAmounts(db.commissionRecords.filter((record) => isThisMonth(record.createdAt)).map(record => record.commissionAmount));
 
   const liveActivity = [
     ...db.sellerApplications
@@ -17538,7 +17675,7 @@ export async function getOwnerBusinessDashboardForAdmin(dbInput?: AlphaExchangeD
     today: {
       completedTrades: completedToday.length,
       tradeVolumeUsdt: Number(completedToday.reduce((sum, request) => sum + toNumber(request.usdtAmount), 0).toFixed(2)),
-      estimatedCommission: Number(todayCommission.toFixed(2)),
+      estimatedCommission: todayCommission,
       newBuyers: db.users.filter((user) => hasRole(user, "buyer") && isToday(user.createdAt)).length,
       newSellers: db.sellerApplications.filter((application) => application.status === "approved" && isToday(application.updatedAt)).length,
       newListings: db.marketplaceListings.filter((listing) => isToday(listing.createdAt)).length,
@@ -17556,7 +17693,7 @@ export async function getOwnerBusinessDashboardForAdmin(dbInput?: AlphaExchangeD
     },
     thisWeek: {
       tradeVolumeUsdt: Number(completedThisWeek.reduce((sum, request) => sum + toNumber(request.usdtAmount), 0).toFixed(2)),
-      revenue: Number(weekCommission.toFixed(2)),
+      revenue: weekCommission,
       topSeller: topSellerId ? sellerName(topSellerId) : "No seller activity yet",
       fastestGrowingSeller: fastestGrowingSellerId ? sellerName(fastestGrowingSellerId) : "No trust growth yet",
       highestTrustScoreIncrease:
@@ -17586,9 +17723,9 @@ export async function getOwnerBusinessDashboardForAdmin(dbInput?: AlphaExchangeD
       listingsWaitingApproval: db.marketplaceListings.filter((listing) => isListingPendingApproval(listing)).length,
     },
     financialOverview: {
-      estimatedCommissionToday: Number(todayCommission.toFixed(2)),
-      estimatedCommissionThisWeek: Number(weekCommission.toFixed(2)),
-      estimatedCommissionThisMonth: Number(monthCommission.toFixed(2)),
+      estimatedCommissionToday: todayCommission,
+      estimatedCommissionThisWeek: weekCommission,
+      estimatedCommissionThisMonth: monthCommission,
       largestTradeUsdt: Number(toNumber(largestTrade?.usdtAmount).toFixed(2)),
       largestTradeId: largestTrade?.tradeId ?? largestTrade?.id ?? "N/A",
       largestSeller: largestSellerId ? sellerName(largestSellerId) : "N/A",
@@ -17890,41 +18027,42 @@ export async function updateMarketplacePriceAlert(userId: string, value: Marketp
 export async function updateNotificationPreferences(
   input: { userId: string; preferences: Partial<NotificationPreferences> },
 ) {
-  const db = await readDb();
-  const index = db.users.findIndex((user) => user.id === input.userId);
-  if (index === -1) throw new Error("User not found.");
-  if (input.preferences.sms === true && !hasVerifiedPhoneForSms(db.users[index])) {
-    throw new Error("Verify a phone number before enabling SMS notifications.");
-  }
-  const current = normalizeNotificationPreferences(db.users[index].notificationPreferences);
-  const next = normalizeNotificationPreferences({
-    ...current,
-    inApp: typeof input.preferences.inApp === "boolean" ? input.preferences.inApp : current.inApp,
-    email: typeof input.preferences.email === "boolean" ? input.preferences.email : current.email,
-    sms: typeof input.preferences.sms === "boolean" ? input.preferences.sms : current.sms,
-    browserPush: typeof input.preferences.browserPush === "boolean" ? input.preferences.browserPush : current.browserPush,
-    browserPushTradeUpdates: typeof input.preferences.browserPushTradeUpdates === "boolean" ? input.preferences.browserPushTradeUpdates : current.browserPushTradeUpdates,
-    browserPushChatMessages: typeof input.preferences.browserPushChatMessages === "boolean" ? input.preferences.browserPushChatMessages : current.browserPushChatMessages,
-    browserPushListings: typeof input.preferences.browserPushListings === "boolean" ? input.preferences.browserPushListings : current.browserPushListings,
-    browserPushFeedback: typeof input.preferences.browserPushFeedback === "boolean" ? input.preferences.browserPushFeedback : current.browserPushFeedback,
-    browserPushAdminAlerts: typeof input.preferences.browserPushAdminAlerts === "boolean" ? input.preferences.browserPushAdminAlerts : current.browserPushAdminAlerts,
-    browserPushPromptDismissedAt: input.preferences.browserPushPromptDismissedAt ?? current.browserPushPromptDismissedAt,
-    browserPushPermissionState: input.preferences.browserPushPermissionState ?? current.browserPushPermissionState,
-    browserPushSubscriptionHash: input.preferences.browserPushSubscriptionHash ?? current.browserPushSubscriptionHash,
+  return mutateCanonicalAccountRecords([...AUTH_USER_READ_TABLES, "activity_logs"], NOTIFICATION_PREFERENCES_TABLES, db => {
+    const index = db.users.findIndex((user) => user.id === input.userId);
+    if (index === -1) throw new Error("User not found.");
+    if (db.users[index].disabled) throw new Error("Account access is restricted.");
+    if (input.preferences.sms === true && !hasVerifiedPhoneForSms(db.users[index])) {
+      throw new Error("Verify a phone number before enabling SMS notifications.");
+    }
+    const current = normalizeNotificationPreferences(db.users[index].notificationPreferences);
+    const next = normalizeNotificationPreferences({
+      ...current,
+      inApp: typeof input.preferences.inApp === "boolean" ? input.preferences.inApp : current.inApp,
+      email: typeof input.preferences.email === "boolean" ? input.preferences.email : current.email,
+      sms: typeof input.preferences.sms === "boolean" ? input.preferences.sms : current.sms,
+      browserPush: typeof input.preferences.browserPush === "boolean" ? input.preferences.browserPush : current.browserPush,
+      browserPushTradeUpdates: typeof input.preferences.browserPushTradeUpdates === "boolean" ? input.preferences.browserPushTradeUpdates : current.browserPushTradeUpdates,
+      browserPushChatMessages: typeof input.preferences.browserPushChatMessages === "boolean" ? input.preferences.browserPushChatMessages : current.browserPushChatMessages,
+      browserPushListings: typeof input.preferences.browserPushListings === "boolean" ? input.preferences.browserPushListings : current.browserPushListings,
+      browserPushFeedback: typeof input.preferences.browserPushFeedback === "boolean" ? input.preferences.browserPushFeedback : current.browserPushFeedback,
+      browserPushAdminAlerts: typeof input.preferences.browserPushAdminAlerts === "boolean" ? input.preferences.browserPushAdminAlerts : current.browserPushAdminAlerts,
+      browserPushPromptDismissedAt: input.preferences.browserPushPromptDismissedAt ?? current.browserPushPromptDismissedAt,
+      browserPushPermissionState: input.preferences.browserPushPermissionState ?? current.browserPushPermissionState,
+      browserPushSubscriptionHash: input.preferences.browserPushSubscriptionHash ?? current.browserPushSubscriptionHash,
+    });
+    db.users[index] = {
+      ...db.users[index],
+      notificationPreferences: next,
+      updatedAt: nowIso(),
+    };
+    pushActivityLog(db, {
+      userId: input.userId,
+      category: "account",
+      title: "Notification preferences updated",
+      details: `inApp=${next.inApp}, email=${next.email}, sms=${next.sms}`,
+    });
+    return { changed: true, result: next };
   });
-  db.users[index] = {
-    ...db.users[index],
-    notificationPreferences: next,
-    updatedAt: nowIso(),
-  };
-  pushActivityLog(db, {
-    userId: input.userId,
-    category: "account",
-    title: "Notification preferences updated",
-    details: `inApp=${next.inApp}, email=${next.email}, sms=${next.sms}`,
-  });
-  await writeDb(db, { selectedTables: NOTIFICATION_PREFERENCES_TABLES });
-  return next;
 }
 
 export async function updateSmsDeliveryStatus(input: { deliveryId?: string; messageSid: string; status: SmsDeliveryStatus; providerStatus: string }) {
@@ -17998,6 +18136,9 @@ export async function openTradeDispute(input: {
   let notificationPublications: DeferredNotificationPublication[] = [];
 
   const applyDisputeToCanonicalSnapshot = async (snapshot: AlphaExchangeDb) => {
+    // A stale attempt can be rebased or rejected. Publish only notifications
+    // produced by the final committed attempt, including owner alerts.
+    notificationPublications = [];
     const request = snapshot.purchaseRequests.find((item) => item.id === input.purchaseRequestId);
     if (!request) throw new Error("Trade not found.");
     if (request.buyerId !== input.openedByUserId) {
@@ -18019,7 +18160,6 @@ export async function openTradeDispute(input: {
         throw new Error("An open dispute already exists for this trade.");
       }
       committed = { dispute: existingOpen, request, created: false };
-      notificationPublications = notificationPublications.filter((publication) => snapshot.notifications.some((item) => item.id === publication.notification.id));
       return snapshot;
     }
 
@@ -18048,7 +18188,7 @@ export async function openTradeDispute(input: {
     request.updatedAt = nowIsoAfter(request.updatedAt, dispute.createdAt);
 
     for (const adminUser of getAdminNotificationRecipients(snapshot)) {
-      pushNotification(snapshot, {
+      const ownerPublication = pushNotification(snapshot, {
         userId: adminUser.id,
         category: "dispute",
         title: "Dispute opened",
@@ -18059,7 +18199,9 @@ export async function openTradeDispute(input: {
         actionLabel: "Review Trade",
         priority: "critical",
         forceInApp: true,
+        deferRealtime: true,
       });
+      if (ownerPublication) notificationPublications.push(ownerPublication);
       queueSmsDelivery(snapshot, {
         eventType: "trade_requires_admin_review",
         eventKey: `trade:${request.id}:admin-review:${adminUser.id}`,
@@ -18067,7 +18209,6 @@ export async function openTradeDispute(input: {
         destinationPath: adminPurchaseRequestsDestination(request.id),
       });
     }
-    notificationPublications = [];
     const buyerPublication = pushNotification(snapshot, {
       userId: request.buyerId,
       category: "dispute",
@@ -18315,7 +18456,8 @@ export async function getAlphaExchangeSummaryForAdmin(dbInput?: AlphaExchangeDb)
     listingsCount: db.marketplaceListings.length,
     pendingRequestsCount: db.purchaseRequests.filter((item) => item.status === "pending").length,
     completedRequestsCount: db.purchaseRequests.filter((item) => item.status === "completed" || item.status === "review_open" || Boolean(item.completedAt)).length,
-    totalCommissionAmount: db.commissionRecords.reduce((acc, item) => acc + item.commissionAmount, 0),
+    // Carried balances are already part of the original fee, not new revenue.
+    totalCommissionAmount: db.commissionRecords.reduce((acc, item) => acc + (item.source === "tolerance_carry_forward" ? 0 : item.commissionAmount), 0),
   };
 }
 
@@ -18325,7 +18467,7 @@ export async function getTrustEngineOverviewForAdmin(dbInput?: AlphaExchangeDb) 
   if (trustInitialized && !dbInput) {
     await writeDb(db, { selectedTables: TRUST_INIT_TABLES });
   }
-  const snapshots = db.trustSnapshots.map((entry) => entry.snapshot);
+  const snapshots = [...computeTrustSnapshotMap(db).values()];
   const byScoreDesc = [...snapshots].sort((a, b) => b.trustScore - a.trustScore);
   const byScoreAsc = [...snapshots].sort((a, b) => a.trustScore - b.trustScore);
   const historyWindow = db.trustScoreHistory.slice(0, 500);
@@ -18343,7 +18485,7 @@ export async function getTrustEngineOverviewForAdmin(dbInput?: AlphaExchangeDb) 
   }));
 
   const flagged = snapshots
-    .filter((snapshot) => snapshot.trustScore < 55 || snapshot.marketplaceViolations > 0 || snapshot.disputesLost >= 3 || snapshot.cancellationRate >= 20)
+    .filter((snapshot) => snapshot.trustScore < 55 || snapshot.marketplaceViolations > 0 || snapshot.accountSuspended === true || snapshot.cancellationRate >= 20)
     .sort((a, b) => a.trustScore - b.trustScore)
     .slice(0, 5)
     .map((snapshot) => ({
@@ -18353,9 +18495,9 @@ export async function getTrustEngineOverviewForAdmin(dbInput?: AlphaExchangeDb) 
       level: snapshot.level,
       reason:
         snapshot.marketplaceViolations > 0
-          ? "Marketplace violations"
-          : snapshot.disputesLost >= 3
-            ? "Disputes lost"
+          ? "Active marketplace enforcement"
+          : snapshot.accountSuspended === true
+            ? "Account suspended"
             : snapshot.cancellationRate >= 20
               ? "High cancellation rate"
               : "Low trust score",
@@ -18702,80 +18844,96 @@ export async function unlockTradeReviewByAdmin(input: { requestId: string; reaso
   return updateFinishedTradeByAdmin(input, "unlock-review");
 }
 
-export async function changeUserRoleByAdmin(input: { userId: string; role: AlphaExchangeUser["role"]; reason: string; actorUserId: string }) {
-  const db = await readDb();
-  const actor = db.users.find((candidate) => candidate.id === input.actorUserId);
-  if (!actor || !hasRole(actor, "owner")) {
-    throw new Error("Owner access is required to change account roles.");
+function assertAccountAdministrationActor(db: AlphaExchangeDb, actorUserId: string, ownerOnly: boolean) {
+  const actor = db.users.find(user => user.id === actorUserId);
+  if (!actor || actor.disabled || !(hasRole(actor, "owner") || (!ownerOnly && hasRole(actor, "admin")))) {
+    throw new Error(ownerOnly ? "Owner access is required." : "Admin access is required.");
   }
+}
+
+/** Reapply only the requested account delta after a concurrent security update. */
+async function commitAccountAdministrationMutation(
+  actorUserId: string,
+  ownerOnly: boolean,
+  mutation: (snapshot: AlphaExchangeDb) => Promise<void>,
+) {
+  const tables = [...SELLER_PROFILE_STATE_TABLES, "seller_applications"] as const;
+  const db = await readDbForSelectedTables(tables);
+  const apply = async (snapshot: AlphaExchangeDb) => {
+    assertAccountAdministrationActor(snapshot, actorUserId, ownerOnly);
+    await mutation(snapshot);
+    return snapshot;
+  };
+  await apply(db);
+  await writeDb(db, {
+    selectedTables: SELLER_PROFILE_STATE_TABLES,
+    rebaseTables: tables,
+    rebaseOnLatest: apply,
+    cacheResult: false,
+  });
+}
+
+export async function changeUserRoleByAdmin(input: { userId: string; role: AlphaExchangeUser["role"]; reason: string; actorUserId: string }) {
   const reason = input.reason.trim();
   if (!reason) throw new Error("A role-change reason is required.");
-  const index = db.users.findIndex((u) => u.id === input.userId);
-  if (index === -1) throw new Error("User not found.");
-  const user = db.users[index];
-  if (hasRole(user, "owner")) throw new Error("Owner account role cannot be changed.");
-  if (input.role === "owner") {
-    throw new Error("Owner access cannot be assigned through generic role management.");
-  }
-  if (input.role === "approved_seller" || input.role === "pending_seller_approval") {
-    throw new Error("Seller access must be managed through the verified seller application workflow.");
-  }
-  if (["approved_seller", "pending_seller_approval", "suspended"].includes(user.sellerStatus)) {
-    throw new Error("Seller accounts must be managed through dedicated seller controls.");
-  }
-  const oldRole = user.role;
-  const oldRoles = user.roles ?? [user.role];
-  const nextRoles = [input.role];
-  db.users[index] = {
-    ...user,
-    role: input.role,
-    roles: nextRoles,
-    updatedAt: nowIso(),
-  };
-  await appendAuditLog(db, {
-    action: "admin_override",
-    actorUserId: input.actorUserId,
-    targetUserId: input.userId,
-    details: `User role changed from ${oldRole} to ${input.role}`,
-    oldValue: { role: oldRole, roles: oldRoles },
-    newValue: { role: input.role, roles: nextRoles },
-    reason,
+  await commitAccountAdministrationMutation(input.actorUserId, true, async db => {
+    const index = db.users.findIndex(user => user.id === input.userId);
+    if (index === -1) throw new Error("User not found.");
+    const user = db.users[index];
+    if (hasRole(user, "owner")) throw new Error("Owner account role cannot be changed.");
+    if (input.role === "owner") throw new Error("Owner access cannot be assigned through generic role management.");
+    if (input.role === "approved_seller" || input.role === "pending_seller_approval") {
+      throw new Error("Seller access must be managed through the verified seller application workflow.");
+    }
+    if (["approved_seller", "pending_seller_approval", "suspended"].includes(user.sellerStatus)) {
+      throw new Error("Seller accounts must be managed through dedicated seller controls.");
+    }
+    const oldRole = user.role;
+    const oldRoles = user.roles ?? [user.role];
+    const nextRoles = [input.role];
+    db.users[index] = { ...user, role: input.role, roles: nextRoles, updatedAt: nowIsoAfter(user.updatedAt) };
+    await appendAuditLog(db, {
+      action: "admin_override", actorUserId: input.actorUserId, targetUserId: input.userId,
+      details: `User role changed from ${oldRole} to ${input.role}`,
+      oldValue: { role: oldRole, roles: oldRoles }, newValue: { role: input.role, roles: nextRoles }, reason,
+    });
   });
-  await writeDb(db, { selectedTables: SELLER_PROFILE_STATE_TABLES });
 }
 
 export async function disableUserAccountByAdmin(input: { userId: string; disabled: boolean; reason: string; actorUserId: string }) {
-  const db = await readDb();
-  const index = db.users.findIndex((u) => u.id === input.userId);
-  if (index === -1) throw new Error("User not found.");
-  const user = db.users[index];
-  if (hasRole(user, "owner")) throw new Error("Owner account cannot be disabled.");
-  db.users[index] = { ...user, disabled: input.disabled, updatedAt: nowIso() };
-  await appendAuditLog(db, {
-    action: "admin_override",
-    actorUserId: input.actorUserId,
-    targetUserId: input.userId,
-    details: `User account ${input.disabled ? "disabled" : "enabled"}`,
-    reason: input.reason,
+  if (typeof input.disabled !== "boolean") throw new Error("Disabled must be a boolean.");
+  const reason = input.reason.trim();
+  if (!reason) throw new Error("Reason is required.");
+  await commitAccountAdministrationMutation(input.actorUserId, true, async db => {
+    const index = db.users.findIndex(user => user.id === input.userId);
+    if (index === -1) throw new Error("User not found.");
+    const user = db.users[index];
+    if (hasRole(user, "owner")) throw new Error("Owner account cannot be disabled.");
+    db.users[index] = { ...user, disabled: input.disabled, updatedAt: nowIsoAfter(user.updatedAt) };
+    await appendAuditLog(db, {
+      action: "admin_override", actorUserId: input.actorUserId, targetUserId: input.userId,
+      details: `User account ${input.disabled ? "disabled" : "enabled"}`,
+      oldValue: { disabled: user.disabled === true }, newValue: { disabled: input.disabled }, reason,
+    });
   });
-  await writeDb(db, { selectedTables: SELLER_PROFILE_STATE_TABLES });
 }
 
 export async function setSellerVacationModeByAdmin(input: { userId: string; enabled: boolean; actorUserId: string; reason?: string }) {
-  const db = await readDb();
-  const index = db.users.findIndex((u) => u.id === input.userId);
-  if (index === -1) throw new Error("User not found.");
-  const user = db.users[index];
-  const nextStatus: SellerAvailabilityStatus = input.enabled ? "vacation" : "available";
-  db.users[index] = { ...user, availabilityStatus: nextStatus, updatedAt: nowIso() };
-  await appendAuditLog(db, {
-    action: input.enabled ? "seller_vacation_enabled" : "seller_vacation_disabled",
-    actorUserId: input.actorUserId,
-    targetUserId: input.userId,
-    details: `Admin ${input.enabled ? "enabled" : "disabled"} vacation mode for seller`,
-    reason: input.reason?.trim() || undefined,
+  if (typeof input.enabled !== "boolean") throw new Error("enabled must be a boolean.");
+  await commitAccountAdministrationMutation(input.actorUserId, false, async db => {
+    const index = db.users.findIndex(user => user.id === input.userId);
+    if (index === -1) throw new Error("User not found.");
+    const user = db.users[index];
+    const nextStatus: SellerAvailabilityStatus = input.enabled ? "vacation" : "available";
+    db.users[index] = { ...user, availabilityStatus: nextStatus, updatedAt: nowIsoAfter(user.updatedAt) };
+    await appendAuditLog(db, {
+      action: input.enabled ? "seller_vacation_enabled" : "seller_vacation_disabled",
+      actorUserId: input.actorUserId, targetUserId: input.userId,
+      details: `Admin ${input.enabled ? "enabled" : "disabled"} vacation mode for seller`,
+      oldValue: { availabilityStatus: user.availabilityStatus }, newValue: { availabilityStatus: nextStatus },
+      reason: input.reason?.trim() || undefined,
+    });
   });
-  await writeDb(db, { selectedTables: SELLER_PROFILE_STATE_TABLES });
 }
 
 export async function broadcastNotificationByAdmin(input: {
@@ -18801,28 +18959,41 @@ export async function broadcastNotificationByAdmin(input: {
     throw new Error("Broadcast messages must be 2000 characters or fewer.");
   }
 
-  const db = await readDb();
-  for (const user of db.users) {
-    const userLocale = normalizePreferredLocale(user.preferredLocale);
-    pushNotification(db, {
-      userId: user.id,
-      category: "system",
-      title: userLocale === "ar" ? titleAr : titleEn,
-      message: userLocale === "ar" ? bodyAr : bodyEn,
-      titleEn,
-      messageEn: bodyEn,
-      titleAr,
-      messageAr: bodyAr,
-      priority: input.type === "warning" ? "high" : "normal",
+  const reason = input.reason?.trim();
+  if (!reason) throw new Error("Reason is required.");
+  const tables = ["users", "seller_applications", "notifications", "audit_logs"] as const;
+  const db = await readDbForSelectedTables(tables);
+  let publications: DeferredNotificationPublication[] = [];
+  const apply = async (snapshot: AlphaExchangeDb) => {
+    publications = [];
+    assertAccountAdministrationActor(snapshot, input.actorUserId, true);
+    for (const user of snapshot.users) {
+      const userLocale = normalizePreferredLocale(user.preferredLocale);
+      const publication = pushNotification(snapshot, {
+        userId: user.id,
+        category: "system",
+        title: userLocale === "ar" ? titleAr : titleEn,
+        message: userLocale === "ar" ? bodyAr : bodyEn,
+        titleEn, messageEn: bodyEn, titleAr, messageAr: bodyAr,
+        priority: input.type === "warning" ? "high" : "normal",
+        deferRealtime: true,
+      });
+      if (publication) publications.push(publication);
+    }
+    await appendAuditLog(snapshot, {
+      action: "admin_override", actorUserId: input.actorUserId,
+      details: `Broadcast notification sent: ${titleEn}`, reason,
     });
-  }
-  await appendAuditLog(db, {
-    action: "admin_override",
-    actorUserId: input.actorUserId,
-    details: `Broadcast notification sent: ${titleEn}`,
-    reason: input.reason?.trim() || undefined,
+    return snapshot;
+  };
+  await apply(db);
+  await writeDb(db, {
+    selectedTables: ["notifications", "audit_logs"],
+    rebaseTables: tables,
+    rebaseOnLatest: apply,
+    cacheResult: false,
   });
-  await writeDb(db, { selectedTables: NOTIFICATION_ONLY_TABLES });
+  for (const publication of publications) publishNotificationPublication(publication);
 }
 
 export async function reverifyCommissionByAdmin(input: { commissionId: string; actorUserId: string; reason?: string }) {

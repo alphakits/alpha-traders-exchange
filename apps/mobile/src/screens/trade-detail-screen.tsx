@@ -350,7 +350,9 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
 
   async function submitCardlessCode() {
     if (busyAction) return;
-    if (!cardlessDetails.ok) {
+    const usePreparedDetails = query.data?.trade.actions.canConfirmPreparedCardlessCode === true;
+    const submissionDetails = usePreparedDetails ? { usePreparedDetails: true as const } : cardlessDetails.ok ? cardlessDetails.details : null;
+    if (!submissionDetails) {
       setError(t("withdrawalDetailsInvalid"));
       return;
     }
@@ -360,7 +362,7 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
     setBusyAction("payment_sent");
     try {
       const response = await requestWithSession((tokens, requestLocale) =>
-        submitMobileCardlessCode(tokens, requestLocale, requestId, cardlessDetails.details, Crypto.randomUUID()));
+        submitMobileCardlessCode(tokens, requestLocale, requestId, submissionDetails, Crypto.randomUUID()));
       if (activeTradeScopeRef.current !== operationScope) return;
       setCardlessWithdrawalCode("");
       setCardlessVerificationValue("");
@@ -711,6 +713,7 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
   const actionsDisabled = busyAction !== null || trade.termsProposal?.status === "pending";
   const isFaceToFace = trade.paymentMethod === "Face-to-Face (Meet in Person)";
   const isCardlessAtm = trade.paymentMethod === "Cardless ATM Withdrawal";
+  const hasPreparedCardlessDetails = isCardlessAtm && trade.actions.canConfirmPreparedCardlessCode === true;
   const cashTradeKind = isCardlessAtm ? "cardless_atm" : isFaceToFace ? "face_to_face" : null;
 
   return (
@@ -873,7 +876,9 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
           ) : null}
           {actions.canMarkPaymentSent ? (
             <View style={styles.actionGroup}>
-              {isCardlessAtm ? (
+              {hasPreparedCardlessDetails ? (
+                <Text style={[styles.messageText, isRTL && styles.rtlText]}>{locale === "ar" ? "بيانات السحب محفوظة وخاصة. أكد إرسال الرمز لمشاركتها مع البائع. يُقفل الإلغاء بعد التأكيد." : "Your saved withdrawal details are still private. Confirm sending the code to share them with the seller. Cancellation locks after confirmation."}</Text>
+              ) : isCardlessAtm ? (
                 <>
                 <Text style={[styles.sectionTitle, isRTL && styles.rtlText]}>{t("withdrawalDetailsTitle")}</Text>
                 <Text style={[styles.messageText, isRTL && styles.rtlText]}>{t("withdrawalDetailsHint")}</Text>
@@ -913,9 +918,9 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
                 </>
               ) : null}
               <GoldButton
-                disabled={actionsDisabled || (isCardlessAtm && !cardlessDetails.ok)}
-                loading={busyAction === "payment_sent"}
-                onPress={isCardlessAtm ? confirmCardlessCode : () => confirmStatus("payment_sent", t("cashHandoverConfirmation"))}
+                disabled={actionsDisabled || (isCardlessAtm && !hasPreparedCardlessDetails && !cardlessDetails.ok)}
+                loading={busyAction === (isCardlessAtm ? "payment_sent" : "funds_received")}
+                onPress={isCardlessAtm ? confirmCardlessCode : () => confirmStatus("funds_received", t("cashHandoverConfirmation"))}
               >
                 {isCardlessAtm ? t("sendAndConfirmWithdrawalCode") : t("handedOverCash")}
               </GoldButton>

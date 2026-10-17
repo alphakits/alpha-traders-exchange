@@ -1,6 +1,7 @@
 "use client";
 
 import { fetchClientJson, runClientRequest } from "@/lib/client-request-deadline";
+import { clientResponseMessage } from "@/lib/client-response-message";
 
 
 import { brandText, currencyText } from "@/components/ui/currency-text";
@@ -92,6 +93,9 @@ export function LoginForm({
   const [isLoginSubmitting, setIsLoginSubmitting] = useState(false);
   const [isResendVerificationSubmitting, setIsResendVerificationSubmitting] = useState(false);
   const [requiresEmailVerification, setRequiresEmailVerification] = useState(false);
+  // Server HTML must not accept credentials before React can capture edits
+  // and prevent native submission. Native disabled controls also let browser
+  // automation wait for the same readiness that users need.
   const [hydrated, setHydrated] = useState(false);
   useEffect(() => {
     // Appearance only: a phone browser keeps the website layout. The installed
@@ -146,7 +150,7 @@ export function LoginForm({
     setStatusMessage(null);
     setErrorMessage(null);
     setRequiresEmailVerification(false);
-    if (isLoginSubmitting) return;
+    if (!hydrated || isLoginSubmitting) return;
     setShowPassword(false);
     setIsLoginSubmitting(true);
     beginLoginJourney();
@@ -168,13 +172,13 @@ export function LoginForm({
         });
         appendLoginJourneyServerTimeline(response.headers?.get?.("X-Auth-Login-Timeline") ?? null);
         let payload: {
-          error?: string;
+          error?: unknown;
           user?: { role?: string; roles?: string[]; sellerStatus?: string; onboardingSelection?: string; onboardingCompletedAt?: string };
           requiresEmailVerification?: boolean;
         } | null = null;
         try {
           payload = (await response.json()) as {
-            error?: string;
+            error?: unknown;
             user?: { role?: string; roles?: string[]; sellerStatus?: string; onboardingSelection?: string; onboardingCompletedAt?: string };
             requiresEmailVerification?: boolean;
           };
@@ -188,7 +192,7 @@ export function LoginForm({
         setRequiresEmailVerification(needsVerification);
         setErrorMessage(isAr
           ? (needsVerification ? "يجب تأكيد بريدك الإلكتروني قبل تسجيل الدخول." : "تعذر تسجيل الدخول. تحقق من البريد الإلكتروني وكلمة المرور.")
-          : (payload?.error ?? "Login failed."));
+          : clientResponseMessage(payload?.error, "Login failed."));
         return;
       }
 
@@ -232,19 +236,19 @@ export function LoginForm({
     if (isResendVerificationSubmitting) return;
     setIsResendVerificationSubmitting(true);
     try {
-      const { response, payload } = await fetchClientJson<{ error?: string; message?: string }>("/api/auth/verify-email/resend", {
+      const { response, payload } = await fetchClientJson<{ error?: unknown; message?: unknown } | null>("/api/auth/verify-email/resend", {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-Locale": locale },
         body: JSON.stringify({ email: form.email }),
       }, 30_000);
       if (!response.ok) {
-        setErrorMessage(isAr ? "فشل إرسال بريد التحقق." : (payload.error ?? "Failed to resend verification email."));
+        setErrorMessage(isAr ? "فشل إرسال بريد التحقق." : clientResponseMessage(payload?.error, "Failed to resend verification email."));
         return;
       }
       setStatusMessage(
         isAr
           ? "إذا كان الحساب موجودًا وغير موثق، تم إرسال رسالة تحقق جديدة."
-          : (payload.message ?? "If the account exists and is unverified, a new verification email has been sent."),
+          : clientResponseMessage(payload?.message, "If the account exists and is unverified, a new verification email has been sent."),
       );
     } catch {
       setErrorMessage(isAr ? "تعذر الاتصال بالخادم. حاول مرة أخرى." : "Unable to reach the server. Please try again.");
@@ -337,17 +341,18 @@ export function LoginForm({
               })}
             </div>
 
-            <form className={`${isNativeApp ? appStyles.form : styles.form} mt-6 grid gap-4`} onSubmit={handleLoginSubmit} data-hydrated={hydrated ? "true" : "false"}>
+            <form className={`${isNativeApp ? appStyles.form : styles.form} mt-6 grid gap-4`} method="post" onSubmit={handleLoginSubmit} data-hydrated={hydrated ? "true" : "false"} aria-busy={!hydrated || undefined}>
               <div className={`${isNativeApp ? appStyles.field : styles.field} grid gap-2`}>
                 <label htmlFor="login-email" className="text-sm text-[#B7B7B7]">{isAr ? "البريد الإلكتروني" : "Email"}</label>
-                <Input id="login-email" name="email" aria-label={isAr ? "البريد الإلكتروني" : "Email"} placeholder="you@example.com" type="email" dir="ltr" autoComplete="username" autoCapitalize="none" spellCheck={false} required disabled={isNativeApp && isLoginSubmitting} value={form.email} onChange={(event) => { editedCredentials.current = true; setForm((prev) => ({ ...prev, email: event.target.value })); }} className="h-12 rounded-2xl border-white/15 bg-black/30 text-base text-white placeholder:text-[#6B7280] focus-visible:border-[#C9A227]" />
+                <Input id="login-email" name="email" aria-label={isAr ? "البريد الإلكتروني" : "Email"} placeholder="you@example.com" type="email" dir="ltr" autoComplete="username" autoCapitalize="none" spellCheck={false} required disabled={!hydrated || (isNativeApp && isLoginSubmitting)} value={form.email} onChange={(event) => { editedCredentials.current = true; setForm((prev) => ({ ...prev, email: event.target.value })); }} className="h-12 rounded-2xl border-white/15 bg-black/30 text-base text-white placeholder:text-[#6B7280] focus-visible:border-[#C9A227]" />
               </div>
               <div className={`${isNativeApp ? appStyles.field : styles.field} grid gap-2`}>
                 <label htmlFor="login-password" className="text-sm text-[#B7B7B7]">{isAr ? "كلمة المرور" : "Password"}</label>
                 <div className="relative">
-                  <Input id="login-password" name="password" aria-label={isAr ? "كلمة المرور" : "Password"} placeholder="••••••••" type={showPassword ? "text" : "password"} dir="ltr" autoComplete="current-password" autoCapitalize="none" spellCheck={false} required disabled={isNativeApp && isLoginSubmitting} value={form.password} onChange={(event) => { editedCredentials.current = true; setForm((prev) => ({ ...prev, password: event.target.value })); }} className="h-12 rounded-2xl border-white/15 bg-black/30 pr-14 text-base text-white placeholder:text-[#6B7280] focus-visible:border-[#C9A227]" />
+                  <Input id="login-password" name="password" aria-label={isAr ? "كلمة المرور" : "Password"} placeholder="••••••••" type={showPassword ? "text" : "password"} dir="ltr" autoComplete="current-password" autoCapitalize="none" spellCheck={false} required disabled={!hydrated || (isNativeApp && isLoginSubmitting)} value={form.password} onChange={(event) => { editedCredentials.current = true; setForm((prev) => ({ ...prev, password: event.target.value })); }} className="h-12 rounded-2xl border-white/15 bg-black/30 pr-14 text-base text-white placeholder:text-[#6B7280] focus-visible:border-[#C9A227]" />
                   <button
                     type="button"
+                    disabled={!hydrated}
                     aria-label={showPassword ? (isAr ? "إخفاء كلمة المرور" : "Hide password") : (isAr ? "إظهار كلمة المرور" : "Show password")}
                     aria-pressed={showPassword}
                     aria-controls="login-password"
@@ -361,7 +366,7 @@ export function LoginForm({
               </div>
               <div className={`${isNativeApp ? appStyles.options : styles.options} flex flex-wrap items-center justify-between gap-x-3 text-sm`}>
                 <label className="inline-flex min-h-11 cursor-pointer items-center gap-2 text-[#D1D5DB]">
-                  <input name="rememberMe" type="checkbox" disabled={isNativeApp && isLoginSubmitting} checked={form.rememberMe} onChange={(event) => {
+                  <input name="rememberMe" type="checkbox" disabled={!hydrated || (isNativeApp && isLoginSubmitting)} checked={form.rememberMe} onChange={(event) => {
                     const checked = event.target.checked;
                     setForm((prev) => ({ ...prev, rememberMe: checked }));
                     try { localStorage.setItem(REMEMBER_ME_PREFERENCE, String(checked)); } catch { /* Storage is optional. */ }
@@ -378,7 +383,7 @@ export function LoginForm({
                 </Link>
               </div>
               {isNativeApp && needsRememberedLoginUpdate && form.rememberMe ? <p className="text-xs text-[#D1D5DB]" role="status">{isAr ? "حدّث التطبيق لحفظ بريدك وكلمة مرورك على هذا الهاتف." : "Update the app to remember your email and password on this phone."}</p> : null}
-              <Button type="submit" className="h-12 text-base" loading={isLoginSubmitting} loadingLabel={isAr ? "جاري تسجيل الدخول..." : "Logging in..."}>
+              <Button type="submit" disabled={!hydrated} className="h-12 text-base" loading={isLoginSubmitting} loadingLabel={isAr ? "جاري تسجيل الدخول..." : "Logging in..."}>
                 {isAr ? "تسجيل الدخول" : "Login"}
               </Button>
             </form>

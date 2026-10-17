@@ -114,8 +114,9 @@ export async function POST(request: NextRequest) {
       rawBody = await readLimitedRequestText(request, 16 * 1024);
       const contentType = request.headers.get("content-type") ?? "";
       if (authDebug) {
-        const sanitizedBodyPreview = rawBody.replace(/"password":"([^"]*)"/g, '"password":"[REDACTED]"');
-        console.error("[auth/login] body preview", { contentType, length: rawBody.length, preview: sanitizedBodyPreview.slice(0, 400) });
+        // Credentials can arrive as spaced/escaped JSON or form data. Never
+        // attempt to redact a raw body with a format-specific expression.
+        console.error("[auth/login] body received", { length: rawBody.length });
       }
       if (!rawBody.trim()) {
         body = {};
@@ -135,7 +136,8 @@ export async function POST(request: NextRequest) {
       }
       if (error instanceof SyntaxError) {
         if (authDebug) {
-          console.error("[auth/login] parse failure", { error: error.message, bodyLength: rawBody.length });
+          // SyntaxError messages may quote the malformed credential body.
+          console.error("[auth/login] parse failure", { errorName: error.name, bodyLength: rawBody.length });
         }
         return NextResponse.json({ error: "Invalid JSON body." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
       }

@@ -27,7 +27,7 @@ import { useAuthenticatedNotificationStream } from "@/components/notifications/u
 import { useOptionalCanonicalSession } from "@/components/auth/canonical-session-provider";
 import { localizeNotificationActionLabel, localizeNotificationCopy } from "@/lib/notification-localization";
 import { forwardCompletedTradesToNative, syncNotificationCountToNative } from "@/lib/native-app-bridge";
-import { isCashTradePaymentMethod } from "@/lib/marketplace-payment-methods";
+import { getTradeRoomSnapshotAction as buildTradeRoomActionForSnapshot, tradeRoomActionLabel, type TradeRoomActionSnapshot as TradeSnapshotPayload } from "@/lib/trade-room-destination";
 
 type NotificationsPayload = {
   notifications: AlphaExchangeNotification[];
@@ -40,22 +40,6 @@ const BELL_REFRESH_WINDOW_MS = 30_000;
 type NotificationsStreamPayload = {
   notifications: AlphaExchangeNotification[];
   unreadCount: number;
-};
-
-type TradeRoomRequestPayload = {
-  id: string;
-  status: string;
-  sellerId: string;
-  buyerId: string;
-  paymentMethod?: string;
-};
-
-type TradeSnapshotPayload = {
-  requestId?: string;
-  currentStage?: string;
-  sellerId?: string;
-  buyerId?: string;
-  paymentMethod?: string;
 };
 
 function notificationIcon(notification: AlphaExchangeNotification) {
@@ -86,30 +70,6 @@ function buildTradeRoomHashForAction(action: string) {
   return "action-required";
 }
 
-function buildTradeRoomActionForRequest(request: TradeRoomRequestPayload, actorUserId: string) {
-  const isSeller = request.sellerId === actorUserId;
-  const isBuyer = request.buyerId === actorUserId;
-  const cashTrade = isCashTradePaymentMethod(request.paymentMethod);
-  if (request.status === "pending" && isSeller) return "accept-trade";
-  if (request.status === "accepted" && isBuyer) return cashTrade ? "confirm-cash-payment" : "upload-payment-receipt";
-  if (request.status === "payment_sent" && isSeller) return "confirm-money-received";
-  if (request.status === "funds_received" && isSeller) return cashTrade ? "confirm-usdt-sent" : "release-usdt";
-  if (request.status === "usdt_release_pending" && isSeller) return cashTrade ? "confirm-usdt-sent" : "upload-seller-evidence";
-  if (request.status === "usdt_sent" && cashTrade && isSeller) return "complete-cash-trade";
-  if (request.status === "usdt_sent" && !cashTrade && isBuyer) return "confirm-usdt-received";
-  if ((request.status === "review_open" || request.status === "completed" || request.status === "locked") && isBuyer) return "review-trade";
-  return "open-trade";
-}
-
-function buildTradeRoomActionForSnapshot(snapshot: TradeSnapshotPayload | null | undefined, actorUserId: string) {
-  const requestId = String(snapshot?.requestId ?? "").trim();
-  const status = String(snapshot?.currentStage ?? "").trim();
-  const sellerId = String(snapshot?.sellerId ?? "").trim();
-  const buyerId = String(snapshot?.buyerId ?? "").trim();
-  if (!requestId || !status || !sellerId || !buyerId) return null;
-  return buildTradeRoomActionForRequest({ id: requestId, status, sellerId, buyerId, paymentMethod: snapshot?.paymentMethod }, actorUserId);
-}
-
 function inferTradeActionFromNotificationText(notification: AlphaExchangeNotification) {
   const text = `${notification.title} ${notification.message}`.toLowerCase();
   if (/new trade request/.test(text)) return "accept-trade";
@@ -120,7 +80,8 @@ function inferTradeActionFromNotificationText(notification: AlphaExchangeNotific
   if (/cash trade ready to complete/.test(text)) return "complete-cash-trade";
   if (/will complete the cash trade|no receipt confirmation is required/.test(text)) return "open-trade";
   if (/seller confirmed funds received|usdt release pending/.test(text)) return "upload-seller-evidence";
-  if (/seller marked usdt sent|usdt sent/.test(text)) return "confirm-usdt-received";
+  // Without a participant snapshot, the room must resolve the next action.
+  if (/seller marked usdt sent|usdt sent/.test(text)) return "open-trade";
   if (/review available|trade completed/.test(text)) return "review-trade";
   return "open-trade";
 }
@@ -540,6 +501,10 @@ function NotificationBellSession({
   }
 
   function resolveNotificationActionLabel(notification: AlphaExchangeNotification) {
+    if (isTradeNotification(notification) && !getTradeRoomConversationDestination(notification) && !getCommissionPaymentNotificationDestination(notification)) {
+      const action = buildTradeRoomActionForSnapshot(notification.tradeSnapshot, notification.userId);
+      if (action) return tradeRoomActionLabel(action, locale);
+    }
     const label = getCommissionPaymentNotificationDestination(notification)
       ? "Pay Commission"
       : notification.actionLabel?.trim()

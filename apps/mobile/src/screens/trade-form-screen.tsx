@@ -1,3 +1,4 @@
+import { getPriceOfferBounds } from "@alpha-traders/contracts";
 import { BrandedText as Text } from "../components/branded-text";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -139,10 +140,10 @@ export function TradeFormScreen({
   }, [isCardless, cashAmount, cardlessPrice]);
   const offerRangeUsd = listing?.currency === "ILS"
     ? (() => {
-        const listingPriceCents = Math.round(numericValue(canonicalListingPrice(listing.price)) * 100);
-        if (listingPriceCents <= 1) return "";
-        const minimumOffer = (Math.max(1, listingPriceCents - 35) / 100).toFixed(2);
-        const maximumOffer = ((listingPriceCents - 1) / 100).toFixed(2);
+        const bounds = getPriceOfferBounds(canonicalListingPrice(listing.price));
+        if (!bounds) return "";
+        const minimumOffer = bounds.minimumPrice;
+        const maximumOffer = bounds.maximumPrice;
         return `${formatUsd(priceForUsdInput(minimumOffer, listing.currency, usdIlsRate), 4)}–${formatUsd(priceForUsdInput(maximumOffer, listing.currency, usdIlsRate), 4)}`;
       })()
     : "";

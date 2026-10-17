@@ -49,7 +49,7 @@ const steps = [
   {
     label: "Code-quality checks",
     executable: process.execPath,
-    arguments: ["./node_modules/eslint/bin/eslint.js", "."],
+    arguments: ["./node_modules/eslint/bin/eslint.js", ".", "--max-warnings=0"],
   },
   {
     label: "TypeScript validation",
@@ -93,6 +93,21 @@ if (includeBrowserTests) {
     label: "Mobile and desktop browser flows",
     executable: process.execPath,
     arguments: ["./node_modules/playwright/cli.js", "test"],
+  });
+  steps.push({
+    label: "Mandatory phone verification and exact owner exceptions",
+    executable: process.execPath,
+    arguments: ["./node_modules/playwright/cli.js", "test", "--config=playwright.phone-verification.config.ts"],
+  });
+  steps.push({
+    label: "WebKit marketplace and owner browser flows",
+    executable: process.execPath,
+    arguments: ["./node_modules/playwright/cli.js", "test", "--config=playwright.webkit.config.ts"],
+  });
+  steps.push({
+    label: "WebKit mandatory phone and age verification",
+    executable: process.execPath,
+    arguments: ["./node_modules/playwright/cli.js", "test", "--config=playwright.webkit.phone-verification.config.ts"],
   });
 }
 

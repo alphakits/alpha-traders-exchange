@@ -49,7 +49,9 @@ test.describe("Navigation hardening", () => {
     const tradeHistory = main.locator("#my-trade-requests-section");
     await expect(tradeRequests).toHaveCount(1);
     await expect(tradeHistory).toBeVisible();
+    await expect(main.locator("#workspace-summary")).not.toHaveAttribute("inert");
     await tradeRequests.focus();
+    await expect(tradeRequests).toBeFocused();
     await page.keyboard.press("Enter");
 
     await expect(page).toHaveURL(/\/en\/dashboard$/);
@@ -85,8 +87,26 @@ test.describe("Navigation hardening", () => {
     await expect(page.getByRole("main").getByText("Your workspace", { exact: true }).first()).toBeVisible();
   });
 
-  test("seller refresh keeps the approved workspace stable", async ({ page }) => {
+  test("seller refresh keeps the approved workspace stable", async ({ page }, testInfo) => {
     test.skip(!SELLER_EMAIL || !SELLER_PASSWORD, "Set E2E_SELLER_EMAIL and E2E_SELLER_PASSWORD to run seller refresh checks.");
+
+    await page.addInitScript(() => {
+      const events: Array<Record<string, unknown>> = [];
+      (window as Window & { __sellerNavigationEvents?: typeof events }).__sellerNavigationEvents = events;
+      const describe = (element: EventTarget | null) => element instanceof HTMLElement
+        ? { tag: element.tagName, id: element.id, label: element.getAttribute("aria-label") } : null;
+      const record = (event: Event) => {
+        if (events.length >= 80) return;
+        events.push({
+          type: event.type, time: performance.now(), target: describe(event.target), active: describe(document.activeElement),
+          key: event instanceof KeyboardEvent ? event.key : undefined,
+          section: event instanceof CustomEvent ? event.detail : undefined,
+          listingsMounted: Boolean(document.getElementById("my-listings-section")),
+        });
+      };
+      for (const name of ["focusin", "focusout", "keydown", "keyup", "click"]) document.addEventListener(name, record, true);
+      window.addEventListener("alpha:page-section", record);
+    });
 
     await login(page.request, SELLER_EMAIL, SELLER_PASSWORD);
     const canonicalSession = page.waitForResponse(response =>
@@ -102,7 +122,9 @@ test.describe("Navigation hardening", () => {
     const purchaseRequests = main.getByRole("button", { name: /^Purchase Requests:/ });
     await expect(purchaseRequests).toHaveCount(1);
     await expect(purchaseRequests).not.toContainText("Loading current trades…");
+    await expect(main.locator("#workspace-summary")).not.toHaveAttribute("inert");
     await purchaseRequests.focus();
+    await expect(purchaseRequests).toBeFocused();
     await page.keyboard.press("Enter");
     await expect(main.locator("#purchase-requests-section")).toBeFocused();
 
@@ -115,9 +137,25 @@ test.describe("Navigation hardening", () => {
     await expect(main.getByText("Approved Seller", { exact: true }).first()).toBeVisible();
     const manageListings = main.getByRole("button", { name: /^My Listings:/ });
     await expect(manageListings).toHaveCount(1);
+    // Programmatic focus does not wait for inert hydration placeholders to
+    // become interactive. Assert readiness and actual focus before Enter.
+    await expect(main.locator("#workspace-summary")).not.toHaveAttribute("inert");
     await manageListings.focus();
+    await expect(manageListings).toBeFocused();
     await page.keyboard.press("Enter");
-    await expect(main.locator("#my-listings-section")).toBeFocused({ timeout: 10_000 });
+    try {
+      await expect(main.locator("#my-listings-section")).toBeFocused({ timeout: 10_000 });
+    } catch (error) {
+      await testInfo.attach("seller-navigation-events", {
+        contentType: "application/json",
+        body: JSON.stringify(await page.evaluate(() => ({
+          events: (window as Window & { __sellerNavigationEvents?: unknown[] }).__sellerNavigationEvents,
+          activeId: document.activeElement?.id,
+          activeTag: document.activeElement?.tagName,
+        })), null, 2),
+      });
+      throw error;
+    }
   });
 
   test("guest protected trade-room route redirects to login with redirectTo", async ({ page }) => {

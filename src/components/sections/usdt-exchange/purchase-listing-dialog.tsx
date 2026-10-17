@@ -59,6 +59,7 @@ type PurchaseListingDialogProps = {
   priceMode: "listing_price" | "buyer_offer";
   offeredPrice: string;
   minimumOfferedPrice: string;
+  maximumOfferedPrice: string;
   offerPriceInvalid: boolean;
   offeredTradePrice: number;
   requiresSafetyNotice: boolean;
@@ -111,6 +112,7 @@ export function PurchaseListingDialog({
   priceMode,
   offeredPrice,
   minimumOfferedPrice,
+  maximumOfferedPrice,
   offerPriceInvalid,
   offeredTradePrice,
   requiresSafetyNotice,
@@ -270,7 +272,7 @@ export function PurchaseListingDialog({
                     onBuyerDetailsChange?.({ cardlessIlsAmount: cash, usdtAmount: calculateCardlessUsdtAmount(cash, cardlessPrice, true) ?? "" });
                   }} className="currency-money" aria-invalid={cardlessCashUnavailable || undefined} aria-describedby="cardless-amount-help" />
                   <label htmlFor="cardless-ils-amount" className="text-sm font-medium">{isAr ? "مبلغ رمز السحب بالشيكل" : "Withdrawal code amount in ILS"}</label>
-                  <select id="cardless-ils-amount" required disabled={isSubmittingPurchase} dir="ltr" className="currency-money min-h-11 w-full rounded-lg border border-white/20 bg-[#111] px-3 text-white" value={buyerInfo.cardlessIlsAmount ?? ""} onChange={(event) => {
+                  <select id="cardless-ils-amount" required disabled={isSubmittingPurchase} dir="ltr" style={{ colorScheme: "dark" }} className="currency-money min-h-11 w-full rounded-lg border border-white/20 bg-[#111] px-3 text-white" value={buyerInfo.cardlessIlsAmount ?? ""} onChange={(event) => {
                     const option = cardlessCashOptions.find((item) => item.ilsAmount === event.target.value);
                     onBuyerDetailsChange?.({ cardlessIlsAmount: event.target.value, usdtAmount: option?.usdtAmount ?? "" });
                   }} aria-invalid={cardlessCashUnavailable || undefined} aria-describedby="cardless-amount-help">
@@ -305,7 +307,7 @@ export function PurchaseListingDialog({
                           type="number"
                           inputMode="decimal"
                           min={minimumOfferedPrice}
-                          max={Math.max(0.01, selectedPrice - 0.01).toFixed(2)}
+                          max={maximumOfferedPrice}
                           step="0.01"
                           autoComplete="off"
                           placeholder={minimumOfferedPrice || "0.00"}
@@ -318,8 +320,8 @@ export function PurchaseListingDialog({
                       </div>
                       <p id="buyer-offer-price-help" className={`text-xs ${offerPriceInvalid ? "text-red-300" : "text-[#9CA3AF]"}`}>
                         {offerPriceInvalid ? "⚠ " : ""}{currencyText(isAr
-                          ? `اختر سعراً من ₪${minimumOfferedPrice} إلى أقل من ₪${selectedPrice.toFixed(2)}. الحد الأقصى للخصم هو ₪0.35.`
-                          : `Choose from ₪${minimumOfferedPrice} to below ₪${selectedPrice.toFixed(2)}. Maximum discount is ₪0.35.`)}
+                          ? `اختر سعراً من ₪${minimumOfferedPrice} إلى ₪${maximumOfferedPrice}. يمكن أن يكون عرضك أعلى أو أقل من سعر الإعلان بما يصل إلى ₪0.35.`
+                          : `Choose from ₪${minimumOfferedPrice} to ₪${maximumOfferedPrice}. Offers may be up to ₪0.35 above or below the listing price.`)}
                       </p>
                     </div>
                   ) : null}

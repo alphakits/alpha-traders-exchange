@@ -1,5 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { renderToString } from "react-dom/server";
+import { hydrateRoot } from "react-dom/client";
 import { LoginForm } from "@/components/auth/login-form";
 import { CanonicalSessionProvider } from "@/components/auth/canonical-session-provider";
 import { LOCALE_CHOICE_COOKIE } from "@/i18n/locale-preference";
@@ -18,6 +20,28 @@ describe("LoginForm", () => {
 
   afterEach(() => {
     delete window.ReactNativeWebView;
+  });
+
+  it.each(["en", "ar"] as const)("keeps %s credentials and submission disabled until hydration is ready", async (locale) => {
+    const container = document.createElement("div");
+    container.innerHTML = renderToString(<LoginForm locale={locale} />);
+    document.body.append(container);
+    const controls = () => [...container.querySelectorAll<HTMLInputElement | HTMLButtonElement>("form input, form button")];
+    try {
+      expect(controls().length).toBe(5);
+      expect(container.querySelector("form")?.getAttribute("method")).toBe("post");
+      expect(controls().every(control => control.disabled)).toBe(true);
+      let root: ReturnType<typeof hydrateRoot> | undefined;
+      try {
+        await act(async () => { root = hydrateRoot(container, <LoginForm locale={locale} />); });
+        expect(container.querySelector("form")?.getAttribute("data-hydrated")).toBe("true");
+        expect(controls().every(control => !control.disabled)).toBe(true);
+      } finally {
+        if (root) await act(async () => root?.unmount());
+      }
+    } finally {
+      container.remove();
+    }
   });
 
   it("keeps the existing website login without the app-only artwork", () => {
@@ -305,6 +329,40 @@ describe("LoginForm", () => {
     render(<LoginForm locale="en" />);
     const forgotLink = screen.getByRole("link", { name: "Forgot your password?" });
     expect(forgotLink.getAttribute("href")).toBe("/forgot-password");
+  });
+
+  it("keeps login usable when an upstream rejection returns a structured error", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({ ok: false, status: 403, json: async () => ({ error: { message: "Upstream rejection", code: "FORBIDDEN" } }) })
+      .mockResolvedValueOnce({ ok: false, status: 401, json: async () => ({ error: "Invalid credentials." }) });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<LoginForm locale="en" />);
+    fireEvent.change(screen.getByLabelText("Email"), { target: { value: "audit@example.test" } });
+    fireEvent.change(screen.getByLabelText("Password"), { target: { value: "test-password" } });
+    fireEvent.click(screen.getByRole("button", { name: "Login" }));
+
+    expect(await screen.findByRole("alert")).toHaveProperty("textContent", "Login failed.");
+    expect((screen.getByRole("button", { name: "Login" }) as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "Login" }));
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toBe("Invalid credentials."));
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([false, true])("keeps verification-email recovery usable with structured response copy (ok=%s)", async (ok) => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({ ok: false, status: 403, json: async () => ({ requiresEmailVerification: true }) })
+      .mockResolvedValueOnce({ ok, json: async () => ({ error: { message: "Internal rejection", code: "UPSTREAM" }, message: { sent: true } }) });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<LoginForm locale="en" />);
+    fireEvent.change(screen.getByLabelText("Email"), { target: { value: "audit@example.test" } });
+    fireEvent.change(screen.getByLabelText("Password"), { target: { value: "test-password" } });
+    fireEvent.click(screen.getByRole("button", { name: "Login" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Resend verification email" }));
+    expect(await screen.findByText(ok
+      ? "If the account exists and is unverified, a new verification email has been sent."
+      : "Failed to resend verification email.")).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Resend verification email" }) as HTMLButtonElement).disabled).toBe(false);
+    expect(screen.queryByText("Internal rejection")).toBeNull();
   });
 
   it("shows password-reset success confirmation when arriving from reset flow", () => {

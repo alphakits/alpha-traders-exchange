@@ -2,6 +2,7 @@ import "server-only";
 import { randomUUID } from "node:crypto";
 import type { Pool } from "pg";
 import { getRuntimePostgresPool } from "@/lib/postgres-runtime";
+import { rollbackFailedTransaction } from "@/lib/postgres-transaction";
 import { isProductionSecurityRuntime } from "@/lib/runtime-safety";
 import { logEvent } from "@/lib/structured-logging";
 
@@ -67,16 +68,18 @@ async function ensureSchema(pool: Pool) {
       const result = await pool.query("select to_regclass('alpha_exchange.idx_marketplace_email_due') as ready");
       if (result.rows[0]?.ready) return;
       const client = await pool.connect();
+      let destroy = false;
+
       try {
         await client.query("begin");
         await client.query("select pg_advisory_xact_lock(61422919)");
         await client.query(MARKETPLACE_EMAIL_OUTBOX_SCHEMA);
         await client.query("commit");
       } catch (error) {
-        await client.query("rollback").catch(() => undefined);
+        destroy = await rollbackFailedTransaction(client, error);
         throw error;
       } finally {
-        client.release();
+        client.release(destroy);
       }
     })().catch((error) => { schemaReady.delete(pool); throw error; });
     schemaReady.set(pool, ready);
@@ -91,6 +94,8 @@ type Job = {
 
 async function claim(pool: Pool, id?: string): Promise<{ job?: Job; waitMs?: number }> {
   const client = await pool.connect();
+  let destroy = false;
+
   try {
     await client.query("begin");
     // A transaction-pooler-safe row lock serializes sends across all instances.
@@ -123,10 +128,10 @@ async function claim(pool: Pool, id?: string): Promise<{ job?: Job; waitMs?: num
     await client.query("commit");
     return { job: jobs.rows[0] };
   } catch (error) {
-    await client.query("rollback").catch(() => undefined);
+    destroy = await rollbackFailedTransaction(client, error);
     throw error;
   } finally {
-    client.release();
+    client.release(destroy);
   }
 }
 

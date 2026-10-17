@@ -19,8 +19,16 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllEnvs());
 
 describe("owner-authorized existing account exceptions", () => {
+  it.each(accounts)("requires a separate adult confirmation even for the authorized phone exception $email", async account => {
+    const user = { ...account, emailVerified: true };
+    const denied = requireMarketplaceVerificationForTrading(user);
+    expect(denied?.status).toBe(403);
+    expect(await denied?.json()).toMatchObject({ code: "AGE_CONFIRMATION_REQUIRED" });
+    expect(marketplacePhoneVerificationDestination(user, "/en/usdt-exchange", "en")).toContain("/en/verify-account");
+    expect(marketplacePhoneVerificationDestination(user, "/en/verify-account", "en")).toBeNull();
+  });
   it.each(accounts)("permits $email without inventing verified phone data", account => {
-    const user = { ...account, roles: [account.role], sellerStatus: "buyer", emailVerified: true };
+    const user = { ...account, roles: [account.role], sellerStatus: "buyer", emailVerified: true, ageEligibility: { method: "self_attestation_v1", confirmedAt: "2026-10-17T00:00:00Z" } };
     expect(isAccountPhoneVerificationExempt(user)).toBe(true);
     expect(isVerified(user)).toBe(true);
     expect(hasVerifiedPhone(user)).toBe(false);

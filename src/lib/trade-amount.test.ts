@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { calculateBuyerCommissionAmount, calculateBuyerFiatFee, calculateBuyerFiatTotal, calculateFiatAmount, calculateSellerCommissionAmount, calculateSellerTotalAlphaDue, canonicalizeNonNegativeTradeAmount, canonicalizeTradeAmount, isTradeAmountLessThan, normalizeLocalizedDecimalInput, normalizeTradeAmountInput, subtractTradeAmounts } from "@/lib/trade-amount";
+import { calculateLegacySellerCommissionAmount, calculateLegacySellerTotalAlphaDue, formatCommissionAmount, commissionAmountInput, sumCommissionAmounts } from "@/lib/trade-amount";
 
 describe("trade amount input", () => {
   it("preserves fractional USDT amounts up to six decimals", () => {
@@ -85,15 +86,52 @@ describe("trade amount input", () => {
     expect(calculateBuyerFiatTotal(amount)).toBeNull();
   });
 
-  it("calculates the one-percent seller commission with decimal half-up rounding", () => {
-    expect(calculateSellerCommissionAmount("0.000001")).toBe(0.01);
-    expect(calculateSellerCommissionAmount("0.1")).toBe(0.01);
-    expect(calculateSellerCommissionAmount("0.49")).toBe(0.01);
-    expect(calculateSellerCommissionAmount("0.5")).toBe(0.01);
+  it("calculates one percent to six USDT decimals without an unapproved minimum fee", () => {
+    expect(calculateSellerCommissionAmount("0.000001")).toBeNull();
+    expect(calculateSellerCommissionAmount("0.000049")).toBeNull();
+    expect(calculateSellerCommissionAmount("0.00005")).toBe(0.000001);
+    expect(calculateSellerCommissionAmount("0.1")).toBe(0.001);
+    expect(calculateBuyerCommissionAmount("0.1")).toBe(0.001);
+    expect(calculateSellerTotalAlphaDue("0.1")).toBe(0.002);
+    expect(calculateSellerCommissionAmount("0.49")).toBe(0.0049);
+    expect(calculateSellerCommissionAmount("0.5")).toBe(0.005);
     expect(calculateSellerCommissionAmount("0.999999")).toBe(0.01);
     expect(calculateSellerCommissionAmount("1")).toBe(0.01);
-    expect(calculateSellerCommissionAmount("1.5")).toBe(0.02);
-    expect(calculateSellerCommissionAmount("10.5")).toBe(0.11);
+    expect(calculateSellerCommissionAmount("1.5")).toBe(0.015);
+    expect(calculateSellerCommissionAmount("10.5")).toBe(0.105);
     expect(calculateSellerCommissionAmount("650")).toBe(6.5);
+  });
+
+  it("rounds each actual party share once and sums integer microunits", () => {
+    expect(calculateSellerCommissionAmount("415.202811")).toBe(4.152028);
+    expect(calculateBuyerCommissionAmount("415.202811")).toBe(4.152028);
+    expect(calculateSellerTotalAlphaDue("415.202811")).toBe(8.304056);
+    expect(calculateSellerTotalAlphaDue("0.00015")).toBe(0.000004);
+    for (const value of ["-1", "NaN", "Infinity", "1e3", "1.1234567", "999999999999"]) {
+      expect(calculateSellerCommissionAmount(value), value).toBeNull();
+      expect(calculateSellerTotalAlphaDue(value), value).toBeNull();
+    }
+  });
+
+  it("keeps the historical fee calculation available only for pre-cutover records", () => {
+    expect(calculateLegacySellerCommissionAmount("0.1")).toBe(0.01);
+    expect(calculateLegacySellerTotalAlphaDue("0.1")).toBe(0.02);
+    expect(calculateLegacySellerCommissionAmount("415.202811")).toBe(4.15);
+    expect(calculateLegacySellerTotalAlphaDue("415.202811")).toBe(8.3);
+  });
+
+  it.each([[0.002, "0.002", "0.002"], [8.304056, "8.304056", "8.304056"], [1000, "1,000.00", "1000"], [0.000001, "0.000001", "0.000001"]])("preserves %s in displayed and submitted commission amounts", (amount, display, input) => {
+    expect(formatCommissionAmount(Number(amount))).toBe(display);
+    expect(commissionAmountInput(Number(amount))).toBe(input);
+  });
+
+  it("sums dues without binary floating-point drift and rejects invalid ledger amounts", () => {
+    expect(sumCommissionAmounts([0.1, 0.2, 0.000001])).toBe(0.300001);
+    expect(sumCommissionAmounts([0.001, 0.001, 8.304056])).toBe(8.306056);
+    // Multiplying these valid six-decimal values by 1e6 introduces binary drift.
+    expect(sumCommissionAmounts([16385.387415, 16386.118416])).toBe(32771.505831);
+    for (const value of [NaN, Infinity, -1, 0.0000001, Number.MAX_SAFE_INTEGER]) {
+      expect(() => sumCommissionAmounts([value])).toThrow(RangeError);
+    }
   });
 });

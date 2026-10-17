@@ -169,6 +169,22 @@ describe("owner follow-up alert lifecycle", () => {
     return commission;
   }
 
+  it("alerts once for delayed durable trust work and archives the incident after recovery", async () => {
+    currentSnapshot().purchaseRequests.push(requestForStatus("completed", { completedAt: STALE,
+      trustReconciliation: { requestedAt: STALE, requestedByUserId: SELLER_ID } }));
+    expect(await runOwnerFollowUpAlerts({ now: NOW })).toEqual({ created: 1, archived: 0 });
+    expect(await runOwnerFollowUpAlerts({ now: NOW })).toEqual({ created: 0, archived: 0 });
+    expect(currentSnapshot().notifications).toHaveLength(1);
+    expect(currentSnapshot().notifications[0]).toMatchObject({ userId: "owner-followup", state: "unread" });
+    expect(currentSnapshot().notifications[0].message).toContain("reputation update is delayed");
+    expect(currentSnapshot().notifications[0].titleAr).toBeTruthy();
+    expect(mocks.scheduleMobilePushDelivery).toHaveBeenCalledTimes(1);
+    currentSnapshot().purchaseRequests[0].trustReconciliation!.reconciledAt = NOW.toISOString();
+    expect(await runOwnerFollowUpAlerts({ now: NOW })).toEqual({ created: 0, archived: 1 });
+    expect(currentSnapshot().notifications[0].state).toBe("archived");
+    expect(mocks.scheduleMobilePushDelivery).toHaveBeenCalledTimes(1);
+  });
+
   it("alerts only a canonical active owner with a direct payment link and bilingual privacy-safe copy", async () => {
     seedCommission({ paymentSignature: "private-receipt", payerWalletAddress: "private-wallet" });
     const result = await runOwnerFollowUpAlerts({ now: NOW });

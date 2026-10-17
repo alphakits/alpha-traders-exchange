@@ -1,5 +1,5 @@
-import type { PoolClient } from "pg";
 import { getRuntimePostgresPool } from "@/lib/postgres-runtime";
+import { rollbackFailedTransaction } from "@/lib/postgres-transaction";
 
 export type MobileDeviceSessionRecord = {
   id: string;
@@ -110,18 +110,11 @@ function requirePool() {
   return pool;
 }
 
-async function rollbackQuietly(client: PoolClient) {
-  try {
-    await client.query("rollback");
-  } catch {
-    // The original database error is more useful than rollback failure.
-  }
-}
-
 export class PostgresMobileDeviceSessionStore implements MobileDeviceSessionStore {
   async createOrReplace(session: MobileDeviceSessionRecord) {
     const pool = requirePool();
     const client = await pool.connect();
+    let destroy = false;
     try {
       await client.query("begin");
       // Serialize account disablement with token issuance. The account-state
@@ -193,10 +186,10 @@ export class PostgresMobileDeviceSessionStore implements MobileDeviceSessionStor
       await client.query("commit");
       return mapSession(row);
     } catch (error) {
-      await rollbackQuietly(client);
+      destroy = await rollbackFailedTransaction(client, error);
       throw error;
     } finally {
-      client.release();
+      client.release(destroy);
     }
   }
 
@@ -222,6 +215,7 @@ export class PostgresMobileDeviceSessionStore implements MobileDeviceSessionStor
   }): Promise<MobileRefreshRotationResult> {
     const pool = requirePool();
     const client = await pool.connect();
+    let destroy = false;
     try {
       await client.query("begin");
       // Account disablement, token issuance, and token rotation share one lock.
@@ -350,10 +344,10 @@ export class PostgresMobileDeviceSessionStore implements MobileDeviceSessionStor
       await client.query("commit");
       return { status: "rotated", session: mapSession(rotatedRow) };
     } catch (error) {
-      await rollbackQuietly(client);
+      destroy = await rollbackFailedTransaction(client, error);
       throw error;
     } finally {
-      client.release();
+      client.release(destroy);
     }
   }
 

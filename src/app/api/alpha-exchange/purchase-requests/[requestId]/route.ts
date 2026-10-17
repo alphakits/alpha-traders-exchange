@@ -143,6 +143,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       cardlessWithdrawalCode: isCardlessCodeSubmission ? String(rawBody.withdrawalCode ?? "") : undefined,
       cardlessVerificationKind: isCardlessCodeSubmission ? String(rawBody.verificationKind ?? "") : undefined,
       cardlessVerificationValue: isCardlessCodeSubmission ? String(rawBody.verificationValue ?? "") : undefined,
+      usePreparedCardlessDetails: isCardlessCodeSubmission && rawBody.usePreparedDetails === true,
       clientOperationId: isCardlessCodeSubmission ? String(rawBody.clientOperationId ?? "") : undefined,
       traceId: isUsdtSent ? traceId : undefined,
     });

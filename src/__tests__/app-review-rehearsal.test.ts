@@ -218,7 +218,7 @@ describe("full Exchange App Review rehearsal", () => {
       purchaseRequestId: created.request.id,
       actorUserId: BUYER_ID,
       actorRole: "buyer",
-    })).rejects.toThrow("only after the seller accepts");
+    })).resolves.toMatchObject({ accountNumber: "0000000001", accountHolderName: "" });
 
     const accepted = await updatePurchaseRequestStatus({
       requestId: created.request.id,
@@ -302,9 +302,10 @@ describe("full Exchange App Review rehearsal", () => {
 
     const completion = await updatePurchaseRequestStatus({
       requestId: created.request.id,
-      actorUserId: BUYER_ID,
-      actorRole: "buyer",
+      actorUserId: SELLER_ID,
+      actorRole: "approved_seller",
       nextStatus: "completed",
+      completionMode: "seller",
     });
     expect(completion.request.status).toBe("review_open");
     if (completion.deferredTrustWrite) await completion.deferredTrustWrite();
@@ -385,7 +386,9 @@ describe("full Exchange App Review rehearsal", () => {
       purchaseRequestId: created.request.id,
       actorUserId: BUYER_ID,
       actorRole: "buyer",
-    })).rejects.toThrow("Bank details are available only after the seller accepts the trade.");
+    })).rejects.toThrow("Bank details are available only for an active Bank Transfer request.");
+
+    await updatePurchaseRequestStatus({ requestId: created.request.id, actorUserId: BUYER_ID, actorRole: "buyer", nextStatus: "payment_sent", usePreparedCardlessDetails: true, clientOperationId: "dddddddd-dddd-4ddd-8ddd-dddddddddddd" });
 
     const sellerRoomBeforeCash = await getTradeRoomData({
       purchaseRequestId: created.request.id,
@@ -463,7 +466,7 @@ describe("full Exchange App Review rehearsal", () => {
 
     const commission = (await getCommissionRecordsForAdmin())
       .find((entry) => entry.purchaseRequestId === created.request.id);
-    expect(commission).toMatchObject({ paymentStatus: "pending", commissionAmount: 0.91 });
+    expect(commission).toMatchObject({ paymentStatus: "pending", commissionAmount: 0.909091, commissionCalculationVersion: "usdt_6dp_v2" });
     await updateCommissionPaymentStatus({
       commissionId: commission!.id,
       actorUserId: OWNER_ID,
@@ -495,7 +498,7 @@ describe("full Exchange App Review rehearsal", () => {
         "commission_paid",
       ]));
     expect((await getCommissionRecordsForAdmin()).filter((entry) => entry.purchaseRequestId === created.request.id))
-      .toEqual([expect.objectContaining({ paymentStatus: "paid", commissionAmount: 0.91 })]);
+      .toEqual([expect.objectContaining({ paymentStatus: "paid", commissionAmount: 0.909091 })]);
     expect(saved.purchaseRequests.find((entry) => entry.id === created.request.id)).toMatchObject({
       buyerReview: { rating: 5 },
       sellerResponse: { message: "Thank you for completing the Cardless ATM trade." },

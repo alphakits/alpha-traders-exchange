@@ -1,4 +1,5 @@
 import "server-only";
+import { isUncertainPostgresConnection, rollbackFailedTransaction } from "@/lib/postgres-transaction";
 
 import type { Pool, PoolClient } from "pg";
 
@@ -810,6 +811,7 @@ export class DiscordListingSyncWorker {
           await reconcileJob(client, this.publisher, job, this.siteUrl);
           await client.query("commit");
         } catch (error) {
+          if (isUncertainPostgresConnection(error)) throw error;
           const failureCode = safeFailureCode(error);
           await failJob(client, job, failureCode);
           await client.query("commit");
@@ -825,15 +827,7 @@ export class DiscordListingSyncWorker {
           });
         }
       } catch (error) {
-        try {
-          await client.query("rollback");
-        } catch (rollbackError) {
-          destroyClient = true;
-          throw new AggregateError(
-            [error, rollbackError],
-            "Discord listing synchronization rollback failed.",
-          );
-        }
+        destroyClient = await rollbackFailedTransaction(client, error);
         throw error;
       } finally {
         client.release(destroyClient);

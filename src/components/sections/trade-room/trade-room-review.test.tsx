@@ -27,9 +27,41 @@ beforeEach(() => {
   window.sessionStorage.clear();
   vi.stubGlobal("EventSource", class { addEventListener() {} removeEventListener() {} close() {} });
   Element.prototype.scrollIntoView = vi.fn();
+  Element.prototype.scrollTo = vi.fn();
   window.scrollTo = vi.fn();
 });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+
+describe("Trade Room guidance while composing a message", () => {
+  it("yields to chat focus acquired after automatic guidance was scheduled", async () => {
+    const pendingFrames = new Map<number, FrameRequestCallback>();
+    let frameId = 0;
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+      pendingFrames.set(++frameId, callback);
+      return frameId;
+    });
+    vi.stubGlobal("cancelAnimationFrame", (id: number) => pendingFrames.delete(id));
+    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(Response.json({
+      ...room,
+      request: { ...room.request, status: "accepted", paymentMethod: "Face-to-Face (Meet in Person)" },
+    }))));
+    render(<TradeRoomPage locale="en" requestId="request-1" actor={{ id: "buyer-1", role: "buyer", fullName: "Buyer" }} />);
+    const draft = await screen.findByPlaceholderText("Type a message...") as HTMLTextAreaElement;
+    await waitFor(() => expect(pendingFrames.size).toBeGreaterThan(0));
+    // Programmatic focus, keyboard navigation, and assistive input need not
+    // emit pointerdown or keydown before the queued animation frame runs.
+    draft.focus();
+    fireEvent.change(draft, { target: { value: "Keep my message and cursor" } });
+    await act(async () => {
+      const callbacks = [...pendingFrames.values()];
+      pendingFrames.clear();
+      for (const callback of callbacks) callback(performance.now());
+    });
+    expect(document.activeElement).toBe(draft);
+    expect(draft.value).toBe("Keep my message and cursor");
+    expect((screen.getByRole("button", { name: "Send Message" }) as HTMLButtonElement).disabled).toBe(false);
+  });
+});
 
 describe.each(["Bank Transfer", "Cardless ATM Withdrawal", "Face-to-Face (Meet in Person)"])("completed %s trade review UI", (method) => {
   beforeEach(() => { room.request.paymentMethod = method; });

@@ -1,5 +1,8 @@
 -- One verified phone per account; only the three authorized existing accounts
 -- may share an unverified private contact. Never fabricate OTP verification.
+begin;
+set local lock_timeout = '5s';
+set local statement_timeout = '30s';
 lock table alpha_exchange.users in share row exclusive mode;
 
 create or replace function alpha_exchange.canonical_user_phone(phone text)
@@ -102,3 +105,4 @@ create trigger enforce_unique_contact_phone before insert or update of payload, 
 on alpha_exchange.users for each row execute function alpha_exchange.enforce_unique_contact_phone();
 
 update alpha_exchange.runtime_meta set version = version + 1, updated_at = now() where singleton = true;
+commit;

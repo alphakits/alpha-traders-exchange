@@ -14,7 +14,8 @@ export default defineConfig({
   reporter: "list",
   use: {
     baseURL: E2E_BASE_URL,
-    trace: "on-first-retry",
+    // Keep the original failure, not only the subsequent retry that may pass.
+    trace: "retain-on-failure",
     headless: true,
   },
   webServer: {
@@ -22,6 +23,8 @@ export default defineConfig({
     url: E2E_BASE_URL,
     reuseExistingServer: false,
     timeout: 600_000,
+    stdout: "pipe",
+    stderr: "pipe",
     env: {
       ...process.env,
       NODE_ENV: "production",

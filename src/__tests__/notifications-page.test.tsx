@@ -534,4 +534,25 @@ describe("NotificationsPage mobile hierarchy", () => {
     ));
     await waitFor(() => expect(screen.getByRole("button", { name: "Show unread notifications: 0" })).toBeTruthy());
   });
+  it.each([
+    ["Bank Transfer", "usdt_sent", "buyer-1", "View trade details", "open-trade", "status-banner"],
+    ["Bank Transfer", "usdt_sent", "seller-1", "Mark trade as completed", "complete-cash-trade", "action-required"],
+    ["Cardless ATM Withdrawal", "usdt_sent", "buyer-1", "View trade details", "open-trade", "status-banner"],
+    ["Cardless ATM Withdrawal", "usdt_sent", "seller-1", "Mark trade as completed", "complete-cash-trade", "action-required"],
+    ["Face-to-Face (Meet in Person)", "accepted", "seller-1", "Confirm payment received", "confirm-money-received", "action-required"],
+    ["Face-to-Face (Meet in Person)", "funds_received", "seller-1", "Mark trade as completed", "complete-cash-trade", "action-required"],
+    ["Face-to-Face (Meet in Person)", "completed", "seller-1", "Leave a trade review", "review-trade", "status-banner"],
+  ] as const)("routes %s %s for %s using the current trade rule", async (paymentMethod, currentStage, userId, label, action, hash) => {
+    const notice = notification({
+      id: "stage-notice", userId, category: "trade", title: "Trade status updated", message: "Check the current trade state.",
+      relatedRequestId: "purchase-stage", actionLabel: "Confirm USDT received", createdAt: "2026-08-27T11:50:00.000Z",
+      tradeSnapshot: { requestId: "purchase-stage", currentStage, sellerId: "seller-1", buyerId: "buyer-1", paymentMethod, counterpartyName: "AT-TEST", usdtAmount: "100", fiatAmount: "313.10", currency: "ILS", requiredAction: "Check trade" },
+    });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(notificationsResponse([notice])));
+    render(<NotificationsPage locale="en" userId={userId} />);
+    fireEvent.click(await screen.findByRole("button", { name: label }));
+    await waitFor(() => expect(routerPush).toHaveBeenCalledWith(`/trade-room/purchase-stage?action=${action}#${hash}`));
+    expect(screen.queryByRole("button", { name: "Confirm USDT received" })).toBeNull();
+  });
+
 });

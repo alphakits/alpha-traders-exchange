@@ -3,11 +3,14 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeF
 import path from "path";
 import { tmpdir } from "os";
 import { createHash, randomUUID } from "crypto";
+import { isDeepStrictEqual } from "util";
 import alphaExchangeSeed from "../../data/alpha-exchange-db.json";
 import { getRuntimePostgresPool } from "@/lib/postgres-runtime";
+import { isUncertainPostgresConnection as isTransientReadError, rollbackFailedTransaction } from "@/lib/postgres-transaction";
 import { isProductionSecurityRuntime, allowsRuntimeDiagnostics } from "@/lib/runtime-safety";
 import { logEvent } from "@/lib/structured-logging";
 import { isPublicOwnerIdentity } from "@/lib/public-account-identity";
+import { ALPHA_EXCHANGE_OWNER_EMAIL } from "@/lib/alpha-exchange-identity";
 import { listingCommissionRequiredMessage } from "@/lib/listing-commission-policy";
 import type {
   AlphaExchangeDb,
@@ -508,6 +511,7 @@ type RepoTable<T> = {
 type SaveContext = {
   evidenceContentById: Map<string, Buffer | null>;
   evidenceOverrides?: EvidenceWriteMap;
+  rowSortIndexes?: ReadonlyMap<string, number>;
 };
 
 const SNAPSHOT_TABLE_NAMES = [
@@ -540,6 +544,77 @@ const SNAPSHOT_TABLE_NAMES = [
 ] as const;
 
 export type SnapshotTableName = (typeof SNAPSHOT_TABLE_NAMES)[number];
+
+const TRADE_LIFECYCLE_WRITE_TABLES = new Set<SnapshotTableName>([
+  "purchase_requests", "listings", "notifications", "audit_logs", "commissions", "activity_logs", "sms_deliveries", "disputes",
+]);
+const TRADE_TRUST_WRITE_TABLES = new Set<SnapshotTableName>([
+  "users", "seller_profiles", "seller_settings", "purchase_requests", "notifications", "audit_logs", "activity_logs", "trust_snapshots", "trust_score_history",
+]);
+
+export type TradeLifecycleTransaction = {
+  snapshot: AlphaExchangeDb;
+  commit: (snapshot: AlphaExchangeDb, options: {
+    selectedTables: readonly SnapshotTableName[];
+    validateBeforeCommit?: (snapshot: AlphaExchangeDb) => void;
+  }) => Promise<void>;
+  /** Required on every exit, including a denied action or idempotent retry. */
+  close: () => Promise<void>;
+};
+
+type LifecycleRow = { id?: string; userId?: unknown; sellerId?: unknown };
+type IndexedPayload = { payload: LifecycleRow; sort_index: number };
+type LifecycleSortBounds = { minimum: number | null; maximum: number | null; append?: boolean };
+
+/** Keep existing order without rewriting every historical event on an append.
+ * Unusual interior insertions/reorders fall back to a deterministic reindex. */
+function lifecycleRowDelta(before: IndexedPayload[], after: LifecycleRow[], bounds?: LifecycleSortBounds, identityKey: "id" | "userId" | "sellerId" = "id") {
+  const idOf = (row: LifecycleRow) => String(row[identityKey] ?? "");
+  const previous = new Map(before.map(row => [idOf(row.payload), row]));
+  const nextIds = new Set(after.map(row => idOf(row)));
+  if (nextIds.size !== after.length || after.some(row => !idOf(row))) throw new Error("Invalid lifecycle row identity.");
+  const positions = new Map<string, number>();
+  let lastPosition: number | undefined;
+  let reindex = false;
+  let offset = 0;
+  while (offset < after.length) {
+    const existing = previous.get(idOf(after[offset]));
+    if (existing) {
+      if (!Number.isSafeInteger(existing.sort_index) || (lastPosition !== undefined && (existing.sort_index < lastPosition || (!bounds && existing.sort_index === lastPosition)))) { reindex = true; break; }
+      positions.set(idOf(existing.payload), existing.sort_index);
+      lastPosition = existing.sort_index;
+      offset += 1;
+      continue;
+    }
+    let end = offset;
+    while (end < after.length && !previous.has(idOf(after[end]))) end += 1;
+    const nextPosition = end < after.length ? previous.get(idOf(after[end]))!.sort_index : undefined;
+    const minimum = bounds?.minimum ?? nextPosition;
+    const start = lastPosition === undefined
+      ? (bounds?.append && nextPosition === undefined ? (bounds.maximum ?? -1) + 1 : minimum === undefined ? 0 : minimum - (end - offset))
+      : end === after.length && bounds?.maximum !== null && bounds?.maximum !== undefined
+        ? Math.max(lastPosition, bounds.maximum) + 1 : lastPosition + 1;
+    if (nextPosition !== undefined && start + (end - offset) > nextPosition) { reindex = true; break; }
+    for (let i = offset; i < end; i += 1) positions.set(idOf(after[i]), start + i - offset);
+    lastPosition = start + (end - offset) - 1;
+    offset = end;
+  }
+  if (reindex || Array.from(positions.values()).some(value => value < -2147483648 || value > 2147483647)) {
+    if (bounds) throw new Error("Cannot reorder a partial lifecycle history.");
+    positions.clear();
+    after.forEach((row, index) => positions.set(idOf(row), index));
+  }
+  return {
+    deletedIds: before.filter(row => !nextIds.has(idOf(row.payload))).map(row => idOf(row.payload)),
+    changed: after.filter(row => {
+      const prior = previous.get(idOf(row));
+      // JSONB canonicalizes key order and omits undefined properties. Compare
+      // persisted JSON values so normalization alone does not rewrite history.
+      return !prior || prior.sort_index !== positions.get(idOf(row)) || !isDeepStrictEqual(prior.payload, JSON.parse(json(row)));
+    }),
+    positions,
+  };
+}
 
 // The owner dashboard needs broad operational visibility, but it does not need
 // authentication secrets, password-reset state, delivery queues, or the three
@@ -693,7 +768,7 @@ FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[],$7
         sellerStatus: user.sellerStatus,
         updatedAt: user.updatedAt,
       })),
-    insert: async (tx, rows: Array<Record<string, unknown>>) => {
+    insert: async (tx, rows: Array<Record<string, unknown>>, context) => {
       await bulkInsert(tx, `INSERT INTO alpha_exchange.seller_profiles (user_id, seller_status, availability_status, updated_at, sort_index, payload)
 SELECT user_id, seller_status, availability_status, updated_at::timestamptz, sort_index::int, payload::jsonb
 FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[])
@@ -702,7 +777,7 @@ FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[])
         rows.map(r => String(r.sellerStatus)),
         rows.map(r => String(r.availabilityStatus)),
         rows.map(r => String(r.updatedAt)),
-        rows.map((_, i) => String(i)),
+        rows.map((row, i) => String(context.rowSortIndexes?.get(String(row.userId)) ?? i)),
         rows.map(r => json(r)),
       ]);
     },
@@ -719,7 +794,7 @@ FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[])
         notificationPreferences: user.notificationPreferences ?? { inApp: true, email: false, sms: false },
         updatedAt: user.updatedAt,
       })),
-    insert: async (tx, rows: Array<Record<string, unknown>>) => {
+    insert: async (tx, rows: Array<Record<string, unknown>>, context) => {
       await bulkInsert(tx, `INSERT INTO alpha_exchange.seller_settings (user_id, availability_status, notification_preferences, updated_at, sort_index, payload)
 SELECT user_id, availability_status, notification_preferences::jsonb, updated_at::timestamptz, sort_index::int, payload::jsonb
 FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[])
@@ -728,7 +803,7 @@ FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[])
         rows.map(r => String(r.availabilityStatus)),
         rows.map(r => json(r.notificationPreferences)),
         rows.map(r => String(r.updatedAt)),
-        rows.map((_, i) => String(i)),
+        rows.map((row, i) => String(context.rowSortIndexes?.get(String(row.userId)) ?? i)),
         rows.map(r => json(r)),
       ]);
     },
@@ -737,7 +812,7 @@ FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[])
     name: "listings",
     selectSql: "select payload from alpha_exchange.listings order by sort_index asc",
     values: (db) => db.marketplaceListings,
-    insert: async (tx, rows: MarketplaceListing[]) => {
+    insert: async (tx, rows: MarketplaceListing[], context) => {
       await bulkInsert(tx, `INSERT INTO alpha_exchange.listings (id, seller_id, status, active_trade_request_id, expires_at, created_at, updated_at, sort_index, payload)
 SELECT id, seller_id, status, active_trade_request_id, expires_at::timestamptz, created_at::timestamptz, updated_at::timestamptz, sort_index::int, payload::jsonb
 FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[],$7::text[],$8::text[],$9::text[])
@@ -766,7 +841,7 @@ WHERE alpha_exchange.listings.seller_id IS DISTINCT FROM excluded.seller_id
         rows.map(r => toTimestamp(r.expiresAt)?.toISOString() ?? null),
         rows.map(r => r.createdAt),
         rows.map(r => r.updatedAt),
-        rows.map((_, i) => String(i)),
+        rows.map((row, i) => String(context.rowSortIndexes?.get(row.id) ?? i)),
         rows.map(r => json(r)),
       ]);
     },
@@ -810,11 +885,34 @@ FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[],$7
     name: "purchase_requests",
     selectSql: "select payload from alpha_exchange.purchase_requests order by sort_index asc",
     values: (db) => db.purchaseRequests,
-    insert: async (tx, rows: PurchaseRequest[]) => {
+    insert: async (tx, rows: PurchaseRequest[], context) => {
       await bulkInsert(tx, `INSERT INTO alpha_exchange.purchase_requests (id, trade_id, listing_id, seller_id, buyer_id, status, timed_out_at, completed_at, created_at, updated_at, sort_index, payload)
 SELECT id, trade_id, listing_id, seller_id, buyer_id, status, timed_out_at::timestamptz, completed_at::timestamptz, created_at::timestamptz, updated_at::timestamptz, sort_index::int, payload::jsonb
 FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[],$7::text[],$8::text[],$9::text[],$10::text[],$11::text[],$12::text[])
-  AS t(id,trade_id,listing_id,seller_id,buyer_id,status,timed_out_at,completed_at,created_at,updated_at,sort_index,payload)`, [
+  AS t(id,trade_id,listing_id,seller_id,buyer_id,status,timed_out_at,completed_at,created_at,updated_at,sort_index,payload)
+ON CONFLICT (id) DO UPDATE SET
+  trade_id = excluded.trade_id,
+  listing_id = excluded.listing_id,
+  seller_id = excluded.seller_id,
+  buyer_id = excluded.buyer_id,
+  status = excluded.status,
+  timed_out_at = excluded.timed_out_at,
+  completed_at = excluded.completed_at,
+  created_at = excluded.created_at,
+  updated_at = excluded.updated_at,
+  sort_index = excluded.sort_index,
+  payload = excluded.payload
+WHERE alpha_exchange.purchase_requests.trade_id IS DISTINCT FROM excluded.trade_id
+   OR alpha_exchange.purchase_requests.listing_id IS DISTINCT FROM excluded.listing_id
+   OR alpha_exchange.purchase_requests.seller_id IS DISTINCT FROM excluded.seller_id
+   OR alpha_exchange.purchase_requests.buyer_id IS DISTINCT FROM excluded.buyer_id
+   OR alpha_exchange.purchase_requests.status IS DISTINCT FROM excluded.status
+   OR alpha_exchange.purchase_requests.timed_out_at IS DISTINCT FROM excluded.timed_out_at
+   OR alpha_exchange.purchase_requests.completed_at IS DISTINCT FROM excluded.completed_at
+   OR alpha_exchange.purchase_requests.created_at IS DISTINCT FROM excluded.created_at
+   OR alpha_exchange.purchase_requests.updated_at IS DISTINCT FROM excluded.updated_at
+   OR alpha_exchange.purchase_requests.sort_index IS DISTINCT FROM excluded.sort_index
+   OR alpha_exchange.purchase_requests.payload IS DISTINCT FROM excluded.payload`, [
         rows.map(r => r.id),
         rows.map(r => r.tradeId ?? null),
         rows.map(r => r.listingId),
@@ -825,7 +923,7 @@ FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[],$7
         rows.map(r => toTimestamp(r.completedAt)?.toISOString() ?? null),
         rows.map(r => r.createdAt),
         rows.map(r => r.updatedAt),
-        rows.map((_, i) => String(i)),
+        rows.map((row, i) => String(context.rowSortIndexes?.get(row.id) ?? i)),
         rows.map(r => json(r)),
       ]);
     },
@@ -834,17 +932,30 @@ FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[],$7
     name: "notifications",
     selectSql: "select payload from alpha_exchange.notifications order by sort_index asc",
     values: (db) => db.notifications,
-    insert: async (tx, rows: AlphaExchangeNotification[]) => {
+    insert: async (tx, rows: AlphaExchangeNotification[], context) => {
       await bulkInsert(tx, `INSERT INTO alpha_exchange.notifications (id, user_id, category, is_read, created_at, sort_index, payload)
 SELECT id, user_id, category, is_read::boolean, created_at::timestamptz, sort_index::int, payload::jsonb
 FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[],$7::text[])
-  AS t(id,user_id,category,is_read,created_at,sort_index,payload)`, [
+  AS t(id,user_id,category,is_read,created_at,sort_index,payload)
+ON CONFLICT (id) DO UPDATE SET
+  user_id = excluded.user_id,
+  category = excluded.category,
+  is_read = excluded.is_read,
+  created_at = excluded.created_at,
+  sort_index = excluded.sort_index,
+  payload = excluded.payload
+WHERE alpha_exchange.notifications.user_id IS DISTINCT FROM excluded.user_id
+   OR alpha_exchange.notifications.category IS DISTINCT FROM excluded.category
+   OR alpha_exchange.notifications.is_read IS DISTINCT FROM excluded.is_read
+   OR alpha_exchange.notifications.created_at IS DISTINCT FROM excluded.created_at
+   OR alpha_exchange.notifications.sort_index IS DISTINCT FROM excluded.sort_index
+   OR alpha_exchange.notifications.payload IS DISTINCT FROM excluded.payload`, [
         rows.map(r => r.id),
         rows.map(r => r.userId),
         rows.map(r => r.category),
         rows.map(r => String(r.isRead)),
         rows.map(r => r.createdAt),
-        rows.map((_, i) => String(i)),
+        rows.map((row, i) => String(context.rowSortIndexes?.get(row.id) ?? i)),
         rows.map(r => json(r)),
       ]);
     },
@@ -853,11 +964,32 @@ FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[],$7
     name: "commissions",
     selectSql: "select payload from alpha_exchange.commissions order by sort_index asc",
     values: (db) => db.commissionRecords,
-    insert: async (tx, rows: CommissionRecord[]) => {
+    insert: async (tx, rows: CommissionRecord[], context) => {
       await bulkInsert(tx, `INSERT INTO alpha_exchange.commissions (id, purchase_request_id, listing_id, seller_id, buyer_id, payment_status, due_at, created_at, updated_at, sort_index, payload)
 SELECT id, purchase_request_id, listing_id, seller_id, buyer_id, payment_status, due_at::timestamptz, created_at::timestamptz, updated_at::timestamptz, sort_index::int, payload::jsonb
 FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[],$7::text[],$8::text[],$9::text[],$10::text[],$11::text[])
-  AS t(id,purchase_request_id,listing_id,seller_id,buyer_id,payment_status,due_at,created_at,updated_at,sort_index,payload)`, [
+  AS t(id,purchase_request_id,listing_id,seller_id,buyer_id,payment_status,due_at,created_at,updated_at,sort_index,payload)
+ON CONFLICT (id) DO UPDATE SET
+  purchase_request_id = excluded.purchase_request_id,
+  listing_id = excluded.listing_id,
+  seller_id = excluded.seller_id,
+  buyer_id = excluded.buyer_id,
+  payment_status = excluded.payment_status,
+  due_at = excluded.due_at,
+  created_at = excluded.created_at,
+  updated_at = excluded.updated_at,
+  sort_index = excluded.sort_index,
+  payload = excluded.payload
+WHERE alpha_exchange.commissions.purchase_request_id IS DISTINCT FROM excluded.purchase_request_id
+   OR alpha_exchange.commissions.listing_id IS DISTINCT FROM excluded.listing_id
+   OR alpha_exchange.commissions.seller_id IS DISTINCT FROM excluded.seller_id
+   OR alpha_exchange.commissions.buyer_id IS DISTINCT FROM excluded.buyer_id
+   OR alpha_exchange.commissions.payment_status IS DISTINCT FROM excluded.payment_status
+   OR alpha_exchange.commissions.due_at IS DISTINCT FROM excluded.due_at
+   OR alpha_exchange.commissions.created_at IS DISTINCT FROM excluded.created_at
+   OR alpha_exchange.commissions.updated_at IS DISTINCT FROM excluded.updated_at
+   OR alpha_exchange.commissions.sort_index IS DISTINCT FROM excluded.sort_index
+   OR alpha_exchange.commissions.payload IS DISTINCT FROM excluded.payload`, [
         rows.map(r => r.id),
         rows.map(r => r.purchaseRequestId ?? null),
         rows.map(r => r.listingId ?? null),
@@ -867,7 +999,7 @@ FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[],$7
         rows.map(r => toTimestamp(r.dueAt)?.toISOString() ?? null),
         rows.map(r => r.createdAt),
         rows.map(r => r.updatedAt),
-        rows.map((_, i) => String(i)),
+        rows.map((row, i) => String(context.rowSortIndexes?.get(row.id) ?? i)),
         rows.map(r => json(r)),
       ]);
     },
@@ -876,11 +1008,28 @@ FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[],$7
     name: "audit_logs",
     selectSql: "select payload from alpha_exchange.audit_logs order by sort_index asc",
     values: (db) => db.auditLogs,
-    insert: async (tx, rows: AuditLogEntry[]) => {
+    insert: async (tx, rows: AuditLogEntry[], context) => {
       await bulkInsert(tx, `INSERT INTO alpha_exchange.audit_logs (id, action, actor_user_id, target_user_id, listing_id, purchase_request_id, created_at, sort_index, payload)
 SELECT id, action, actor_user_id, target_user_id, listing_id, purchase_request_id, created_at::timestamptz, sort_index::int, payload::jsonb
 FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[],$7::text[],$8::text[],$9::text[])
-  AS t(id,action,actor_user_id,target_user_id,listing_id,purchase_request_id,created_at,sort_index,payload)`, [
+  AS t(id,action,actor_user_id,target_user_id,listing_id,purchase_request_id,created_at,sort_index,payload)
+ON CONFLICT (id) DO UPDATE SET
+  action = excluded.action,
+  actor_user_id = excluded.actor_user_id,
+  target_user_id = excluded.target_user_id,
+  listing_id = excluded.listing_id,
+  purchase_request_id = excluded.purchase_request_id,
+  created_at = excluded.created_at,
+  sort_index = excluded.sort_index,
+  payload = excluded.payload
+WHERE alpha_exchange.audit_logs.action IS DISTINCT FROM excluded.action
+   OR alpha_exchange.audit_logs.actor_user_id IS DISTINCT FROM excluded.actor_user_id
+   OR alpha_exchange.audit_logs.target_user_id IS DISTINCT FROM excluded.target_user_id
+   OR alpha_exchange.audit_logs.listing_id IS DISTINCT FROM excluded.listing_id
+   OR alpha_exchange.audit_logs.purchase_request_id IS DISTINCT FROM excluded.purchase_request_id
+   OR alpha_exchange.audit_logs.created_at IS DISTINCT FROM excluded.created_at
+   OR alpha_exchange.audit_logs.sort_index IS DISTINCT FROM excluded.sort_index
+   OR alpha_exchange.audit_logs.payload IS DISTINCT FROM excluded.payload`, [
         rows.map(r => r.id),
         rows.map(r => r.action),
         rows.map(r => r.actorUserId),
@@ -888,7 +1037,7 @@ FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[],$7
         rows.map(r => r.listingId ?? null),
         rows.map(r => r.purchaseRequestId ?? null),
         rows.map(r => r.createdAt),
-        rows.map((_, i) => String(i)),
+        rows.map((row, i) => String(context.rowSortIndexes?.get(row.id) ?? i)),
         rows.map(r => json(r)),
       ]);
     },
@@ -969,7 +1118,7 @@ FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[],$7
     name: "activity_logs",
     selectSql: "select payload from alpha_exchange.activity_logs order by sort_index asc",
     values: (db) => db.activityLog,
-    insert: async (tx, rows: AlphaExchangeActivityLogEntry[]) => {
+    insert: async (tx, rows: AlphaExchangeActivityLogEntry[], context) => {
       await bulkInsert(tx, `INSERT INTO alpha_exchange.activity_logs (id, user_id, category, created_at, sort_index, payload)
 SELECT id, user_id, category, created_at::timestamptz, sort_index::int, payload::jsonb
 FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[])
@@ -978,7 +1127,7 @@ FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[])
         rows.map(r => r.userId),
         rows.map(r => r.category),
         rows.map(r => r.createdAt),
-        rows.map((_, i) => String(i)),
+        rows.map((row, i) => String(context.rowSortIndexes?.get(row.id) ?? i)),
         rows.map(r => json(r)),
       ]);
     },
@@ -987,7 +1136,7 @@ FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[])
     name: "disputes",
     selectSql: "select payload from alpha_exchange.disputes order by sort_index asc",
     values: (db) => db.disputes,
-    insert: async (tx, rows: TradeDisputeCase[]) => {
+    insert: async (tx, rows: TradeDisputeCase[], context) => {
       await bulkInsert(tx, `INSERT INTO alpha_exchange.disputes (id, trade_id, purchase_request_id, seller_id, buyer_id, status, created_at, updated_at, sort_index, payload)
 SELECT id, trade_id, purchase_request_id, seller_id, buyer_id, status, created_at::timestamptz, updated_at::timestamptz, sort_index::int, payload::jsonb
 FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[],$7::text[],$8::text[],$9::text[],$10::text[])
@@ -1000,7 +1149,7 @@ FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[],$7
         rows.map(r => r.status),
         rows.map(r => r.createdAt),
         rows.map(r => r.updatedAt),
-        rows.map((_, i) => String(i)),
+        rows.map((row, i) => String(context.rowSortIndexes?.get(row.id) ?? i)),
         rows.map(r => json(r)),
       ]);
     },
@@ -1028,14 +1177,14 @@ FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[],$7
     name: "trust_snapshots",
     selectSql: "select payload from alpha_exchange.trust_snapshots order by sort_index asc",
     values: (db) => db.trustSnapshots,
-    insert: async (tx, rows: TrustSnapshotRecord[]) => {
+    insert: async (tx, rows: TrustSnapshotRecord[], context) => {
       await bulkInsert(tx, `INSERT INTO alpha_exchange.trust_snapshots (seller_id, updated_at, sort_index, payload)
 SELECT seller_id, updated_at::timestamptz, sort_index::int, payload::jsonb
 FROM unnest($1::text[],$2::text[],$3::text[],$4::text[])
   AS t(seller_id,updated_at,sort_index,payload)`, [
         rows.map(r => r.sellerId),
         rows.map(r => r.updatedAt),
-        rows.map((_, i) => String(i)),
+        rows.map((row, i) => String(context.rowSortIndexes?.get(row.sellerId) ?? i)),
         rows.map(r => json(r)),
       ]);
     },
@@ -1044,7 +1193,7 @@ FROM unnest($1::text[],$2::text[],$3::text[],$4::text[])
     name: "trust_score_history",
     selectSql: "select payload from alpha_exchange.trust_score_history order by sort_index asc",
     values: (db) => db.trustScoreHistory,
-    insert: async (tx, rows: TrustScoreChangeLog[]) => {
+    insert: async (tx, rows: TrustScoreChangeLog[], context) => {
       await bulkInsert(tx, `INSERT INTO alpha_exchange.trust_score_history (id, seller_id, created_at, sort_index, payload)
 SELECT id, seller_id, created_at::timestamptz, sort_index::int, payload::jsonb
 FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[])
@@ -1052,7 +1201,7 @@ FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[])
         rows.map(r => r.id),
         rows.map(r => r.sellerId),
         rows.map(r => r.createdAt),
-        rows.map((_, i) => String(i)),
+        rows.map((row, i) => String(context.rowSortIndexes?.get(row.id) ?? i)),
         rows.map(r => json(r)),
       ]);
     },
@@ -1160,14 +1309,14 @@ FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[],$7
     name: "sms_deliveries",
     selectSql: "select payload from alpha_exchange.sms_deliveries order by sort_index asc",
     values: (db) => db.smsDeliveries ?? [],
-    insert: async (tx, rows: SmsDeliveryRecord[]) => {
+    insert: async (tx, rows: SmsDeliveryRecord[], context) => {
       await bulkInsert(tx, `INSERT INTO alpha_exchange.sms_deliveries (id, event_key, event_type, recipient_user_id, status, retry_count, twilio_message_sid, created_at, updated_at, sort_index, payload)
 SELECT id, event_key, event_type, recipient_user_id, status, retry_count::int, twilio_message_sid, created_at::timestamptz, updated_at::timestamptz, sort_index::int, payload::jsonb
 FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[],$7::text[],$8::text[],$9::text[],$10::text[],$11::text[])
   AS t(id,event_key,event_type,recipient_user_id,status,retry_count,twilio_message_sid,created_at,updated_at,sort_index,payload)`, [
         rows.map(r => r.id), rows.map(r => r.eventKey), rows.map(r => r.eventType), rows.map(r => r.recipientUserId),
         rows.map(r => r.status), rows.map(r => String(r.retryCount)), rows.map(r => r.twilioMessageSid ?? null),
-        rows.map(r => r.createdAt), rows.map(r => r.updatedAt), rows.map((_, i) => String(i)), rows.map(r => json(r)),
+        rows.map(r => r.createdAt), rows.map(r => r.updatedAt), rows.map((row, i) => String(context.rowSortIndexes?.get(row.id) ?? i)), rows.map(r => json(r)),
       ]);
     },
   },
@@ -1237,6 +1386,9 @@ type AggregatedSnapshotRow = {
  *
  * `tableNames` is restricted to the compile-time snapshot table allowlist, so
  * interpolating these identifiers cannot introduce user-controlled SQL.
+ * The payloads are already JSONB. Aggregate to wire JSON rather than rebuilding
+ * a second binary document for the whole collection; pg parses either result
+ * into the same objects. Explicit ordering and empty arrays stay unchanged.
  */
 function buildAggregatedSnapshotSql(
   tableNames: readonly SnapshotTableName[],
@@ -1250,16 +1402,16 @@ function buildAggregatedSnapshotSql(
       : null;
     if (limit) {
       return `coalesce((
-        select jsonb_agg(bounded.payload order by bounded.sort_index asc)
+        select json_agg(bounded.payload order by bounded.sort_index asc)
         from (
           select payload, sort_index
           from alpha_exchange.${tableName}
           order by sort_index asc
           limit ${limit}
         ) bounded
-      ), '[]'::jsonb) as "${tableName}"`;
+      ), '[]'::json) as "${tableName}"`;
     }
-    return `coalesce((select jsonb_agg(payload order by sort_index asc) from alpha_exchange.${tableName}), '[]'::jsonb) as "${tableName}"`;
+    return `coalesce((select json_agg(payload order by sort_index asc) from alpha_exchange.${tableName}), '[]'::json) as "${tableName}"`;
   });
   return `select
     (select version::text from alpha_exchange.runtime_meta where singleton = true) as version${payloadColumns.length ? `,\n    ${payloadColumns.join(",\n    ")}` : ""}`;
@@ -1278,7 +1430,7 @@ function snapshotFromAggregatedRow(
   }));
 }
 
-async function upsertUsersTable(tx: PoolClient, rows: AlphaExchangeUser[]) {
+async function upsertUsersTable(tx: PoolClient, rows: AlphaExchangeUser[], rowSortIndexes?: ReadonlyMap<string, number>) {
   await bulkInsert(tx, `INSERT INTO alpha_exchange.users (id, email, role, seller_status, availability_status, online_status, created_at, updated_at, sort_index, payload)
 SELECT id, email, role, seller_status, availability_status, online_status, created_at::timestamptz, updated_at::timestamptz, sort_index::int, payload::jsonb
 FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[],$7::text[],$8::text[],$9::text[],$10::text[])
@@ -1301,7 +1453,7 @@ ON CONFLICT (id) DO UPDATE SET
     rows.map(r => r.onlineStatus),
     rows.map(r => r.createdAt),
     rows.map(r => r.updatedAt),
-    rows.map((_, i) => String(i)),
+    rows.map((row, i) => String(rowSortIndexes?.get(row.id) ?? i)),
     rows.map(r => json(r)),
   ]);
 }
@@ -1331,6 +1483,15 @@ async function replaceTableContents(tx: PoolClient, tableName: SnapshotTableName
       evidenceContentById: context?.evidenceContentById ?? new Map(),
       evidenceOverrides: context?.evidenceOverrides,
     });
+    return;
+  }
+  // Preserve stable row identities and dependent records. A full snapshot may
+  // remove missing IDs, but must not transiently delete rows it is keeping.
+  if (["purchase_requests", "notifications", "commissions", "audit_logs"].includes(tableName)) {
+    const table = getTable(tableName);
+    const rows = table.values(db) as Array<{ id: string }>;
+    await tx.query(`delete from alpha_exchange.${tableName} where not (id = any($1::text[]))`, [rows.map(row => row.id)]);
+    await table.insert(tx, rows, { evidenceContentById: context?.evidenceContentById ?? new Map(), evidenceOverrides: context?.evidenceOverrides });
     return;
   }
   await tx.query(`delete from alpha_exchange.${tableName}`);
@@ -1573,6 +1734,16 @@ function mergeMatchingPurchaseRequest(latest: PurchaseRequest, incoming: Purchas
     : (incomingUpdatedAt > latestUpdatedAt ? incoming : latest);
   return {
     ...preferred,
+    // These terms were disclosed when the request was created. An older
+    // worker can advance progress but must not silently remove either policy.
+    feePolicyVersion: latest.feePolicyVersion,
+    commissionCalculationVersion: latest.commissionCalculationVersion,
+    // A stale lifecycle/maintenance writer cannot resurrect completed follow-up
+    // work. A genuinely new terminal transition has its own requestedAt value.
+    trustReconciliation: !incoming.trustReconciliation || (latest.trustReconciliation?.requestedAt === incoming.trustReconciliation?.requestedAt
+      && latest.trustReconciliation?.reconciledAt)
+      ? latest.trustReconciliation
+      : preferred.trustReconciliation,
     // Trade Room communication must be additive even when two Vercel instances
     // write from different snapshot versions. Lifecycle status still follows the
     // existing monotonic winner above; messages and directional Poke state merge.
@@ -1661,6 +1832,17 @@ function mergeCommissionRecords(latest: CommissionRecord[], incoming: Commission
 
     return {
       ...selected,
+      // Maintenance may advance status, but cannot rewrite the issued fee or
+      // its precision from an older snapshot. Owner corrections use a current,
+      // locked write rather than this conflict-recovery merge.
+      commissionCalculationVersion: canonical.commissionCalculationVersion,
+      feePolicyVersion: canonical.feePolicyVersion,
+      commissionAmount: canonical.commissionAmount,
+      sellerFeeAmount: canonical.sellerFeeAmount,
+      buyerFeeCollectedAmount: canonical.buyerFeeCollectedAmount,
+      issueOperationId: canonical.issueOperationId,
+      issueRequestHash: canonical.issueRequestHash,
+      ...(canonical.issueOperationId ? { source: canonical.source, issuedByUserId: canonical.issuedByUserId, issueReason: canonical.issueReason } : {}),
       ...(issuedIntent
         ? {
             paymentExpectedAmount: issuedIntent.paymentExpectedAmount,
@@ -1988,15 +2170,6 @@ function databaseErrorMetadata(error: unknown) {
   };
 }
 
-function isTransientReadError(error: unknown) {
-  const code = typeof error === "object" && error !== null ? (error as { code?: unknown }).code : undefined;
-  if (typeof code === "string" && ["08000", "08003", "08006", "57P01", "57P02", "57P03"].includes(code)) {
-    return true;
-  }
-  const message = error instanceof Error ? error.message : "";
-  return /query read timeout|timeout exceeded when trying to connect|connection terminated|connection closed|ECONNRESET|EPIPE|ETIMEDOUT/i.test(message);
-}
-
 async function queryReadWithRetry<T extends QueryResultRow>(
   target: Queryable,
   queryText: string,
@@ -2140,6 +2313,220 @@ export class AlphaExchangeRepository {
     };
   }
 
+  /** Read and decide a lifecycle transition under the same lock used to commit.
+   * This avoids speculative whole-snapshot writes and repeated stale retries
+   * when multiple buyers/sellers act concurrently. All declared dependencies
+   * remain authoritative; only changed rows are written. */
+  async beginTradeLifecycleTransaction(tableNames: readonly SnapshotTableName[], requestId?: string, nextStatus?: PurchaseRequest["status"], actorUserId?: string): Promise<TradeLifecycleTransaction | null> {
+    return this.beginCanonicalTradeTransaction(tableNames, false, requestId, nextStatus, actorUserId);
+  }
+
+  async beginTradeTrustTransaction(tableNames: readonly SnapshotTableName[]): Promise<TradeLifecycleTransaction | null> {
+    return this.beginCanonicalTradeTransaction([...tableNames, "seller_profiles", "seller_settings"], true);
+  }
+
+  private async beginCanonicalTradeTransaction(tableNames: readonly SnapshotTableName[], trustReconciliation: boolean, requestId?: string, nextStatus?: PurchaseRequest["status"], actorUserId?: string): Promise<TradeLifecycleTransaction | null> {
+    await this.ensureReady();
+    const pool = this.pool;
+    if (this.usesMemoryFallback || !pool) return null;
+    const selectedNames = Array.from(new Set(tableNames));
+    if (selectedNames.some(name => !SNAPSHOT_TABLE_NAMES.includes(name))) throw new Error("Unknown lifecycle read table.");
+    const client = await pool.connect();
+    let closed = false;
+    const close = async (error?: unknown) => {
+      if (closed) return;
+      closed = true;
+      const destroy = await rollbackFailedTransaction(client, error);
+      client.release(destroy);
+    };
+    try {
+      // These append-only/event collections are consulted only for this trade.
+      // Listings and commission assignments remain global. Lifecycle
+      // request dependencies are the seller's trades and the buyer's trades,
+      // including trades with other counterparties. Legacy numbering needs the
+      // complete collection until every retained request has a display number.
+      const filters: Partial<Record<SnapshotTableName, string>> = requestId ? {
+        notifications: "where payload->>'relatedRequestId' = $1",
+        audit_logs: "where purchase_request_id = $1",
+        sms_deliveries: "where starts_with(event_key, 'trade:' || $1 || ':')",
+        activity_logs: "where false",
+        evidence: "where purchase_request_id = $1",
+      } : {};
+      const retryProjection = Boolean(requestId && nextStatus);
+      const scopedRetryUsers = retryProjection && Boolean(actorUserId) && selectedNames.includes("users");
+      const scopedParticipantUsers = scopedRetryUsers && (nextStatus === "accepted" || nextStatus === "completed");
+      // A terminal retry still goes through every store permission/credential
+      // guard, but cannot write. Its response needs the canonical request,
+      // identities, evidence and disputes, not unrelated financial/history rows.
+      // Keep legacy unnumbered records on the complete read path.
+      const retryModeSql = trustReconciliation ? `with lifecycle_mode as materialized (select exists (
+        select 1 from alpha_exchange.purchase_requests where payload->'trustReconciliation'->>'requestedAt' is not null
+          and payload->'trustReconciliation'->>'reconciledAt' is null
+      ) as has_pending_trust) ` : retryProjection ? `with target_trade as materialized (
+        select id, seller_id, buyer_id, status, payload from alpha_exchange.purchase_requests where id = $1
+      ), lifecycle_mode as materialized (select exists (
+        select 1 from target_trade
+          where payload->>'displayNumber' ~ '^[1-9][0-9]*$'
+          and (status = $2 or ($2 = 'completed' and status in ('review_open', 'completed', 'locked')))
+      ) as read_only_retry), lifecycle_requests as materialized (
+        select * from alpha_exchange.purchase_requests where id = $1
+          or (not (select read_only_retry from lifecycle_mode) and (
+            seller_id = (select seller_id from target_trade)
+            or buyer_id = (select buyer_id from target_trade)
+            or exists (select 1 from alpha_exchange.purchase_requests where coalesce(payload->>'displayNumber', '') !~ '^[1-9][0-9]*$')
+          ))
+      ) ` : "";
+      const retryReadTables = new Set<SnapshotTableName>(["users", "seller_applications", "purchase_requests", "evidence", "disputes"]);
+      const columns = (onlyCommittedRetry = false) => selectedNames.filter(name => !onlyCommittedRetry || retryReadTables.has(name)).map(name => {
+        const filter = scopedRetryUsers && name === "users"
+            ? `where id = $3
+                or id in (select seller_id from target_trade union select buyer_id from target_trade)
+                or (not (select read_only_retry from lifecycle_mode)${scopedParticipantUsers ? ` and (
+                  payload->>'role' in ('owner', 'admin')
+                  or payload->'roles' ?| array['owner', 'admin']
+                  or lower(btrim(coalesce(payload->>'email', ''))) = $4
+                  or id in (select seller_id from lifecycle_requests union select buyer_id from lifecycle_requests)
+                )` : ""})`
+          : filters[name] ?? "";
+        // Compute the canonical request dependency set once per statement.
+        // Both account authorization and request state consume that same set,
+        // instead of rescanning histories separately for each participant side.
+        const source = retryProjection && name === "purchase_requests" ? "lifecycle_requests" : `alpha_exchange.${name}`;
+        const aggregate = `coalesce((select json_agg(json_build_object('payload', payload, 'sort_index', sort_index) order by sort_index asc) from ${source} ${filter}), '[]'::json)`;
+        const projection = trustReconciliation ? `case when (select has_pending_trust from lifecycle_mode) then ${aggregate} else '[]'::json end`
+          : retryProjection && !retryReadTables.has(name) ? `case when (select read_only_retry from lifecycle_mode) then '[]'::json else ${aggregate} end` : aggregate;
+        return `${onlyCommittedRetry ? `case when (select read_only_retry from lifecycle_mode) then ${projection} else '[]'::json end` : projection} as "${name}"`;
+      });
+      const scopedNames = selectedNames.filter(name => filters[name]);
+      const boundsSql = scopedNames.length ? `, json_build_object(${scopedNames.map(name => `'${name}', (select json_build_object('minimum', min(sort_index), 'maximum', max(sort_index)) from alpha_exchange.${name})`).join(", ")}) as sort_bounds` : "";
+      // Acceptance and completion do not write accounts or calculate trust. Keep their caller,
+      // every related counterparty and all canonical admin/owner recipients,
+      // including the legacy owner-email rule. Other mutations retain the full
+      // authority collection; a committed retry needs only its participants.
+      const parameters = retryProjection ? [requestId, nextStatus, ...(scopedRetryUsers ? [actorUserId] : []), ...(scopedParticipantUsers ? [ALPHA_EXCHANGE_OWNER_EMAIL] : [])] : scopedNames.some(name => filters[name]?.includes("$1")) ? [requestId] : undefined;
+      type ReadRow = { version: string; read_only_retry?: boolean; has_pending_trust?: boolean; sort_bounds?: Partial<Record<SnapshotTableName, LifecycleSortBounds>> } & Partial<Record<SnapshotTableName, IndexedPayload[]>>;
+      const readSql = (onlyCommittedRetry = false) => {
+        const selected = columns(onlyCommittedRetry);
+        return `${retryModeSql}select
+          (select version::text from alpha_exchange.runtime_meta where singleton = true) as version${trustReconciliation ? ", (select has_pending_trust from lifecycle_mode) as has_pending_trust" : retryProjection ? ", (select read_only_retry from lifecycle_mode) as read_only_retry" : ""}${selected.length ? `,\n${selected.join(",\n")}` : ""}${onlyCommittedRetry ? "" : boundsSql}`;
+      };
+      let row: ReadRow | undefined;
+      // A retry of committed state is one atomic read, still followed by every
+      // store permission/credential guard. It cannot write and need not queue
+      // behind unrelated financial mutations. A state-changing action always
+      // acquires the lock and re-reads before making its decision.
+      if (retryProjection) {
+        const retry = await client.query<ReadRow>(readSql(true), parameters);
+        if (retry.rows[0]?.read_only_retry) {
+          row = retry.rows[0];
+          closed = true;
+          client.release(false);
+        }
+      }
+      if (!row) {
+        await client.query("begin");
+        if (retryProjection) {
+          // Serialize duplicate commands for one request before they enter the
+          // global financial queue. Once the first commits, its duplicate can
+          // use a permission-checked read without holding the global lock.
+          // The two-integer advisory namespace is separate from bigint locks.
+          const lock = await client.query<{ acquired: boolean }>("select pg_try_advisory_xact_lock(61422919, hashtext($1)) as acquired", [requestId]);
+          if (!lock.rows[0]?.acquired) {
+            await client.query("select pg_advisory_xact_lock(61422919, hashtext($1))", [requestId]);
+            const retry = await client.query<ReadRow>(readSql(true), parameters);
+            if (retry.rows[0]?.read_only_retry) { row = retry.rows[0]; await close(); }
+          }
+        }
+        if (!row && trustReconciliation) {
+          const lock = await client.query<{ acquired: boolean; overdue: boolean }>(`with pressure as materialized (
+            select exists (select 1 from pg_locks
+              where locktype = 'advisory' and classid = 61422919 and objsubid = 2
+                and database = (select oid from pg_database where datname = current_database())) as financial_work,
+              exists (select 1 from alpha_exchange.purchase_requests
+                where payload->'trustReconciliation'->>'requestedAt' is not null
+                  and payload->'trustReconciliation'->>'reconciledAt' is null
+                  and (payload->'trustReconciliation'->>'requestedAt')::timestamptz < now() - interval '30 seconds') as overdue
+          ) select case when financial_work and not overdue then false
+              else pg_try_advisory_xact_lock(61422917) end as acquired, overdue from pressure`);
+          if (!lock.rows[0]?.acquired && !lock.rows[0]?.overdue) {
+            // A fresh derived update yields while lifecycle requests hold or
+            // wait for their request lock, even between global-lock holders.
+            // Its committed intent remains pending; subsequent callbacks and
+            // maintenance recover it. Older work joins the lock queue so a
+            // sustained trading burst cannot starve reconciliation forever.
+            await close();
+            return { snapshot: emptySnapshotCollections(), close,
+              commit: async () => { throw new Error("Deferred trust work did not acquire its transaction lock."); } };
+          }
+          if (!lock.rows[0]?.acquired) await client.query("select pg_advisory_xact_lock(61422917)");
+        } else if (!row) await client.query("select pg_advisory_xact_lock(61422917)");
+        if (!row) row = (await client.query<ReadRow>(readSql(), parameters)).rows[0];
+      }
+      const version = Number(row?.version ?? "0");
+      const before = new Map(selectedNames.map(name => [name, row?.[name] ?? []]));
+      const snapshot = attachVersion(snapshotFromTableRows(selectedNames.map(tableName => ({ tableName, rows: before.get(tableName)! }))), version);
+      // Business rules mutate the returned objects; retain an immutable basis
+      // for row comparison without a second database read.
+      // Read-only authority/evidence collections cannot be written by this
+      // transaction. Keep immutable copies only for its declared write domain;
+      // cloning every account and historical read needlessly holds the lock.
+      const allowedWrites = trustReconciliation ? TRADE_TRUST_WRITE_TABLES : TRADE_LIFECYCLE_WRITE_TABLES;
+      const baseline = row?.read_only_retry ? before
+        : structuredClone(new Map([...before].filter(([name]) => allowedWrites.has(name))));
+      return {
+        snapshot,
+        close,
+        commit: async (next, options) => {
+          if (row?.read_only_retry) throw new Error("A read-only lifecycle retry cannot commit a mutation.");
+          if (closed) throw new Error("Trade lifecycle transaction is closed.");
+          try {
+            if (trustReconciliation && row?.has_pending_trust === false) throw new Error("No pending trust reconciliation to commit.");
+            const writeTables = Array.from(new Set(options.selectedTables));
+            if (writeTables.some(name => !allowedWrites.has(name) || !baseline.has(name))) {
+              throw new Error("Undeclared or unsupported lifecycle write table.");
+            }
+            options.validateBeforeCommit?.(next);
+            let changed = false;
+            for (const name of writeTables) {
+              const table = getTable(name);
+              const bounds = row?.sort_bounds?.[name];
+              const identityKey = name === "seller_profiles" || name === "seller_settings" ? "userId" : name === "trust_snapshots" ? "sellerId" : "id";
+              const primaryKey = identityKey === "userId" ? "user_id" : identityKey === "sellerId" ? "seller_id" : "id";
+              const delta = lifecycleRowDelta(baseline.get(name)!, table.values(next) as LifecycleRow[], bounds ? { ...bounds, append: name === "sms_deliveries" } : undefined, identityKey);
+              if (delta.deletedIds.length) {
+                if (name === "users") throw new Error("Trust reconciliation cannot delete accounts.");
+                await client.query(`delete from alpha_exchange.${name} where ${primaryKey} = any($1::text[])`, [delta.deletedIds]);
+                changed = true;
+              }
+              if (!delta.changed.length) continue;
+              // These legacy insert functions do not upsert. Delete only
+              // changed existing rows; untouched queue/history rows stay intact.
+              if (["activity_logs", "sms_deliveries", "disputes", "seller_profiles", "seller_settings", "trust_snapshots", "trust_score_history"].includes(name)) {
+                const priorIds = new Set(baseline.get(name)!.map(item => item.payload[identityKey]));
+                const replacedIds = delta.changed.filter(item => priorIds.has(item[identityKey])).map(item => item[identityKey]);
+                if (replacedIds.length) await client.query(`delete from alpha_exchange.${name} where ${primaryKey} = any($1::text[])`, [replacedIds]);
+              }
+              if (name === "users") await upsertUsersTable(client, delta.changed as AlphaExchangeUser[], delta.positions);
+              else await table.insert(client, delta.changed, { evidenceContentById: new Map(), rowSortIndexes: delta.positions });
+              changed = true;
+            }
+            if (changed) await client.query("update alpha_exchange.runtime_meta set version = version + 1, updated_at = now() where singleton = true");
+            await client.query("commit");
+            closed = true;
+            client.release(false);
+            attachVersion(next, version + Number(changed));
+          } catch (error) {
+            await close(error);
+            throw error;
+          }
+        },
+      };
+    } catch (error) {
+      await close(error);
+      throw error;
+    }
+  }
+
   /** Commit one trade plus newly appended events without replacing shared tables. */
   async mutateFocusedTrade(
     requestId: string,
@@ -2200,8 +2587,7 @@ export class AlphaExchangeRepository {
       await client.query("commit");
       return next;
     } catch (error) {
-      destroy = isTransientReadError(error);
-      try { await client.query("rollback"); } catch { destroy = true; }
+      destroy = await rollbackFailedTransaction(client, error);
       throw error;
     } finally {
       client.release(destroy);
@@ -3475,6 +3861,19 @@ export class AlphaExchangeRepository {
               : pruneOrphanAuthSessions(mergedSnapshot);
             const persistedSnapshot = attachVersion(snapshotForMergeWrite, nextVersion);
             options?.validateBeforeCommit?.(persistedSnapshot);
+            // A concurrent reconciliation may already have consumed every
+            // durable intent. Its canonical rebase is then a no-op: do not
+            // rewrite all history/accounts or invalidate more readers.
+            if (options?.rebaseOnLatest && !options.evidenceOverrides?.size && selectedTables.every(name => {
+              const table = getTable(name);
+              return isDeepStrictEqual(JSON.parse(json(table.values(latestSnapshot))), JSON.parse(json(table.values(persistedSnapshot))));
+            })) {
+              await client.query("commit");
+              Object.assign(db, cloneSnapshot(persistedSnapshot));
+              attachVersion(db, currentVersion);
+              if (!options.rebaseTables) syncMemoryFallbackSnapshot(db, currentVersion);
+              return;
+            }
             for (const tableName of selectedTables) {
               await replaceTableContents(client, tableName, persistedSnapshot, {
                 evidenceContentById,
@@ -3625,8 +4024,11 @@ export class AlphaExchangeRepository {
           try {
             await queryWithLogging(client, "select pg_advisory_xact_lock(61422917)");
             logProfile("advisory_lock");
-          } catch {
-            // pg-mem does not implement advisory locks; local tests stay single-process.
+          } catch (error) {
+            // A failed lock never authorizes an unlocked write. Only the
+            // explicitly unsupported local pg-mem function may be skipped.
+            if (isProductionSecurityRuntime() || !(error instanceof Error)
+              || !/function .*pg_advisory_xact_lock.*does not exist/i.test(error.message)) throw error;
           }
 
           const loadedVersion = getVersion(db);
@@ -3670,17 +4072,25 @@ export class AlphaExchangeRepository {
           );
           logProfile("update_runtime_meta");
 
-          attachVersion(db, writtenVersion);
           await client.query("commit");
+          attachVersion(db, writtenVersion);
           logProfile("commit");
           return;
         } catch (error) {
+          // The driver may time out before PostgreSQL stops the statement.
+          // Destroy the socket instead of queuing rollback or recycling it.
+          if (error instanceof Error && /query read timeout/i.test(error.message)) {
+            client?.release(true);
+            client = null;
+            throw error;
+          }
           try {
             if (client) {
               await client.query("rollback");
             }
           } catch {
-            // Ignore rollback failure; a fresh client will be acquired on retry.
+            client?.release(true);
+            client = null;
           }
           const retryClient = client;
           if (
@@ -4073,9 +4483,8 @@ export class AlphaExchangeRepository {
   }
 
   // Targeted write — applies only the delta produced by createMarketplaceListing.
-  // The listing INSERT + trust_snapshot UPSERTs run in a single transaction.
-  // Append-only writes (audit_logs, notifications, activity_log, trust_score_history)
-  // run as independent parallel INSERTs — they require no atomicity with the listing.
+  // Listing, trust, audit and notification intents commit together. A failed
+  // required event must not leave a successful listing with missing history.
   async saveListingCreationSnapshotTargeted(delta: {
     newListing: MarketplaceListing;
     newAuditLogs: AuditLogEntry[];
@@ -4118,8 +4527,8 @@ export class AlphaExchangeRepository {
       return;
     }
 
-    // ── Step 1: transactional — INSERT listing + UPSERT trust_snapshots ──────
     let client: PoolClient | null = null;
+    let destroy = false;
     let nextVersion = 0;
     const perf = createRepoPerf(`saveListingCreationSnapshotTargeted[trustSnapshots=${delta.updatedTrustSnapshots.length}]`);
     try {
@@ -4135,9 +4544,9 @@ export class AlphaExchangeRepository {
       // commits first allows it.
       try {
         await client.query("select pg_advisory_xact_lock(61422917)");
-      } catch {
-        // pg-mem does not implement advisory locks; local tests are
-        // single-process and use the memory branch above.
+      } catch (error) {
+        if (isProductionSecurityRuntime() || !(error instanceof Error)
+          || !/function .*pg_advisory_xact_lock.*does not exist/i.test(error.message)) throw error;
       }
       const blockingCommission = await client.query<{ id: string }>(
         `select id
@@ -4188,6 +4597,42 @@ export class AlphaExchangeRepository {
         perf?.step(`trust_snapshot_upsert_${snap.sellerId.slice(-8)}`);
       }
 
+      for (const entry of delta.newAuditLogs) {
+        await client.query(
+          `insert into alpha_exchange.audit_logs
+             (id, action, actor_user_id, target_user_id, listing_id, purchase_request_id, created_at, sort_index, payload)
+           values ($1,$2,$3,$4,$5,$6,$7,
+             (select coalesce(min(sort_index), 1) - 1 from alpha_exchange.audit_logs), $8::jsonb)`,
+          [entry.id, entry.action, entry.actorUserId, entry.targetUserId ?? null,
+            entry.listingId ?? null, entry.purchaseRequestId ?? null, entry.createdAt, json(entry)],
+        );
+      }
+      for (const notification of delta.newNotifications) {
+        await client.query(
+          `insert into alpha_exchange.notifications (id, user_id, category, is_read, created_at, sort_index, payload)
+           values ($1,$2,$3,$4,$5,
+             (select coalesce(min(sort_index), 1) - 1 from alpha_exchange.notifications), $6::jsonb)`,
+          [notification.id, notification.userId, notification.category, notification.isRead, notification.createdAt, json(notification)],
+        );
+      }
+      for (const entry of delta.newActivityLogs) {
+        await client.query(
+          `insert into alpha_exchange.activity_logs (id, user_id, category, created_at, sort_index, payload)
+           values ($1,$2,$3,$4,
+             (select coalesce(min(sort_index), 1) - 1 from alpha_exchange.activity_logs), $5::jsonb)`,
+          [entry.id, entry.userId, entry.category, entry.createdAt, json(entry)],
+        );
+      }
+      for (const entry of delta.newTrustHistoryEntries) {
+        await client.query(
+          `insert into alpha_exchange.trust_score_history (id, seller_id, created_at, sort_index, payload)
+           values ($1,$2,$3,
+             (select coalesce(min(sort_index), 1) - 1 from alpha_exchange.trust_score_history), $4::jsonb)`,
+          [entry.id, entry.sellerId, entry.createdAt, json(entry)],
+        );
+      }
+      perf?.step("transactional_events");
+
       const versionResult = await client.query<{ version: string }>(
         "update alpha_exchange.runtime_meta set version = version + 1, updated_at = now() where singleton = true returning version::text as version",
       );
@@ -4197,102 +4642,11 @@ export class AlphaExchangeRepository {
       await client.query("commit");
       perf?.step("commit");
     } catch (error) {
-      if (client) {
-        try { await client.query("rollback"); } catch { /* ignore rollback failure */ }
-      }
+      if (client) destroy = await rollbackFailedTransaction(client, error);
       throw error;
     } finally {
-      if (client) { client.release(); client = null; }
+      if (client) { client.release(destroy); client = null; }
     }
-
-    // ── Step 2: independent parallel INSERTs for append-only collections ─────
-    // sort_index uses a subquery so new entries sort before (lower index) existing ones.
-    const appendTasks: Array<Promise<void>> = [];
-
-    if (delta.newAuditLogs.length) {
-      appendTasks.push((async () => {
-        for (const entry of delta.newAuditLogs) {
-          await pool.query(
-            `insert into alpha_exchange.audit_logs
-               (id, action, actor_user_id, target_user_id, listing_id, purchase_request_id, created_at, sort_index, payload)
-             values ($1,$2,$3,$4,$5,$6,$7,
-               (select coalesce(min(sort_index), 1) - 1 from alpha_exchange.audit_logs),
-               $8::jsonb)`,
-            [
-              entry.id, entry.action, entry.actorUserId, entry.targetUserId ?? null,
-              entry.listingId ?? null, entry.purchaseRequestId ?? null, entry.createdAt, json(entry),
-            ],
-          );
-        }
-      })());
-    }
-
-    if (delta.newNotifications.length) {
-      appendTasks.push((async () => {
-        for (const notif of delta.newNotifications) {
-          await pool.query(
-            `insert into alpha_exchange.notifications
-               (id, user_id, category, is_read, created_at, sort_index, payload)
-             values ($1,$2,$3,$4,$5,
-               (select coalesce(min(sort_index), 1) - 1 from alpha_exchange.notifications),
-               $6::jsonb)`,
-            [notif.id, notif.userId, notif.category, notif.isRead, notif.createdAt, json(notif)],
-          );
-        }
-      })());
-    }
-
-    if (delta.newActivityLogs.length) {
-      appendTasks.push((async () => {
-        for (const entry of delta.newActivityLogs) {
-          await pool.query(
-            `insert into alpha_exchange.activity_logs
-               (id, user_id, category, created_at, sort_index, payload)
-             values ($1,$2,$3,$4,
-               (select coalesce(min(sort_index), 1) - 1 from alpha_exchange.activity_logs),
-               $5::jsonb)`,
-            [entry.id, entry.userId, entry.category, entry.createdAt, json(entry)],
-          );
-        }
-      })());
-    }
-
-    if (delta.newTrustHistoryEntries.length) {
-      appendTasks.push((async () => {
-        for (const entry of delta.newTrustHistoryEntries) {
-          await pool.query(
-            `insert into alpha_exchange.trust_score_history
-               (id, seller_id, created_at, sort_index, payload)
-             values ($1,$2,$3,
-               (select coalesce(min(sort_index), 1) - 1 from alpha_exchange.trust_score_history),
-               $4::jsonb)`,
-            [entry.id, entry.sellerId, entry.createdAt, json(entry)],
-          );
-        }
-      })());
-    }
-
-    // Use allSettled so that a failed append-only INSERT never rolls back or
-    // changes the HTTP response — the listing transaction already committed.
-    // Failures are logged with enough context for manual retry or investigation.
-    const appendLabels = ["audit_logs", "notifications", "activity_logs", "trust_score_history"];
-    const results = await Promise.allSettled(appendTasks);
-    perf?.step("parallel_appends");
-    results.forEach((result, i) => {
-      if (result.status === "rejected") {
-        logEvent("error", {
-          event: "alpha_exchange_listing_append",
-          targetUserId: delta.newListing.sellerId,
-          resourceId: delta.newListing.id,
-          outcome: "failed",
-          reason: "post_commit_append_failed",
-          metadata: {
-            table: appendLabels[i] ?? "unknown",
-            errorName: result.reason instanceof Error ? result.reason.name : typeof result.reason,
-          },
-        });
-      }
-    });
 
     try {
       // Fire-and-forget: the listing was already committed. Even though the full
@@ -4351,13 +4705,15 @@ export class AlphaExchangeRepository {
     }
 
     let client: PoolClient | null = null;
+    let destroy = false;
     try {
       client = await pool.connect();
       await client.query("begin");
       try {
         await client.query("select pg_advisory_xact_lock(61422917)");
-      } catch {
-        // pg-mem does not implement advisory locks; local tests stay single-process.
+      } catch (error) {
+        if (isProductionSecurityRuntime() || !(error instanceof Error)
+          || !/function .*pg_advisory_xact_lock.*does not exist/i.test(error.message)) throw error;
       }
 
       const currentMeta = await queryWithLogging(client,
@@ -4454,13 +4810,11 @@ export class AlphaExchangeRepository {
       );
       await client.query("commit");
     } catch (error) {
-      if (client) {
-        try { await client.query("rollback"); } catch { /* ignore rollback failure */ }
-      }
+      if (client) destroy = await rollbackFailedTransaction(client, error);
       throw error;
     } finally {
       if (client) {
-        client.release();
+        client.release(destroy);
       }
     }
   }

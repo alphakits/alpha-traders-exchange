@@ -56,6 +56,48 @@ function createEmptyDb(): AlphaExchangeDb {
 }
 
 describe("AlphaExchangeRepository", () => {
+  it("does not advance a listing snapshot version when commit fails", async () => {
+    const client = {
+      query: vi.fn(async (sql: string) => {
+        if (sql === "commit") throw new Error("connection terminated during commit");
+        return { rows: [] };
+      }), release: vi.fn(),
+    };
+    const repository = new AlphaExchangeRepository({ query: vi.fn(), connect: vi.fn().mockResolvedValue(client), on: vi.fn() } as unknown as Pool);
+    vi.spyOn(repository, "ensureReady").mockResolvedValue();
+    const snapshot = { ...createEmptyDb(), __runtimeVersion: 0 };
+    await expect(repository.saveListingCreationSnapshot(snapshot)).rejects.toThrow("connection terminated during commit");
+    expect(snapshot.__runtimeVersion).toBe(0);
+  });
+
+  it.each(["canceling statement due to statement timeout", "Query read timeout", "connection terminated unexpectedly"])(
+    "never writes a listing when its transaction lock fails: %s",
+    async (message) => {
+      vi.stubEnv("NODE_ENV", "production");
+      const client = {
+        query: vi.fn(async (sql: string) => {
+          if (sql.includes("pg_advisory_xact_lock")) throw new Error(message);
+          return { rows: [] };
+        }),
+        release: vi.fn(),
+      };
+      const repository = new AlphaExchangeRepository({
+        query: vi.fn(), connect: vi.fn().mockResolvedValue(client), on: vi.fn(),
+      } as unknown as Pool);
+      vi.spyOn(repository, "ensureReady").mockResolvedValue();
+      await expect(repository.saveListingCreationSnapshot(createEmptyDb())).rejects.toThrow(message);
+      const queries = client.query.mock.calls.map(([sql]) => sql.trim());
+      expect(queries.some(sql => /^(insert|update|delete)\b/i.test(sql))).toBe(false);
+      expect(queries).not.toContain("commit");
+      if (message === "Query read timeout") {
+        expect(queries).not.toContain("rollback");
+        expect(client.release).toHaveBeenCalledWith(true);
+      } else {
+        expect(queries).toContain("rollback");
+      }
+    },
+  );
+
   it("invalidates every session for the recovering account while preserving another account's sessions", async () => {
     const snapshot = createEmptyDb();
     snapshot.authSessions = [
@@ -452,7 +494,7 @@ describe("AlphaExchangeRepository", () => {
     expect(snapshot.purchaseRequests).toEqual([{ id: "purchase-1", status: "accepted" }]);
     expect(snapshot.users).toEqual([]);
     expect((snapshot as AlphaExchangeDb & { __runtimeVersion?: number }).__runtimeVersion).toBe(17);
-    const selectedQueries = query.mock.calls.filter(([sql]) => String(sql).includes("jsonb_agg(payload order by sort_index asc)"));
+    const selectedQueries = query.mock.calls.filter(([sql]) => String(sql).includes("json_agg(payload order by sort_index asc)"));
     expect(selectedQueries).toHaveLength(1);
     expect(String(selectedQueries[0]?.[0])).not.toContain('as "users"');
   });
@@ -800,7 +842,7 @@ describe("AlphaExchangeRepository", () => {
         if (failLoads) {
           return Promise.reject(new Error("timeout exceeded when trying to connect"));
         }
-        if (queryText.includes("jsonb_agg(payload order by sort_index asc)")) {
+        if (queryText.includes("json_agg(payload order by sort_index asc)")) {
           return Promise.resolve({
             rows: [{
               version: "7",
@@ -852,7 +894,7 @@ describe("AlphaExchangeRepository", () => {
     };
     const successPool = {
       query: vi.fn((queryText: string) => {
-        if (queryText.includes("jsonb_agg(payload order by sort_index asc)")) {
+        if (queryText.includes("json_agg(payload order by sort_index asc)")) {
           return Promise.resolve({
             rows: [{
               version: "9",
@@ -1060,7 +1102,7 @@ describe("AlphaExchangeRepository", () => {
     };
     const client = {
       query: vi.fn((sql: string) => {
-        if (typeof sql === "string" && sql.includes("jsonb_agg(payload order by sort_index asc)")) {
+        if (typeof sql === "string" && sql.includes("json_agg(payload order by sort_index asc)")) {
           return Promise.resolve({
             rows: [{ version: "2", purchase_requests: [canonicalRequest] }],
           });
@@ -1095,7 +1137,7 @@ describe("AlphaExchangeRepository", () => {
     });
 
     const aggregateQueries = client.query.mock.calls.filter(([sql]) => (
-      typeof sql === "string" && sql.includes("jsonb_agg(payload order by sort_index asc)")
+      typeof sql === "string" && sql.includes("json_agg(payload order by sort_index asc)")
     ));
     expect(aggregateQueries).toHaveLength(1);
     expect(client.query.mock.calls.some(([sql]) => (
@@ -1287,6 +1329,65 @@ describe("AlphaExchangeRepository", () => {
       paymentExpectedAmountAssignedAt: "2026-09-04T10:01:00.000Z",
       paymentReservedExpectedAmounts: [7],
     });
+  });
+
+  it("preserves the accepted fee policy when a stale worker advances a request", async () => {
+    const repository = new AlphaExchangeRepository(null);
+    const baseline = await repository.loadSnapshot();
+    const request = { id: "precision-trade", status: "accepted", listingId: "listing-1", sellerId: "seller-1", buyerId: "buyer-1",
+      feePolicyVersion: "buyer_seller_1pct_v1", commissionCalculationVersion: "usdt_6dp_v2",
+      createdAt: "2026-10-17T00:00:00.000Z", updatedAt: "2026-10-17T00:01:00.000Z" };
+    globalThis.__alphaExchangeMemorySnapshot = { ...baseline, purchaseRequests: [request], __runtimeVersion: 2 } as never;
+    await repository.saveSnapshot({ ...baseline, purchaseRequests: [{ ...request, status: "payment_sent",
+      feePolicyVersion: undefined, commissionCalculationVersion: undefined,
+      updatedAt: "2026-10-17T00:02:00.000Z" }], __runtimeVersion: 1 } as unknown as AlphaExchangeDb);
+    const saved = globalThis.__alphaExchangeMemorySnapshot as unknown as AlphaExchangeDb;
+    expect(saved.purchaseRequests[0]).toMatchObject({ status: "payment_sent", feePolicyVersion: "buyer_seller_1pct_v1", commissionCalculationVersion: "usdt_6dp_v2" });
+  });
+
+  it.each([true, false])("preserves reconciled trade trust work from stale maintenance (legacy=%s)", async legacy => {
+    const repository = new AlphaExchangeRepository(null);
+    const baseline = await repository.loadSnapshot();
+    const intent = { requestedAt: "2026-10-17T00:01:00.000Z", requestedByUserId: "seller-1", reconciledAt: "2026-10-17T00:02:00.000Z" };
+    const request = { id: "trust-trade", status: "completed", listingId: "listing-1", sellerId: "seller-1", buyerId: "buyer-1",
+      createdAt: intent.requestedAt, updatedAt: intent.requestedAt, trustReconciliation: intent };
+    globalThis.__alphaExchangeMemorySnapshot = { ...baseline, purchaseRequests: [request], __runtimeVersion: 2 } as never;
+    await repository.saveSnapshot({ ...baseline, purchaseRequests: [{ ...request,
+      updatedAt: "2026-10-17T00:03:00.000Z", trustReconciliation: legacy ? undefined : { ...intent, reconciledAt: undefined } }], __runtimeVersion: 1 } as unknown as AlphaExchangeDb);
+    expect((globalThis.__alphaExchangeMemorySnapshot as unknown as AlphaExchangeDb).purchaseRequests[0].trustReconciliation).toEqual(intent);
+  });
+
+  it("does not let stale maintenance change issued commission precision, shares or amount", async () => {
+    const repository = new AlphaExchangeRepository(null);
+    const baseline = await repository.loadSnapshot();
+    const canonical = { id: "precision-commission", sellerId: "seller-1", source: "trade", purchaseRequestId: "precision-trade",
+      rate: 0.01, grossAmount: 0.32, commissionAmount: 0.002, sellerFeeAmount: 0.001, buyerFeeCollectedAmount: 0.001,
+      feePolicyVersion: "buyer_seller_1pct_v1", commissionCalculationVersion: "usdt_6dp_v2", paymentStatus: "pending",
+      createdAt: "2026-10-17T00:00:00.000Z", updatedAt: "2026-10-17T00:01:00.000Z" };
+    globalThis.__alphaExchangeMemorySnapshot = { ...baseline, commissionRecords: [canonical], __runtimeVersion: 2 } as never;
+    const stale = { ...baseline, commissionRecords: [{ ...canonical, commissionCalculationVersion: undefined,
+      commissionAmount: 0.02, sellerFeeAmount: 0.01, buyerFeeCollectedAmount: 0.01, paymentStatus: "overdue",
+      updatedAt: "2026-10-17T00:02:00.000Z" }], __runtimeVersion: 1 } as unknown as AlphaExchangeDb;
+    await repository.saveSnapshot(stale, { selectedTables: ["commissions"] });
+    const saved = globalThis.__alphaExchangeMemorySnapshot as unknown as AlphaExchangeDb;
+    expect(saved.commissionRecords[0]).toMatchObject({ paymentStatus: "overdue", commissionCalculationVersion: "usdt_6dp_v2",
+      commissionAmount: 0.002, sellerFeeAmount: 0.001, buyerFeeCollectedAmount: 0.001 });
+  });
+
+  it("preserves manual assignment identity against stale maintenance", async () => {
+    const repository = new AlphaExchangeRepository(null);
+    const baseline = await repository.loadSnapshot();
+    const canonical = { id: "manual-once", sellerId: "seller-1", source: "admin_manual", issuedByUserId: "owner-1",
+      issueOperationId: "124b41aa-e9e6-4581-b26e-7ad5a64606f0", issueRequestHash: "original-fingerprint", issueReason: "Approved adjustment",
+      rate: 0, grossAmount: 0, commissionAmount: 7.25, paymentStatus: "pending",
+      createdAt: "2026-10-17T00:00:00.000Z", updatedAt: "2026-10-17T00:01:00.000Z" };
+    globalThis.__alphaExchangeMemorySnapshot = { ...baseline, commissionRecords: [canonical], __runtimeVersion: 2 } as never;
+    await repository.saveSnapshot({ ...baseline, commissionRecords: [{ ...canonical, issueOperationId: undefined, issueRequestHash: undefined,
+      issuedByUserId: undefined, source: undefined, issueReason: undefined, paymentStatus: "overdue", updatedAt: "2026-10-17T00:02:00.000Z" }],
+      __runtimeVersion: 1 } as unknown as AlphaExchangeDb, { selectedTables: ["commissions"] });
+    const saved = globalThis.__alphaExchangeMemorySnapshot as unknown as AlphaExchangeDb;
+    expect(saved.commissionRecords[0]).toMatchObject({ paymentStatus: "overdue", source: "admin_manual", issuedByUserId: "owner-1",
+      issueOperationId: canonical.issueOperationId, issueRequestHash: canonical.issueRequestHash, issueReason: canonical.issueReason });
   });
 
   it("never lets stale overdue maintenance roll a paid commission back", async () => {
@@ -1638,7 +1739,7 @@ describe("AlphaExchangeRepository", () => {
     ];
     const client = {
       query: vi.fn((sql: string) => {
-        if (sql.includes("jsonb_agg")) return Promise.resolve({ rows: [{ version: "2", purchase_requests: requests }] });
+        if (/jsonb?_agg/.test(sql)) return Promise.resolve({ rows: [{ version: "2", purchase_requests: requests }] });
         if (sql.includes("select version::text as version")) return Promise.resolve({ rows: [{ version: "2" }] });
         return Promise.resolve({ rows: [] });
       }), release: vi.fn(),
@@ -1655,7 +1756,7 @@ describe("AlphaExchangeRepository", () => {
         return snapshot;
       },
     });
-    const sql = client.query.mock.calls.find(([query]) => query.includes("jsonb_agg"))?.[0] ?? "";
+    const sql = client.query.mock.calls.find(([query]) => /jsonb?_agg/.test(query))?.[0] ?? "";
     expect(sql).toContain('as "purchase_requests"');
     expect(sql).not.toContain('as "sessions"');
     expect(sql).not.toContain('as "evidence"');

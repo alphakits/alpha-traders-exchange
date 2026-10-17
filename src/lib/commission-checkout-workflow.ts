@@ -1,3 +1,4 @@
+import { SHORTFALL_POLICY, recordCommissionShortfall, materializeCommissionShortfalls, commissionShortfallBalances, lastCommissionPayment, commissionPaymentNotice } from "./commission-shortfall-ledger";
 import { randomInt, randomUUID } from "node:crypto";
 import { COMMISSION_TOLERANCE_MICROS } from "./commission-tolerance.mjs";
 import type { AlphaExchangeDb, CommissionRecord } from "@/types/alpha-exchange";
@@ -279,14 +280,36 @@ function closedRoundedReference(snapshot: AlphaExchangeDb, previous: CommissionC
       && Number.isFinite(Date.parse(record.paidAt ?? "")) && Date.parse(record.paidAt!) < issuedAt
     )));
 }
+/** A later receipt may reuse this seller's own closed reference. It must never
+ * release another seller's reference or treat a manual paid flag as proof. */
+function closedSameSellerReference(snapshot: AlphaExchangeDb, previous: CommissionCheckout, current: CommissionCheckout, amount: number) {
+  if (previous.id === current.id || previous.sellerId !== current.sellerId || previous.expectedMicros !== amount
+    || Date.parse(previous.createdAt) >= Date.parse(current.createdAt) || !settled(snapshot, previous.id)) return false;
+  const settlement = entries(snapshot, CHECKOUT_SETTLED).find(entry => entry.id === `${previous.id}:settled`
+    && entry.targetUserId === previous.sellerId && object(entry.newValue)?.checkoutId === previous.id);
+  const receipt = object(object(settlement?.newValue)?.receipt);
+  const key = checkoutReceiptKey(String(receipt?.signature ?? ""));
+  if (!key) return false;
+  return previous.commissions.every(member => snapshot.commissionRecords.some(record => {
+    const allocation = object((record as CommissionRecord & { paymentBatchSettlement?: unknown }).paymentBatchSettlement);
+    return record.id === member.id && record.sellerId === previous.sellerId && record.createdAt === member.createdAt
+      && checkoutMicros(record.commissionAmount) === member.dueMicros
+      && record.paymentStatus === "paid" && record.paymentVerificationStatus === "verified"
+      && Number.isFinite(Date.parse(record.paidAt ?? "")) && Date.parse(record.paidAt!) < Date.parse(current.createdAt)
+      && allocation?.batchId === previous.id && checkoutReceiptKey(record.paymentSignature ?? "") === key;
+  }));
+}
 function referenceConflict(snapshot: AlphaExchangeDb, checkout: CommissionCheckout, deposit: CheckoutDeposit) {
   const amount = deposit.amountMicros;
   const ids = new Set(checkout.commissions.map((row) => row.id));
   const checkouts = getCommissionCheckouts(snapshot);
   return checkouts.some((other) => other.id !== checkout.id
-    && (other.expectedMicros === amount || (other.roundedMicros === amount
+    && ((other.expectedMicros === amount && !closedSameSellerReference(snapshot, other, checkout, amount)) || (other.roundedMicros === amount
       && !closedRoundedReference(snapshot, other, checkout, amount))))
     || snapshot.commissionRecords.some((record) => !ids.has(record.id)
+      && !checkouts.some(previous => previous.sellerId === record.sellerId
+        && previous.commissions.some(member => member.id === record.id)
+        && closedSameSellerReference(snapshot, previous, checkout, amount))
       && ([record.paymentExpectedAmountMode === "legacy_base" || record.paymentExpectedAmount === undefined ? record.commissionAmount : undefined,
         record.paymentExpectedAmount].some((value) => typeof value === "number" && value > 0 && checkoutMicros(value) === amount)
         || ((record.paymentReservedExpectedAmounts ?? []).some((value) => checkoutMicros(value) === amount)
@@ -338,6 +361,7 @@ export function createCommissionCheckoutWorkflow(ports: CheckoutPorts) {
             return existing;
           }
         }
+        materializeCommissionShortfalls(snapshot, new Date(now()).toISOString(), input.sellerId);
         const records = snapshot.commissionRecords.filter((record) => record.sellerId === input.sellerId && record.paymentStatus !== "paid")
           .filter((record) => !existing || existing.commissions.some((row) => row.id === record.id))
           .sort((a, b) => a.id.localeCompare(b.id));
@@ -377,7 +401,8 @@ export function createCommissionCheckoutWorkflow(ports: CheckoutPorts) {
       ports.afterCommit?.(); return result;
     },
     async state(sellerId: string) {
-      const snapshot = await ports.read(); authorize(snapshot, sellerId);
+      const snapshot = structuredClone(await ports.read()); authorize(snapshot, sellerId);
+      materializeCommissionShortfalls(snapshot, new Date(now()).toISOString(), sellerId);
       const all = getCommissionCheckouts(snapshot).filter((checkout) => checkout.sellerId === sellerId);
       const active = selectedCheckout(snapshot, sellerId);
       const last = all.find((checkout) => settled(snapshot, checkout.id));
@@ -387,11 +412,17 @@ export function createCommissionCheckoutWorkflow(ports: CheckoutPorts) {
       if (!active && outstanding.length) status = "ready";
       const outstandingMicros = outstanding.reduce((sum, record) => sum + BigInt(checkoutMicros(record.commissionAmount)), BigInt(0));
       if (outstandingMicros > BigInt(Number.MAX_SAFE_INTEGER)) fail("invalid_amount");
+      const previousPaymentMicros = outstanding.filter((record) => record.source === "tolerance_carry_forward")
+        .reduce((sum, record) => sum + BigInt(checkoutMicros(record.commissionAmount)), BigInt(0));
       const groupIds = new Set(active ? all.filter((checkout) => sameCheckoutGroup(checkout, active)).map((checkout) => checkout.id) : []);
       const diagnostic = active ? entries(snapshot, CHECKOUT_ATTEMPT).filter(entry => groupIds.has(String(object(entry.newValue)?.checkoutId)) && entry.targetUserId === sellerId).sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0] : undefined;
       return { status, checkout: active ?? null, lastPaidCheckout: last ?? null, pendingCount: outstanding.length,
         canChangeNetwork: status === "waiting" && Boolean(active && canChangeCheckoutNetwork(snapshot, active)),
         totalDueUsdt: Number(outstandingMicros) / 1e6,
+        amountBreakdown: { commissionsUsdt: Number(outstandingMicros - previousPaymentMicros) / 1e6,
+          previousPaymentBalanceUsdt: Number(previousPaymentMicros) / 1e6 },
+        lastPayment: lastCommissionPayment(snapshot, sellerId),
+        carriedShortfallUsdt: (commissionShortfallBalances(snapshot).get(sellerId) ?? 0) / 1e6,
         ...(diagnostic && Number.isFinite(Date.parse(diagnostic.createdAt)) ? { lastVerificationCheckAt: diagnostic.createdAt, verificationCode: String(object(diagnostic.newValue)?.code ?? "") } : {}) };
     },
     async reconcile(input: { deposits: readonly CheckoutDeposit[]; deadline: number; limit?: number }) {
@@ -439,7 +470,7 @@ export function createCommissionCheckoutWorkflow(ports: CheckoutPorts) {
               const allocations = allocateCheckout(canonical, receipt.amountMicros);
               const waivedMicros = Math.max(0, canonical.dueMicros - receipt.amountMicros);
               const excessMicros = Math.max(0, receipt.amountMicros - canonical.dueMicros);
-              const note = `Automatic checkout: ${(receipt.amountMicros / 1e6).toFixed(6)} USDT received; ${(canonical.dueMicros / 1e6).toFixed(6)} USDT due; ${(waivedMicros / 1e6).toFixed(6)} USDT waived; ${(excessMicros / 1e6).toFixed(6)} USDT excess recorded.`;
+              const note = `Automatic checkout: ${(receipt.amountMicros / 1e6).toFixed(6)} USDT received; ${(canonical.dueMicros / 1e6).toFixed(6)} USDT due; ${(waivedMicros / 1e6).toFixed(6)} USDT carried forward to the next commission; ${(excessMicros / 1e6).toFixed(6)} USDT excess recorded.`;
               for (const allocation of allocations) {
                 const index = snapshot.commissionRecords.findIndex((row) => row.id === allocation.commissionId);
                 const record: CommissionRecord & { paymentBatchSettlement: unknown } = { ...snapshot.commissionRecords[index],
@@ -448,6 +479,7 @@ export function createCommissionCheckoutWorkflow(ports: CheckoutPorts) {
                   paymentVerificationStatus: "verified", paymentVerificationNotes: note, paymentLastCheckedAt: paidAt, paidAt, updatedAt: paidAt,
                   paymentSubmittedAt: canonical.createdAt,
                   paymentBatchSettlement: { batchId: canonical.id, ...allocation, signatureKey: key,
+                    shortfallPolicy: SHORTFALL_POLICY, carriedMicros: allocation.waivedMicros,
                     groupReceivedMicros: receipt.amountMicros, groupDueMicros: canonical.dueMicros,
                     attribution } };
                 snapshot.commissionRecords[index] = record;
@@ -455,6 +487,8 @@ export function createCommissionCheckoutWorkflow(ports: CheckoutPorts) {
               // Preserve the actual reference for the legacy allocator as well.
               const leader = snapshot.commissionRecords.find((row) => row.id === canonical.commissions[0].id)!;
               leader.paymentReservedExpectedAmounts = [...new Set([...(leader.paymentReservedExpectedAmounts ?? []), receipt.amountMicros / 1e6])];
+              const appliedExcessMicros = recordCommissionShortfall(snapshot, { settlementId: canonical.id, sellerId: canonical.sellerId, shortfallMicros: waivedMicros, excessMicros, createdAt: paidAt });
+              materializeCommissionShortfalls(snapshot, paidAt, canonical.sellerId);
               const remaining = snapshot.commissionRecords.filter((row) => row.sellerId === canonical.sellerId && row.paymentStatus !== "paid");
               for (const allocation of allocations) {
                 const record = snapshot.commissionRecords.find((row) => row.id === allocation.commissionId)!;
@@ -465,10 +499,11 @@ export function createCommissionCheckoutWorkflow(ports: CheckoutPorts) {
               snapshot.auditLogs.unshift({ id: `${canonical.id}:settled`, action: "commission_paid", actorUserId: canonical.sellerId,
                 targetUserId: canonical.sellerId, createdAt: paidAt, details: note,
                 newValue: { kind: CHECKOUT_SETTLED, checkoutId: canonical.id, checkout: canonical, receipt, attribution,
+                  shortfallPolicy: SHORTFALL_POLICY, carriedMicros: waivedMicros, appliedExcessMicros,
                   plan: { expectedMicros: canonical.dueMicros, receivedMicros: receipt.amountMicros, waivedMicros, excessMicros, allocations } } });
               snapshot.notifications.unshift({ id: `${canonical.id}:notification`, userId: canonical.sellerId, category: "trade",
-                title: "Commission payment verified", titleAr: "تم تأكيد دفعة العمولة", message: `${note} ${remaining.length ? "Other commission dues remain." : "Commission restrictions are cleared. Other account restrictions still apply."}`,
-                messageAr: `تم استلام ${(receipt.amountMicros / 1e6).toFixed(6)} USDT وإعفاء ${(waivedMicros / 1e6).toFixed(6)} USDT. ${remaining.length ? "ما زالت هناك عمولات أخرى." : "تمت إزالة قيود العمولة. تبقى أي قيود أخرى على الحساب سارية."}`,
+                title: "Commission payment verified", titleAr: "تم تأكيد دفعة العمولة",
+                ...commissionPaymentNotice(receipt.amountMicros, waivedMicros, remaining.length > 0),
                 isRead: false, reason: remaining.length ? "commission_payment_due" : "commission_payment_verified",
                 actionHref: "/seller/commission-checkout", relatedHref: "/seller/commission-checkout", actionLabel: "View payment", createdAt: paidAt });
               return true;

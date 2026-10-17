@@ -5,6 +5,7 @@ import { UserPresence } from "@/components/ui/user-presence";
 
 import { AttentionSiren } from "@/components/ui/attention-siren";
 import { CommissionCheckoutPanel } from "./commission-checkout-panel";
+import { CommissionNetworkFeeNotice } from "./commission-network-fee-notice";
 import { CommissionAutomationPanel } from "./commission-automation-panel";
 import { HelpDetails } from "@/components/ui/help-details";
 import { PublicAccountId } from "@/components/ui/public-account-id";
@@ -100,7 +101,6 @@ type SellerOverviewStats = {
   tradeRequests: number;
   successRate: number;
   completionRate: number;
-  estimatedCommissionPaid: number;
   revenueGenerated: number;
   repeatBuyers: number;
   averageTradeSize: number;
@@ -395,10 +395,11 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
     || (commissionWorkspaceAction.kind === "pay-one" ? commissionWorkspaceAction.commissionId.trim() : "");
   const selectedCommissionPayment = (sellerCommissionStatus?.payableRecords as PayableCommissionWithVerification[] | undefined)
     ?.find((record) => record.commissionId.trim() === selectedCommissionId);
+  const selectedCommissionIsCarried = (selectedCommissionPayment?.source ?? sellerCommissionStatus?.source) === "tolerance_carry_forward";
   const selectedCommissionIsAdminIssued = (selectedCommissionPayment?.source ?? sellerCommissionStatus?.source) === "admin_manual";
-  const selectedCommissionIssueReason = selectedCommissionPayment?.issueReason?.trim()
-    || sellerCommissionStatus?.issueReason?.trim()
-    || "";
+  const selectedCommissionIssueReason = selectedCommissionIsCarried
+    ? (isAr ? "رصيد غير مدفوع من دفعة عمولة سابقة تم التحقق منها. هذه ليست رسوم تداول إضافية." : "Unpaid balance from an earlier verified commission payment. This is not an additional trading fee.")
+    : selectedCommissionPayment?.issueReason?.trim() || sellerCommissionStatus?.issueReason?.trim() || "";
   const selectedCommissionSubmittedAt = selectedCommissionPayment?.paymentSubmittedAt
     ? new Date(selectedCommissionPayment.paymentSubmittedAt)
     : null;
@@ -515,9 +516,9 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                     <AttentionSiren className="mt-0.5 text-xl" />
                     <div className="flex-1 space-y-2">
                       <p className="commission-notice font-semibold text-base">{sellerCommissionStatus.status === "overdue" ? (isAr ? "العمولة متأخرة" : "Commission Overdue") : (isAr ? "عمولة مستحقة" : "Commission Due")}</p>
-                      {selectedCommissionIsAdminIssued ? (
+                      {selectedCommissionIsAdminIssued || selectedCommissionIsCarried ? (
                         <div className="rounded-xl border border-amber-300/25 bg-amber-300/10 px-3 py-2 text-xs text-amber-100">
-                          <p className="commission-notice font-semibold">{isAr ? "عمولة صادرة عن الإدارة" : "Admin-issued commission"}</p>
+                          <p className="commission-notice font-semibold">{selectedCommissionIsCarried ? (isAr ? "رصيد عمولة مرحّل" : "Carried commission balance") : (isAr ? "عمولة صادرة عن الإدارة" : "Admin-issued commission")}</p>
                           {selectedCommissionIssueReason ? <p className="mt-1 whitespace-pre-wrap break-words">{currencyText(selectedCommissionIssueReason)}</p> : null}
                         </div>
                       ) : null}
@@ -594,6 +595,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                         <span className="commission-notice">
                           {currencyText(record.relatedTradeDisplayNumber
                             ? `${isAr ? "الصفقة" : "Trade"} #${record.relatedTradeDisplayNumber}`
+                            : record.source === "tolerance_carry_forward" ? (isAr ? "رصيد عمولة مرحّل" : "Carried commission balance")
                             : record.source === "admin_manual"
                               ? (isAr ? "عمولة صادرة عن الإدارة" : "Admin-issued commission")
                               : (isAr ? "سجل العمولة" : "Commission record"))}
@@ -628,16 +630,16 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                     <X className="h-4 w-4" />
                   </Button>
                 </div>
-                {selectedCommissionIsAdminIssued ? (
+                {selectedCommissionIsAdminIssued || selectedCommissionIsCarried ? (
                   <div className="rounded-xl border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-xs text-amber-100">
-                    <p className="commission-notice font-semibold">{isAr ? "عمولة صادرة عن الإدارة" : "Admin-issued commission"}</p>
+                    <p className="commission-notice font-semibold">{selectedCommissionIsCarried ? (isAr ? "رصيد عمولة مرحّل" : "Carried commission balance") : (isAr ? "عمولة صادرة عن الإدارة" : "Admin-issued commission")}</p>
                     {selectedCommissionIssueReason ? <p className="mt-1 whitespace-pre-wrap break-words">{currencyText(selectedCommissionIssueReason)}</p> : null}
                   </div>
                 ) : null}
                 {!isLegacyPendingCommissionPayment ? (
                 <div className="flex items-center gap-3 rounded-xl border border-[#C9A227]/20 bg-[#C9A227]/5 px-4 py-3 mt-1">
                   <div className="flex-1">
-                    <p className="commission-notice text-xs text-[#9CA3AF]">{isAr ? "ادفع هذه العمولة" : "Pay this commission"}</p>
+                    <p className="commission-notice text-xs text-[#9CA3AF]">{isAr ? "يجب أن تستلم المنصة" : "Platform must receive"}</p>
                     <p className="select-all text-2xl font-bold text-white">{currencyText(formatExactCommissionUsdt(commissionPayableAmountDue))}</p>
                   </div>
                   <Button
@@ -659,6 +661,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                   ) : null}
                 </div>
                 ) : null}
+                {!isLegacyPendingCommissionPayment ? <CommissionNetworkFeeNotice isAr={isAr} /> : null}
                 {sellerCommissionStatus && sellerCommissionStatus.pendingCount > 1 ? (
                   <p className="commission-notice text-xs text-[#D1D5DB]">
                     {currencyText(isAr ? `إجمالي المستحق ${formatUsdt(commissionTotalAmountDue)} موزع على ${sellerCommissionStatus.pendingCount} عمولات. هذه الدفعة تسدد العمولة المحددة أعلاه فقط.` : `Total outstanding: ${formatUsdt(commissionTotalAmountDue)} across ${sellerCommissionStatus.pendingCount} commissions. This payment settles only the selected commission above.`)}
@@ -914,7 +917,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                           {[
                             isAr ? `انتقل إلى صفحة السحب أو الإرسال في المنصة واختر USDT على شبكة ${COMMISSION_NETWORKS.find((n) => n.id === commissionNetwork)?.sublabel ?? commissionNetwork}.` : `Go to your exchange's Withdraw or Send page and select USDT on ${COMMISSION_NETWORKS.find((n) => n.id === commissionNetwork)?.sublabel ?? commissionNetwork}.`,
                             isAr ? "الصق عنوان عمولة Alpha Traders كمستلم." : "Paste the Alpha Traders commission address as the recipient.",
-                            isAr ? `أدخل المبلغ الدقيق: ${formatExactCommissionUsdt(commissionPayableAmountDue)} وتأكد أن مبلغ الاستلام بعد الرسوم مطابق.` : `Enter exactly ${formatExactCommissionUsdt(commissionPayableAmountDue)} and make sure the amount received after fees matches.`,
+                            isAr ? `اضبط مبلغ الاستلام على ${formatExactCommissionUsdt(commissionPayableAmountDue)}. أضف الرسوم فقط إذا كانت تُخصم من التحويل.` : `Set the receive amount to ${formatExactCommissionUsdt(commissionPayableAmountDue)}. Add the fee only if it is deducted from the transfer.`,
                             isAr ? "أكد السحب وانتظر تأكيد شبكة البلوك تشين." : "Confirm the withdrawal and wait for blockchain confirmation.",
                             isAr ? "تُفحص الدفعات كل دقيقة، وتُحدّث حالة العمولة تلقائيًا بعد التحقق." : "Payments are checked every minute. Your commission updates automatically after verification.",
                             isAr ? "إذا تأخر اكتشاف الدفعة، انسخ معرّف المعاملة من سجل السحب والصقه أدناه للتحقق. لا تدفع مرة أخرى." : "If detection is delayed, copy the TxID from withdrawal history and verify it below. Do not pay again.",

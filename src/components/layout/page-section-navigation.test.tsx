@@ -22,6 +22,7 @@ beforeEach(() => {
   pathname = "/en/usdt-exchange";
   window.history.replaceState({}, "", pathname);
   Object.defineProperty(Element.prototype, "scrollIntoView", { configurable: true, value: vi.fn() });
+  vi.stubGlobal("scrollTo", vi.fn());
   vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: false })));
   vi.stubGlobal("ResizeObserver", class {
     constructor(callback: () => void) { resized = callback; }
@@ -73,6 +74,54 @@ describe("first-click section navigation", () => {
     const form = section("create-listing");
     await settle();
     expect(document.activeElement).toBe(form);
+  });
+
+  it.each(["pointerdown", "keydown", "wheel", "touchmove", "focusin"])("keeps newer interaction in control before initial hash restoration runs (%s)", async (event) => {
+    window.history.replaceState({}, "", "/en/profile#notification-preferences");
+    const preferences = section("notification-preferences");
+    render(<><PageSectionNavigation /><button role="tab">Alerts</button></>);
+    const tab = screen.getByRole("tab", { name: "Alerts" });
+    fireEvent(tab, new Event(event, { bubbles: true }));
+    tab.focus();
+    await settle();
+    expect(document.activeElement).toBe(tab);
+    expect(preferences.scrollIntoView).not.toHaveBeenCalled();
+  });
+
+  it("preserves focus chosen before the navigation restorer hydrates", async () => {
+    window.history.replaceState({}, "", "/en/profile#notification-preferences");
+    const preferences = section("notification-preferences");
+    const tab = document.createElement("button");
+    document.body.append(tab);
+    tab.focus();
+    render(<PageSectionNavigation />);
+    await settle();
+    expect(document.activeElement).toBe(tab);
+    expect(preferences.scrollIntoView).not.toHaveBeenCalled();
+  });
+
+  it("still honors explicit history navigation after the user cancels initial restoration", async () => {
+    window.history.replaceState({}, "", "/en/profile#notification-preferences");
+    section("notification-preferences");
+    const contact = section("contact-details");
+    render(<><PageSectionNavigation /><button role="tab">Alerts</button></>);
+    const tab = screen.getByRole("tab", { name: "Alerts" });
+    tab.focus();
+    await settle();
+    expect(document.activeElement).toBe(tab);
+    window.history.replaceState({}, "", "/en/profile#contact-details");
+    fireEvent(window, new PopStateEvent("popstate"));
+    expect(document.activeElement).toBe(contact);
+  });
+
+  it("keeps a first workspace action pending while the initial empty-hash restoration settles", async () => {
+    render(<PageSectionNavigation />);
+    revealPageSection("my-listings-section");
+    await settle();
+    const listings = section("my-listings-section");
+    await settle();
+    expect(document.activeElement).toBe(listings);
+    expect(listings.scrollIntoView).toHaveBeenCalled();
   });
 
   it("keeps the selected form visible when content above it changes height", async () => {
@@ -143,6 +192,30 @@ describe("first-click section navigation", () => {
     await settle();
     expect(document.activeElement).not.toBe(form);
     expect(form.scrollIntoView).not.toHaveBeenCalled();
+  });
+
+  it.each(["pointerdown", "keydown", "wheel", "touchmove"])("stops an in-flight smooth scroll at the current position on %s", async (event) => {
+    const form = section("create-listing");
+    vi.stubGlobal("scrollX", 20);
+    vi.stubGlobal("scrollY", 350);
+    revealPageSection(form.id);
+    expect(form.scrollIntoView).toHaveBeenCalledWith({ behavior: "smooth", block: "start" });
+    const interaction = new Event(event, { bubbles: true, cancelable: true });
+    document.dispatchEvent(interaction);
+    expect(window.scrollTo).toHaveBeenCalledExactlyOnceWith({ left: 20, top: 350, behavior: "instant" });
+    expect(interaction.defaultPrevented).toBe(false);
+    vi.mocked(form.scrollIntoView).mockClear();
+    await settle();
+    expect(form.scrollIntoView).not.toHaveBeenCalled();
+  });
+
+  it("does not interrupt viewport scrolling when no smooth section scroll was started", () => {
+    vi.mocked(window.matchMedia).mockReturnValue({ matches: true } as MediaQueryList);
+    const form = section("create-listing");
+    revealPageSection(form.id);
+    expect(form.scrollIntoView).toHaveBeenCalledWith({ behavior: "instant", block: "start" });
+    document.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+    expect(window.scrollTo).not.toHaveBeenCalled();
   });
 
   it("discards pending focus when the user leaves the page", async () => {

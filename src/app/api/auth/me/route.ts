@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { AUTH_PHONE_VERIFIED_COOKIE_NAME, clearUserSession, expireAuthCookies, getCurrentSessionToken, getCurrentSessionUser } from "@/lib/auth";
+import { AUTH_PHONE_VERIFIED_COOKIE_NAME, clearUserSession, getCurrentSessionToken, getCurrentSessionUser } from "@/lib/auth";
 import { isMarketplacePhoneVerificationDisabled } from "@/lib/phone-verification";
 import { isVerified } from "@/lib/verification-bypass";
 import { toClientSessionUser } from "@/lib/client-session-user";
@@ -41,8 +41,8 @@ export async function GET() {
     const token = await getCurrentSessionToken();
     if (token) {
       await clearUserSession(token);
-      const cookieStore = await cookies();
-      expireAuthCookies(cookieStore, process.env.NODE_ENV === "production");
+      // An old background read must not clear a replacement login cookie.
+      // Canonical authorization still rejects this token; logout owns expiry.
     }
     const routeMs = Date.now() - routeStartedAt;
     return NextResponse.json({ user: null }, {

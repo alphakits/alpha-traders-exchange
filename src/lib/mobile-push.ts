@@ -1,10 +1,11 @@
 import { createHash, randomUUID } from "crypto";
 import { after } from "next/server";
-import type { Pool, PoolClient } from "pg";
+import type { Pool } from "pg";
 import type { MobileLocale, MobilePlatform } from "@alpha-traders/contracts";
 import { toMobileNotification } from "@/lib/mobile-notifications";
 import { getSafeInternalNotificationDestination } from "@/lib/notification-action-destination";
 import { getRuntimePostgresPool } from "@/lib/postgres-runtime";
+import { rollbackFailedTransaction } from "@/lib/postgres-transaction";
 import { logEvent } from "@/lib/structured-logging";
 import type { AlphaExchangeNotification } from "@/types/alpha-exchange";
 
@@ -14,6 +15,9 @@ const PUSH_FETCH_TIMEOUT_MS = 5_000;
 const PUSH_FETCH_MAX_ATTEMPTS = 3;
 const PUSH_RETRY_DELAY_CAP_MS = 5_000;
 const MAX_PUSH_BATCH = 100;
+// The shared runtime pool has five connections. Notification bursts must not
+// occupy all of them while financial actions wait to read or commit a trade.
+const MAX_CONCURRENT_PUSH_LOOKUPS = 2;
 const EXPO_PUSH_TOKEN_PATTERN = /^Expo(?:nent)?PushToken\[[A-Za-z0-9._=+\/-]{8,220}\]$/;
 const INSTALLATION_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{7,199}$/;
 
@@ -63,6 +67,23 @@ class ExpoPushResponseError extends Error {
 }
 
 let schemaPromise: Promise<void> | null = null;
+let activePushLookups = 0;
+const pushLookupWaiters: Array<() => void> = [];
+
+async function withPushLookupSlot<T>(lookup: () => Promise<T>): Promise<T> {
+  if (activePushLookups < MAX_CONCURRENT_PUSH_LOOKUPS) {
+    activePushLookups += 1;
+  } else {
+    await new Promise<void>(resolve => pushLookupWaiters.push(resolve));
+  }
+  try {
+    return await lookup();
+  } finally {
+    const next = pushLookupWaiters.shift();
+    if (next) next(); // Transfer this slot to the oldest waiting lookup.
+    else activePushLookups -= 1;
+  }
+}
 
 function sha256(value: string) {
   return createHash("sha256").update(value).digest("hex");
@@ -121,10 +142,6 @@ async function ensurePushSchema(pool: Pool) {
   await schemaPromise;
 }
 
-function rollbackQuietly(client: PoolClient) {
-  return client.query("rollback").catch(() => undefined);
-}
-
 export function isExpoPushToken(value: string) {
   return EXPO_PUSH_TOKEN_PATTERN.test(value.trim());
 }
@@ -158,6 +175,8 @@ export async function registerMobilePushSubscription(input: {
   const pool = requirePushPool();
   await ensurePushSchema(pool);
   const client = await pool.connect();
+  let destroy = false;
+
   try {
     await client.query("begin");
     const sessionTokenHash = sha256(sessionToken);
@@ -207,10 +226,10 @@ export async function registerMobilePushSubscription(input: {
     await client.query("commit");
     return { id: result.rows[0]?.id ?? "", registered: true as const };
   } catch (error) {
-    await rollbackQuietly(client);
+    destroy = await rollbackFailedTransaction(client, error);
     throw error;
   } finally {
-    client.release();
+    client.release(destroy);
   }
 }
 
@@ -461,7 +480,19 @@ async function sendClaimedBatch(
     completeDelivery(pool, deliveryKey, subscription.id, tickets[index])));
 }
 
-async function reconcileExpoPushReceipts(pool: Pool) {
+const receiptReconciliations = new WeakMap<Pool, Promise<void>>();
+
+function reconcileExpoPushReceipts(pool: Pool): Promise<void> {
+  const active = receiptReconciliations.get(pool);
+  if (active) return active;
+  const task = reconcileExpoPushReceiptBatch(pool).finally(() => {
+    if (receiptReconciliations.get(pool) === task) receiptReconciliations.delete(pool);
+  });
+  receiptReconciliations.set(pool, task);
+  return task;
+}
+
+async function reconcileExpoPushReceiptBatch(pool: Pool) {
   const pending = await pool.query<{ notification_id: string; subscription_id: string; ticket_id: string }>(
     `select notification_id, subscription_id, ticket_id
      from alpha_exchange.mobile_push_deliveries
@@ -505,39 +536,43 @@ async function reconcileExpoPushReceipts(pool: Pool) {
 export async function deliverMobilePushNotification(notification: AlphaExchangeNotification) {
   const pool = requirePushPool();
   await ensurePushSchema(pool);
-  const canonicalResult = await pool.query<{ payload: AlphaExchangeNotification; unread_count: number }>(
-    `select notification.payload,
-            (select count(*)::int
-             from alpha_exchange.notifications unread
-             where unread.user_id = $2 and unread.is_read = false) as unread_count
-     from alpha_exchange.notifications notification
-     where notification.id = $1 and notification.user_id = $2
-     limit 1`,
-    [notification.id, notification.userId],
-  );
-  const canonical = canonicalResult.rows[0]?.payload;
-  if (!canonical || canonical.isRead || canonical.state === "read" || canonical.state === "archived") return;
-  const unreadCount = canonicalResult.rows[0]?.unread_count ?? 1;
-  const deliveryKey = mobilePushDeliveryKey(canonical);
-
-  const result = await pool.query<{
+  // Read the committed notification and eligible sessions together. A burst
+  // without any registered devices needs no separate notification/count read.
+  // Queue only the initial database lookup. Provider calls and shared receipt
+  // recovery never retain a slot, so a slow provider cannot block other users.
+  // The row and session remain canonical when a queued lookup actually runs.
+  const result = await withPushLookupSlot(() => pool.query<{
+    payload: AlphaExchangeNotification;
+    unread_count: number;
     id: string;
     user_id: string;
     expo_push_token: string;
     platform: MobilePlatform;
     locale: MobileLocale;
   }>(
-    `select push.id, push.user_id, push.expo_push_token, push.platform, push.locale
-     from alpha_exchange.mobile_push_subscriptions push
+    `select notification.payload, push.id, push.user_id, push.expo_push_token, push.platform, push.locale,
+            (select count(*)::int from alpha_exchange.notifications unread
+             where unread.user_id = notification.user_id and unread.is_read = false) as unread_count
+     from alpha_exchange.notifications notification
+     join alpha_exchange.mobile_push_subscriptions push on push.user_id = notification.user_id
      join alpha_exchange.sessions session
        on session.token_hash = push.session_token_hash
       and session.user_id = push.user_id
       and session.expires_at > now()
-     where push.user_id = $1 and push.active = true
+     where notification.id = $1 and notification.user_id = $2 and push.active = true
      order by push.updated_at desc
      limit 20`,
-    [canonical.userId],
-  );
+    [notification.id, notification.userId],
+  ));
+  const canonical = result.rows[0]?.payload;
+  if (!canonical || canonical.isRead || canonical.state === "read" || canonical.state === "archived") {
+    // Receipt recovery is independent of whether this recipient has a device.
+    // Concurrent publications share one bounded batch, then later calls retry.
+    await reconcileExpoPushReceipts(pool);
+    return;
+  }
+  const unreadCount = result.rows[0]?.unread_count ?? 1;
+  const deliveryKey = mobilePushDeliveryKey(canonical);
   const subscriptions: MobilePushSubscription[] = result.rows.map((row) => ({
     id: row.id,
     userId: row.user_id,

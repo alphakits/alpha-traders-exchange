@@ -232,9 +232,9 @@ describe("negotiated marketplace price offers", () => {
     expect(clientAcceptedNotification).not.toHaveProperty("whatsappChannelOnly");
   });
 
-  it("enforces the ₪0.35 server limit and requires a genuinely lower cent price", async () => {
+  it("enforces both sides of the ₪0.35 server limit and cent precision", async () => {
     const listing = await createLiveListing();
-    for (const [offeredPrice, code] of [["2.94", "PRICE_OFFER_BELOW_MINIMUM"], ["3.30", "PRICE_OFFER_NOT_LOWER"], ["3.001", "PRICE_OFFER_INVALID_FORMAT"]] as const) {
+    for (const [offeredPrice, code] of [["2.94", "PRICE_OFFER_BELOW_MINIMUM"], ["3.66", "PRICE_OFFER_ABOVE_MAXIMUM"], ["3.001", "PRICE_OFFER_INVALID_FORMAT"]] as const) {
       await expect(submitOffer(listing.id, BUYER_ONE_ID, offeredPrice)).rejects.toMatchObject({ code });
     }
     expect((globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb).purchaseRequests).toHaveLength(0);
@@ -355,4 +355,11 @@ describe("negotiated marketplace price offers", () => {
     expect(snapshot.marketplaceListings.find((item) => item.id === listing.id)?.activeTradeRequestId)
       .toBe(offers.find((request) => request.status === "accepted")?.id);
   });
+
+it.each(["2.95", "3.30", "3.65"])("persists an agreed offer at %s without changing its price", async (price) => {
+  const listing = await createLiveListing();
+  const created = await submitOffer(listing.id, BUYER_ONE_ID, price);
+  expect(created.request).toMatchObject({ status: "pending", priceMode: "buyer_offer", pricePerUsdt: price, fiatAmount: (Number(price) * 1000).toFixed(2) });
+});
+
 });

@@ -168,6 +168,22 @@ describe("listing accountability: reason + audit + reliability", () => {
     invalidateAlphaExchangeStoreCache();
   });
 
+  it("persists an owner approval when a cached listing is created and reviewed in the same millisecond", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-17T02:00:00.000Z"));
+    try {
+      await createApprovedListing("1000", "3.30");
+      const replacement = await createApprovedListing("500", "3.30");
+      const canonical = globalThis.__alphaExchangeMemorySnapshot as unknown as AlphaExchangeDb;
+      expect(canonical.marketplaceListings.find(listing => listing.id === replacement.id))
+        .toMatchObject({ status: "active", approvalStatus: "approved", ownerReviewedBy: OWNER_ID });
+      await expect(renewMarketplaceListing({ listingId: replacement.id, sellerId: SELLER_ID, actorUserId: SELLER_ID }))
+        .resolves.toMatchObject({ status: "active" });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("checks creation at the same cent ceiling shown to sellers, with no writes on rejection", async () => {
     fxReference.rate.mockResolvedValue(3.05272);
     await expect(createApprovedListing("1000", "3.40")).resolves.toMatchObject({ price: "3.40" });

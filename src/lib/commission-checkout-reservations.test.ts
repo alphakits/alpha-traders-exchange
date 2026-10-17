@@ -11,6 +11,7 @@ const attributionMigration = readFileSync(resolve(process.cwd(), "supabase/migra
 const collisionMigration = readFileSync(resolve(process.cwd(), "supabase/migrations/20261011145429_commission_checkout_collision_tolerance.sql"), "utf8");
 const repeatedMigration = readFileSync(resolve(process.cwd(), "supabase/migrations/20261011203949_commission_checkout_repeated_received_amounts.sql"), "utf8");
 const twoUsdtMigration = readFileSync(resolve(process.cwd(), "supabase/migrations/20261016125533_commission_two_usdt_closed_rounded_references.sql"), "utf8");
+const sameSellerMigration = readFileSync(resolve(process.cwd(), "supabase/migrations/20261017211725_commission_same_seller_closed_references.sql"), "utf8");
 const unsubmittedRepair = readFileSync(resolve(process.cwd(), "scripts/repair-unsubmitted-commission-verification.sql"), "utf8");
 let db: PGlite;
 const createdAt = "2026-09-25T16:00:00.000Z";
@@ -37,11 +38,83 @@ beforeEach(async () => {
     create table alpha_exchange.commissions(id text primary key,seller_id text,payment_status text,payload jsonb);
     create table alpha_exchange.audit_logs(id text primary key,actor_user_id text,target_user_id text,created_at timestamptz,payload jsonb);`);
   await db.exec(previous); await db.exec(migration); await db.exec(roundedMigration); await db.exec(toleranceMigration); await db.exec(attributionMigration); await db.exec(collisionMigration); await db.exec(repeatedMigration); await db.exec(twoUsdtMigration);
+  await db.exec(sameSellerMigration);
   const payload = { id: "cm", sellerId: "seller", commissionAmount: 40, paymentExpectedAmount: 40.000001,
     createdAt: checkout.commissions[0].createdAt, paymentStatus: "pending" };
   await db.query("insert into alpha_exchange.commissions values('cm','seller','pending',$1)", [JSON.stringify(payload)]);
 }, 30_000);
 afterEach(async () => { await db?.close(); });
+describe("same seller's fully verified closed reference", () => {
+  async function audit(value: typeof checkout, kind: "issued" | "settled", extra = {}, at = value.createdAt) {
+    const id = `${value.id}:${kind}`;
+    const payload = { id, actorUserId: value.sellerId, targetUserId: value.sellerId, createdAt: at,
+      newValue: { kind: `commission_checkout_${kind}_v1`, checkoutId: value.id, checkout: value, ...extra } };
+    await db.query("insert into alpha_exchange.audit_logs values($1,$2,$2,$3,$4)", [id, value.sellerId, at, JSON.stringify(payload)]);
+  }
+  async function invoice(n: number, sellerId = "seller") {
+    const time = new Date(Date.parse(createdAt) + n * 10_000).toISOString();
+    const due = n ? 102 : 100;
+    const value = { ...checkout, id: `same-${n}`, sellerId, createdAt: time,
+      expectedMicros: n ? 102_000_000 + n : 100_000_000, requestedMicros: due * 1e6, dueMicros: due * 1e6,
+      commissions: [{ id: `same-fee-${n}`, dueMicros: due * 1e6, createdAt: time }] };
+    await db.query("insert into alpha_exchange.commissions values($1,$2,'pending',$3)", [value.commissions[0].id, sellerId,
+      JSON.stringify({ id: value.commissions[0].id, sellerId, commissionAmount: due, createdAt: time, paymentExpectedAmount: due + (n + 100) / 1e6 })]);
+    await audit(value, "issued");
+    return value;
+  }
+  async function pay(value: typeof checkout, amount: number, hash: string) {
+    const paidAt = new Date(Date.parse(value.createdAt) + 2000).toISOString();
+    await db.exec("begin");
+    try {
+      await db.query("update alpha_exchange.commissions set payment_status='paid',payload=payload || $1::jsonb where id=$2", [JSON.stringify({
+        paidAt, paymentStatus: "paid", paymentVerificationStatus: "verified", paymentSignature: hash,
+        paymentBatchSettlement: { batchId: value.id, groupReceivedMicros: amount * 1e6 },
+      }), value.commissions[0].id]);
+      await audit(value, "settled", { attribution: "unambiguous_checkout_tolerance_v1",
+        receipt: { signature: hash, network: "BEP20", amountMicros: amount * 1e6, timestamp: Date.parse(value.createdAt) + 1000 } }, paidAt);
+      await db.exec("commit");
+    } catch (error) { await db.exec("rollback"); throw error; }
+  }
+  it("accepts 98 against 100, then 100 against 102 using the seller's old closed 100 reference", async () => {
+    await pay(await invoice(0), 98, signature);
+    await pay(await invoice(1), 100, `0x${"b".repeat(64)}`);
+    await pay(await invoice(2), 102, `0x${"c".repeat(64)}`);
+    expect((await db.query("select * from alpha_exchange.commission_batch_receipt_reservations")).rows).toHaveLength(3);
+    expect((await db.query("select checkout_id from alpha_exchange.commission_checkout_amount_reservations where amount_micros=100000000")).rows)
+      .toEqual([{ checkout_id: "same-0" }]);
+  });
+  it("keeps another seller's exact reference reserved", async () => {
+    await pay(await invoice(0), 98, signature);
+    await expect(pay(await invoice(1, "other"), 100, `0x${"b".repeat(64)}`)).rejects.toThrow("reserved for another checkout");
+  });
+  it.each([null, "invalid", "2026-09-25T16:00:10.000Z", "2026-09-25T16:00:11.000Z"])("requires closure before the next instructions: %s", async paidAt => {
+    await pay(await invoice(0), 98, signature);
+    const next = await invoice(1);
+    await db.query("update alpha_exchange.commissions set payload=payload || $1::jsonb where id='same-fee-0'", [JSON.stringify({ paidAt })]);
+    await expect(pay(next, 100, `0x${"b".repeat(64)}`)).rejects.toThrow();
+    expect((await db.query("select * from alpha_exchange.commission_batch_receipt_reservations")).rows).toHaveLength(1);
+  });
+  it("requires the verified receipt reservation, not a manual paid flag", async () => {
+    await pay(await invoice(0), 98, signature);
+    const next = await invoice(1);
+    await db.exec("delete from alpha_exchange.commission_batch_receipt_reservations");
+    await expect(pay(next, 100, `0x${"b".repeat(64)}`)).rejects.toThrow();
+  });
+  it("never reuses the old transaction or releases reference allocation", async () => {
+    await pay(await invoice(0), 98, signature);
+    await expect(pay(await invoice(1), 100, signature)).rejects.toThrow();
+    await expect(db.query("insert into alpha_exchange.commissions values('legacy','other','pending',$1)", [JSON.stringify({ paymentExpectedAmount: 100 })])).rejects.toThrow();
+  });
+  it("is repeatable and leaves historical amounts and reservations unchanged", async () => {
+    await pay(await invoice(0), 98, signature);
+    const before = (await db.query("select * from alpha_exchange.commissions order by id")).rows;
+    await db.exec(sameSellerMigration); await db.exec(sameSellerMigration);
+    expect((await db.query("select * from alpha_exchange.commissions order by id")).rows).toEqual(before);
+    const permission = await db.query<{ prosecdef: boolean; proacl: string[] }>("select prosecdef,proacl from pg_proc where oid='alpha_exchange.is_closed_same_seller_checkout_reference(text,jsonb,bigint)'::regprocedure");
+    expect(permission.rows[0].prosecdef).toBe(false);
+    expect(permission.rows[0].proacl.some(grant => grant.startsWith("=X/"))).toBe(false);
+  });
+});
 describe("durable self-service checkout reservations", () => {
   it("keeps both network instructions immutable and settles the newly selected network once", async () => {
     const original = { ...checkout, network: "TRC20" };

@@ -62,6 +62,7 @@ export default function RegisterScreen() {
         confirmPassword,
         whatsappNumber: contactNumber,
         agreedToTerms,
+        ageConfirmed: agreedToTerms,
       }, locale);
       setSuccess(response.message ?? t("registrationSuccess"));
       setFullName("");

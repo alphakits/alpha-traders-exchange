@@ -79,6 +79,7 @@ import { PUT as saveReview } from "@/app/api/journal/reviews/route";
 import { PUT as saveSettings } from "@/app/api/journal/settings/route";
 import { DEFAULT_SETTINGS, emptyReview, emptyTrade } from "./model";
 import { journalApi, JournalClientError } from "./client";
+import { logEvent } from "@/lib/structured-logging";
 
 const origin = "https://www.alphatraders.co.il";
 const schedulerSecret = "journal-local-test-scheduler-secret-32-characters";
@@ -216,9 +217,11 @@ describe.sequential("private chart HTTP lifecycle", () => {
     expect(state.blobs.size).toBe(1);
     expect((await cleanCharts(cleanupRequest("incorrect-secret"))).status).toBe(401);
     state.removeFailure = true; expect((await cleanCharts(cleanupRequest())).status).toBe(503);
+    expect(logEvent).toHaveBeenLastCalledWith("error", expect.objectContaining({ event: "journal_cleanup", outcome: "failed", reason: "cleanup_unavailable" }));
     expect((await state.db!.query("select * from alpha_exchange.journal_file_cleanup")).rows).toHaveLength(1);
     state.removeFailure = false;
     expect(await (await cleanCharts(cleanupRequest())).json()).toEqual({ removed: 1 }); expect(state.blobs.size).toBe(0);
+    expect(logEvent).toHaveBeenLastCalledWith("info", expect.objectContaining({ event: "journal_cleanup", outcome: "success", metadata: expect.objectContaining({ removed: 1 }) }));
   });
   it("makes deleted charts inaccessible immediately and later removes their bytes", async () => {
     const { chart } = await (await uploadChart(imageRequest(chartPng), context()))!.json();

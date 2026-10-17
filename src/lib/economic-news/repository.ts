@@ -1,6 +1,7 @@
 import "server-only";
 import type { Pool, PoolClient } from "pg";
 import { getRuntimePostgresPool } from "@/lib/postgres-runtime";
+import { rollbackFailedTransaction } from "@/lib/postgres-transaction";
 import { NEWS_CALENDAR_WINDOW_MS, NEWS_STALE_AFTER_MS, shouldAlertForRelease, type NewsEvent, type NewsFeed, type NewsPreferences } from "./model";
 import { configuredNewsProvider, newsProviderConfigured, newsProviderPrefix } from "./config";
 import { readWeeklyNewsFeed } from "./weekly";
@@ -52,15 +53,17 @@ async function initializeNewsStorage(): Promise<Pool> {
   if (!schemaReady) {
     schemaReady = (async () => {
       const client = await pool.connect();
+      let destroy = false;
+
       try {
         await client.query("begin");
         await client.query("select pg_advisory_xact_lock(2072301)");
         await client.query(SCHEMA);
         await client.query("commit");
       } catch (error) {
-        await client.query("rollback");
+        destroy = await rollbackFailedTransaction(client, error);
         throw error;
-      } finally { client.release(); }
+      } finally { client.release(destroy); }
     })().catch((error) => { schemaReady = undefined; throw error; });
   }
   await schemaReady;
@@ -106,6 +109,8 @@ export async function persistNewsSnapshot(events: NewsEvent[], now = new Date())
   if (!provider || events.some((event) => !event.id.startsWith(newsProviderPrefix(provider)))) throw new Error("News provider mismatch");
   const pool = await initializeNewsStorage();
   const client = await pool.connect();
+  let destroy = false;
+
   try {
     await client.query("begin");
     const lock = await client.query<{ acquired: boolean }>("select pg_try_advisory_xact_lock(2072302) as acquired");
@@ -143,8 +148,8 @@ export async function persistNewsSnapshot(events: NewsEvent[], now = new Date())
       where status in ('pending','processing') and created_at < $1`, [new Date(now.getTime() - 60 * 60_000)]);
     await client.query("commit");
     return { synced: true, releases };
-  } catch (error) { await client.query("rollback"); throw error; }
-  finally { client.release(); }
+  } catch (error) { destroy = await rollbackFailedTransaction(client, error); throw error; }
+  finally { client.release(destroy); }
 }
 
 export async function readNewsPreferences(userId: string): Promise<NewsPreferences> {

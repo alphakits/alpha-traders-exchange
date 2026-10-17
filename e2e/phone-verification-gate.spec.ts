@@ -5,6 +5,47 @@ import { E2E_BASE_URL } from "./support/base-url";
 const supportHeaders = { "x-alpha-test-support": "enabled" };
 const createdIds = new Set<string>();
 const displacedUsers: User[] = [];
+for (const locale of ["en", "ar"] as const) for (const width of [390, 1440]) {
+  test(`adult confirmation persists after retry and reload: ${locale} ${width}`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width, height: 900 });
+    const label = locale === "en" ? "I confirm that I am 18 or older." : "أؤكد أن عمري 18 عامًا أو أكثر.";
+    await page.goto(`/${locale}/register`);
+    await expect(page.getByRole("checkbox", { name: label, exact: true })).not.toBeChecked();
+    const checkboxAlignment = await page.locator('form input[type="checkbox"]').evaluateAll(elements => elements.map(element => {
+      const checkbox = element.getBoundingClientRect();
+      const parent = element.parentElement!;
+      const label = parent.getBoundingClientRect();
+      return Math.abs(getComputedStyle(parent).direction === "rtl" ? label.right - checkbox.right : checkbox.left - label.left) < 2;
+    }));
+    expect(checkboxAlignment, "Terms and age checkboxes follow the form's reading direction").toEqual([true, true]);
+    await page.screenshot({ path: testInfo.outputPath(`adult-register-${locale}-${width}.png`), fullPage: true });
+    const user = await provision(page.request, "buyer", true, undefined, undefined, false);
+    await login(page, user);
+    const denied = await page.request.get("/api/alpha-exchange/listings");
+    expect(denied.status()).toBe(403);
+    expect(await denied.json()).toMatchObject({ code: "AGE_CONFIRMATION_REQUIRED" });
+    await page.goto(`/${locale}/usdt-exchange`);
+    await expect(page).toHaveURL(/\/verify-account\?redirectTo=/);
+    const save = page.getByRole("button", { name: locale === "en" ? "Save confirmation" : "حفظ التأكيد", exact: true });
+    await expect(save).toBeDisabled();
+    await page.getByRole("checkbox", { name: label, exact: true }).check();
+    await page.route("**/api/auth/age-eligibility", async route => {
+      await route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: "Temporary test interruption" }) });
+    }, { times: 1 });
+    await save.click();
+    await expect(page.getByRole("alert").last()).toBeVisible();
+    await expect(save).toBeEnabled();
+    await page.screenshot({ path: testInfo.outputPath(`adult-confirmation-retry-${locale}-${width}.png`), fullPage: true });
+    await save.click();
+    await expect(page).toHaveURL(new RegExp(`/${locale}/usdt-exchange$`));
+    await page.reload();
+    expect((await page.request.get("/api/alpha-exchange/listings")).ok()).toBeTruthy();
+    expect((await (await page.request.get("/api/auth/me")).json()).user.adultConfirmed).toBe(true);
+    const saved = (await state(page.request)).users.find(item => item.id === user.id);
+    expect(saved?.ageEligibility).toMatchObject({ method: "self_attestation_v1", confirmedAt: expect.any(String) });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  });
+}
 type User = Record<string, unknown> & { id: string; email: string };
 type State = Record<string, unknown> & { users: User[] };
 type Role = "guest" | "buyer" | "approved_seller" | "pending_seller_approval" | "admin" | "owner";
@@ -15,7 +56,7 @@ async function state(api: APIRequestContext): Promise<State> {
   return response.json() as Promise<State>;
 }
 
-async function provision(api: APIRequestContext, role: Role, verified: boolean, email?: string, accountId?: string) {
+async function provision(api: APIRequestContext, role: Role, verified: boolean, email?: string, accountId?: string, adultConfirmed = true) {
   const db = await state(api);
   const template = db.users.find(user => user.email === process.env.E2E_BUYER_EMAIL);
   if (!template) throw new Error("The isolated verified buyer fixture is missing.");
@@ -28,6 +69,7 @@ async function provision(api: APIRequestContext, role: Role, verified: boolean, 
     id,
     email: (email ?? id + "@example.test").toLowerCase(),
     fullName: "Phone Gate E2E",
+    ageEligibility: adultConfirmed ? { method: "self_attestation_v1", confirmedAt: new Date().toISOString() } : undefined,
     role,
     roles: role === "guest" || role === "buyer" ? [role] : [role, "buyer"],
     sellerStatus: role === "approved_seller" ? "approved_seller"

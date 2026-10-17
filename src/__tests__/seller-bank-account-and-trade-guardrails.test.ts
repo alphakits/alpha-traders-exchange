@@ -30,7 +30,7 @@ const SELLER_ID = "seller-1";
 const BUYER_ID = "buyer-1";
 const OUTSIDER_ID = "outsider-1";
 
-function createUser(id: string, role: "approved_seller" | "buyer" | "admin") {
+function createUser(id: string, role: "approved_seller" | "buyer" | "admin" | "owner") {
   const now = new Date().toISOString();
   return {
     id,
@@ -39,7 +39,7 @@ function createUser(id: string, role: "approved_seller" | "buyer" | "admin") {
     passwordHash: "hash",
     whatsappNumber: "+972500000000",
     role,
-    roles: role === "admin" ? ["admin", "buyer"] : [role],
+    roles: role === "admin" || role === "owner" ? [role, "buyer"] : [role],
     sellerStatus: role === "approved_seller" ? "approved_seller" : "buyer",
     availabilityStatus: "available",
     onlineStatus: "online",
@@ -291,6 +291,23 @@ describe("seller bank accounts and trade guardrails", () => {
     ).rejects.toThrow("linked to active trades or listings");
   });
 
+  it("lets the buyer inspect the linked bank details before accepting a pending request", async () => {
+    seedAcceptedBankTransferTrade();
+    currentSnapshot().purchaseRequests[0].status = "pending";
+    const details = await getTradeRoomBankDetails({ purchaseRequestId: "req-1", actorUserId: BUYER_ID, actorRole: "buyer" });
+    expect(details).toMatchObject({ accountNumber: "1234567890", branchNumber: "123", accountHolderName: "" });
+    expect(currentSnapshot().purchaseRequests[0].status).toBe("pending");
+    expect(currentSnapshot().purchaseRequests[0].paymentSentAt).toBeUndefined();
+    expect(currentSnapshot().auditLogs.filter(log => log.action === "trade_bank_details_revealed")).toHaveLength(1);
+  });
+
+  it("keeps a member's bank account-holder name private from an ordinary admin", async () => {
+    seedAcceptedBankTransferTrade();
+    currentSnapshot().users.push(createUser("admin-1", "admin") as never);
+    const details = await getTradeRoomBankDetails({ purchaseRequestId: "req-1", actorUserId: "admin-1", actorRole: "admin" });
+    expect(details.accountHolderName).toBe("");
+  });
+
   it("reveals bank details only to trade participants after accept and logs reveal once in short window", async () => {
     seedAcceptedBankTransferTrade();
 
@@ -375,7 +392,7 @@ describe("seller bank accounts and trade guardrails", () => {
       purchaseRequestId: "req-stale-bank-details",
       actorUserId: BUYER_ID,
       actorRole: "buyer",
-    })).rejects.toThrow("only after the seller accepts");
+    })).rejects.toThrow("only for an active Bank Transfer request");
 
     const committed = currentSnapshot().purchaseRequests.find((request) => request.id === "req-stale-bank-details");
     expect(committed?.status).toBe("cancelled");
@@ -392,7 +409,7 @@ describe("seller bank accounts and trade guardrails", () => {
       purchaseRequestId: "req-atm-bank-details",
       actorUserId: BUYER_ID,
       actorRole: "buyer",
-    })).rejects.toThrow("only after the seller accepts");
+    })).rejects.toThrow("only for an active Bank Transfer request");
 
     const room = await getTradeRoomData({
       purchaseRequestId: "req-atm-bank-details",
@@ -426,7 +443,7 @@ describe("seller bank accounts and trade guardrails", () => {
         purchaseRequestId: "req-racing-bank-details",
         actorUserId: BUYER_ID,
         actorRole: "buyer",
-      })).rejects.toThrow("only after the seller accepts");
+      })).rejects.toThrow("only for an active Bank Transfer request");
     } finally {
       saveSpy.mockRestore();
     }
@@ -670,6 +687,25 @@ describe("seller bank accounts and trade guardrails", () => {
     }
   });
 
+  it.each([
+    [SELLER_ID, "approved_seller"],
+    ["admin-1", "admin"],
+    ["owner-1", "owner"],
+  ] as const)("keeps buyer cancellation available when only %s inspects bank details", async (actorUserId, actorRole) => {
+    seedAcceptedBankTransferTrade();
+    if (actorRole === "admin" || actorRole === "owner") {
+      currentSnapshot().users.push(createUser(actorUserId, actorRole) as AlphaExchangeDb["users"][number]);
+    }
+    await getTradeRoomBankDetails({ purchaseRequestId: "req-1", actorUserId, actorRole });
+    expect(currentSnapshot().purchaseRequests[0].sensitivePaymentSharedAt).toBeUndefined();
+    expect(currentSnapshot().purchaseRequests[0].timeline).toContainEqual(expect.objectContaining({
+      type: "bank_details_revealed", actorUserId,
+    }));
+    await expect(updatePurchaseRequestStatus({
+      requestId: "req-1", actorUserId: BUYER_ID, actorRole: "buyer", nextStatus: "cancelled",
+    })).resolves.toMatchObject({ request: { status: "cancelled" } });
+  });
+
   it("allows cancellation after acceptance but rejects it after the payment stage starts", async () => {
     const now = new Date().toISOString();
     currentSnapshot().purchaseRequests.push({
@@ -783,73 +819,7 @@ describe("seller bank accounts and trade guardrails", () => {
     }
   });
 
-  it("auto-completes an expired USDT receipt window idempotently", async () => {
-    const sentAt = new Date(Date.now() - 6 * 60 * 1000).toISOString();
-    const snapshot = currentSnapshot();
-    snapshot.marketplaceListings.push({
-      id: "listing-expired-receipt",
-      sellerId: SELLER_ID,
-      sellerDisplayName: "Seller One",
-      photos: [],
-      originalAmount: "1000",
-      availableAmount: "1000",
-      price: "3.20",
-      currency: "ILS",
-      network: "TRC20",
-      paymentMethods: ["Bank Transfer"],
-      paymentMethod: "Bank Transfer",
-      bankName: "Bank Hapoalim",
-      minimumTrade: "50",
-      maximumTrade: "1000",
-      status: "in_trade",
-      activeTradeRequestId: "req-expired-receipt",
-      createdAt: sentAt,
-      updatedAt: sentAt,
-    } as never);
-    snapshot.purchaseRequests.push({
-      id: "req-expired-receipt",
-      listingId: "listing-expired-receipt",
-      buyerId: BUYER_ID,
-      buyerName: "Buyer",
-      buyerWhatsapp: "+972500000000",
-      buyerNotes: "",
-      sellerId: SELLER_ID,
-      usdtAmount: "100",
-      fiatAmount: "320",
-      currency: "ILS",
-      network: "TRC20",
-      paymentMethod: "Bank Transfer",
-      status: "usdt_sent",
-      usdtSentAt: sentAt,
-      timeline: [],
-      createdAt: sentAt,
-      updatedAt: sentAt,
-    } as never);
-
-    const repository = await getAlphaExchangeRepository();
-    const saveSnapshot = vi.spyOn(repository, "saveSnapshot");
-
-    await runAlphaExchangeMaintenance();
-    const completed = currentSnapshot().purchaseRequests.find((item) => item.id === "req-expired-receipt");
-    expect(completed?.status).toBe("review_open");
-    expect(completed?.completedAt).toBeTruthy();
-    expect(currentSnapshot().commissionRecords.filter((item) => item.purchaseRequestId === "req-expired-receipt")).toHaveLength(1);
-    expect(currentSnapshot().marketplaceListings.find((item) => item.id === "listing-expired-receipt")?.activeTradeRequestId).toBeUndefined();
-    expect(saveSnapshot.mock.calls.some(([, options]) => {
-      const tables = new Set(options?.selectedTables ?? []);
-      return tables.has("users")
-        && tables.has("activity_logs")
-        && tables.has("trust_snapshots")
-        && tables.has("trust_score_history");
-    })).toBe(true);
-
-    saveSnapshot.mockClear();
-    await runAlphaExchangeMaintenance();
-    expect(currentSnapshot().commissionRecords.filter((item) => item.purchaseRequestId === "req-expired-receipt")).toHaveLength(1);
-    expect(saveSnapshot.mock.calls.some(([, options]) => options?.selectedTables?.includes("trust_snapshots"))).toBe(false);
-  });
-
-  it.each(["Face-to-Face (Meet in Person)", "Cardless ATM Withdrawal"])(
+  it.each(["Bank Transfer", "Face-to-Face (Meet in Person)", "Cardless ATM Withdrawal"])(
     "never auto-completes a stale %s trade while the seller completion button is pending",
     async (paymentMethod) => {
       const sentAt = new Date(Date.now() - 30 * 60 * 1000).toISOString();
@@ -904,7 +874,7 @@ describe("seller bank accounts and trade guardrails", () => {
         actorUserId: SELLER_ID,
         actorRole: "approved_seller",
         nextStatus: "completed",
-        completionMode: "cash_trade",
+        completionMode: "seller",
       });
       expect(completed.request.status).toBe("review_open");
       expect(currentSnapshot().commissionRecords.filter((item) => item.purchaseRequestId === requestId)).toHaveLength(1);

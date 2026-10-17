@@ -9,7 +9,7 @@ import type { AppLocale } from "@/i18n/routing";
 import { getInterfacePageDestination } from "@alpha-traders/contracts";
 import { isTradeRoomEntryPath } from "@/lib/trade-room-entry-path";
 
-export function ProtectedPageBoundary({ children, locale, phoneVerificationRequired = false }: { children: ReactNode; locale: AppLocale; phoneVerificationRequired?: boolean }) {
+export function ProtectedPageBoundary({ children, locale, phoneVerificationRequired = false, adultConfirmationRequired = false }: { children: ReactNode; locale: AppLocale; phoneVerificationRequired?: boolean; adultConfirmationRequired?: boolean }) {
   const pathname = usePathname();
   const { user, isResolving, isRestoring, error, refresh } = useCanonicalSession();
   const protectedPage = isProtectedPage(pathname ?? "/");
@@ -19,7 +19,8 @@ export function ProtectedPageBoundary({ children, locale, phoneVerificationRequi
   // profile role alone cannot revoke access to an already-created trade.
   const roleDestination = user && !isTradeRoomEntryPath(pathname)
     ? getInterfacePageDestination(user, pathname ?? "/", locale) : null;
-  const phoneDestination = phoneVerificationRequired && user && user.isPhotoVerified !== true
+  const phoneDestination = user && ((phoneVerificationRequired && user.isPhotoVerified !== true)
+    || (adultConfirmationRequired && user.adultConfirmed !== true))
     ? phoneVerificationDestinationForPage(user, pathname ?? "/", locale)
     : null;
 

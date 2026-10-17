@@ -8,8 +8,8 @@ import {
 } from "@/lib/alpha-exchange-store";
 import {
   scanTronCommissionDeposits, scanBep20CommissionDeposits, scanBinanceCommissionDeposits,
-  type CommissionDeposit,
 } from "@/lib/commission-deposit-discovery";
+import { discoverCommissionHistory, getCommissionHistoryStore } from "@/lib/commission-deposit-history";
 import { normalizeTransactionHash } from "@/lib/tx-hash-utils";
 import { logEvent } from "@/lib/structured-logging";
 import { COMMISSION_PAYMENT_CLOCK_SKEW_MS } from "@/lib/commission-config";
@@ -37,7 +37,7 @@ function expectedMicros(record: Candidate) {
 }
 function emptySummary() {
   return {
-    candidates: 0, scannedTransfers: 0, matched: 0, verified: 0, pending: 0, rejected: 0, errors: 0, legacyMatched: 0,
+    candidates: 0, scannedTransfers: 0, matched: 0, verified: 0, pending: 0, rejected: 0, errors: 0, legacyMatched: 0, historyComplete: true,
     skippedUsed: 0, retriedRejected: 0, unmatchedAmount: 0, baseAmountOnly: 0, ambiguous: 0, beforeIntent: 0,
     providers: {} as Record<string, { configured: boolean; complete: boolean; pages: number; deposits: number; error?: string; fallback?: string }>,
   };
@@ -60,33 +60,24 @@ async function reconcileUnsubmittedCommissionPayments(deadline: number) {
   if (batchContext?.earliestTimestamp !== null && batchContext?.earliestTimestamp !== undefined) lowerBounds.push(batchContext.earliestTimestamp);
   if (!lowerBounds.length) return summary;
   const minTimestamp = Math.min(...lowerBounds) - COMMISSION_PAYMENT_CLOCK_SKEW_MS;
-  const providers = [
-    ["TRC20", scanTronCommissionDeposits], ["BEP20", scanBep20CommissionDeposits], ["BINANCE_DEPOSITS", scanBinanceCommissionDeposits],
-  ] as const;
-  const scans = await Promise.allSettled(providers.map(([, scan]) => scan(minTimestamp)));
-  const binance = scans[2];
-  const binanceHistoryComplete = binance.status === "fulfilled" && binance.value.configured && binance.value.complete;
-  const deposits: CommissionDeposit[] = [];
-  for (let i = 0; i < scans.length; i++) {
-    const scan = scans[i];
-    const provider = providers[i][0];
+  const history = await discoverCommissionHistory({ scope: "legacy", since: minTimestamp, networks: ["TRC20", "BEP20"],
+    store: getCommissionHistoryStore(), scanners: { TRC20: scanTronCommissionDeposits,
+      BEP20: scanBep20CommissionDeposits, BINANCE_DEPOSITS: scanBinanceCommissionDeposits } });
+  const binance = history.providers.BINANCE_DEPOSITS;
+  const binanceHistoryComplete = binance?.configured && binance.complete;
+  const deposits = history.deposits;
+  summary.historyComplete = history.complete;
+  for (const provider of ["TRC20", "BEP20", "BINANCE_DEPOSITS"] as const) {
+    const value = history.providers[provider]!;
     const fallback = provider === "BEP20" && binanceHistoryComplete ? "BINANCE_DEPOSITS" : undefined;
-    if (scan.status === "rejected") {
-      if (!fallback) summary.errors++;
-      const label = scan.reason instanceof Error && /^(?:tron|bep20|binance)_[a-z0-9_]+$/.test(scan.reason.message)
-        ? scan.reason.message : "provider_unavailable";
-      summary.providers[provider] = { configured: true, complete: false, pages: 0, deposits: 0, error: label, fallback };
-      logEvent(fallback ? "warn" : "error", { event: "commission_deposit_discovery", outcome: fallback ? "success" : "failed", reason: label, metadata: { provider, fallback } });
-      continue;
-    }
-    const value = scan.value;
-    summary.providers[provider] = { configured: value.configured, complete: value.complete, pages: value.pages, deposits: value.deposits.length,
+    summary.providers[provider] = { configured: value.configured, complete: value.complete, pages: value.pages ?? 0, deposits: value.deposits ?? 0,
+      ...(value.error ? { error: value.error } : {}),
       fallback: !value.configured || !value.complete ? fallback : undefined,
     };
     if (value.configured && !value.complete && !fallback) summary.errors++;
-    deposits.push(...value.deposits);
   }
-  summary.scannedTransfers = deposits.length;
+  if (!history.complete && summary.errors === 0) summary.errors++;
+  summary.scannedTransfers = history.scanned;
   // Reuse this same bounded scan. An approved receipt still passes independent
   // finality/credited-account verification; similarity of amounts is never identity.
   if (batchRuntime && batchContext?.pending.length) {
@@ -150,6 +141,7 @@ async function reconcileUnsubmittedCommissionPayments(deadline: number) {
     try {
       const result = await submitSellerCommissionWalletPayment({ sellerUserId: record.sellerId, commissionId: record.id,
         network: deposit.network, payerWalletAddress: deposit.payer, paymentSignature: deposit.signature,
+        observedDepositTimestamp: deposit.timestamp,
       });
       if (result.verification.verified) summary.verified++;
       else if (result.verification.pending) summary.pending++;

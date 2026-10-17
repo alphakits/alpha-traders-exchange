@@ -45,6 +45,7 @@ export function revealPageSection(sectionId: string) {
   let lastHeight: number | undefined;
   let frame: number | undefined;
   let stopped = false;
+  let smoothScrollStarted = false;
   const timers: number[] = [];
   let resize: ResizeObserver | undefined;
 
@@ -56,11 +57,21 @@ export function revealPageSection(sectionId: string) {
     if (frame !== undefined) window.cancelAnimationFrame(frame);
     timers.forEach((timer) => window.clearTimeout(timer));
     for (const event of ["pointerdown", "keydown", "wheel", "touchmove"] as const) {
-      document.removeEventListener(event, stop, true);
+      document.removeEventListener(event, interrupt, true);
     }
     if (cancelPendingNavigation === stop) cancelPendingNavigation = undefined;
   };
   cancelPendingNavigation = stop;
+
+  const interrupt = () => {
+    if (stopped) return;
+    stop();
+    // Cancelling our timers does not cancel the browser's active animation.
+    // Hold the current position so a pressed button cannot move before release.
+    if (smoothScrollStarted) {
+      window.scrollTo({ left: window.scrollX, top: window.scrollY, behavior: "instant" });
+    }
+  };
 
   const reveal = () => {
     if (stopped) return;
@@ -78,8 +89,10 @@ export function revealPageSection(sectionId: string) {
     const top = target.getBoundingClientRect().top + window.scrollY;
     const height = document.documentElement.scrollHeight;
     if (trackedTarget !== target || lastTop === undefined || Math.abs(top - lastTop) > 1 || height !== lastHeight) {
+      const behavior = trackedTarget === null && !window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ? "smooth" : "instant";
+      smoothScrollStarted = behavior === "smooth";
       target.scrollIntoView({
-        behavior: trackedTarget === null && !window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ? "smooth" : "instant",
+        behavior,
         block: "start",
       });
       lastTop = top;
@@ -106,7 +119,7 @@ export function revealPageSection(sectionId: string) {
     resize.observe(document.body);
   }
   for (const event of ["pointerdown", "keydown", "wheel", "touchmove"] as const) {
-    document.addEventListener(event, stop, { capture: true, passive: true });
+    document.addEventListener(event, interrupt, { capture: true, passive: true });
   }
   // React can replace the focused section during initial data hydration.
   for (const delay of [100, 250, 500, 1_000, 2_000, 4_000]) {

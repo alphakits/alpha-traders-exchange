@@ -74,6 +74,7 @@ describe("auth register route", () => {
         confirmPassword: "password123",
         whatsappNumber: "+972500000000",
         agreedToTerms: true,
+        ageConfirmed: true,
         ...overrides,
       }),
     });
@@ -85,6 +86,22 @@ describe("auth register route", () => {
     const response = await POST(makeRequest("new-user@example.com", locale));
     expect(response.status).toBe(409);
     expect(await response.json()).toMatchObject({ code: "PHONE_ALREADY_IN_USE" });
+    expect(mocks.signUp).not.toHaveBeenCalled();
+    expect(mocks.upsertUserProfileForAuth).not.toHaveBeenCalled();
+  });
+
+  it.each([false, null, undefined, "false", "true", 0, 1, {}, []])("requires literal true Terms consent, rejecting %j before signup", async agreedToTerms => {
+    const response = await POST(makeRequest("consent@example.test", "en", { agreedToTerms }));
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ code: "TERMS_REQUIRED" });
+    expect(mocks.signUp).not.toHaveBeenCalled();
+    expect(mocks.upsertUserProfileForAuth).not.toHaveBeenCalled();
+  });
+
+  it.each([false, undefined, "true"])("rejects unconfirmed adult eligibility %j before creating an account", async ageConfirmed => {
+    const response = await POST(makeRequest("age-check@example.test", "en", { ageConfirmed }));
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ code: "AGE_CONFIRMATION_REQUIRED" });
     expect(mocks.signUp).not.toHaveBeenCalled();
     expect(mocks.upsertUserProfileForAuth).not.toHaveBeenCalled();
   });

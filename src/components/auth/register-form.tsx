@@ -22,6 +22,7 @@ type RegistrationErrorCode =
   | "PHONE_ALREADY_IN_USE"
   | "EMAIL_ALREADY_REGISTERED"
   | "TERMS_REQUIRED"
+  | "AGE_CONFIRMATION_REQUIRED"
   | "PASSWORD_TOO_SHORT"
   | "WEAK_PASSWORD"
   | "PASSWORD_MISMATCH"
@@ -36,6 +37,7 @@ export function RegisterForm({ locale, learningIntent = false, mentorshipIntent 
     confirmPassword: "",
     whatsappNumber: "",
     agreedToTerms: false,
+    ageConfirmed: false,
   });
   const [errorMessage, setErrorMessage, errorMessageFeedbackKey] = useActionFeedbackState<string | null>(null);
   const [statusMessage, setStatusMessage, statusMessageFeedbackKey] = useActionFeedbackState<string | null>(null);
@@ -79,6 +81,10 @@ export function RegisterForm({ locale, learningIntent = false, mentorshipIntent 
       TERMS_REQUIRED: {
         ar: "يجب الموافقة على شروط الخدمة.",
         en: "You must accept the Terms of Service.",
+      },
+      AGE_CONFIRMATION_REQUIRED: {
+        ar: "يجب تأكيد أن عمرك 18 عامًا أو أكثر.",
+        en: "Confirm that you are 18 or older to create an account.",
       },
       PASSWORD_TOO_SHORT: {
         ar: "يجب أن تتكوّن كلمة المرور من 8 أحرف على الأقل.",
@@ -125,6 +131,10 @@ export function RegisterForm({ locale, learningIntent = false, mentorshipIntent 
       setErrorMessage(localizeRegistrationError(undefined, form.whatsappNumber.trim() ? "INVALID_WHATSAPP" : "WHATSAPP_REQUIRED"));
       return;
     }
+    if (!form.ageConfirmed) {
+      setErrorMessage(localizeRegistrationError(undefined, "AGE_CONFIRMATION_REQUIRED"));
+      return;
+    }
     setIsSubmitting(true);
     try {
       const { response, payload } = await fetchClientJson<{ error?: string; code?: RegistrationErrorCode; message?: string }>("/api/auth/register", {
@@ -149,6 +159,7 @@ export function RegisterForm({ locale, learningIntent = false, mentorshipIntent 
         confirmPassword: "",
         whatsappNumber: "",
         agreedToTerms: false,
+        ageConfirmed: false,
       });
     } catch {
       setErrorMessage(isAr ? "تعذر الاتصال بالخادم. حاول مرة أخرى." : "Unable to reach the server. Please try again.");
@@ -165,7 +176,7 @@ export function RegisterForm({ locale, learningIntent = false, mentorshipIntent 
           {isAr ? "جميع الحقول مطلوبة. تحقّق من بريدك الإلكتروني لتفعيل الحساب." : "All fields are required. Verify your email to activate your account."}
         </p>
 
-        <form className="mt-6 grid gap-3" onSubmit={handleSubmit}>
+        <form dir={isAr ? "rtl" : "ltr"} className="mt-6 grid gap-3" onSubmit={handleSubmit}>
           <Input aria-label={isAr ? "الاسم الكامل" : "Full Name"} placeholder={isAr ? "الاسم الكامل" : "Full Name"} autoComplete="name" maxLength={100} required value={form.fullName} onChange={(event) => setForm((prev) => ({ ...prev, fullName: event.target.value }))} />
           <Input aria-label={isAr ? "البريد الإلكتروني" : "Email"} placeholder={isAr ? "البريد الإلكتروني" : "Email"} type="email" autoComplete="email" maxLength={254} required value={form.email} onChange={(event) => setForm((prev) => ({ ...prev, email: event.target.value }))} />
           <Input aria-label={isAr ? "كلمة المرور" : "Password"} placeholder={isAr ? "كلمة المرور" : "Password"} type="password" autoComplete="new-password" minLength={8} required value={form.password} onChange={(event) => setForm((prev) => ({ ...prev, password: event.target.value }))} />
@@ -174,7 +185,7 @@ export function RegisterForm({ locale, learningIntent = false, mentorshipIntent 
           <p id="registration-whatsapp-help" className="text-xs text-[#9CA3AF]">
             {brandText(isAr ? "لدعم حسابك. الرقم خاص افتراضيًا. استخدم رقمًا إسرائيليًا يبدأ بـ05 أو أضف رمز الدولة." : "For account support. Private by default. Use an Israeli 05 number or include your country code.")}
           </p>
-          <label className={`inline-flex items-start gap-2 text-sm text-[#D1D5DB] ${isAr ? "flex-row-reverse" : ""}`}>
+          <label className="inline-flex items-start gap-2 text-sm text-[#D1D5DB]">
             <input
               type="checkbox"
               required
@@ -183,6 +194,12 @@ export function RegisterForm({ locale, learningIntent = false, mentorshipIntent 
               className="mt-0.5 h-4 w-4 rounded border-white/30 bg-transparent accent-[#C9A227]"
             />
             {isAr ? "أوافق على شروط الخدمة." : "I agree to the Terms of Service."}
+          </label>
+          <label className="inline-flex items-start gap-2 text-sm text-[#D1D5DB]">
+            <input type="checkbox" required checked={form.ageConfirmed}
+              onChange={event => setForm(previous => ({ ...previous, ageConfirmed: event.target.checked }))}
+              className="mt-0.5 h-4 w-4 rounded border-white/30 bg-transparent accent-[#C9A227]" />
+            {isAr ? "أؤكد أن عمري 18 عامًا أو أكثر." : "I confirm that I am 18 or older."}
           </label>
           <Button type="submit" loading={isSubmitting} loadingLabel={isAr ? "جاري الإنشاء..." : "Creating..."}>
             {isAr ? "إنشاء الحساب" : "Create Account"}

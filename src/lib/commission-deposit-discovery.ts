@@ -19,6 +19,17 @@ export interface DepositScan {
   pages: number;
   complete: boolean;
   configured: boolean;
+  continuation?: DepositScanProgress;
+}
+
+/** Only server-created progress is persisted; no provider URL or credentials. */
+export interface DepositScanProgress {
+  until: number;
+  fingerprint?: string;
+  page?: number;
+  endBlock?: string;
+  windowEnd?: number;
+  offset?: number;
 }
 
 const PAGE_SIZE = 200;
@@ -46,19 +57,21 @@ function validTimestamp(value: number, min: number) {
   return Number.isSafeInteger(value) && value >= min && value <= Date.now() + 5 * 60_000;
 }
 
-export async function scanTronCommissionDeposits(minTimestamp: number): Promise<DepositScan> {
+export async function scanTronCommissionDeposits(minTimestamp: number, progress?: DepositScanProgress): Promise<DepositScan> {
   const base = (process.env.ALPHA_EXCHANGE_TRONGRID_API_URL?.trim() || "https://api.trongrid.io").replace(/\/+$/, "");
   const url = new URL(`${base}/v1/accounts/${CANONICAL_TRC20_COMMISSION_WALLET}/transactions/trc20`);
   url.search = new URLSearchParams({ only_confirmed: "true", only_to: "true", limit: String(PAGE_SIZE),
     order_by: "block_timestamp,desc", contract_address: OFFICIAL_TRON_USDT_CONTRACT,
-    min_timestamp: String(Math.max(0, Math.floor(minTimestamp))), max_timestamp: String(Date.now()),
+    min_timestamp: String(Math.max(0, Math.floor(minTimestamp))), max_timestamp: String(progress?.until ?? Date.now()),
   }).toString();
+  if (progress?.fingerprint) url.searchParams.set("fingerprint", progress.fingerprint);
   const headers: Record<string, string> = { Accept: "application/json" };
   const key = process.env.ALPHA_EXCHANGE_TRONGRID_API_KEY?.trim();
   if (key) headers["TRON-PRO-API-KEY"] = key;
   const signal = AbortSignal.timeout(SCAN_TIMEOUT_MS);
   const scan: DepositScan = { deposits: [], pages: 0, complete: false, configured: true };
   const fingerprints = new Set<string>();
+  if (progress?.fingerprint) fingerprints.add(progress.fingerprint);
   while (scan.pages < MAX_PAGES) {
     const response = await fetch(url, { headers, cache: "no-store", signal, redirect: "error" });
     if (!response.ok) throw new Error(`tron_http_${response.status}`);
@@ -81,19 +94,33 @@ export async function scanTronCommissionDeposits(minTimestamp: number): Promise<
     // Never follow a provider-supplied URL with our API key.
     url.searchParams.set("fingerprint", fingerprint);
   }
+  if (progress && !scan.complete) scan.continuation = { until: progress.until, fingerprint: url.searchParams.get("fingerprint")! };
   return scan;
 }
 
-export async function scanBep20CommissionDeposits(minTimestamp: number): Promise<DepositScan> {
+export async function scanBep20CommissionDeposits(minTimestamp: number, progress?: DepositScanProgress): Promise<DepositScan> {
   const key = process.env.ALPHA_EXCHANGE_ETHERSCAN_API_KEY?.trim();
   const scan: DepositScan = { deposits: [], pages: 0, complete: false, configured: Boolean(key) };
   if (!key) return scan;
   const signal = AbortSignal.timeout(SCAN_TIMEOUT_MS);
-  for (let page = 1; page <= MAX_PAGES; page++) {
+  let endBlock = progress?.endBlock;
+  if (progress && !endBlock) {
+    const url = new URL("https://api.etherscan.io/v2/api");
+    url.search = new URLSearchParams({ chainid: "56", module: "block", action: "getblocknobytime",
+      timestamp: String(Math.floor(progress.until / 1000)), closest: "before", apikey: key }).toString();
+    const response = await fetch(url, { cache: "no-store", signal, redirect: "error" });
+    if (!response.ok) throw new Error(`bep20_index_http_${response.status}`);
+    const payload = await response.json();
+    if (payload.status !== "1" || typeof payload.result !== "string" || !/^\d{1,16}$/.test(payload.result)) throw new Error("bep20_index_block_unavailable");
+    endBlock = payload.result;
+  }
+  let nextPage = progress?.page ?? 1;
+  for (; scan.pages < MAX_PAGES; nextPage++) {
     const url = new URL("https://api.etherscan.io/v2/api");
     url.search = new URLSearchParams({ chainid: "56", module: "account", action: "tokentx",
       contractaddress: BSC_USDT_CONTRACT, address: CANONICAL_BEP20_COMMISSION_WALLET,
-      page: String(page), offset: String(PAGE_SIZE), sort: "desc", apikey: key,
+      page: String(nextPage), offset: String(PAGE_SIZE), sort: "desc", apikey: key,
+      ...(endBlock ? { endblock: endBlock } : {}),
     }).toString();
     const response = await fetch(url, { cache: "no-store", signal, redirect: "error" });
     if (!response.ok) throw new Error(`bep20_index_http_${response.status}`);
@@ -123,6 +150,7 @@ export async function scanBep20CommissionDeposits(minTimestamp: number): Promise
     }
     if (reachedLowerBound || payload.result.length < PAGE_SIZE) { scan.complete = true; break; }
   }
+  if (progress && !scan.complete) scan.continuation = { until: progress.until, page: nextPage, endBlock };
   return scan;
 }
 
@@ -171,30 +199,33 @@ function parseBinanceDeposit(row: Record<string, unknown>, min: number): Commiss
   return { network, signature: `binance-deposit:${row.id}`, payer: "", amountMicros, timestamp };
 }
 
-export async function scanBinanceCommissionDeposits(minTimestamp: number): Promise<DepositScan> {
+export async function scanBinanceCommissionDeposits(minTimestamp: number, progress?: DepositScanProgress): Promise<DepositScan> {
   const scan: DepositScan = { deposits: [], pages: 0, complete: false, configured: isBinanceDepositReadConfigured() };
   if (!scan.configured) return scan;
   const signal = AbortSignal.timeout(SCAN_TIMEOUT_MS);
-  let end = Date.now();
+  let end = progress?.windowEnd ?? progress?.until ?? Date.now();
+  let offset = progress?.offset ?? 0;
   while (end >= minTimestamp && scan.pages < MAX_PAGES) {
     const start = Math.max(minTimestamp, end - BINANCE_WINDOW_MS);
-    for (let offset = 0; scan.pages < MAX_PAGES; offset += PAGE_SIZE) {
+    for (; scan.pages < MAX_PAGES; offset += PAGE_SIZE) {
       const rows = await readBinanceDeposits(start, end, offset, signal);
       scan.pages++;
       for (const row of rows) {
         const deposit = parseBinanceDeposit(row, minTimestamp);
         if (deposit) scan.deposits.push(deposit);
       }
-      if (rows.length < PAGE_SIZE) { end = start - 1; break; }
+      if (rows.length < PAGE_SIZE) { end = start - 1; offset = 0; break; }
     }
   }
   scan.complete = end < minTimestamp;
+  if (progress && !scan.complete) scan.continuation = { until: progress.until, windowEnd: end, offset };
   return scan;
 }
 
 /** Re-read the credited deposit on the server; a caller-supplied ID is never proof. */
 export async function verifyBinanceInternalCommissionDeposit(input: {
   signature: string; network: string; recipient: string; amount: number; earliestTimestamp: number;
+  depositTimestamp?: number;
 }) {
   const result = (verified: boolean, notes: string, pending = false) => ({ verified, notes, pending, reference: input.signature });
   if (!/^binance-deposit:\d{1,64}$/.test(input.signature) || !Number.isFinite(input.earliestTimestamp)
@@ -202,7 +233,12 @@ export async function verifyBinanceInternalCommissionDeposit(input: {
   const recipient = input.network === "TRC20" ? CANONICAL_TRC20_COMMISSION_WALLET : input.network === "BEP20" ? CANONICAL_BEP20_COMMISSION_WALLET : null;
   if (!recipient || input.recipient !== recipient) return result(false, "Incorrect Binance commission destination.");
   try {
-    const scan = await scanBinanceCommissionDeposits(input.earliestTimestamp);
+    // Discovery supplies a search hint, never proof. Re-read the receiving
+    // account around that timestamp and independently validate the original ID.
+    const hint = input.depositTimestamp;
+    const useHint = Number.isSafeInteger(hint) && hint! >= input.earliestTimestamp && hint! <= Date.now() + 5 * 60_000;
+    const scan = await scanBinanceCommissionDeposits(useHint ? Math.max(input.earliestTimestamp, hint! - 1) : input.earliestTimestamp,
+      useHint ? { until: hint! + 1 } : undefined);
     if (!scan.configured) return result(false, "Binance deposit verification is not connected.", true);
     const matches = scan.deposits.filter((deposit) => deposit.signature === input.signature);
     if (matches.length !== 1) return result(false, "The credited Binance deposit could not be verified. Retrying automatically.", true);

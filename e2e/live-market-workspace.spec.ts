@@ -32,6 +32,11 @@ for (const locale of ["en", "ar"] as const) {
     await expect(page.locator("#my-listings-section")).toBeVisible({ timeout: 30_000 });
     await expect(page.locator("#my-listings-section")).toContainText(locale === "en" ? "My Listings" : "قائمتي");
     await page.locator("#my-listings-section").screenshot({ path: testInfo.outputPath(`seller-workspace-${locale}.png`) });
+    // Leave the deep-linked section as a user would. Its initial layout-following
+    // stops on wheel/pointer input, not on Playwright's programmatic scrolls.
+    // Without this gesture a later layout change can pull the charts offscreen,
+    // correctly suspending their visibility-scoped feed while the test waits.
+    await page.mouse.wheel(0, -120);
     const overview = page.locator("#market-overview");
     await expect(overview.locator("details, summary, button, a, iframe")).toHaveCount(0);
     const errors: string[] = []; page.on("pageerror", error => errors.push(error.message));
@@ -43,6 +48,7 @@ for (const locale of ["en", "ar"] as const) {
       for (const symbol of ["BTCUSDT", "ETHUSDT"]) {
         const card = overview.locator(`[data-market-chart="${symbol}"]`);
         await card.scrollIntoViewIfNeeded();
+        await expect(card).toBeInViewport();
         await expect(card.locator("svg")).toBeVisible({ timeout: 30_000 });
         expect(Number(await card.locator("svg").getAttribute("data-candle-count"))).toBeGreaterThan(2);
       }

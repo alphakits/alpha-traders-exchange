@@ -40,7 +40,8 @@ export async function PATCH(request: NextRequest) {
   try {
     const body = await request.json();
     const reviewId = String(body.reviewId ?? "").trim();
-    const hidden = Boolean(body.hidden);
+    if (typeof body.hidden !== "boolean") return NextResponse.json({ error: "hidden must be a boolean." }, { status: 400 });
+    const hidden = body.hidden;
     const hiddenReason = String(body.hiddenReason ?? "").trim();
     const updated = await moderateSellerReview({
       reviewId,

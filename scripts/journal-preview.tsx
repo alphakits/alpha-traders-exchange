@@ -2,7 +2,7 @@ import React, { useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { JournalWorkspace } from "../src/components/journal/journal-workspace";
 import { JournalClientError, type JournalAdapter, tradeInput } from "../src/lib/journal/client";
-import { DEFAULT_SETTINGS, dayInZone, shiftDate, type JournalSnapshot, type JournalTrade, type JournalAttachment } from "../src/lib/journal/model";
+import { DEFAULT_SETTINGS, dayInZone, shiftDate, type JournalSnapshot, type JournalAttachment } from "../src/lib/journal/model";
 import { journalReviewInput, journalSettingsInput, journalTradeInput } from "../src/lib/journal/validation";
 
 type PreviewStore=JournalSnapshot & { charts:JournalAttachment[] };

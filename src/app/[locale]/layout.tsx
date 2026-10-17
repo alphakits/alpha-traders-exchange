@@ -25,6 +25,7 @@ import { SessionUnavailable } from "@/components/auth/session-unavailable";
 import { logEvent } from "@/lib/structured-logging";
 import { APP_PAGE_PATH_HEADER, getSignedOutPageDestination, isProtectedPage } from "@/lib/protected-page";
 import { isMarketplacePhoneVerificationRequired, marketplacePhoneVerificationDestination } from "@/lib/phone-verification";
+import { isAdultConfirmationRequired } from "@/lib/age-eligibility";
 import { getInterfacePageDestination } from "@alpha-traders/contracts";
 import { isTradeRoomEntryPath } from "@/lib/trade-room-entry-path";
 
@@ -119,7 +120,7 @@ export default async function LocaleLayout({
           <TrafficAnalyticsTracker />
           <BuyerContactPrompt locale={appLocale} />
           <SiteHeader locale={appLocale} sessionUser={sessionUser} />
-          <main className="min-h-[calc(100vh-9rem)]"><RouteActionFeedback locale={appLocale} /><ProtectedPageBoundary locale={appLocale} phoneVerificationRequired={isMarketplacePhoneVerificationRequired()}>{children}</ProtectedPageBoundary></main>
+          <main className="min-h-[calc(100vh-9rem)]"><RouteActionFeedback locale={appLocale} /><ProtectedPageBoundary locale={appLocale} phoneVerificationRequired={isMarketplacePhoneVerificationRequired()} adultConfirmationRequired={isAdultConfirmationRequired()}>{children}</ProtectedPageBoundary></main>
           <SiteFooter locale={appLocale} />
           <MobileBottomNavigation locale={appLocale} />
         </CanonicalSessionProvider>

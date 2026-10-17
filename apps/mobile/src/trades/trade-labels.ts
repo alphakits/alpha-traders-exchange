@@ -24,6 +24,7 @@ const eventLabels: Record<MobileTradeTimelineEvent, Record<MobileLocale, string>
   request_accepted: { en: "Seller accepted the request", ar: "قبل البائع الطلب" },
   price_offer_accepted: { en: "Seller accepted the price offer", ar: "قبل البائع عرض السعر" },
   payment_sent: { en: "Buyer submitted payment", ar: "أرسل المشتري الدفعة" },
+  buyer_confirmed_funds: { en: "Buyer confirmed the seller received the cash", ar: "أكد المشتري استلام البائع للنقد" },
   seller_confirmed_funds: { en: "Seller confirmed the funds", ar: "أكد البائع استلام الأموال" },
   usdt_release_started: { en: "USDT release started", ar: "بدأ تحويل USDT" },
   usdt_sent: { en: "Seller sent USDT", ar: "أرسل البائع USDT" },

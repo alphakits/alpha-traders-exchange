@@ -33,9 +33,11 @@ export async function GET(request: NextRequest) {
     );
   }
 
+  let ownerFollowUpAttempted = false;
   try {
     const maintenance = await runAlphaExchangeMaintenance();
     const result = await runTradeActionReminders();
+    ownerFollowUpAttempted = true;
     const ownerFollowUp = await runOwnerFollowUpAlerts();
     logEvent("info", {
       event: "trade_action_reminder_cron",
@@ -47,6 +49,15 @@ export async function GET(request: NextRequest) {
       { headers: { "Cache-Control": "no-store" } },
     );
   } catch (error) {
+    // A broken recovery task must not suppress the alert about its pending
+    // work. Preserve the failing HTTP result even when alert delivery succeeds.
+    if (!ownerFollowUpAttempted) {
+      try { await runOwnerFollowUpAlerts(); }
+      catch (alertError) {
+        logEvent("error", { event: "trade_action_reminder_cron", outcome: "failed",
+          reason: "failure_alert_sweep_failed", metadata: { errorType: alertError instanceof Error ? alertError.name : typeof alertError } });
+      }
+    }
     logEvent("error", {
       event: "trade_action_reminder_cron",
       outcome: "failed",

@@ -21,6 +21,7 @@ type RegistrationErrorCode =
   | "PHONE_ALREADY_IN_USE"
   | "EMAIL_ALREADY_REGISTERED"
   | "TERMS_REQUIRED"
+  | "AGE_CONFIRMATION_REQUIRED"
   | "PASSWORD_TOO_SHORT"
   | "WEAK_PASSWORD"
   | "PASSWORD_MISMATCH"
@@ -62,6 +63,10 @@ const REGISTRATION_ERROR_COPY: Record<RegistrationErrorCode, { ar: string; en: s
   TERMS_REQUIRED: {
     ar: "يجب الموافقة على شروط الخدمة.",
     en: "Terms must be accepted.",
+  },
+  AGE_CONFIRMATION_REQUIRED: {
+    ar: "يجب تأكيد أن عمرك 18 عامًا أو أكثر.",
+    en: "Confirm that you are 18 or older to create an account.",
   },
   PASSWORD_TOO_SHORT: {
     ar: "يجب أن تتكوّن كلمة المرور من 8 أحرف على الأقل.",
@@ -144,7 +149,7 @@ export async function POST(request: NextRequest) {
     const password = String(body.password ?? "");
     const confirmPassword = String(body.confirmPassword ?? "");
     const whatsappInput = typeof body.whatsappNumber === "string" ? body.whatsappNumber.trim() : "";
-    const agreedToTerms = Boolean(body.agreedToTerms);
+    const agreedToTerms = body.agreedToTerms === true;
 
     if (!fullName || !email || !password || !confirmPassword) {
       return registrationErrorResponse(locale, "REQUIRED_FIELDS", 400);
@@ -166,6 +171,9 @@ export async function POST(request: NextRequest) {
 
     if (!agreedToTerms) {
       return registrationErrorResponse(locale, "TERMS_REQUIRED", 400);
+    }
+    if (body.ageConfirmed !== true) {
+      return registrationErrorResponse(locale, "AGE_CONFIRMATION_REQUIRED", 400);
     }
     if (password.length < 8) {
       return registrationErrorResponse(locale, "PASSWORD_TOO_SHORT", 400);
@@ -259,6 +267,7 @@ export async function POST(request: NextRequest) {
       email,
       whatsappNumber,
       emailVerified: false,
+      ageConfirmed: true,
       preferredLocale: locale,
     });
 

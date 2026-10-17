@@ -54,6 +54,19 @@ function request(overrides: Partial<PurchaseRequest> = {}): PurchaseRequest {
 }
 
 describe("buildMarketplaceOperationalSnapshot", () => {
+  it("detects delayed trust reconciliation at ten minutes and clears after recovery", () => {
+    const trade = request({ status: "completed", priceMode: "listing_price", trustReconciliation: {
+      requestedAt: "2026-09-03T19:50:00.001Z", requestedByUserId: "seller-1",
+    } });
+    const input = { marketplaceListings: [listing()], purchaseRequests: [trade] };
+    expect(buildMarketplaceOperationalSnapshot(input, NOW).incidents).toHaveLength(0);
+    trade.trustReconciliation!.requestedAt = "2026-09-03T19:50:00.000Z";
+    expect(buildMarketplaceOperationalSnapshot(input, NOW)).toMatchObject({ status: "attention", incidents: [
+      { kind: "pending_trade_trust", severity: "warning", requestId: trade.id, ageMinutes: 10 },
+    ] });
+    trade.trustReconciliation!.reconciledAt = NOW.toISOString();
+    expect(buildMarketplaceOperationalSnapshot(input, NOW)).toMatchObject({ status: "healthy", incidents: [] });
+  });
   it("returns a healthy snapshot for a fresh pending offer", () => {
     const result = buildMarketplaceOperationalSnapshot({
       marketplaceListings: [listing()],

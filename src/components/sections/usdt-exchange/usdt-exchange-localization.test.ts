@@ -82,8 +82,7 @@ describe("USDT exchange localized mobile copy", () => {
     expect(sellerWorkspace).toContain("Open the trade for your next step.");
 
     const exchangePage = readFileSync(join(process.cwd(), "src/components/sections/usdt-exchange/usdt-exchange-page.tsx"), "utf8");
-    expect(exchangePage).toContain('cashTrade ? "confirm-usdt-sent" : "release-usdt"');
-    expect(exchangePage).toContain('cashTrade && isSellerActor) action = "complete-cash-trade"');
+    expect(exchangePage).toContain('return buildTradeRoomDestination(request, sessionUser.id)');
     expect(exchangePage).toContain('!isCashTradePaymentMethod(request.paymentMethod)');
   });
 
@@ -174,8 +173,8 @@ describe("USDT exchange localized mobile copy", () => {
     expect(marketplace).toContain('"Buy Now"');
     expect(marketplace).toContain('"Make an Offer"');
     expect(marketplace).toContain('"قدّم عرض سعر"');
-    expect(marketplace).toContain('"Up to ₪0.35 lower"');
-    expect(marketplace).toContain('"خصم حتى ₪0.35"');
+    expect(marketplace).toContain('"Within ±₪0.35 of listing price"');
+    expect(marketplace).toContain('"±₪0.35 من سعر الإعلان"');
     expect(marketplace).toContain('listing.currency.trim().toUpperCase() === "ILS"');
     expect(marketplace).toContain('seller-marketplace-action--offer');
     expect(purchaseDialog).toContain('id="buyer-offered-price"');
