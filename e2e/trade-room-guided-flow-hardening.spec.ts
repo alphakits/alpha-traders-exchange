@@ -951,6 +951,8 @@ test("Trade Room Poke is recipient-only, cooldown-protected, reconnect-safe, and
     const buyerChatForm = buyerPage.locator("#chat form");
     const buyerChatDraft = buyerChatForm.getByPlaceholder("Type a message...");
     await buyerChatDraft.fill("0532490321 hada rkme");
+    await expect(buyerChatDraft).toBeFocused();
+    await expect(buyerChatDraft).toHaveValue("0532490321 hada rkme");
     await buyerChatForm.getByRole("button", { name: "Send Message" }).click();
     const inlineChatError = buyerChatForm.getByTestId("trade-chat-error");
     await expect(inlineChatError).toContainText("Keep contact details private.", { timeout: 20_000 });

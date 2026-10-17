@@ -1648,24 +1648,31 @@ function TradeRoomPageSession({
     };
     // Inline validation owns its own focus, including keeping the keyboard at
     // the review field. Background changes must not interrupt someone typing.
-    const editing = document.activeElement instanceof HTMLInputElement || document.activeElement instanceof HTMLTextAreaElement;
-    if (reviewCommentError || (!hasNewFeedback && editing)) { markHandled(); return; }
+    const isEditing = () => document.activeElement instanceof HTMLInputElement
+      || document.activeElement instanceof HTMLTextAreaElement
+      || document.activeElement instanceof HTMLSelectElement
+      || (document.activeElement instanceof HTMLElement && document.activeElement.isContentEditable);
+    if (reviewCommentError || (!hasNewFeedback && isEditing())) { markHandled(); return; }
+    const userInteractionEvents = ["pointerdown", "keydown", "focusin", "wheel", "touchstart", ACTION_FEEDBACK_REVEALED];
     let frame = 0;
     const stop = () => {
       window.cancelAnimationFrame(frame);
-      for (const event of ["pointerdown", "keydown", "wheel", "touchstart", ACTION_FEEDBACK_REVEALED]) window.removeEventListener(event, yieldToUser, true);
+      for (const event of userInteractionEvents) window.removeEventListener(event, yieldToUser, true);
       document.removeEventListener("visibilitychange", reveal);
     };
     const yieldToUser = () => { markHandled(); stop(); };
     const reveal = () => {
       if (!resolvedRef.isConnected || document.visibilityState !== "visible") return;
+      // Focus may have changed since this frame was queued, including through
+      // keyboard or assistive input without a pointer event. Keep that editor.
+      if (isEditing()) { yieldToUser(); return; }
       revealTradeRoomDeepLinkTarget(resolvedRef);
       markHandled();
       stop();
     };
     frame = window.requestAnimationFrame(reveal);
     document.addEventListener("visibilitychange", reveal);
-    for (const event of ["pointerdown", "keydown", "wheel", "touchstart", ACTION_FEEDBACK_REVEALED]) window.addEventListener(event, yieldToUser, true);
+    for (const event of userInteractionEvents) window.addEventListener(event, yieldToUser, true);
     return stop;
   }, [actionBusy, actionError, actionErrorFeedbackKey, deepLinkRequestId, deepLinkRequestStatus, evidenceBusy, hasCanonicalRoom, isLoading, reviewBusy, reviewCommentError, searchParams, statusMessage, statusMessageFeedbackKey]);
 
