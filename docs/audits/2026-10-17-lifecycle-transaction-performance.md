@@ -89,3 +89,17 @@ reaches 1,000 ms, or if timing evidence is missing/invalid. Backup/restore still
 runs before that gate. Controlled boundary checks verified 999.999 ms passes,
 1,000 and 1,000.001 ms fail, and a missing measurement fails. This does not prove
 provider-side branch protection or deployment gating is configured.
+
+The request-scoped read passed one controlled run at p95 848.54 ms and maximum
+975.68 ms. A later run of the same application code measured p95 866.42 ms and
+maximum 1,007.09 ms, so the unchanged one-second gate correctly failed. A single
+passing run did not establish enough performance margin.
+
+The follow-up retains immutable row baselines only for tables the transaction
+is allowed to write. Authority and evidence reads still happen under the same
+lock and keep all existing guards; these read-only collections no longer incur
+an unnecessary deep clone. Terminal transitions also omit derived trust history
+from their read. The recoverable post-commit trust transaction still loads that
+history from canonical records. The 330 focused financial, lifecycle and scoped
+SQL checks pass locally; the real PostgreSQL measurement remains the acceptance
+gate and its actual result is recorded separately.

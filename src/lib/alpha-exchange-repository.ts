@@ -2438,7 +2438,12 @@ export class AlphaExchangeRepository {
       const snapshot = attachVersion(snapshotFromTableRows(selectedNames.map(tableName => ({ tableName, rows: before.get(tableName)! }))), version);
       // Business rules mutate the returned objects; retain an immutable basis
       // for row comparison without a second database read.
-      const baseline = row?.read_only_retry ? before : structuredClone(before);
+      // Read-only authority/evidence collections cannot be written by this
+      // transaction. Keep immutable copies only for its declared write domain;
+      // cloning every account and historical read needlessly holds the lock.
+      const allowedWrites = trustReconciliation ? TRADE_TRUST_WRITE_TABLES : TRADE_LIFECYCLE_WRITE_TABLES;
+      const baseline = row?.read_only_retry ? before
+        : structuredClone(new Map([...before].filter(([name]) => allowedWrites.has(name))));
       return {
         snapshot,
         close,
@@ -2448,7 +2453,6 @@ export class AlphaExchangeRepository {
           try {
             if (trustReconciliation && row?.has_pending_trust === false) throw new Error("No pending trust reconciliation to commit.");
             const writeTables = Array.from(new Set(options.selectedTables));
-            const allowedWrites = trustReconciliation ? TRADE_TRUST_WRITE_TABLES : TRADE_LIFECYCLE_WRITE_TABLES;
             if (writeTables.some(name => !allowedWrites.has(name) || !baseline.has(name))) {
               throw new Error("Undeclared or unsupported lifecycle write table.");
             }

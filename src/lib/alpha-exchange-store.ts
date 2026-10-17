@@ -4096,7 +4096,11 @@ const TRADE_STATUS_FAST_READ_TABLES = ["users", "seller_applications", "listings
 const TRADE_STATUS_TERMINAL_READ_TABLES = [
   ...TRADE_STATUS_FAST_READ_TABLES,
   "activity_logs",
-  "disputes",
+] as const satisfies readonly SnapshotTableName[];
+// Derived trust history is read by the recoverable follow-up, after the
+// financial transaction has committed. It is not a lifecycle dependency.
+const TRADE_TRUST_READ_TABLES = [
+  ...TRADE_STATUS_TERMINAL_READ_TABLES,
   "trust_snapshots",
   "trust_score_history",
 ] as const satisfies readonly SnapshotTableName[];
@@ -5191,10 +5195,10 @@ export function reconcilePendingTradeTrust(): Promise<{ reconciled: number }> {
     for (let batch = 0; batch < 4; batch++) {
       const repository = await getAlphaExchangeRepository();
       const transaction = typeof repository.beginTradeTrustTransaction === "function"
-        ? await repository.beginTradeTrustTransaction(TRADE_STATUS_TERMINAL_READ_TABLES) : null;
+        ? await repository.beginTradeTrustTransaction(TRADE_TRUST_READ_TABLES) : null;
       try {
         const db = transaction ? normalizeDb(transaction.snapshot)
-          : (await readDbForCriticalTradeMutation(TRADE_STATUS_TERMINAL_READ_TABLES)).db;
+          : (await readDbForCriticalTradeMutation(TRADE_TRUST_READ_TABLES)).db;
         if (!db.purchaseRequests.some(request => request.trustReconciliation && !request.trustReconciliation.reconciledAt)) break;
         let publications: TradeMutationPublications;
         let committedCount = 0;
@@ -5226,7 +5230,7 @@ export function reconcilePendingTradeTrust(): Promise<{ reconciled: number }> {
           await writeDb(db, {
             selectedTables: TRADE_COMPLETION_TRUST_TABLES,
             rebaseOnLatest: apply,
-            rebaseTables: TRADE_STATUS_TERMINAL_READ_TABLES,
+            rebaseTables: TRADE_TRUST_READ_TABLES,
             cacheResult: false,
           });
         }
