@@ -256,6 +256,19 @@ jobs:
         run: npm ci
       - name: Install WebKit runtime
         run: npx playwright install --with-deps webkit
+      - name: Verify seller keyboard navigation before the full WebKit group
+        if: matrix.shard == 3
+        env:
+          PLAYWRIGHT_JSON_OUTPUT_FILE: test-results/webkit-navigation-preflight.json
+        run: node ./node_modules/playwright/cli.js test --config=playwright.webkit.config.ts e2e/navigation-hardening.spec.ts --grep="seller refresh keeps the approved workspace stable" --max-failures=1 --reporter=list,json
+      - name: Preserve focused WebKit navigation evidence
+        if: always() && matrix.shard == 3
+        uses: actions/upload-artifact@v4
+        with:
+          name: webkit-navigation-preflight
+          path: test-results/
+          if-no-files-found: error
+          retention-days: 14
       - name: Verify marketplace, payments and owner flows in WebKit
         env:
           PLAYWRIGHT_JSON_OUTPUT_FILE: test-results/webkit-critical-results.json

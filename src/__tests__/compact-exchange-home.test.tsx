@@ -1,5 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { hydrateRoot, type Root } from "react-dom/client";
+import { renderToString } from "react-dom/server";
 import { UsdtExchangePage } from "@/components/sections/usdt-exchange/usdt-exchange-page";
 import { PageSectionNavigation } from "@/components/layout/page-section-navigation";
 import type { ClientSessionUser } from "@/lib/client-session-user";
@@ -80,6 +82,32 @@ afterEach(async () => {
 });
 
 describe("compact Exchange home", () => {
+  it.each([[1440, "en"], [390, "ar"]] as const)("keeps server workspace controls inert until the final viewport is ready (%s px, %s)", async (width, locale) => {
+    viewportWidth = width;
+    user = { ...buyer, role: "approved_seller", roles: ["approved_seller", "buyer"], sellerStatus: "approved_seller", sellerApprovalVerified: true };
+    const element = <UsdtExchangePage locale={locale} initialSessionUser={user} />;
+    const container = document.createElement("div");
+    container.innerHTML = renderToString(element);
+    document.body.appendChild(container);
+    let root: Root | undefined;
+    try {
+      // The server cannot know whether these controls will move into the
+      // desktop welcome panel. They must not accept a key press before then.
+      expect(container.querySelector("#workspace-summary")?.hasAttribute("inert")).toBe(true);
+      await act(async () => { root = hydrateRoot(container, element); });
+      const workspace = container.querySelector("#workspace-summary") as HTMLElement;
+      expect(workspace.hasAttribute("inert")).toBe(false);
+      expect(container.querySelectorAll("#workspace-summary")).toHaveLength(1);
+      const button = within(workspace).getByRole("button", { name: locale === "ar" ? /^عروضي:/ : /^My Listings:/ });
+      button.focus();
+      fireEvent.click(button);
+      await waitFor(() => expect(document.activeElement?.id).toBe("my-listings-section"));
+    } finally {
+      await act(async () => { root?.unmount(); });
+      container.remove();
+    }
+  });
+
   it.each([["buy", "fetch"], ["offer", "body"]] as const)("releases a stalled %s request %s without repeating it or navigating on a late response", async (mode, phase) => {
     requests = [];
     user = { ...buyer, emailVerified: true };

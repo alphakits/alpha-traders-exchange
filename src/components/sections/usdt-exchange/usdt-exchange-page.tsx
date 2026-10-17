@@ -28,7 +28,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { AccountWelcome } from "@/components/ui/account-welcome";
 import { ExchangeWorkspaceNavigation, type ExchangeWorkspaceAction } from "@/components/sections/usdt-exchange/exchange-workspace-navigation";
-import { useDesktopWorkspace } from "@/components/sections/usdt-exchange/use-desktop-workspace";
+import { useWorkspaceViewport } from "@/components/sections/usdt-exchange/use-desktop-workspace";
 import { BuyerRankCard } from "@/components/ui/buyer-rank-card";
 import { SellerRankCard } from "@/components/ui/seller-rank-card";
 import { useSellerRankSummary } from "@/components/sections/usdt-exchange/use-seller-rank-summary";
@@ -1350,7 +1350,8 @@ export function UsdtExchangePage({
   const isAr = locale === "ar";
   const isDashboardWorkspace = workspaceMode !== undefined;
   const isSellerDashboardWorkspace = workspaceMode === "seller";
-  const isDesktopWorkspace = useDesktopWorkspace();
+  const workspaceViewport = useWorkspaceViewport();
+  const isDesktopWorkspace = workspaceViewport === true;
   const router = useRouter();
   const searchParams = useSearchParams();
   const commissionPaymentIntent = searchParams?.get("commission") ?? null;
@@ -5020,7 +5021,7 @@ export function UsdtExchangePage({
   ) : null;
 
   const workspaceNavigation = (
-    <ExchangeWorkspaceNavigation cards={visibleWorkspaceCards} isAr={isAr} integrated={integrateWorkspace} compact={compactBuyerWorkspace} />
+    <ExchangeWorkspaceNavigation cards={visibleWorkspaceCards} isAr={isAr} integrated={integrateWorkspace} compact={compactBuyerWorkspace} ready={workspaceViewport !== null} />
   );
   const welcomeActions = !isDashboardWorkspace || integrateWorkspace ? (
     <div className="account-welcome__actions">
