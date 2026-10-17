@@ -10,6 +10,7 @@ import { isUncertainPostgresConnection as isTransientReadError, rollbackFailedTr
 import { isProductionSecurityRuntime, allowsRuntimeDiagnostics } from "@/lib/runtime-safety";
 import { logEvent } from "@/lib/structured-logging";
 import { isPublicOwnerIdentity } from "@/lib/public-account-identity";
+import { ALPHA_EXCHANGE_OWNER_EMAIL } from "@/lib/alpha-exchange-identity";
 import { listingCommissionRequiredMessage } from "@/lib/listing-commission-policy";
 import type {
   AlphaExchangeDb,
@@ -2340,7 +2341,7 @@ export class AlphaExchangeRepository {
     };
     try {
       // These append-only/event collections are consulted only for this trade.
-      // Accounts, listings and commission assignments remain global. Lifecycle
+      // Listings and commission assignments remain global. Lifecycle
       // request dependencies are the seller's trades and the buyer's trades,
       // including trades with other counterparties. Legacy numbering needs the
       // complete collection until every retained request has a display number.
@@ -2353,6 +2354,7 @@ export class AlphaExchangeRepository {
       } : {};
       const retryProjection = Boolean(requestId && nextStatus);
       const scopedRetryUsers = retryProjection && Boolean(actorUserId) && selectedNames.includes("users");
+      const scopedCompletionUsers = scopedRetryUsers && nextStatus === "completed";
       const requestScope = retryProjection ? `seller_id = (select seller_id from alpha_exchange.purchase_requests where id = $1)
         or buyer_id = (select buyer_id from alpha_exchange.purchase_requests where id = $1)
         or exists (select 1 from alpha_exchange.purchase_requests where coalesce(payload->>'displayNumber', '') !~ '^[1-9][0-9]*$')` : "true";
@@ -2373,9 +2375,16 @@ export class AlphaExchangeRepository {
         const filter = retryProjection && name === "purchase_requests"
           ? `where id = $1 or (not (select read_only_retry from lifecycle_mode) and (${requestScope}))`
           : scopedRetryUsers && name === "users"
-            ? `where not (select read_only_retry from lifecycle_mode) or id = $3
+            ? `where id = $3
                 or id in (select seller_id from alpha_exchange.purchase_requests where id = $1
-                  union select buyer_id from alpha_exchange.purchase_requests where id = $1)`
+                  union select buyer_id from alpha_exchange.purchase_requests where id = $1)
+                or (not (select read_only_retry from lifecycle_mode)${scopedCompletionUsers ? ` and (
+                  payload->>'role' in ('owner', 'admin')
+                  or payload->'roles' ?| array['owner', 'admin']
+                  or lower(btrim(coalesce(payload->>'email', ''))) = $4
+                  or id in (select seller_id from alpha_exchange.purchase_requests where ${requestScope}
+                    union select buyer_id from alpha_exchange.purchase_requests where ${requestScope})
+                )` : ""})`
           : filters[name] ?? "";
         const aggregate = `coalesce((select json_agg(json_build_object('payload', payload, 'sort_index', sort_index) order by sort_index asc) from alpha_exchange.${name} ${filter}), '[]'::json)`;
         const projection = trustReconciliation ? `case when (select has_pending_trust from lifecycle_mode) then ${aggregate} else '[]'::json end`
@@ -2384,10 +2393,11 @@ export class AlphaExchangeRepository {
       });
       const scopedNames = selectedNames.filter(name => filters[name]);
       const boundsSql = scopedNames.length ? `, json_build_object(${scopedNames.map(name => `'${name}', (select json_build_object('minimum', min(sort_index), 'maximum', max(sort_index)) from alpha_exchange.${name})`).join(", ")}) as sort_bounds` : "";
-      // Only a non-writing retry can narrow account data. Keep the canonical
-      // caller (including disabled/role state) and both participants so every
-      // permission guard still runs; mutations retain all authority accounts.
-      const parameters = retryProjection ? [requestId, nextStatus, ...(scopedRetryUsers ? [actorUserId] : [])] : scopedNames.some(name => filters[name]?.includes("$1")) ? [requestId] : undefined;
+      // Completion does not write accounts or calculate trust. Keep its caller,
+      // every related counterparty and all canonical admin/owner recipients,
+      // including the legacy owner-email rule. Other mutations retain the full
+      // authority collection; a committed retry needs only its participants.
+      const parameters = retryProjection ? [requestId, nextStatus, ...(scopedRetryUsers ? [actorUserId] : []), ...(scopedCompletionUsers ? [ALPHA_EXCHANGE_OWNER_EMAIL] : [])] : scopedNames.some(name => filters[name]?.includes("$1")) ? [requestId] : undefined;
       type ReadRow = { version: string; read_only_retry?: boolean; has_pending_trust?: boolean; sort_bounds?: Partial<Record<SnapshotTableName, LifecycleSortBounds>> } & Partial<Record<SnapshotTableName, IndexedPayload[]>>;
       const readSql = (onlyCommittedRetry = false) => {
         const selected = columns(onlyCommittedRetry);
