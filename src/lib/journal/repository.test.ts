@@ -14,7 +14,7 @@ const base:JournalTrade={id:"10000000-0000-4000-8000-000000000001",version:0,dat
 beforeAll(async()=>{
   state.db=new PGlite();await state.db.exec(`create role anon;create role authenticated;create schema alpha_exchange;create table alpha_exchange.users(id text primary key);insert into alpha_exchange.users values('alice'),('bob');create schema storage;create table storage.buckets(id text primary key,name text,public boolean,file_size_limit bigint,allowed_mime_types text[]);`);
   await state.db.exec(await readFile("supabase/migrations/20261008200530_private_trading_journal.sql","utf8"));
-  await state.db.exec(await readFile("supabase/migrations/20261016171500_journal_owner_statement_context.sql","utf8"));
+  await state.db.exec(await readFile("supabase/migrations/20261017143401_journal_owner_statement_context.sql","utf8"));
   vi.stubEnv("ALPHA_JOURNAL_ENABLED","1");
 });
 afterAll(async()=>{await state.db?.close();vi.unstubAllEnvs();});
