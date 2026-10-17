@@ -261,6 +261,42 @@ it("incomplete receiving history is not labeled complete", async () => {
   const { service } = await prepared(); mocks.scanBsc.mockRejectedValue(Error("bep20_index_plan_unsupported")); mocks.scanBinance.mockResolvedValue({ configured: true, complete: false, pages: 5, deposits: [] });
   expect((await service.scan(Date.now() + 60_000)).complete).toBe(false);
 });
+it.each(["TRC20", "BEP20"] as const)("keeps %s unpaid until its receiving history is complete, then recovers once", async (network) => {
+  const service = await getCommissionCheckoutRuntime();
+  const checkout = await service.issue({ sellerId: "seller", network });
+  const payment = { signature: network === "TRC20" ? "e".repeat(64) : `0x${"e".repeat(64)}`,
+    network, amountMicros: checkout.expectedMicros - 300_000, timestamp: Date.parse(checkout.createdAt) + 1 };
+  const scanner = network === "TRC20" ? mocks.scanTron : mocks.scanBsc;
+  const verifier = network === "TRC20" ? mocks.tron : mocks.bep20;
+  mocks.scanBinance.mockResolvedValue({ configured: false, complete: false, pages: 0, deposits: [] });
+  scanner.mockResolvedValue({ configured: true, complete: false, pages: 5, deposits: [payment] });
+  verifier.mockResolvedValue({ verified: true, pending: false });
+  const before = structuredClone(globalThis.__alphaExchangeMemorySnapshot);
+
+  expect(await service.scan(Date.now() + 60_000)).toMatchObject({ complete: false, verified: 0 });
+  expect(verifier).not.toHaveBeenCalled();
+  expect(globalThis.__alphaExchangeMemorySnapshot).toEqual(before);
+  expect((await getSellerCommissionStatus("seller")).pendingCount).toBe(2);
+
+  scanner.mockResolvedValue({ configured: true, complete: true, pages: 1, deposits: [payment] });
+  expect(await service.scan(Date.now() + 60_000)).toMatchObject({ complete: true, verified: 1 });
+  expect((await getSellerCommissionStatus("seller")).pendingCount).toBe(0);
+  expect((await service.scan(Date.now() + 60_000)).verified).toBe(0);
+});
+it("does not settle an internal Binance receipt from truncated receiving history", async () => {
+  const { service, payment } = await prepared();
+  mocks.scanBsc.mockRejectedValue(Error("bep20_index_plan_unsupported"));
+  mocks.scanBinance.mockResolvedValue({ configured: true, complete: false, pages: 5, deposits: [payment] });
+  expect(await service.scan(Date.now() + 60_000)).toMatchObject({ complete: false, verified: 0 });
+  expect(mocks.binance).not.toHaveBeenCalled();
+  expect((await getSellerCommissionStatus("seller")).pendingCount).toBe(2);
+});
+it("an unrelated TRON outage does not prevent a complete BEP20 scan from settling", async () => {
+  const { service, payment } = await prepared();
+  mocks.scanTron.mockRejectedValue(Error("tron_http_503"));
+  mocks.scanBinance.mockResolvedValue({ configured: true, complete: true, pages: 1, deposits: [payment] });
+  expect(await service.scan(Date.now() + 60_000)).toMatchObject({ complete: true, verified: 1 });
+});
 it("provider finality wait keeps debt unpaid without owner action", async () => {
   const { service, payment } = await prepared(); mocks.binance.mockResolvedValue({ verified: false, pending: true });
   const result = await service.reconcile({ deposits: [payment], deadline: Date.now() + 60_000 }); expect(result.verified).toBe(0); expect(result.pending).toBe(1);

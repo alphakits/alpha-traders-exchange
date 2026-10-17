@@ -4,9 +4,9 @@ import { getAlphaExchangeRepository } from "@/lib/alpha-exchange-repository";
 import { invalidateAlphaExchangeStoreCache } from "@/lib/alpha-exchange-store";
 import { verifyBep20Commission } from "@/lib/bep20-commission-verifier";
 import { resolveCommissionWalletForNetwork } from "@/lib/commission-config";
-import { verifyBinanceInternalCommissionDeposit, scanTronCommissionDeposits, scanBep20CommissionDeposits, scanBinanceCommissionDeposits } from "@/lib/commission-deposit-discovery";
+import { verifyBinanceInternalCommissionDeposit, scanTronCommissionDeposits, scanBep20CommissionDeposits, scanBinanceCommissionDeposits, type DepositScan } from "@/lib/commission-deposit-discovery";
 import { verifyCommissionBatchTronReceipt } from "@/lib/commission-batch-tron-verifier";
-import { createCommissionCheckoutWorkflow, pendingCommissionCheckouts, type CheckoutDeposit } from "./commission-checkout-workflow";
+import { createCommissionCheckoutWorkflow, pendingCommissionCheckouts, type CheckoutDeposit, type CheckoutNetwork } from "./commission-checkout-workflow";
 
 export async function getCommissionCheckoutRuntime() {
   if (process.env.ALPHA_EXCHANGE_COMMISSION_CHECKOUT_V1 !== "1") throw new Error("Automatic checkout is not enabled");
@@ -63,21 +63,30 @@ export async function getCommissionCheckoutRuntime() {
       const since = Math.min(...pending.map((checkout) => Date.parse(checkout.createdAt)));
       const providers = [scanTronCommissionDeposits, scanBep20CommissionDeposits, scanBinanceCommissionDeposits];
       const scans = await Promise.allSettled(providers.map((scan) => scan(since)));
+      const hasCompleteHistory = (scan: PromiseSettledResult<DepositScan>) =>
+        scan.status === "fulfilled" && scan.value.configured && scan.value.complete;
       const binance = scans[2];
-      const fallback = binance.status === "fulfilled" && binance.value.configured && binance.value.complete;
+      const binanceComplete = hasCompleteHistory(binance);
+      // An absent optional Binance integration cannot contain internal payments.
+      // A configured but failed/truncated scan can: chain history alone cannot
+      // rule out another payment option for the same commission instructions.
+      const binanceCovered = binanceComplete || (binance.status === "fulfilled" && !binance.value.configured);
+      const historyComplete: Record<CheckoutNetwork, boolean> = {
+        TRC20: hasCompleteHistory(scans[0]) && binanceCovered,
+        BEP20: (hasCompleteHistory(scans[1]) || binanceComplete) && binanceCovered,
+      };
+      const incompleteNetworks = [...new Set(pending.map((checkout) => checkout.network))]
+        .filter((network) => !historyComplete[network]);
       const deposits: CheckoutDeposit[] = [];
-      let complete = true;
-      for (let i = 0; i < scans.length; i++) {
-        const scan = scans[i];
+      for (const scan of scans) {
         if (scan.status === "fulfilled") deposits.push(...scan.value.deposits);
-        if (scan.status === "rejected" || !scan.value.configured || !scan.value.complete) {
-          // Binance is optional for public on-chain payments; BSC discovery can
-          // use the authenticated receiving history without an explorer upgrade.
-          if (!(i === 1 && fallback) && !(i === 2 && scan.status === "fulfilled" && !scan.value.configured)) complete = false;
-        }
       }
-      const result = await workflow.reconcile({ deposits, deadline, limit: 2 });
-      return { enabled: true, pendingCheckouts: pending.length, scanned: deposits.length, complete, ...result };
+      // Reconciliation relies on the full receiving history to reject competing
+      // payment options. Never let a page cap or provider outage manufacture
+      // uniqueness. Complete networks can still progress; others retry next run.
+      const result = await workflow.reconcile({ deposits: deposits.filter((deposit) => historyComplete[deposit.network]), deadline, limit: 2 });
+      return { enabled: true, pendingCheckouts: pending.length, scanned: deposits.length,
+        complete: incompleteNetworks.length === 0, incompleteNetworks, ...result };
     },
   };
 }
