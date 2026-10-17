@@ -87,6 +87,16 @@ describe("GET /api/auth/me session privacy", () => {
     mocks.isVerified.mockReturnValue(true);
   });
 
+  it("does not expire a replacement browser cookie when an old session read finishes late", async () => {
+    mocks.getCurrentSessionUser.mockResolvedValue(null);
+    mocks.getCurrentSessionToken.mockResolvedValue("superseded-session-token");
+    const response = await GET();
+    expect(await response.json()).toEqual({ user: null });
+    expect(mocks.clearUserSession).toHaveBeenCalledWith("superseded-session-token");
+    expect(mocks.expireAuthCookies).not.toHaveBeenCalled();
+    expect(mocks.cookies).not.toHaveBeenCalled();
+  });
+
   it("returns the shared safe session DTO rather than persistence-only credential fields", async () => {
     mocks.getCurrentSessionUser.mockResolvedValue(rawUser());
 

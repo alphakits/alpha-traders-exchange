@@ -100,6 +100,20 @@ describe("requireApiUser", () => {
     expectPrivateDenial(unauthorized);
   });
 
+  it("does not let a delayed rejection erase a newer browser login", async () => {
+    mockGetCurrentSessionUser.mockResolvedValue(null);
+    mockGetCurrentSessionToken.mockResolvedValue("superseded-session-token");
+    let finishRevocation!: () => void;
+    mockClearUserSession.mockImplementationOnce(() => new Promise<void>(resolve => { finishRevocation = resolve; }));
+    const pending = requireApiUser();
+    await vi.waitFor(() => expect(mockClearUserSession).toHaveBeenCalledWith("superseded-session-token"));
+    // A successful login can set a replacement cookie before this old request finishes.
+    finishRevocation();
+    const { unauthorized } = await pending;
+    expect(unauthorized?.status).toBe(401);
+    expect(unauthorized?.headers.get("Set-Cookie")).toBeNull();
+  });
+
   it("returns the user when session is valid", async () => {
     const u = makeUser();
     mockGetCurrentSessionUser.mockResolvedValue(u as never);

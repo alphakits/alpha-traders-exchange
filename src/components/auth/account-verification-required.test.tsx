@@ -20,6 +20,39 @@ beforeEach(() => { mocks.refresh.mockReset().mockResolvedValue(undefined); });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 describe("required buyer and seller phone screen", () => {
+  it.each(["en", "ar"] as const)("recovers an unauthorized adult confirmation without repeating it in %s", async locale => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 }));
+    mocks.refresh.mockResolvedValue("unavailable");
+    vi.stubGlobal("fetch", fetchMock);
+    render(<AccountVerificationGate {...props} locale={locale} adultConfirmationRequired redirectTo={`/${locale}/admin/alpha-exchange`} />);
+    fireEvent.click(screen.getByRole("checkbox", { name: /18/ }));
+    const save = screen.getByRole("button", { name: locale === "ar" ? "حفظ التأكيد" : "Save confirmation" }) as HTMLButtonElement;
+    fireEvent.click(save);
+    await waitFor(() => expect(mocks.refresh).toHaveBeenCalledExactlyOnceWith({ force: true }));
+    expect(await screen.findByRole("alert")).toHaveProperty("textContent", locale === "ar"
+      ? "جلستك غير نشطة. سجّل الدخول مجددًا لحفظ تأكيد العمر."
+      : "Your session is no longer active. Sign in again to save your age confirmation.");
+    const signIn = screen.getByRole("link", { name: locale === "ar" ? "تسجيل الدخول مجددًا" : "Sign in again" });
+    const verification = new URL(signIn.getAttribute("href")!, "https://example.test").searchParams.get("redirectTo");
+    expect(new URL(verification!, "https://example.test").searchParams.get("redirectTo")).toBe(`/${locale}/admin/alpha-exchange`);
+    expect(save.disabled).toBe(true);
+    fireEvent.click(save);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("allows a deliberate adult-confirmation retry after the canonical session recovers", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 }));
+    mocks.refresh.mockResolvedValue("authenticated");
+    vi.stubGlobal("fetch", fetchMock);
+    render(<AccountVerificationGate {...props} adultConfirmationRequired />);
+    fireEvent.click(screen.getByRole("checkbox", { name: /18/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Save confirmation" }));
+    expect(await screen.findByRole("alert")).toHaveProperty("textContent", "Your session has been refreshed. Please save your age confirmation again.");
+    expect((screen.getByRole("button", { name: "Save confirmation" }) as HTMLButtonElement).disabled).toBe(false);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("link", { name: "Sign in again" })).toBeNull();
+  });
+
   it.each(["en", "ar"] as const)("keeps adult confirmation retryable after a failed save in %s", async locale => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify({ error: "Unavailable" }), { status: 503 }))

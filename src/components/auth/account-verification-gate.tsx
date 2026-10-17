@@ -63,6 +63,7 @@ function AccountVerificationContent({
   const [status, setStatus] = useState<string | null>(null);
   const [adultChecked, setAdultChecked] = useState(false);
   const [savingAdult, setSavingAdult] = useState(false);
+  const [adultSignInRequired, setAdultSignInRequired] = useState(false);
   const adultRequest = useRef<AbortController | null>(null);
 
   const name = user?.fullName ?? initialName;
@@ -114,6 +115,8 @@ function AccountVerificationContent({
   }, [cooldownSeconds]);
 
   const target = useMemo(() => normalizeRedirectPath(redirectTo, locale), [redirectTo, locale]);
+  const verificationReturn = `/${locale}/verify-account?redirectTo=${encodeURIComponent(`/${locale}${target === "/" ? "" : target}`)}`;
+  const signInHref = `/login?redirectTo=${encodeURIComponent(verificationReturn)}`;
   const emailVerified = user?.emailVerified === true;
   const phoneVerified = user?.isPhotoVerified === true;
   const adultConfirmed = user?.adultConfirmed === true;
@@ -121,9 +124,9 @@ function AccountVerificationContent({
 
   useEffect(() => {
     if (!loading && !sessionError && !user) {
-      window.location.assign(`/${locale}/login?redirectTo=/${locale}/verify-account`);
+      window.location.assign(`/${locale}${signInHref}`);
     }
-  }, [loading, locale, sessionError, user]);
+  }, [loading, locale, sessionError, signInHref, user]);
 
   useEffect(() => {
     if (!user?.fullName?.trim()) return;
@@ -147,17 +150,31 @@ function AccountVerificationContent({
   }, [loading, sessionError, emailVerified, phoneVerificationRequired, phoneVerified, adultConfirmationRequired, adultConfirmed, locale, target]);
 
   async function confirmAdult() {
-    if (!user || !adultChecked || !mounted.current || adultRequest.current) return;
+    if (!user || !adultChecked || adultSignInRequired || !mounted.current || adultRequest.current) return;
     const controller = new AbortController();
     adultRequest.current = controller;
     setSavingAdult(true);
     setError(null);
     try {
       const { response, payload } = await fetchClientJson<ApiErrorPayload>("/api/auth/age-eligibility", {
-        method: "POST", headers: { "Content-Type": "application/json" },
+        method: "POST", credentials: "include", cache: "no-store", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ confirmed: true }), signal: controller.signal,
       }, 15_000);
       if (!mounted.current || adultRequest.current !== controller) return;
+      if (response.status === 401) {
+        // Re-read authentication once; never replay the personal declaration.
+        // The canonical provider redirects an anonymous account to sign-in.
+        // Keep a recovery link if that read is temporarily unavailable.
+        setAdultSignInRequired(true);
+        const result = await refresh({ force: true });
+        if (!mounted.current || adultRequest.current !== controller) return;
+        const recovered = result === "authenticated";
+        setAdultSignInRequired(!recovered);
+        setError(recovered
+          ? (isAr ? "تم تحديث جلستك. احفظ تأكيد العمر مجددًا." : "Your session has been refreshed. Please save your age confirmation again.")
+          : (isAr ? "جلستك غير نشطة. سجّل الدخول مجددًا لحفظ تأكيد العمر." : "Your session is no longer active. Sign in again to save your age confirmation."));
+        return;
+      }
       if (!response.ok || payload.ok !== true) throw new Error("Unable to save confirmation. Please try again.");
       await refresh({ force: true });
     } catch {
@@ -448,13 +465,16 @@ function AccountVerificationContent({
                 onChange={event => setAdultChecked(event.target.checked)} className="mt-1 h-4 w-4 accent-[#C9A227]" />
               {isAr ? "أؤكد أن عمري 18 عامًا أو أكثر." : "I confirm that I am 18 or older."}
             </label>
-            <Button type="button" className="mt-4 w-full" disabled={!adultChecked || loading || !user}
+            <Button type="button" className="mt-4 w-full" disabled={!adultChecked || loading || !user || adultSignInRequired}
               loading={savingAdult} onClick={() => void confirmAdult()}>
               {isAr ? "حفظ التأكيد" : "Save confirmation"}
             </Button>
           </div>
         ) : null}
         {visibleError ? <ActionFeedback as="p" role="alert" className="mt-4 text-sm text-rose-300">{visibleError}</ActionFeedback> : null}
+        {adultSignInRequired ? <Link href={signInHref} className="mt-3 inline-block text-[#C9A227] underline">
+          {isAr ? "تسجيل الدخول مجددًا" : "Sign in again"}
+        </Link> : null}
         {status ? <p className="mt-4 text-sm text-emerald-300">{status}</p> : null}
 
         <div className="mt-6 flex flex-wrap items-center gap-3 text-sm text-[#9CA3AF]">

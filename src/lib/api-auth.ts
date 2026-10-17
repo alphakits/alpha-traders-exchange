@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { unstable_rethrow } from "next/navigation";
-import { AUTH_COOKIE_NAME, AUTH_PHONE_VERIFIED_COOKIE_NAME, AUTH_VERIFIED_COOKIE_NAME, clearUserSession, getCurrentSessionToken, getCurrentSessionUserForAuthorization } from "@/lib/auth";
+import { clearUserSession, getCurrentSessionToken, getCurrentSessionUserForAuthorization } from "@/lib/auth";
 import { hasRole } from "@/lib/roles";
 import { hasSellerOperationalAccess } from "@/lib/seller-approval-verification";
 import { logEvent } from "@/lib/structured-logging";
@@ -46,6 +46,7 @@ export async function requireApiUser() {
       actorRole: user?.role,
       outcome: "denied",
       reason: accountDisabled ? "Disabled account" : "Unauthenticated request",
+      metadata: { sessionCookiePresent: Boolean(token) },
     });
     const unauthorized = NextResponse.json(
       accountDisabled
@@ -53,11 +54,9 @@ export async function requireApiUser() {
         : { error: "Unauthorized" },
       { status: accountDisabled ? 403 : 401, headers: AUTH_FAILURE_HEADERS },
     );
-    if (token) {
-      unauthorized.cookies.delete(AUTH_COOKIE_NAME);
-      unauthorized.cookies.delete(AUTH_VERIFIED_COOKIE_NAME);
-      unauthorized.cookies.delete(AUTH_PHONE_VERIFIED_COOKIE_NAME);
-    }
+    // A request can outlive the session it carried. Expiring cookies here
+    // would also erase a newer login that completed while this denial waited.
+    // Revoke only the presented server token; explicit logout clears cookies.
     return {
       user: null,
       unauthorized,
