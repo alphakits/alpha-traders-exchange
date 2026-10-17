@@ -3,6 +3,7 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeF
 import path from "path";
 import { tmpdir } from "os";
 import { createHash, randomUUID } from "crypto";
+import { isDeepStrictEqual } from "util";
 import alphaExchangeSeed from "../../data/alpha-exchange-db.json";
 import { getRuntimePostgresPool } from "@/lib/postgres-runtime";
 import { isProductionSecurityRuntime, allowsRuntimeDiagnostics } from "@/lib/runtime-safety";
@@ -508,6 +509,7 @@ type RepoTable<T> = {
 type SaveContext = {
   evidenceContentById: Map<string, Buffer | null>;
   evidenceOverrides?: EvidenceWriteMap;
+  rowSortIndexes?: ReadonlyMap<string, number>;
 };
 
 const SNAPSHOT_TABLE_NAMES = [
@@ -540,6 +542,66 @@ const SNAPSHOT_TABLE_NAMES = [
 ] as const;
 
 export type SnapshotTableName = (typeof SNAPSHOT_TABLE_NAMES)[number];
+
+const TRADE_LIFECYCLE_WRITE_TABLES = new Set<SnapshotTableName>([
+  "purchase_requests", "listings", "notifications", "audit_logs", "commissions", "activity_logs", "sms_deliveries", "disputes",
+]);
+
+export type TradeLifecycleTransaction = {
+  snapshot: AlphaExchangeDb;
+  commit: (snapshot: AlphaExchangeDb, options: {
+    selectedTables: readonly SnapshotTableName[];
+    validateBeforeCommit?: (snapshot: AlphaExchangeDb) => void;
+  }) => Promise<void>;
+  /** Required on every exit, including a denied action or idempotent retry. */
+  close: () => Promise<void>;
+};
+
+type IndexedPayload = { payload: { id: string }; sort_index: number };
+
+/** Keep existing order without rewriting every historical event on an append.
+ * Unusual interior insertions/reorders fall back to a deterministic reindex. */
+function lifecycleRowDelta(before: IndexedPayload[], after: Array<{ id: string }>) {
+  const previous = new Map(before.map(row => [row.payload.id, row]));
+  const nextIds = new Set(after.map(row => row.id));
+  if (nextIds.size !== after.length || after.some(row => !row.id)) throw new Error("Invalid lifecycle row identity.");
+  const positions = new Map<string, number>();
+  let lastPosition: number | undefined;
+  let reindex = false;
+  let offset = 0;
+  while (offset < after.length) {
+    const existing = previous.get(after[offset].id);
+    if (existing) {
+      if (!Number.isSafeInteger(existing.sort_index) || (lastPosition !== undefined && existing.sort_index <= lastPosition)) { reindex = true; break; }
+      positions.set(existing.payload.id, existing.sort_index);
+      lastPosition = existing.sort_index;
+      offset += 1;
+      continue;
+    }
+    let end = offset;
+    while (end < after.length && !previous.has(after[end].id)) end += 1;
+    const nextPosition = end < after.length ? previous.get(after[end].id)!.sort_index : undefined;
+    const start = lastPosition === undefined ? (nextPosition === undefined ? 0 : nextPosition - (end - offset)) : lastPosition + 1;
+    if (nextPosition !== undefined && start + (end - offset) > nextPosition) { reindex = true; break; }
+    for (let i = offset; i < end; i += 1) positions.set(after[i].id, start + i - offset);
+    lastPosition = start + (end - offset) - 1;
+    offset = end;
+  }
+  if (reindex || Array.from(positions.values()).some(value => value < -2147483648 || value > 2147483647)) {
+    positions.clear();
+    after.forEach((row, index) => positions.set(row.id, index));
+  }
+  return {
+    deletedIds: before.filter(row => !nextIds.has(row.payload.id)).map(row => row.payload.id),
+    changed: after.filter(row => {
+      const prior = previous.get(row.id);
+      // JSONB canonicalizes key order and omits undefined properties. Compare
+      // persisted JSON values so normalization alone does not rewrite history.
+      return !prior || prior.sort_index !== positions.get(row.id) || !isDeepStrictEqual(prior.payload, JSON.parse(json(row)));
+    }),
+    positions,
+  };
+}
 
 // The owner dashboard needs broad operational visibility, but it does not need
 // authentication secrets, password-reset state, delivery queues, or the three
@@ -737,7 +799,7 @@ FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[])
     name: "listings",
     selectSql: "select payload from alpha_exchange.listings order by sort_index asc",
     values: (db) => db.marketplaceListings,
-    insert: async (tx, rows: MarketplaceListing[]) => {
+    insert: async (tx, rows: MarketplaceListing[], context) => {
       await bulkInsert(tx, `INSERT INTO alpha_exchange.listings (id, seller_id, status, active_trade_request_id, expires_at, created_at, updated_at, sort_index, payload)
 SELECT id, seller_id, status, active_trade_request_id, expires_at::timestamptz, created_at::timestamptz, updated_at::timestamptz, sort_index::int, payload::jsonb
 FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[],$7::text[],$8::text[],$9::text[])
@@ -766,7 +828,7 @@ WHERE alpha_exchange.listings.seller_id IS DISTINCT FROM excluded.seller_id
         rows.map(r => toTimestamp(r.expiresAt)?.toISOString() ?? null),
         rows.map(r => r.createdAt),
         rows.map(r => r.updatedAt),
-        rows.map((_, i) => String(i)),
+        rows.map((row, i) => String(context.rowSortIndexes?.get(row.id) ?? i)),
         rows.map(r => json(r)),
       ]);
     },
@@ -810,7 +872,7 @@ FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[],$7
     name: "purchase_requests",
     selectSql: "select payload from alpha_exchange.purchase_requests order by sort_index asc",
     values: (db) => db.purchaseRequests,
-    insert: async (tx, rows: PurchaseRequest[]) => {
+    insert: async (tx, rows: PurchaseRequest[], context) => {
       await bulkInsert(tx, `INSERT INTO alpha_exchange.purchase_requests (id, trade_id, listing_id, seller_id, buyer_id, status, timed_out_at, completed_at, created_at, updated_at, sort_index, payload)
 SELECT id, trade_id, listing_id, seller_id, buyer_id, status, timed_out_at::timestamptz, completed_at::timestamptz, created_at::timestamptz, updated_at::timestamptz, sort_index::int, payload::jsonb
 FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[],$7::text[],$8::text[],$9::text[],$10::text[],$11::text[],$12::text[])
@@ -848,7 +910,7 @@ WHERE alpha_exchange.purchase_requests.trade_id IS DISTINCT FROM excluded.trade_
         rows.map(r => toTimestamp(r.completedAt)?.toISOString() ?? null),
         rows.map(r => r.createdAt),
         rows.map(r => r.updatedAt),
-        rows.map((_, i) => String(i)),
+        rows.map((row, i) => String(context.rowSortIndexes?.get(row.id) ?? i)),
         rows.map(r => json(r)),
       ]);
     },
@@ -857,7 +919,7 @@ WHERE alpha_exchange.purchase_requests.trade_id IS DISTINCT FROM excluded.trade_
     name: "notifications",
     selectSql: "select payload from alpha_exchange.notifications order by sort_index asc",
     values: (db) => db.notifications,
-    insert: async (tx, rows: AlphaExchangeNotification[]) => {
+    insert: async (tx, rows: AlphaExchangeNotification[], context) => {
       await bulkInsert(tx, `INSERT INTO alpha_exchange.notifications (id, user_id, category, is_read, created_at, sort_index, payload)
 SELECT id, user_id, category, is_read::boolean, created_at::timestamptz, sort_index::int, payload::jsonb
 FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[],$7::text[])
@@ -880,7 +942,7 @@ WHERE alpha_exchange.notifications.user_id IS DISTINCT FROM excluded.user_id
         rows.map(r => r.category),
         rows.map(r => String(r.isRead)),
         rows.map(r => r.createdAt),
-        rows.map((_, i) => String(i)),
+        rows.map((row, i) => String(context.rowSortIndexes?.get(row.id) ?? i)),
         rows.map(r => json(r)),
       ]);
     },
@@ -889,7 +951,7 @@ WHERE alpha_exchange.notifications.user_id IS DISTINCT FROM excluded.user_id
     name: "commissions",
     selectSql: "select payload from alpha_exchange.commissions order by sort_index asc",
     values: (db) => db.commissionRecords,
-    insert: async (tx, rows: CommissionRecord[]) => {
+    insert: async (tx, rows: CommissionRecord[], context) => {
       await bulkInsert(tx, `INSERT INTO alpha_exchange.commissions (id, purchase_request_id, listing_id, seller_id, buyer_id, payment_status, due_at, created_at, updated_at, sort_index, payload)
 SELECT id, purchase_request_id, listing_id, seller_id, buyer_id, payment_status, due_at::timestamptz, created_at::timestamptz, updated_at::timestamptz, sort_index::int, payload::jsonb
 FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[],$7::text[],$8::text[],$9::text[],$10::text[],$11::text[])
@@ -924,7 +986,7 @@ WHERE alpha_exchange.commissions.purchase_request_id IS DISTINCT FROM excluded.p
         rows.map(r => toTimestamp(r.dueAt)?.toISOString() ?? null),
         rows.map(r => r.createdAt),
         rows.map(r => r.updatedAt),
-        rows.map((_, i) => String(i)),
+        rows.map((row, i) => String(context.rowSortIndexes?.get(row.id) ?? i)),
         rows.map(r => json(r)),
       ]);
     },
@@ -933,7 +995,7 @@ WHERE alpha_exchange.commissions.purchase_request_id IS DISTINCT FROM excluded.p
     name: "audit_logs",
     selectSql: "select payload from alpha_exchange.audit_logs order by sort_index asc",
     values: (db) => db.auditLogs,
-    insert: async (tx, rows: AuditLogEntry[]) => {
+    insert: async (tx, rows: AuditLogEntry[], context) => {
       await bulkInsert(tx, `INSERT INTO alpha_exchange.audit_logs (id, action, actor_user_id, target_user_id, listing_id, purchase_request_id, created_at, sort_index, payload)
 SELECT id, action, actor_user_id, target_user_id, listing_id, purchase_request_id, created_at::timestamptz, sort_index::int, payload::jsonb
 FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[],$7::text[],$8::text[],$9::text[])
@@ -962,7 +1024,7 @@ WHERE alpha_exchange.audit_logs.action IS DISTINCT FROM excluded.action
         rows.map(r => r.listingId ?? null),
         rows.map(r => r.purchaseRequestId ?? null),
         rows.map(r => r.createdAt),
-        rows.map((_, i) => String(i)),
+        rows.map((row, i) => String(context.rowSortIndexes?.get(row.id) ?? i)),
         rows.map(r => json(r)),
       ]);
     },
@@ -1043,7 +1105,7 @@ FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[],$7
     name: "activity_logs",
     selectSql: "select payload from alpha_exchange.activity_logs order by sort_index asc",
     values: (db) => db.activityLog,
-    insert: async (tx, rows: AlphaExchangeActivityLogEntry[]) => {
+    insert: async (tx, rows: AlphaExchangeActivityLogEntry[], context) => {
       await bulkInsert(tx, `INSERT INTO alpha_exchange.activity_logs (id, user_id, category, created_at, sort_index, payload)
 SELECT id, user_id, category, created_at::timestamptz, sort_index::int, payload::jsonb
 FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[])
@@ -1052,7 +1114,7 @@ FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[])
         rows.map(r => r.userId),
         rows.map(r => r.category),
         rows.map(r => r.createdAt),
-        rows.map((_, i) => String(i)),
+        rows.map((row, i) => String(context.rowSortIndexes?.get(row.id) ?? i)),
         rows.map(r => json(r)),
       ]);
     },
@@ -1061,7 +1123,7 @@ FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[])
     name: "disputes",
     selectSql: "select payload from alpha_exchange.disputes order by sort_index asc",
     values: (db) => db.disputes,
-    insert: async (tx, rows: TradeDisputeCase[]) => {
+    insert: async (tx, rows: TradeDisputeCase[], context) => {
       await bulkInsert(tx, `INSERT INTO alpha_exchange.disputes (id, trade_id, purchase_request_id, seller_id, buyer_id, status, created_at, updated_at, sort_index, payload)
 SELECT id, trade_id, purchase_request_id, seller_id, buyer_id, status, created_at::timestamptz, updated_at::timestamptz, sort_index::int, payload::jsonb
 FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[],$7::text[],$8::text[],$9::text[],$10::text[])
@@ -1074,7 +1136,7 @@ FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[],$7
         rows.map(r => r.status),
         rows.map(r => r.createdAt),
         rows.map(r => r.updatedAt),
-        rows.map((_, i) => String(i)),
+        rows.map((row, i) => String(context.rowSortIndexes?.get(row.id) ?? i)),
         rows.map(r => json(r)),
       ]);
     },
@@ -1234,14 +1296,14 @@ FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[],$7
     name: "sms_deliveries",
     selectSql: "select payload from alpha_exchange.sms_deliveries order by sort_index asc",
     values: (db) => db.smsDeliveries ?? [],
-    insert: async (tx, rows: SmsDeliveryRecord[]) => {
+    insert: async (tx, rows: SmsDeliveryRecord[], context) => {
       await bulkInsert(tx, `INSERT INTO alpha_exchange.sms_deliveries (id, event_key, event_type, recipient_user_id, status, retry_count, twilio_message_sid, created_at, updated_at, sort_index, payload)
 SELECT id, event_key, event_type, recipient_user_id, status, retry_count::int, twilio_message_sid, created_at::timestamptz, updated_at::timestamptz, sort_index::int, payload::jsonb
 FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[],$7::text[],$8::text[],$9::text[],$10::text[],$11::text[])
   AS t(id,event_key,event_type,recipient_user_id,status,retry_count,twilio_message_sid,created_at,updated_at,sort_index,payload)`, [
         rows.map(r => r.id), rows.map(r => r.eventKey), rows.map(r => r.eventType), rows.map(r => r.recipientUserId),
         rows.map(r => r.status), rows.map(r => String(r.retryCount)), rows.map(r => r.twilioMessageSid ?? null),
-        rows.map(r => r.createdAt), rows.map(r => r.updatedAt), rows.map((_, i) => String(i)), rows.map(r => json(r)),
+        rows.map(r => r.createdAt), rows.map(r => r.updatedAt), rows.map((row, i) => String(context.rowSortIndexes?.get(row.id) ?? i)), rows.map(r => json(r)),
       ]);
     },
   },
@@ -2257,6 +2319,84 @@ export class AlphaExchangeRepository {
       marketplaceListings: fromPayloadRows(listingsResult.rows),
       purchaseRequests: fromPayloadRows(purchaseRequestsResult.rows),
     };
+  }
+
+  /** Read and decide a lifecycle transition under the same lock used to commit.
+   * This avoids speculative whole-snapshot writes and repeated stale retries
+   * when multiple buyers/sellers act concurrently. All declared dependencies
+   * remain authoritative; only changed rows are written. */
+  async beginTradeLifecycleTransaction(tableNames: readonly SnapshotTableName[]): Promise<TradeLifecycleTransaction | null> {
+    await this.ensureReady();
+    const pool = this.pool;
+    if (this.usesMemoryFallback || !pool) return null;
+    const selectedNames = Array.from(new Set(tableNames));
+    if (selectedNames.some(name => !SNAPSHOT_TABLE_NAMES.includes(name))) throw new Error("Unknown lifecycle read table.");
+    const client = await pool.connect();
+    let closed = false;
+    const close = async (error?: unknown) => {
+      if (closed) return;
+      closed = true;
+      const destroy = await rollbackFailedTransaction(client, error);
+      client.release(destroy);
+    };
+    try {
+      await client.query("begin");
+      await client.query("select pg_advisory_xact_lock(61422917)");
+      const columns = selectedNames.map(name => `coalesce((select json_agg(json_build_object('payload', payload, 'sort_index', sort_index) order by sort_index asc) from alpha_exchange.${name}), '[]'::json) as "${name}"`);
+      const result = await client.query<{ version: string } & Partial<Record<SnapshotTableName, IndexedPayload[]>>>(`select
+        (select version::text from alpha_exchange.runtime_meta where singleton = true) as version${columns.length ? `,\n${columns.join(",\n")}` : ""}`);
+      const row = result.rows[0];
+      const version = Number(row?.version ?? "0");
+      const before = new Map(selectedNames.map(name => [name, row?.[name] ?? []]));
+      const snapshot = attachVersion(snapshotFromTableRows(selectedNames.map(tableName => ({ tableName, rows: before.get(tableName)! }))), version);
+      // Business rules mutate the returned objects; retain an immutable basis
+      // for row comparison without a second database read.
+      const baseline = structuredClone(before);
+      return {
+        snapshot,
+        close,
+        commit: async (next, options) => {
+          if (closed) throw new Error("Trade lifecycle transaction is closed.");
+          try {
+            const writeTables = Array.from(new Set(options.selectedTables));
+            if (writeTables.some(name => !TRADE_LIFECYCLE_WRITE_TABLES.has(name) || !baseline.has(name))) {
+              throw new Error("Undeclared or unsupported lifecycle write table.");
+            }
+            options.validateBeforeCommit?.(next);
+            let changed = false;
+            for (const name of writeTables) {
+              const table = getTable(name);
+              const delta = lifecycleRowDelta(baseline.get(name)!, table.values(next) as Array<{ id: string }>);
+              if (delta.deletedIds.length) {
+                await client.query(`delete from alpha_exchange.${name} where id = any($1::text[])`, [delta.deletedIds]);
+                changed = true;
+              }
+              if (!delta.changed.length) continue;
+              // These three legacy insert functions do not upsert. Delete only
+              // changed existing rows; untouched queue/history rows stay intact.
+              if (["activity_logs", "sms_deliveries", "disputes"].includes(name)) {
+                const priorIds = new Set(baseline.get(name)!.map(item => item.payload.id));
+                const replacedIds = delta.changed.filter(item => priorIds.has(item.id)).map(item => item.id);
+                if (replacedIds.length) await client.query(`delete from alpha_exchange.${name} where id = any($1::text[])`, [replacedIds]);
+              }
+              await table.insert(client, delta.changed, { evidenceContentById: new Map(), rowSortIndexes: delta.positions });
+              changed = true;
+            }
+            if (changed) await client.query("update alpha_exchange.runtime_meta set version = version + 1, updated_at = now() where singleton = true");
+            await client.query("commit");
+            closed = true;
+            client.release(false);
+            attachVersion(next, version + Number(changed));
+          } catch (error) {
+            await close(error);
+            throw error;
+          }
+        },
+      };
+    } catch (error) {
+      await close(error);
+      throw error;
+    }
   }
 
   /** Commit one trade plus newly appended events without replacing shared tables. */

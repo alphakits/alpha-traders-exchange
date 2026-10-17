@@ -49,7 +49,7 @@ import {
 } from "@/lib/marketplace-policy";
 import { evaluateSellerAchievements } from "@/lib/seller-achievements";
 import { runEnvValidation } from "@/lib/env-validation";
-import { getAlphaExchangeRepository, type SnapshotTableName } from "@/lib/alpha-exchange-repository";
+import { getAlphaExchangeRepository, type SnapshotTableName, type TradeLifecycleTransaction } from "@/lib/alpha-exchange-repository";
 import { addRole, dedupeRoles, hasRole, isUserRole, normalizeRolesForUser, removeRole, resolvePrimaryRole } from "@/lib/roles";
 import { publishRealtimeEvent } from "@/lib/realtime";
 import { scheduleMobilePushDelivery } from "@/lib/mobile-push";
@@ -13671,13 +13671,27 @@ type UpdatePurchaseRequestStatusResult = {
 };
 
 export async function updatePurchaseRequestStatus(input: UpdatePurchaseRequestStatusInput): Promise<UpdatePurchaseRequestStatusResult> {
-  return updatePurchaseRequestStatusAttempt(input, 0);
+  const startedAt = Date.now();
+  const repository = await getAlphaExchangeRepository();
+  const terminal = ["completed", "declined", "cancelled"].includes(input.nextStatus);
+  const transaction = typeof repository.beginTradeLifecycleTransaction === "function"
+    ? await repository.beginTradeLifecycleTransaction(terminal ? TRADE_STATUS_TERMINAL_READ_TABLES : TRADE_STATUS_FAST_READ_TABLES)
+    : null;
+  if (!transaction) return updatePurchaseRequestStatusAttempt(input, 0);
+  const transactionReadMs = Date.now() - startedAt;
+  try {
+    const result = await updatePurchaseRequestStatusAttempt(input, 0, false, transaction);
+    return { ...result, metrics: { ...result.metrics, readDbMs: result.metrics.readDbMs + transactionReadMs, totalMs: Date.now() - startedAt } };
+  } finally {
+    await transaction.close();
+  }
 }
 
 async function updatePurchaseRequestStatusAttempt(
   input: UpdatePurchaseRequestStatusInput,
   concurrencyRetryCount: number,
   reconcileOnly = false,
+  transaction?: TradeLifecycleTransaction,
 ): Promise<UpdatePurchaseRequestStatusResult> {
   const startedAt = Date.now();
   const debugTradeRoom = allowsRuntimeDiagnostics() && process.env.ALPHA_EXCHANGE_DEBUG_TRADE_ROOM === "1";
@@ -13693,9 +13707,10 @@ async function updatePurchaseRequestStatusAttempt(
   const useFastStatusRead = input.nextStatus !== "completed"
     && input.nextStatus !== "declined"
     && input.nextStatus !== "cancelled";
-  const statusRead = await readDbForCriticalTradeMutation(
-    useFastStatusRead ? TRADE_STATUS_FAST_READ_TABLES : TRADE_STATUS_TERMINAL_READ_TABLES,
-  );
+  const statusRead = transaction
+    ? { db: normalizeDb(transaction.snapshot), fromFullCache: false }
+    : await readDbForCriticalTradeMutation(useFastStatusRead ? TRADE_STATUS_FAST_READ_TABLES : TRADE_STATUS_TERMINAL_READ_TABLES);
+  ensureDisplayNumbers(statusRead.db);
   let db = statusRead.db;
   const priorSmsCount = db.smsDeliveries?.length ?? 0;
   const readDbMs = Date.now() - startedAt;
@@ -13938,7 +13953,7 @@ async function updatePurchaseRequestStatusAttempt(
       "This trade changed while your action was being saved. Refresh the Trade Room and try again.", input.requestId,
       { guard: "canonical-transition-reconcile", nextStatus: input.nextStatus, currentStatus });
   }
-  if (input.nextStatus === "completed" && !isCompletionOverride && currentStatus !== "usdt_sent") {
+  if (!transaction && input.nextStatus === "completed" && !isCompletionOverride && currentStatus !== "usdt_sent") {
     const strongDb = await readDb({ bypassCache: true });
     const strongIndex = strongDb.purchaseRequests.findIndex((item) => item.id === input.requestId);
     if (strongIndex !== -1) {
@@ -14934,8 +14949,17 @@ async function updatePurchaseRequestStatusAttempt(
   });
   // Commit financial state and its durable follow-up together. Trust calculation
   // and publication are recovered by maintenance if the after() task is lost.
+  const persist = async (snapshot: AlphaExchangeDb, options: NonNullable<Parameters<typeof writeDb>[1]>) => {
+    if (!transaction) return writeDb(snapshot, options);
+    const normalized = normalizeDb(snapshot);
+    ensureDisplayNumbers(normalized);
+    await transaction.commit(normalized, { selectedTables: options.selectedTables!, validateBeforeCommit: options.validateBeforeCommit });
+    Object.assign(snapshot, normalized);
+    dbCache = null;
+    dbReadInFlight = null;
+  };
   try {
-    await writeDb(db, {
+    await persist(db, {
       traceTag: debugTradeRoom && isUsdtSentTrace ? input.traceId : undefined,
       selectedTables: isOwnerCompletion ? [...TRADE_COMPLETION_CORE_TABLES, "disputes"] : shouldRecalculateTrust ? TRADE_COMPLETION_CORE_TABLES : TRADE_STATUS_BASE_TABLES,
       cacheResult: statusRead.fromFullCache,
@@ -15042,10 +15066,10 @@ async function updatePurchaseRequestStatusAttempt(
         : undefined,
     });
   } catch (error) {
-    if (error instanceof ConcurrentTradeMutationError && concurrencyRetryCount < 2) {
+    if (!transaction && error instanceof ConcurrentTradeMutationError && concurrencyRetryCount < 2) {
       return updatePurchaseRequestStatusAttempt(input, concurrencyRetryCount + 1);
     }
-    if (error instanceof ConcurrentTradeMutationError) {
+    if (!transaction && error instanceof ConcurrentTradeMutationError) {
       return updatePurchaseRequestStatusAttempt(input, concurrencyRetryCount + 1, true);
     }
     throw error;
