@@ -168,6 +168,39 @@ it("actual repository persists owner-free 38 for 38.30 and clears canonical sell
   expect(snapshot.notifications.filter((row) => row.reason === "commission_payment_verified")).toHaveLength(1);
   expect(snapshot.commissionRecords.every((row) => row.paymentConfirmationEmailPending)).toBe(true);
 });
+it.each(["TRC20", "BEP20"] as const)("shows 100 + 2 = 102, carries a repeated shortfall once, then clears it on full receipt (%s)", async network => {
+  let clock = Date.now();
+  vi.spyOn(Date, "now").mockImplementation(() => clock);
+  const initial = globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb;
+  initial.commissionRecords = [{ ...initial.commissionRecords[0], commissionAmount: 100, paymentExpectedAmount: 100.000001 }];
+  const amountsReceived = [98, 100, 102];
+  for (let cycle = 0; cycle < amountsReceived.length; cycle++) {
+    clock += 1000;
+    if (cycle) {
+      const current = globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb;
+      const createdAt = new Date(clock).toISOString();
+      current.commissionRecords.push({ id: `new-100-${cycle}`, sellerId: "seller", rate: .01, grossAmount: 10_000,
+        commissionAmount: 100, paymentStatus: "pending", createdAt, updatedAt: createdAt });
+    }
+    const service = await getCommissionCheckoutRuntime();
+    const due = cycle ? 102 : 100;
+    expect(await service.state("seller")).toMatchObject({ totalDueUsdt: due, carriedShortfallUsdt: 0,
+      amountBreakdown: { commissionsUsdt: 100, previousPaymentBalanceUsdt: cycle ? 2 : 0 } });
+    const checkout = await service.issue({ sellerId: "seller", network });
+    const payment = { signature: `binance-deposit:${810000 + cycle}`, network,
+      amountMicros: amountsReceived[cycle] * 1e6, timestamp: Date.parse(checkout.createdAt) + 1 };
+    expect(await service.reconcile({ deposits: [payment], deadline: Date.now() + 60_000 }), `payment cycle ${cycle}`).toMatchObject({ verified: 1 });
+    expect((await service.reconcile({ deposits: [payment], deadline: Date.now() + 60_000 })).verified).toBe(0);
+    expect(await (await getCommissionCheckoutRuntime()).state("seller")).toMatchObject({ status: "paid", totalDueUsdt: 0,
+      carriedShortfallUsdt: cycle < 2 ? 2 : 0,
+      amountBreakdown: { commissionsUsdt: 0, previousPaymentBalanceUsdt: 0 },
+      lastPayment: { dueUsdt: due, receivedUsdt: amountsReceived[cycle], carriedUsdt: cycle < 2 ? 2 : 0 } });
+  }
+  const final = globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb;
+  expect(final.commissionRecords.filter(record => record.source === "tolerance_carry_forward")).toHaveLength(2);
+  expect(final.commissionRecords.every(record => record.paymentStatus === "paid")).toBe(true);
+  expect(final.notifications.filter(row => row.reason === "commission_payment_verified")).toHaveLength(3);
+});
 it("carries future shortfalls into the next commission instead of waiving two USDT on every payment", async () => {
   const snapshot = globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb;
   snapshot.commissionRecords = [{ ...snapshot.commissionRecords[0], commissionAmount: 40, paymentExpectedAmount: 40.000001 }];

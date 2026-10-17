@@ -28,6 +28,30 @@ export function commissionShortfallBalances(snapshot: AlphaExchangeDb) {
   return balances;
 }
 
+/** Display only provider-verified settlements under the prospective policy. */
+export function lastCommissionPayment(snapshot: AlphaExchangeDb, sellerId: string) {
+  const entry = snapshot.auditLogs.filter((row) => row.targetUserId === sellerId
+    && ["commission_checkout_settled_v1", "commission_batch_receipt_settled_v1"].includes(String(object(row.newValue)?.kind)))
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
+  const value = object(entry?.newValue);
+  const plan = object(value?.plan);
+  if (value?.shortfallPolicy !== SHORTFALL_POLICY || !plan) return null;
+  const due = Number(plan.expectedMicros), received = Number(plan.receivedMicros), carried = Number(value.carriedMicros);
+  if (![due, received, carried].every(Number.isSafeInteger) || due <= 0 || received <= 0
+    || carried !== Math.max(0, due - received)) return null;
+  return { dueUsdt: due / 1e6, receivedUsdt: received / 1e6, carriedUsdt: carried / 1e6 };
+}
+
+export function commissionPaymentNotice(receivedMicros: number, carriedMicros: number, hasOutstanding: boolean) {
+  const amount = (micros: number) => (micros / 1e6).toLocaleString("en-US", { maximumFractionDigits: 6 });
+  const shortfallEn = carriedMicros > 0 ? ` The remaining ${amount(carriedMicros)} USDT ${hasOutstanding ? "is included in your commission balance" : "will be added to your next commission"}. Your commission rate has not changed.` : "";
+  const shortfallAr = carriedMicros > 0 ? ` ${hasOutstanding ? "أُضيف المبلغ المتبقي" : "سيُضاف المبلغ المتبقي"}، ${amount(carriedMicros)} USDT، ${hasOutstanding ? "إلى رصيد عمولاتك" : "إلى عمولتك التالية"}. نسبة عمولتك لم تتغيّر.` : "";
+  return {
+    message: `Payment verified: ${amount(receivedMicros)} USDT received.${shortfallEn} ${hasOutstanding ? "View your remaining balance in Pay commission." : "No commission payment is due now."}`,
+    messageAr: `تم تأكيد الدفع واستلام ${amount(receivedMicros)} USDT.${shortfallAr} ${hasOutstanding ? "راجع المبلغ المتبقي في صفحة دفع العمولة." : "لا توجد دفعة عمولة مستحقة الآن."}`,
+  };
+}
+
 /** Run only in the same canonical transaction as a provider-verified settlement. */
 export function recordCommissionShortfall(snapshot: AlphaExchangeDb, input: {
   settlementId: string; sellerId: string; shortfallMicros: number; excessMicros: number; createdAt: string;

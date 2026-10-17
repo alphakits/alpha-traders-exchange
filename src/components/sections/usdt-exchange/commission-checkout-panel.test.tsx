@@ -18,10 +18,36 @@ async function flush() { await act(async () => { for (let i = 0; i < 16; i++) aw
 it.each([false, true])("discloses the carried balance after a verified payment (Arabic=%s)", async isAr => {
   fetchMock.mockResolvedValue(response({ ...ready, status: "paid", pendingCount: 0, totalDueUsdt: 0, carriedShortfallUsdt: 2 }));
   render(<CommissionCheckoutPanel isAr={isAr} />);
-  await screen.findByText(isAr ? /رصيد غير مدفوع يُرحّل/ : /Unpaid balance carried/);
+  await screen.findByText(isAr ? /المتبقي للعمولة التالية/ : /Remaining for your next commission/);
   expect(screen.getByText("2 USDT")).toBeTruthy();
   expect(screen.queryByRole("checkbox")).toBeNull();
   expect(screen.queryByText(/Paid\. No commission due\./)).toBeNull();
+});
+it.each([false, true])("explains why the next commission includes the previous missing amount (Arabic=%s)", async isAr => {
+  fetchMock.mockResolvedValue(response({ ...ready, totalDueUsdt: 102,
+    amountBreakdown: { commissionsUsdt: 100, previousPaymentBalanceUsdt: 2 },
+    lastPayment: { dueUsdt: 100, receivedUsdt: 98, carriedUsdt: 2 } }));
+  render(<CommissionCheckoutPanel isAr={isAr} />);
+  await screen.findByText(isAr ? "المتبقي من دفعات سابقة" : "Remaining from previous payments");
+  expect(screen.getAllByText("102 USDT").some(node => node.tagName === "STRONG")).toBe(true);
+  expect(screen.getByText(isAr ? /نسبة عمولتك لم تتغيّر/ : /Your commission rate has not changed/)).toBeTruthy();
+  expect((screen.getByLabelText(isAr ? "مبلغ الاستلام (USDT)" : "Amount to receive (USDT)") as HTMLInputElement).value).toBe("102");
+});
+it("updates the receiving amount when a new commission includes a carried balance", async () => {
+  render(<CommissionCheckoutPanel isAr={false} />);
+  const input = await screen.findByLabelText("Amount to receive (USDT)");
+  await waitFor(() => expect((input as HTMLInputElement).value).toBe("40"));
+  fetchMock.mockResolvedValue(response({ ...ready, totalDueUsdt: 42,
+    amountBreakdown: { commissionsUsdt: 40, previousPaymentBalanceUsdt: 2 } }));
+  fireEvent.click(screen.getByRole("button", { name: "Refresh payment status" }));
+  await waitFor(() => expect((input as HTMLInputElement).value).toBe("42"));
+});
+it("rejects an inconsistent payment breakdown instead of showing conflicting totals", async () => {
+  fetchMock.mockResolvedValue(response({ ...ready, totalDueUsdt: 102,
+    amountBreakdown: { commissionsUsdt: 100, previousPaymentBalanceUsdt: 3 } }));
+  render(<CommissionCheckoutPanel isAr={false} />);
+  await screen.findByRole("alert");
+  expect(screen.queryByLabelText("Amount to receive (USDT)")).toBeNull();
 });
 it.each([0.002, 8.304056])("prefills the exact %s commission without rounding it to cents", async totalDueUsdt => {
   fetchMock.mockResolvedValue(response({ ...ready, totalDueUsdt }));
@@ -131,7 +157,7 @@ it("provider/backend outage hides payment controls rather than requesting duplic
 });
 it("paid result is displayed only after a successful status read", async () => {
   fetchMock.mockResolvedValue(response({ ...ready, status: "paid", pendingCount: 0, totalDueUsdt: 0 }));
-  render(<CommissionCheckoutPanel isAr={false} />); await screen.findByText(/Paid\. No commission due/);
+  render(<CommissionCheckoutPanel isAr={false} />); await screen.findByText(/Payment verified\. No commission payment is due now/);
   expect(screen.queryByRole("checkbox")).toBeNull();
 });
 it("Arabic uses the same owner-free workflow and localized entry", async () => {

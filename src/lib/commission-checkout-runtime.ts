@@ -20,6 +20,7 @@ export async function getCommissionCheckoutRuntime() {
     AND to_regprocedure('alpha_exchange.commission_checkout_tolerance_matches(jsonb,jsonb)') IS NOT NULL
     AND to_regprocedure('alpha_exchange.is_earlier_checkout_received_amount(text,bigint,numeric)') IS NOT NULL
     AND to_regprocedure('alpha_exchange.is_closed_checkout_rounded_reference(text,bigint,numeric)') IS NOT NULL
+    AND to_regprocedure('alpha_exchange.is_closed_same_seller_checkout_reference(text,jsonb,bigint)') IS NOT NULL
     AND alpha_exchange.commission_checkout_tolerance_micros() = 2000000
     AND (SELECT count(*)=4 FROM pg_trigger WHERE tgenabled='O' AND
       (tgrelid='alpha_exchange.audit_logs'::regclass AND tgname IN ('reserve_commission_checkout','reserve_approved_commission_batch_receipt')

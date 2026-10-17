@@ -1,4 +1,4 @@
-import { SHORTFALL_POLICY, recordCommissionShortfall, materializeCommissionShortfalls } from "./commission-shortfall-ledger";
+import { SHORTFALL_POLICY, recordCommissionShortfall, materializeCommissionShortfalls, commissionPaymentNotice } from "./commission-shortfall-ledger";
 import { createHash, randomUUID } from "node:crypto";
 import { commissionPaymentDestination } from "./commission-payment-destination";
 import type { AlphaExchangeDb, CommissionRecord, AuditLogEntry } from "@/types/alpha-exchange";
@@ -218,9 +218,7 @@ export function createCommissionBatchWorkflow(ports: CommissionBatchPorts) {
               const href = remaining.length ? commissionPaymentDestination(remaining[0].id) : "/dashboard/seller#my-listings-section";
               snapshot.notifications.unshift({ id: `${canonical.id}:notification`, userId: canonical.sellerId,
                 category: "trade", title: "Combined commission payment verified", titleAr: "تم تأكيد دفعة العمولات المجمعة",
-                messageAr: `تم استلام ${(receipt.amountMicros / 1e6).toFixed(6)} USDT. تم ترحيل ${(plan.waivedMicros / 1e6).toFixed(6)} USDT إلى العمولة التالية وتسجيل زيادة ${(plan.excessMicros / 1e6).toFixed(6)} USDT. ${remaining.length ? "ما زالت هناك عمولات أخرى غير مدفوعة." : "لا توجد عمولات مستحقة. أي قيود أخرى على الحساب تبقى سارية."}`,
-                message: `${note} ${remaining.length
-                  ? "Other commission dues remain outstanding." : "No commission dues remain. Other account restrictions still apply."}`,
+                ...commissionPaymentNotice(receipt.amountMicros, plan.waivedMicros, remaining.length > 0),
                 isRead: false, reason: remaining.length ? "commission_payment_due" : "commission_payment_verified",
                 actionHref: href, relatedHref: href, actionLabel: remaining.length ? "Review commissions" : "Manage listings", createdAt: paidAt });
               // No listing status, seller approval, user roles, trade payment stage or sessions are rewritten.

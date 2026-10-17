@@ -2,6 +2,7 @@
 import { COMMISSION_TOLERANCE_MICROS, COMMISSION_TOLERANCE_USDT } from "@/lib/commission-tolerance.mjs";
 import { commissionAmountInput } from "@alpha-traders/contracts";
 import Link from "next/link";
+import { ChevronDown } from "lucide-react";
 import { HelpDetails } from "@/components/ui/help-details";
 import { CommissionNetworkFeeNotice } from "./commission-network-fee-notice";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -16,6 +17,8 @@ interface CheckoutState {
   pendingCount: number;
   totalDueUsdt: number;
   carriedShortfallUsdt?: number;
+  amountBreakdown?: { commissionsUsdt: number; previousPaymentBalanceUsdt: number };
+  lastPayment?: { dueUsdt: number; receivedUsdt: number; carriedUsdt: number } | null;
   checkedAt?: string;
   lastVerificationCheckAt?: string;
   verificationCode?: string;
@@ -25,6 +28,20 @@ const ENDPOINT = "/api/alpha-exchange/commissions/checkout";
 function valid(value: unknown): value is CheckoutState {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const state = value as CheckoutState;
+  const nonNegativeAmount = (amount: unknown): amount is number => typeof amount === "number" && Number.isFinite(amount)
+    && amount >= 0 && Number.isSafeInteger(Math.round(amount * 1e6));
+  if (state.amountBreakdown !== undefined) {
+    const breakdown = state.amountBreakdown;
+    if (!breakdown || !nonNegativeAmount(breakdown.commissionsUsdt) || !nonNegativeAmount(breakdown.previousPaymentBalanceUsdt)
+      || Math.round(breakdown.commissionsUsdt * 1e6) + Math.round(breakdown.previousPaymentBalanceUsdt * 1e6)
+        !== Math.round(state.totalDueUsdt * 1e6)) return false;
+  }
+  if (state.lastPayment != null) {
+    const payment = state.lastPayment;
+    if (![payment.dueUsdt, payment.receivedUsdt, payment.carriedUsdt].every(nonNegativeAmount)
+      || payment.dueUsdt <= 0 || payment.receivedUsdt <= 0
+      || Math.round(payment.carriedUsdt * 1e6) !== Math.max(0, Math.round(payment.dueUsdt * 1e6) - Math.round(payment.receivedUsdt * 1e6))) return false;
+  }
   if (state.carriedShortfallUsdt !== undefined && (!Number.isFinite(state.carriedShortfallUsdt) || state.carriedShortfallUsdt < 0)) return false;
   if (state.canChangeNetwork !== undefined && typeof state.canChangeNetwork !== "boolean") return false;
   if (!["ready", "waiting", "paid", "changed"].includes(state.status)
@@ -70,6 +87,7 @@ function CheckoutContent({ isAr, embedded = false, onSettled, sessionAvailable }
   const mounted = useRef(true);
   const settledNotified = useRef(false);
   const settledCallback = useRef(onSettled);
+  const lastTotalDue = useRef<number | null>(null);
   useEffect(() => { settledCallback.current = onSettled; }, [onSettled]);
   useEffect(() => {
     if (data?.status === "paid" && data.pendingCount === 0 && !settledNotified.current) {
@@ -90,6 +108,7 @@ function CheckoutContent({ isAr, embedded = false, onSettled, sessionAvailable }
     mutation.current = null;
     current?.abort();
     setAuthorized(false); setData(null); setAmount(""); setNotSent(false); setEditingCheckoutId(null); setCopied(""); setBusy(false);
+    lastTotalDue.current = null;
     setError(isAr ? "سجّل الدخول بحساب البائع." : "Sign in with your seller account.");
   }, [cancelRead, isAr]);
   const refresh = useCallback(async () => {
@@ -108,7 +127,10 @@ function CheckoutContent({ isAr, embedded = false, onSettled, sessionAvailable }
         return;
       }
       if (!response.ok || !valid(value)) throw new Error("unavailable");
-      setData(value); setError(""); setAmount((previous) => previous || commissionAmountInput(value.totalDueUsdt));
+      const totalChanged = lastTotalDue.current !== value.totalDueUsdt;
+      lastTotalDue.current = value.totalDueUsdt;
+      setData(value); setError("");
+      setAmount((previous) => totalChanged ? commissionAmountInput(value.totalDueUsdt) : previous || commissionAmountInput(value.totalDueUsdt));
     } catch {
       if (mounted.current && controller.current === current) { setData(null); setError(isAr ? "تعذر تحديث حالة الدفع. لا ترسل دفعة أخرى؛ أعد المحاولة." : "Payment status is unavailable. Do not send another payment; retry the status check."); }
     } finally { if (controller.current === current) controller.current = null; }
@@ -184,6 +206,7 @@ function CheckoutContent({ isAr, embedded = false, onSettled, sessionAvailable }
   }
   const checkout = data?.checkout;
   const formatted = checkout ? (checkout.expectedMicros / 1e6).toFixed(6) : "";
+  const formatAmount = (value: number) => `${value.toLocaleString("en-US", { maximumFractionDigits: 6 })} USDT`;
   const controls = "w-full rounded-xl border border-white/20 bg-slate-950 px-4 py-3 text-white";
   const Container = "section";
   return <Container dir={isAr ? "rtl" : "ltr"} className="commission-surface mx-auto max-w-2xl space-y-5 px-4 py-6 text-white">
@@ -192,17 +215,37 @@ function CheckoutContent({ isAr, embedded = false, onSettled, sessionAvailable }
     {error ? <p role="alert" className="rounded-xl border border-amber-400/40 p-4 text-sm text-amber-200">{error}</p> : null}
     {!data && !error ? <p role="status" className="commission-notice">{message("Loading your commissions…", "جارٍ تحميل العمولات…")}</p> : null}
     {data ? <section className="space-y-4 rounded-2xl border border-white/15 p-5">
+      <div className="space-y-4" data-testid="commission-balance-summary">
+      {(data.amountBreakdown?.previousPaymentBalanceUsdt ?? 0) > 0 ? <>
+        <dl className="space-y-3 text-sm">
+          <div className="flex flex-wrap items-baseline justify-between gap-2"><dt>{message("Current commissions", "العمولات الحالية")}</dt><dd className="currency-money" dir="ltr">{formatAmount(data.amountBreakdown!.commissionsUsdt)}</dd></div>
+          <div className="flex flex-wrap items-baseline justify-between gap-2"><dt>{message("Remaining from previous payments", "المتبقي من دفعات سابقة")}</dt><dd className="currency-money" dir="ltr">{formatAmount(data.amountBreakdown!.previousPaymentBalanceUsdt)}</dd></div>
+        </dl>
+        <p className="commission-notice rounded-xl bg-white/5 p-3 text-sm leading-6">{message("This includes the missing amount from an earlier payment. Your commission rate has not changed.", "يشمل الإجمالي المبلغ الناقص من دفعة سابقة. نسبة عمولتك لم تتغيّر.")}</p>
+      </> : null}
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <span className="commission-notice text-sm">{message("Amount due", "المبلغ المستحق")}</span>
+        <span className="commission-notice text-sm">{message("Total due", "الإجمالي المستحق")}</span>
         <strong className="currency-money text-2xl" dir="ltr">{data.totalDueUsdt.toLocaleString("en-US", { maximumFractionDigits: 6 })} USDT</strong>
       </div>
-      {(data.carriedShortfallUsdt ?? 0) > 0 ? <p className="commission-notice rounded-xl border border-amber-300/30 p-3 text-sm">{message("Unpaid balance carried to your next commission:", "رصيد غير مدفوع يُرحّل إلى العمولة التالية:")} <span dir="ltr">{data.carriedShortfallUsdt?.toLocaleString("en-US", { maximumFractionDigits: 6 })} USDT</span></p> : null}
+      {data.status === "paid" && data.pendingCount === 0 ? <p role="status" className="commission-notice text-sm leading-6">{message("Payment verified. No commission payment is due now.", "تم تأكيد الدفع. لا توجد دفعة عمولة مستحقة الآن.")}</p> : null}
+      {(data.carriedShortfallUsdt ?? 0) > 0 ? <div className="commission-notice space-y-3 rounded-xl border border-amber-300/25 bg-amber-300/5 p-4 text-sm leading-6">
+        <p className="font-semibold">{message("Remaining for your next commission", "المتبقي للعمولة التالية")}: <bdi className="currency-money" dir="ltr">{formatAmount(data.carriedShortfallUsdt!)}</bdi></p>
+        <p>{message("Your payment arrived a little short. We'll add the remaining amount to your next commission. No extra payment is needed now.", "وصلت دفعتك ناقصة قليلًا. سنضيف المبلغ المتبقي إلى عمولتك التالية. لا تحتاج إلى دفعة إضافية الآن.")}</p>
+      </div> : null}
+      {data.lastPayment && data.lastPayment.carriedUsdt > 0 ? <HelpDetails title={message("Previous payment breakdown", "تفاصيل الدفعة السابقة")}>
+        <dl className="space-y-2">
+          <div className="flex flex-wrap justify-between gap-2"><dt>{message("Amount due then", "المبلغ المستحق حينها")}</dt><dd className="currency-money" dir="ltr">{formatAmount(data.lastPayment.dueUsdt)}</dd></div>
+          <div className="flex flex-wrap justify-between gap-2"><dt>{message("Amount received", "المبلغ المستلم")}</dt><dd className="currency-money" dir="ltr">{formatAmount(data.lastPayment.receivedUsdt)}</dd></div>
+          <div className="flex flex-wrap justify-between gap-2"><dt>{message("Remaining amount", "المبلغ المتبقي")}</dt><dd className="currency-money" dir="ltr">{formatAmount(data.lastPayment.carriedUsdt)}</dd></div>
+        </dl>
+      </HelpDetails> : null}
       {data.verificationCode ? <p role="status" className="commission-notice rounded-xl border border-amber-300/20 p-3 text-sm">{data.verificationCode === "receipt_pending" ? message("Payment found. Waiting for network confirmation. Do not send again.", "وُجدت الدفعة. ننتظر تأكيد الشبكة. لا تُعد الإرسال.") : data.verificationCode === "verification_unavailable" ? message("Verification is delayed. We will keep checking. Do not send again.", "تأخر التحقق. نواصل الفحص. لا تُعد الإرسال.") : message("Payment needs review. Check the original amount, network, and address. Do not pay again.", "تحتاج الدفعة للمراجعة. راجع المبلغ والشبكة والعنوان الأصلي. لا تدفع مجددًا.")}</p> : null}
-      {data.status === "paid" && data.pendingCount === 0 ? <p role="status" className="commission-notice">{(data.carriedShortfallUsdt ?? 0) > 0 ? message("Payment verified. No commission payment is due now. Other account restrictions may still apply.", "تم تأكيد الدفع. لا توجد دفعة عمولة مستحقة الآن. قد تبقى قيود أخرى على الحساب.") : message("Paid. No commission due. Other account restrictions may still apply.", "تم الدفع. لا توجد عمولة مستحقة. قد تبقى قيود أخرى على الحساب.")}</p> : null}
       {data.status === "changed" ? <p role="alert" className="commission-notice">{message("The amount due changed. Check your original payment. Do not send again.", "تغيّر المبلغ المستحق. راجع دفعتك الأصلية. لا تُعد الإرسال.")}</p> : null}
+      </div>
       {(!checkout || changingNetwork) && data.pendingCount > 0 ? <>
+        <CommissionNetworkFeeNotice isAr={isAr} receiveAmountUsdt={data.totalDueUsdt} />
         <p className="text-sm text-slate-300">{changingNetwork ? message("Choose the correct network before sending. The receiving address and exact payment amount will update.", "اختر الشبكة الصحيحة قبل الإرسال. سيتم تحديث عنوان الاستلام والمبلغ الدقيق.") : message("Choose your network, then get payment instructions.", "اختر الشبكة، ثم اعرض تعليمات الدفع.")}</p>
-        <label className="block text-sm">{message("Network", "الشبكة")}<select className={controls + " mt-2"} value={network} disabled={busy} onChange={(event) => setNetwork(event.target.value as "TRC20" | "BEP20")}><option value="TRC20">USDT · TRC20</option><option value="BEP20">USDT · BEP20</option></select></label>
+        <label className="block text-sm">{message("Network", "الشبكة")}<span className="relative mt-2 block"><select className={controls + " appearance-none pe-12"} style={{ colorScheme: "dark" }} value={network} disabled={busy} onChange={(event) => setNetwork(event.target.value as "TRC20" | "BEP20")}><option value="TRC20">USDT · TRC20</option><option value="BEP20">USDT · BEP20</option></select><ChevronDown aria-hidden="true" className="pointer-events-none absolute end-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-300" /></span></label>
         {!changingNetwork ? <label className="block text-sm">{message("Amount to receive (USDT)", "مبلغ الاستلام (USDT)")}<input className={controls + " currency-money mt-2"} inputMode="decimal" dir="ltr" value={amount} disabled={busy} onChange={(event) => setAmount(event.target.value)} /></label> : null}
         <label className="flex min-h-11 cursor-pointer items-center gap-3 text-sm"><input type="checkbox" className="h-5 w-5 shrink-0" checked={notSent} disabled={busy} onChange={(event) => setNotSent(event.target.checked)} />{message("I have not sent this payment yet.", "لم أرسل هذه الدفعة بعد.")}</label>
         <button type="button" className="min-h-12 w-full rounded-xl bg-amber-400 px-5 py-3 font-semibold text-black disabled:opacity-40" disabled={busy || !notSent || (changingNetwork ? network === checkout?.network : !amount)} onClick={() => void create()}>{busy ? message("Preparing…", "جارٍ الإنشاء…") : changingNetwork ? message("Update payment network", "تحديث شبكة الدفع") : message("Get payment instructions", "عرض تعليمات الدفع")}</button>
@@ -215,7 +258,7 @@ function CheckoutContent({ isAr, embedded = false, onSettled, sessionAvailable }
         <p className="currency-money text-2xl font-bold" dir="ltr">{formatted} USDT</p>
         <button type="button" className="min-h-11 rounded-lg border border-white/20 px-4 py-2 text-sm" onClick={() => void copy(formatted, "amount")}>{copied === "amount" ? message("Copied", "تم النسخ") : message("Copy receive amount", "نسخ مبلغ الاستلام")}</button>
       </div>
-      <CommissionNetworkFeeNotice isAr={isAr} />
+      <CommissionNetworkFeeNotice isAr={isAr} receiveAmountUsdt={checkout.expectedMicros / 1e6} />
       <p className="text-sm">{message("Network", "الشبكة")}: <strong>{checkout.network}</strong></p>
       {data.canChangeNetwork === true ? <button type="button" className="min-h-11 w-full rounded-xl border border-amber-300/50 px-4 py-3 font-semibold text-amber-200 disabled:opacity-40" disabled={busy} onClick={() => {
         setEditingCheckoutId(checkout.id); setNetwork(checkout.network); setNotSent(false); setCopied(""); setError("");

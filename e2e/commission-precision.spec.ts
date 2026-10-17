@@ -2,6 +2,10 @@ import { test, expect } from "@playwright/test";
 import { CANONICAL_TRC20_COMMISSION_WALLET } from "../src/lib/commission-config";
 
 test.use({ contextOptions: { reducedMotion: "reduce" } });
+test.beforeEach(async ({ context, baseURL }) => {
+  const origin = new URL(baseURL!).origin;
+  await context.route("**/*", route => new URL(route.request().url()).origin === origin ? route.continue() : route.abort());
+});
 
 // Interface regression fixtures: real loopback login and rendered page, with
 // synthetic checkout responses. This does not claim blockchain settlement.
@@ -41,7 +45,7 @@ for (const locale of ["en", "ar"] as const) {
         issued = false;
         await page.goto(`/${locale}/seller/commission-checkout`);
         await expect(page.getByLabel(locale === "en" ? "Amount to receive (USDT)" : "مبلغ الاستلام (USDT)", { exact: true })).toHaveValue(String(amount));
-        await expect(page.getByText(`${amount} USDT`, { exact: true })).toBeVisible();
+        await expect(page.locator(".commission-surface strong.currency-money")).toHaveText(`${amount} USDT`);
         await page.getByRole("checkbox", { name: locale === "en" ? "I have not sent this payment yet." : "لم أرسل هذه الدفعة بعد.", exact: true }).check();
         await page.getByRole("button", { name: locale === "en" ? "Get payment instructions" : "عرض تعليمات الدفع", exact: true }).click();
         await expect(page.getByText(`${amount.toFixed(6)} USDT`, { exact: true }).last()).toBeVisible();
@@ -59,7 +63,7 @@ for (const locale of ["en", "ar"] as const) {
           await expect(example).toHaveAttribute("open", "");
           expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
           const heading = page.getByRole("heading", { name: locale === "en" ? "Platform must receive" : "يجب أن تستلم المنصة", exact: true });
-          await heading.scrollIntoViewIfNeeded();
+          await heading.evaluate(element => window.scrollTo(0, window.scrollY + element.getBoundingClientRect().top - 110));
           const [surfaceBox, headingBox, exampleBox] = await Promise.all([
             page.locator(".commission-surface").boundingBox(), heading.boundingBox(), example.boundingBox(),
           ]);
@@ -74,7 +78,7 @@ for (const locale of ["en", "ar"] as const) {
       expect(writes).toHaveLength(3);
       carried = true;
       await page.reload();
-      await expect(page.getByText(locale === "en" ? /Unpaid balance carried to your next commission/ : /رصيد غير مدفوع يُرحّل إلى العمولة التالية/)).toBeVisible();
+      await expect(page.getByText(locale === "en" ? /Remaining for your next commission/ : /المتبقي للعمولة التالية/)).toBeVisible();
       await expect(page.getByText("2 USDT", { exact: true })).toBeVisible();
       await expect(page.getByRole("checkbox")).toHaveCount(0);
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);

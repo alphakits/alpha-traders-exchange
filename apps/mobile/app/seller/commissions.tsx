@@ -37,7 +37,7 @@ export default function SellerCommissionsScreen() {
   const { status, user, requestWithSession } = useAuth();
   const { locale, isRTL } = useLocale();
   const isAr = locale === "ar";
-  const carriedReason = isAr ? "رصيد غير مدفوع من دفعة عمولة سابقة تم التحقق منها. هذه ليست رسوم تداول إضافية." : "Unpaid balance from an earlier verified commission payment. This is not an additional trading fee.";
+  const carriedReason = isAr ? "وصلت دفعة عمولة سابقة ناقصة. هذا هو المبلغ المتبقي فقط. نسبة عمولتك لم تتغيّر." : "An earlier commission payment arrived short. This is only the remaining amount. Your commission rate has not changed.";
   const canSell = canUseSellerTools(user) || user?.sellerStatus === "suspended";
   const queryKey = ["mobile-seller-commissions", user?.id ?? "anonymous", locale] as const;
   const query = useQuery({
@@ -370,6 +370,7 @@ export default function SellerCommissionsScreen() {
               <Text style={styles.copyButtonText}>{amountCopied ? (isAr ? "✓ تم نسخ المبلغ" : "✓ Amount copied") : (isAr ? "نسخ المبلغ الدقيق" : "Copy exact amount")}</Text>
             </Pressable>
             <Text style={[styles.exactAmountWarning, isRTL && styles.rtlText]}>{isAr ? "لا تقرّب المبلغ. يجب أن تتطابق الخانات العشرية الست، ورسوم الشبكة ليست جزءًا منه." : "Do not round. All six decimal places must match; the network fee is not part of this amount."}</Text>
+            <Text style={[styles.body, isRTL && styles.rtlText]}>{isAr ? "يرجى تحمّل رسوم الشبكة حتى يصل المبلغ الظاهر كاملًا. إذا قُبلت دفعة ووصلت ناقصة قليلًا، يُضاف المبلغ المتبقي فقط إلى عمولتك التالية." : "Please cover the network fee so the full amount shown arrives. If an accepted payment arrives a little short, only the missing amount is added to your next commission."}</Text>
           </View>
 
           <View style={styles.walletCard}>

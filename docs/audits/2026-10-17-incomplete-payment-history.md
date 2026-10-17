@@ -42,7 +42,9 @@ attribution, replay, seller-unlock, and +/-2-USDT rules remain enforced.
 Provider timeout/five-page limits remain bounded. If a five-page history stays
 incomplete, it stays paused and is not a successful recovery; durable history
 pagination beyond that cap remains an explicit acceptance gap. The wider
-candidate's prospective shortfall carry-forward policy is still unapproved.
+candidate's prospective shortfall carry-forward policy was still unapproved at
+this checkpoint; the owner's subsequent approval and verification are recorded
+in `2026-10-18-commission-carry-forward-approval.md`.
 Production release, controlled live transfers, separate deployed role sessions,
 physical Safari and production backup/rollback acceptance remain open. No
 production payment or account record was changed by this audit continuation.
