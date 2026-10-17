@@ -70,8 +70,10 @@ for (const method of methods) {
       expect(await sellerPage.getByTestId("trade-amount-action").evaluate(el => !!(el.compareDocumentPosition(document.getElementById("status-banner")!) & Node.DOCUMENT_POSITION_FOLLOWING))).toBe(true);
       if (method === methods[1]) {
         for (const [locale, width] of [["en", 390], ["ar", 390], ["en", 1440]] as const) {
-          await sellerPage.setViewportSize({ width, height: width === 390 ? 844 : 900 });
+          // Resize the destination document; resizing the old locale just before
+          // unloading it can start native link prefetches during its teardown.
           await errorAudit.navigate(sellerPage, () => sellerPage.goto(`/${locale}/trade-room/${f.id}`));
+          await sellerPage.setViewportSize({ width, height: width === 390 ? 844 : 900 });
           await expect(sellerPage.getByRole("button", { name: locale === "ar" ? "تعديل المبلغ" : "Adjust Amount", exact: true })).toBeInViewport();
           expect(await sellerPage.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
           await sellerPage.screenshot({ path: info.outputPath(`adjust-location-${locale}-${width}.png`) });
