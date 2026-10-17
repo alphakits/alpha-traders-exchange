@@ -99,6 +99,16 @@ if (includeBrowserTests) {
     executable: process.execPath,
     arguments: ["./node_modules/playwright/cli.js", "test", "--config=playwright.phone-verification.config.ts"],
   });
+  steps.push({
+    label: "WebKit marketplace and owner browser flows",
+    executable: process.execPath,
+    arguments: ["./node_modules/playwright/cli.js", "test", "--config=playwright.webkit.config.ts"],
+  });
+  steps.push({
+    label: "WebKit mandatory phone and age verification",
+    executable: process.execPath,
+    arguments: ["./node_modules/playwright/cli.js", "test", "--config=playwright.webkit.phone-verification.config.ts"],
+  });
 }
 
 const startedAt = Date.now();

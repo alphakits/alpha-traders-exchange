@@ -234,10 +234,59 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
+  webkit-browser-flows:
+    name: WebKit critical flows (${{ matrix.shard }}/2)
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          lfs: false
+      - name: Use Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Install WebKit runtime
+        run: npx playwright install --with-deps webkit
+      - name: Verify marketplace, payments and owner flows in WebKit
+        env:
+          PLAYWRIGHT_JSON_OUTPUT_FILE: test-results/webkit-critical-results.json
+        run: node ./node_modules/playwright/cli.js test --config=playwright.webkit.config.ts --shard=${{ matrix.shard }}/2 --reporter=list,json
+      - name: Preserve WebKit browser evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: webkit-critical-flows-${{ matrix.shard }}
+          path: test-results/
+          if-no-files-found: error
+          retention-days: 14
+      - name: Verify mandatory phone and age gates in WebKit
+        id: webkit_phone_gates
+        if: success() && matrix.shard == 1
+        env:
+          PLAYWRIGHT_JSON_OUTPUT_FILE: test-results/webkit-phone-results.json
+        run: node ./node_modules/playwright/cli.js test --config=playwright.webkit.phone-verification.config.ts --reporter=list,json
+      - name: Preserve WebKit phone and age evidence
+        if: always() && matrix.shard == 1 && steps.webkit_phone_gates.outcome != 'skipped'
+        uses: actions/upload-artifact@v4
+        with:
+          name: webkit-phone-age-gates
+          path: test-results/
+          if-no-files-found: error
+          retention-days: 14
+
   release-acceptance:
     name: Release acceptance
     if: always()
-    needs: [quality-gate, postgres-concurrency, critical-browser-flows, phone-verification-gate]
+    needs: [quality-gate, postgres-concurrency, critical-browser-flows, phone-verification-gate, webkit-browser-flows]
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
@@ -247,8 +296,10 @@ jobs:
           DATABASE_RESULT: ${{ needs.postgres-concurrency.result }}
           BROWSER_RESULT: ${{ needs.critical-browser-flows.result }}
           PHONE_RESULT: ${{ needs.phone-verification-gate.result }}
+          WEBKIT_RESULT: ${{ needs.webkit-browser-flows.result }}
         run: |
           test "$QUALITY_RESULT" = success
           test "$DATABASE_RESULT" = success
           test "$BROWSER_RESULT" = success
           test "$PHONE_RESULT" = success
+          test "$WEBKIT_RESULT" = success
