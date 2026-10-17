@@ -235,13 +235,13 @@ jobs:
           retention-days: 7
 
   webkit-browser-flows:
-    name: WebKit critical flows (${{ matrix.shard }}/2)
+    name: WebKit critical flows (${{ matrix.shard }}/4)
     runs-on: ubuntu-latest
     timeout-minutes: 35
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2]
+        shard: [1, 2, 3, 4]
     steps:
       - name: Check out source
         uses: actions/checkout@v4
@@ -259,7 +259,7 @@ jobs:
       - name: Verify marketplace, payments and owner flows in WebKit
         env:
           PLAYWRIGHT_JSON_OUTPUT_FILE: test-results/webkit-critical-results.json
-        run: node ./node_modules/playwright/cli.js test --config=playwright.webkit.config.ts --shard=${{ matrix.shard }}/2 --reporter=list,json
+        run: node ./node_modules/playwright/cli.js test --config=playwright.webkit.config.ts --shard=${{ matrix.shard }}/4 --reporter=list,json
       - name: Preserve WebKit browser evidence
         if: always()
         uses: actions/upload-artifact@v4

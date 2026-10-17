@@ -1,4 +1,4 @@
-import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
+import { expect, test, type APIRequestContext, type Frame, type Page } from "@playwright/test";
 
 import {
   cleanupBuyerFixture,
@@ -177,7 +177,26 @@ async function assertRefreshStability(input: {
   const stableUrl = page.url();
 
   diagnostics.reset();
-  await page.reload({ waitUntil: "commit" });
+  // WebKit reports cancelled lazy chunks from the outgoing document while
+  // reload is committing. Those errors do not belong to the new dashboard.
+  // Clear only at the main-frame commit: errors from the incoming document,
+  // API failures, redirects and duplicate auth bootstraps remain assertions.
+  const clearOutgoingDocumentErrors = (frame: Frame) => {
+    if (frame !== page.mainFrame()) return;
+    diagnostics.firstPartyConsoleErrors.length = 0;
+    diagnostics.hydrationWarnings.length = 0;
+    page.off("framenavigated", clearOutgoingDocumentErrors);
+  };
+  page.on("framenavigated", clearOutgoingDocumentErrors);
+  const reloadedCanonicalSession = page.waitForResponse(
+    (response) => new URL(response.url()).pathname === "/api/auth/me",
+    { timeout: 30_000 },
+  );
+  try {
+    await Promise.all([page.reload({ waitUntil: "commit" }), reloadedCanonicalSession]);
+  } finally {
+    page.off("framenavigated", clearOutgoingDocumentErrors);
+  }
   await expect(readyLocator).toBeVisible({ timeout: 30_000 });
   await page.waitForTimeout(1200);
 
