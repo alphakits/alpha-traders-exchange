@@ -353,8 +353,10 @@ try {
   changedAccount.disabled = true; changedAccount.passwordHash = "synthetic-new-account-password-hash";
   const retainedSession = { token: "synthetic-trust-session", userId: recoveryRequest.sellerId,
     createdAt: now, expiresAt: new Date(Date.now() + 3600_000).toISOString() };
-  snapshot.authSessions.push(retainedSession);
   requireOk(await workers[0].call("seed", snapshot));
+  requireOk(await workers[0].call("auth-session", retainedSession));
+  const sessionBeforeRecovery = await pool.query("select payload from alpha_exchange.sessions where token_hash=$1", [retainedSession.token]);
+  assert.deepEqual(sessionBeforeRecovery.rows[0]?.payload, retainedSession, "Session must exist before testing preservation");
   await captureQueryMetrics("all-payment-methods-and-before-lost-follow-up-restart");
   for (const worker of workers) worker.child.kill("SIGKILL");
   workers.splice(0, workers.length, ...Array.from({ length: 4 }, (_, index) => startWorker(index + 8)));
@@ -371,6 +373,44 @@ try {
   passed("Lost completion follow-up recovers after all workers restart without reverting account security or settlement", { recovered: 1, workers: 4, duplicateSettlements: 0 });
   assert.deepEqual(snapshot.authSessions.find(session => session.token === retainedSession.token), retainedSession);
   passed("Trust reconciliation preserves authenticated sessions while updating seller accounts", { sessions: 1, workers: 4 });
+
+  // The owner CMS is independent of Exchange inventory, but uses the same
+  // four processes to exercise stale tabs and atomic lesson/version writes.
+  requireOk(await workers[0].call("cms-snapshot"));
+  const contentCommands = Array.from({ length: 12 }, (_, index) => ({ operation: "cms-create",
+    input: { id: `audit-cms-${index}`, title: `Synthetic lesson ${index}`, courseId: "c1", status: "draft" } }));
+  (await batch(contentCommands)).forEach(requireOk);
+  let content = requireOk(await workers[0].call("cms-snapshot"));
+  contentCommands.forEach(({ input }) => {
+    assert.equal(content.lessons.filter(row => row.id === input.id).length, 1);
+    assert.equal(content.versions.filter(row => row.lessonId === input.id && row.action === "created").length, 1);
+  });
+  (await batch([
+    { operation: "cms-update", input: { id: "audit-cms-0", title: "Concurrent title" } },
+    { operation: "cms-update", input: { id: "audit-cms-0", description: "Concurrent description" } },
+  ])).forEach(requireOk);
+  content = requireOk(await workers[0].call("cms-snapshot"));
+  assert.equal(content.lessons.find(row => row.id === "audit-cms-0").title, "Concurrent title");
+  assert.equal(content.lessons.find(row => row.id === "audit-cms-0").description, "Concurrent description");
+  assert.equal(content.versions.filter(row => row.lessonId === "audit-cms-0" && row.action === "updated").length, 2);
+  passed("Owner content preserves concurrent lesson creations, independent edits and audit history", { independentProcesses: 4, creations: 12, simultaneousEdits: 2 });
+
+  await pool.query(`create or replace function admin_cms.audit_test_failure() returns trigger language plpgsql as $$
+    begin if new.lesson_id = 'audit-cms-failure' then raise exception 'Controlled content audit failure'; end if; return new; end; $$;
+    create trigger audit_test_failure before insert on admin_cms.lesson_versions for each row execute function admin_cms.audit_test_failure()`);
+  const failedContent = await workers[0].call("cms-create", { id: "audit-cms-failure", title: "Synthetic failure", courseId: "c1", status: "draft" });
+  assert(!failedContent.ok && /Controlled content audit failure/.test(failedContent.error));
+  assert.equal((await pool.query("select id from admin_cms.lessons where id='audit-cms-failure'")).rowCount, 0);
+  assert.equal((await pool.query("select id from admin_cms.lesson_versions where lesson_id='audit-cms-failure'")).rowCount, 0);
+  await pool.query("drop trigger audit_test_failure on admin_cms.lesson_versions; drop function admin_cms.audit_test_failure()");
+  requireOk(await workers[1].call("cms-create", { id: "audit-cms-failure", title: "Synthetic recovered", courseId: "c1", status: "draft" }));
+  passed("Failed owner audit write rolls back its lesson and another process retries successfully", { rolledBackLessons: 1, recoveredLessons: 1 });
+  (await batch(["first", "second"].map(lessonId => ({ operation: "cms-media", input: { type: "pdf", provider: "local", name: "Synthetic media", url: "/synthetic-audit.pdf", lessonId } })))).forEach(requireOk);
+  content = requireOk(await workers[0].call("cms-snapshot"));
+  const associated = content.media.filter(row => row.url === "/synthetic-audit.pdf");
+  assert.equal(associated.length, 1);
+  assert.deepEqual(associated[0].usedByLessonIds.sort(), ["first", "second"]);
+  passed("Concurrent owner media associations remain on one canonical media record", { associations: 2, records: 1, uploads: 0 });
 
   const before = snapshot.marketplaceListings[0];
   await captureQueryMetrics("trust-recovery-before-transaction-kill");
@@ -398,6 +438,7 @@ try {
     }, null, 2));
   } catch (snapshotError) { console.error("Could not capture controlled failure state:", snapshotError.message); }
 } finally {
+  await writeFile(path.join(output, "query-timings.json"), JSON.stringify(queryMetrics, null, 2));
   clearInterval(monitor);
   for (const worker of workers) worker.child.kill("SIGKILL");
   await pool.end();

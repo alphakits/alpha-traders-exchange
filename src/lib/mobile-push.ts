@@ -1,10 +1,11 @@
 import { createHash, randomUUID } from "crypto";
 import { after } from "next/server";
-import type { Pool, PoolClient } from "pg";
+import type { Pool } from "pg";
 import type { MobileLocale, MobilePlatform } from "@alpha-traders/contracts";
 import { toMobileNotification } from "@/lib/mobile-notifications";
 import { getSafeInternalNotificationDestination } from "@/lib/notification-action-destination";
 import { getRuntimePostgresPool } from "@/lib/postgres-runtime";
+import { rollbackFailedTransaction } from "@/lib/postgres-transaction";
 import { logEvent } from "@/lib/structured-logging";
 import type { AlphaExchangeNotification } from "@/types/alpha-exchange";
 
@@ -121,10 +122,6 @@ async function ensurePushSchema(pool: Pool) {
   await schemaPromise;
 }
 
-function rollbackQuietly(client: PoolClient) {
-  return client.query("rollback").catch(() => undefined);
-}
-
 export function isExpoPushToken(value: string) {
   return EXPO_PUSH_TOKEN_PATTERN.test(value.trim());
 }
@@ -158,6 +155,8 @@ export async function registerMobilePushSubscription(input: {
   const pool = requirePushPool();
   await ensurePushSchema(pool);
   const client = await pool.connect();
+  let destroy = false;
+
   try {
     await client.query("begin");
     const sessionTokenHash = sha256(sessionToken);
@@ -207,10 +206,10 @@ export async function registerMobilePushSubscription(input: {
     await client.query("commit");
     return { id: result.rows[0]?.id ?? "", registered: true as const };
   } catch (error) {
-    await rollbackQuietly(client);
+    destroy = await rollbackFailedTransaction(client, error);
     throw error;
   } finally {
-    client.release();
+    client.release(destroy);
   }
 }
 

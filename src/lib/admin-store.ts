@@ -8,6 +8,11 @@ import type { AdminAnalytics, LessonVersion, MediaItem, MediaProvider, MediaType
 
 type LessonUpdate = Partial<Lesson> & Pick<Lesson, "id">;
 
+async function mutateAdminContent<T>(action: () => Promise<T>) {
+  const repository = await getAdminContentRepository();
+  return repository.mutate(action);
+}
+
 function slugify(value: string) {
   return value
     .toLowerCase()
@@ -93,14 +98,16 @@ export async function readVersions() {
 }
 
 export async function appendVersion(entry: Omit<LessonVersion, "id" | "timestamp">) {
-  const repository = await getAdminContentRepository();
-  const current = await repository.loadVersions();
-  const next: LessonVersion = {
-    ...entry,
-    id: `v-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    timestamp: new Date().toISOString(),
-  };
-  await repository.saveVersions([next, ...current].slice(0, 500));
+  return mutateAdminContent(async () => {
+    const repository = await getAdminContentRepository();
+    const current = await repository.loadVersions();
+    const next: LessonVersion = {
+      ...entry,
+      id: `v-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      timestamp: new Date().toISOString(),
+    };
+    await repository.saveVersions([next, ...current].slice(0, 500));
+  });
 }
 
 export async function readMediaLibrary() {
@@ -163,154 +170,166 @@ export function validateLessonPayload(lesson: Lesson, existing: Lesson[], mode: 
 }
 
 export async function createLesson(input: Partial<Lesson>, role: LessonVersion["role"]) {
-  const lessons = await readLessons();
-  const nextOrder = lessons.length ? Math.max(...lessons.map((item) => item.order)) + 1 : 1;
-  const id = input.id?.trim() || `l-${Date.now()}`;
-  const lesson: Lesson = normalizeLesson({
-    id,
-    courseId: input.courseId || "c1",
-    module: input.module || "Module",
-    moduleAr: input.moduleAr || "الوحدة",
-    slug: ensureUniqueSlug(lessons, input.slug || input.title || id),
-    title: input.title || "",
-    titleAr: input.titleAr || "",
-    description: input.description || "",
-    descriptionAr: input.descriptionAr || "",
-    summary: input.summary || "",
-    summaryAr: input.summaryAr || "",
-    objectives: input.objectives || [],
-    objectivesAr: input.objectivesAr || [],
-    takeaways: input.takeaways || [],
-    takeawaysAr: input.takeawaysAr || [],
-    keywords: input.keywords || [],
-    keywordsAr: input.keywordsAr || [],
-    durationMinutes: input.durationMinutes || 1,
-    order: input.order || nextOrder,
-    tags: input.tags || [],
-    tagsAr: input.tagsAr || [],
-    assets: input.assets || {
-      videoProvider: "self-hosted",
-      videoId: "",
-      videoUrl: "",
-      videoChapters: [],
-      pdfProvider: "google-drive",
-      pdfFileId: "",
-      pdfUrl: "",
-      presentationUrl: "",
-      notes: "",
-      notesAr: "",
-      resources: [],
-    },
-    quiz: normalizeQuestions(input.quiz),
-    category: normalizeCategory(input.category, input.courseId || "c1"),
-    status: normalizeStatus(input.status),
-    lessonNumber: input.lessonNumber || nextOrder,
-    estimatedDurationMinutes: input.estimatedDurationMinutes || input.durationMinutes || 1,
-    difficulty: input.difficulty || "medium",
-    xpReward: input.xpReward ?? 100,
-    thumbnail: input.thumbnail || "",
-    instructor: input.instructor || "",
-    quizSettings: input.quizSettings || {
-      passingScore: 70,
-      randomizedOrder: false,
-      instantFeedback: true,
-    },
-  });
+  return mutateAdminContent(async () => {
+    const lessons = await readLessons();
+    const nextOrder = lessons.length ? Math.max(...lessons.map((item) => item.order)) + 1 : 1;
+    const id = input.id?.trim() || `l-${randomUUID()}`;
+    const lesson: Lesson = normalizeLesson({
+      id,
+      courseId: input.courseId || "c1",
+      module: input.module || "Module",
+      moduleAr: input.moduleAr || "الوحدة",
+      slug: ensureUniqueSlug(lessons, input.slug || input.title || id),
+      title: input.title || "",
+      titleAr: input.titleAr || "",
+      description: input.description || "",
+      descriptionAr: input.descriptionAr || "",
+      summary: input.summary || "",
+      summaryAr: input.summaryAr || "",
+      objectives: input.objectives || [],
+      objectivesAr: input.objectivesAr || [],
+      takeaways: input.takeaways || [],
+      takeawaysAr: input.takeawaysAr || [],
+      keywords: input.keywords || [],
+      keywordsAr: input.keywordsAr || [],
+      durationMinutes: input.durationMinutes || 1,
+      order: input.order || nextOrder,
+      tags: input.tags || [],
+      tagsAr: input.tagsAr || [],
+      assets: input.assets || {
+        videoProvider: "self-hosted",
+        videoId: "",
+        videoUrl: "",
+        videoChapters: [],
+        pdfProvider: "google-drive",
+        pdfFileId: "",
+        pdfUrl: "",
+        presentationUrl: "",
+        notes: "",
+        notesAr: "",
+        resources: [],
+      },
+      quiz: normalizeQuestions(input.quiz),
+      category: normalizeCategory(input.category, input.courseId || "c1"),
+      status: normalizeStatus(input.status),
+      lessonNumber: input.lessonNumber || nextOrder,
+      estimatedDurationMinutes: input.estimatedDurationMinutes || input.durationMinutes || 1,
+      difficulty: input.difficulty || "medium",
+      xpReward: input.xpReward ?? 100,
+      thumbnail: input.thumbnail || "",
+      instructor: input.instructor || "",
+      quizSettings: input.quizSettings || {
+        passingScore: 70,
+        randomizedOrder: false,
+        instantFeedback: true,
+      },
+    });
 
-  validateLessonPayload(lesson, lessons, "create");
-  const merged = [...lessons, lesson].sort((a, b) => a.order - b.order);
-  await writeLessons(merged);
-  await appendVersion({ lessonId: lesson.id, action: "created", role, snapshot: lesson });
-  return lesson;
+    validateLessonPayload(lesson, lessons, "create");
+    const merged = [...lessons, lesson].sort((a, b) => a.order - b.order);
+    await writeLessons(merged);
+    await appendVersion({ lessonId: lesson.id, action: "created", role, snapshot: lesson });
+    return lesson;
+  });
 }
 
 export async function updateLesson(input: LessonUpdate, role: LessonVersion["role"]) {
-  const lessons = await readLessons();
-  const index = lessons.findIndex((item) => item.id === input.id);
-  if (index === -1) throw new Error("Lesson not found.");
+  return mutateAdminContent(async () => {
+    const lessons = await readLessons();
+    const index = lessons.findIndex((item) => item.id === input.id);
+    if (index === -1) throw new Error("Lesson not found.");
 
-  const current = lessons[index];
-  const merged = normalizeLesson({
-    ...current,
-    ...input,
-    slug: ensureUniqueSlug(lessons, input.slug || current.slug, current.id),
-    assets: {
-      ...current.assets,
-      ...(input.assets || {}),
-      videoId: input.assets?.videoId ?? current.assets.videoId ?? "",
-      pdfFileId: input.assets?.pdfFileId ?? current.assets.pdfFileId ?? "",
-    },
-    quiz: normalizeQuestions(input.quiz ?? current.quiz),
+    const current = lessons[index];
+    const merged = normalizeLesson({
+      ...current,
+      ...input,
+      slug: ensureUniqueSlug(lessons, input.slug || current.slug, current.id),
+      assets: {
+        ...current.assets,
+        ...(input.assets || {}),
+        videoId: input.assets?.videoId ?? current.assets.videoId ?? "",
+        pdfFileId: input.assets?.pdfFileId ?? current.assets.pdfFileId ?? "",
+      },
+      quiz: normalizeQuestions(input.quiz ?? current.quiz),
+    });
+
+    validateLessonPayload(merged, lessons, "update");
+    lessons[index] = merged;
+    await writeLessons(lessons);
+    await appendVersion({ lessonId: merged.id, action: "updated", role, snapshot: merged });
+    return merged;
   });
-
-  validateLessonPayload(merged, lessons, "update");
-  lessons[index] = merged;
-  await writeLessons(lessons);
-  await appendVersion({ lessonId: merged.id, action: "updated", role, snapshot: merged });
-  return merged;
 }
 
 export async function deleteLesson(lessonId: string, role: LessonVersion["role"]) {
-  const lessons = await readLessons();
-  const target = lessons.find((item) => item.id === lessonId);
-  if (!target) throw new Error("Lesson not found.");
-  const next = lessons.filter((item) => item.id !== lessonId);
-  await writeLessons(next.map((lesson, idx) => ({ ...lesson, order: idx + 1, lessonNumber: lesson.lessonNumber ?? idx + 1 })));
-  await appendVersion({ lessonId, action: "deleted", role, snapshot: target });
+  return mutateAdminContent(async () => {
+    const lessons = await readLessons();
+    const target = lessons.find((item) => item.id === lessonId);
+    if (!target) throw new Error("Lesson not found.");
+    const next = lessons.filter((item) => item.id !== lessonId);
+    await writeLessons(next.map((lesson, idx) => ({ ...lesson, order: idx + 1, lessonNumber: lesson.lessonNumber ?? idx + 1 })));
+    await appendVersion({ lessonId, action: "deleted", role, snapshot: target });
+  });
 }
 
 export async function duplicateLesson(lessonId: string, role: LessonVersion["role"]) {
-  const lessons = await readLessons();
-  const source = lessons.find((item) => item.id === lessonId);
-  if (!source) throw new Error("Lesson not found.");
-  const duplicate = normalizeLesson({
-    ...source,
-    id: `l-${Date.now()}`,
-    slug: ensureUniqueSlug(lessons, `${source.slug}-copy`),
-    title: `${source.title} (Copy)`,
-    titleAr: `${source.titleAr} (نسخة)`,
-    status: "draft",
-    order: lessons.length + 1,
-    lessonNumber: lessons.length + 1,
-    updatedAt: new Date().toISOString(),
+  return mutateAdminContent(async () => {
+    const lessons = await readLessons();
+    const source = lessons.find((item) => item.id === lessonId);
+    if (!source) throw new Error("Lesson not found.");
+    const duplicate = normalizeLesson({
+      ...source,
+      id: `l-${randomUUID()}`,
+      slug: ensureUniqueSlug(lessons, `${source.slug}-copy`),
+      title: `${source.title} (Copy)`,
+      titleAr: `${source.titleAr} (نسخة)`,
+      status: "draft",
+      order: lessons.length + 1,
+      lessonNumber: lessons.length + 1,
+      updatedAt: new Date().toISOString(),
+    });
+    const next = [...lessons, duplicate];
+    await writeLessons(next);
+    await appendVersion({ lessonId: duplicate.id, action: "duplicated", role, snapshot: duplicate });
+    return duplicate;
   });
-  const next = [...lessons, duplicate];
-  await writeLessons(next);
-  await appendVersion({ lessonId: duplicate.id, action: "duplicated", role, snapshot: duplicate });
-  return duplicate;
 }
 
 export async function reorderLessons(input: Array<{ id: string; order: number; category?: LessonCategory; courseId?: string }>, role: LessonVersion["role"]) {
-  const map = new Map(input.map((item) => [item.id, item]));
-  const lessons = await readLessons();
-  const next = lessons
-    .map((lesson) => {
-      const patch = map.get(lesson.id);
-      if (!patch) return lesson;
-      return normalizeLesson({
-        ...lesson,
-        order: patch.order,
-        lessonNumber: patch.order,
-        category: patch.category ?? lesson.category,
-        courseId: patch.courseId ?? lesson.courseId,
-      });
-    })
-    .sort((a, b) => a.order - b.order);
+  return mutateAdminContent(async () => {
+    const map = new Map(input.map((item) => [item.id, item]));
+    const lessons = await readLessons();
+    const next = lessons
+      .map((lesson) => {
+        const patch = map.get(lesson.id);
+        if (!patch) return lesson;
+        return normalizeLesson({
+          ...lesson,
+          order: patch.order,
+          lessonNumber: patch.order,
+          category: patch.category ?? lesson.category,
+          courseId: patch.courseId ?? lesson.courseId,
+        });
+      })
+      .sort((a, b) => a.order - b.order);
 
-  await writeLessons(next);
-  await appendVersion({ lessonId: "bulk", action: "reordered", role, snapshot: null });
-  return next;
+    await writeLessons(next);
+    await appendVersion({ lessonId: "bulk", action: "reordered", role, snapshot: null });
+    return next;
+  });
 }
 
 export async function setLessonStatus(lessonId: string, status: LessonStatus, role: LessonVersion["role"]) {
-  const lesson = await updateLesson({ id: lessonId, status }, role);
-  await appendVersion({
-    lessonId,
-    action: status === "published" ? "published" : "unpublished",
-    role,
-    snapshot: lesson,
+  return mutateAdminContent(async () => {
+    const lesson = await updateLesson({ id: lessonId, status }, role);
+    await appendVersion({
+      lessonId,
+      action: status === "published" ? "published" : "unpublished",
+      role,
+      snapshot: lesson,
+    });
+    return lesson;
   });
-  return lesson;
 }
 
 export function searchLessons(lessons: Lesson[], query: {
@@ -352,36 +371,38 @@ export async function addMediaItem(input: {
   size?: number;
   lessonId?: string;
 }) {
-  const items = await readMediaLibrary();
-  const now = new Date().toISOString();
-  const existing = items.find((item) => item.url === input.url);
-  if (existing) {
-    if (input.lessonId && !existing.usedByLessonIds.includes(input.lessonId)) {
-      existing.usedByLessonIds.push(input.lessonId);
-      existing.updatedAt = now;
-      existing.storageBucket = input.storageBucket ?? existing.storageBucket;
-      existing.storageKey = input.storageKey ?? existing.storageKey;
-      await writeMediaLibrary(items);
+  return mutateAdminContent(async () => {
+    const items = await readMediaLibrary();
+    const now = new Date().toISOString();
+    const existing = items.find((item) => item.url === input.url);
+    if (existing) {
+      if (input.lessonId && !existing.usedByLessonIds.includes(input.lessonId)) {
+        existing.usedByLessonIds.push(input.lessonId);
+        existing.updatedAt = now;
+        existing.storageBucket = input.storageBucket ?? existing.storageBucket;
+        existing.storageKey = input.storageKey ?? existing.storageKey;
+        await writeMediaLibrary(items);
+      }
+      return existing;
     }
-    return existing;
-  }
 
-  const item: MediaItem = {
-    id: `m-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    type: input.type,
-    provider: input.provider,
-    name: input.name,
-    url: input.url,
-    storageBucket: input.storageBucket,
-    storageKey: input.storageKey,
-    mimeType: input.mimeType,
-    size: input.size,
-    createdAt: now,
-    updatedAt: now,
-    usedByLessonIds: input.lessonId ? [input.lessonId] : [],
-  };
-  await writeMediaLibrary([item, ...items]);
-  return item;
+    const item: MediaItem = {
+      id: `m-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      type: input.type,
+      provider: input.provider,
+      name: input.name,
+      url: input.url,
+      storageBucket: input.storageBucket,
+      storageKey: input.storageKey,
+      mimeType: input.mimeType,
+      size: input.size,
+      createdAt: now,
+      updatedAt: now,
+      usedByLessonIds: input.lessonId ? [input.lessonId] : [],
+    };
+    await writeMediaLibrary([item, ...items]);
+    return item;
+  });
 }
 
 export async function removeMediaItem(mediaId: string) {

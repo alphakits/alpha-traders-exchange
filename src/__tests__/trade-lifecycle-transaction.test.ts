@@ -107,7 +107,7 @@ describe("canonical trade lifecycle transaction", () => {
     const tx = (await repo.beginTradeLifecycleTransaction(["users", "purchase_requests", "notifications"], "target", "completed"))!;
     await expect(tx.commit(tx.snapshot, { selectedTables: ["purchase_requests"] })).rejects.toThrow("read-only lifecycle retry");
     expect(query.mock.calls.some(([sql]) => /^(insert|update|delete)\b/i.test(sql))).toBe(false);
-    expect(query.mock.calls.some(([sql]) => sql === "rollback")).toBe(true);
+    expect(query.mock.calls.some(([sql]) => /begin|rollback|pg_advisory_xact_lock/.test(sql))).toBe(false);
   });
 
   it("does not rewrite rows for JSON key order or omitted undefined fields", async () => {

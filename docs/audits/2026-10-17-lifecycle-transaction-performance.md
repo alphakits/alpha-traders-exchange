@@ -58,3 +58,18 @@ this path; session rows are never replaced. Other workers that find no pending
 intent skip the full snapshot and cannot commit derived work. All sellers,
 trades, listings, commissions and enforcement dependencies remain authoritative.
 The real PostgreSQL recovery scenario additionally verifies session survival.
+
+The `cb98d3f` database run measured a 445.17 ms median, 1,262.19 ms p95 and
+1,594.79 ms maximum. It passed the preceding trade/authority/recovery checks,
+then failed the newly added session-preservation assertion: the fixture had
+attempted to add a session through snapshot persistence, which deliberately
+preserves existing sessions. The fixture now uses actual session issuance and
+asserts that the session exists before running trust recovery. This failed run
+is retained; it is not counted as an all-pass result or a restoration pass.
+
+Committed idempotent retries now use one canonical, read-only SQL snapshot before
+entering the mutation queue. Store permission, credential and dispute checks
+still run. The read-only result cannot commit any write. Actions that need to
+change state acquire the lock and re-read the complete dependency set before
+validation. The same 240-action workload measures the result again; the
+subsecond target remains unresolved until that measurement passes.

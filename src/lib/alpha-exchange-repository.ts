@@ -2339,8 +2339,6 @@ export class AlphaExchangeRepository {
       client.release(destroy);
     };
     try {
-      await client.query("begin");
-      await client.query("select pg_advisory_xact_lock(61422917)");
       // These append-only/event collections are consulted only for this trade.
       // Keep accounts, listings, requests and all commission assignments global:
       // buyer cross-seller limits and unique payment amounts depend on them.
@@ -2365,19 +2363,40 @@ export class AlphaExchangeRepository {
           and (status = $2 or ($2 = 'completed' and status in ('review_open', 'completed', 'locked')))
       ) as read_only_retry) ` : "";
       const retryReadTables = new Set<SnapshotTableName>(["users", "seller_applications", "purchase_requests", "evidence", "disputes"]);
-      const columns = selectedNames.map(name => {
+      const columns = (onlyCommittedRetry = false) => selectedNames.map(name => {
         const filter = retryProjection && name === "purchase_requests" ? "where not (select read_only_retry from lifecycle_mode) or id = $1" : filters[name] ?? "";
         const aggregate = `coalesce((select json_agg(json_build_object('payload', payload, 'sort_index', sort_index) order by sort_index asc) from alpha_exchange.${name} ${filter}), '[]'::json)`;
         const projection = trustReconciliation ? `case when (select has_pending_trust from lifecycle_mode) then ${aggregate} else '[]'::json end`
           : retryProjection && !retryReadTables.has(name) ? `case when (select read_only_retry from lifecycle_mode) then '[]'::json else ${aggregate} end` : aggregate;
-        return `${projection} as "${name}"`;
+        return `${onlyCommittedRetry ? `case when (select read_only_retry from lifecycle_mode) then ${projection} else '[]'::json end` : projection} as "${name}"`;
       });
       const scopedNames = selectedNames.filter(name => filters[name]);
       const boundsSql = scopedNames.length ? `, json_build_object(${scopedNames.map(name => `'${name}', (select json_build_object('minimum', min(sort_index), 'maximum', max(sort_index)) from alpha_exchange.${name})`).join(", ")}) as sort_bounds` : "";
       const parameters = retryProjection ? [requestId, nextStatus] : scopedNames.some(name => filters[name]?.includes("$1")) ? [requestId] : undefined;
-      const result = await client.query<{ version: string; read_only_retry?: boolean; has_pending_trust?: boolean; sort_bounds?: Partial<Record<SnapshotTableName, LifecycleSortBounds>> } & Partial<Record<SnapshotTableName, IndexedPayload[]>>>(`${retryModeSql}select
-        (select version::text from alpha_exchange.runtime_meta where singleton = true) as version${trustReconciliation ? ", (select has_pending_trust from lifecycle_mode) as has_pending_trust" : retryProjection ? ", (select read_only_retry from lifecycle_mode) as read_only_retry" : ""}${columns.length ? `,\n${columns.join(",\n")}` : ""}${boundsSql}`, parameters);
-      const row = result.rows[0];
+      type ReadRow = { version: string; read_only_retry?: boolean; has_pending_trust?: boolean; sort_bounds?: Partial<Record<SnapshotTableName, LifecycleSortBounds>> } & Partial<Record<SnapshotTableName, IndexedPayload[]>>;
+      const readSql = (onlyCommittedRetry = false) => {
+        const selected = columns(onlyCommittedRetry);
+        return `${retryModeSql}select
+          (select version::text from alpha_exchange.runtime_meta where singleton = true) as version${trustReconciliation ? ", (select has_pending_trust from lifecycle_mode) as has_pending_trust" : retryProjection ? ", (select read_only_retry from lifecycle_mode) as read_only_retry" : ""}${selected.length ? `,\n${selected.join(",\n")}` : ""}${onlyCommittedRetry ? "" : boundsSql}`;
+      };
+      let row: ReadRow | undefined;
+      // A retry of committed state is one atomic read, still followed by every
+      // store permission/credential guard. It cannot write and need not queue
+      // behind unrelated financial mutations. A state-changing action always
+      // acquires the lock and re-reads before making its decision.
+      if (retryProjection) {
+        const retry = await client.query<ReadRow>(readSql(true), parameters);
+        if (retry.rows[0]?.read_only_retry) {
+          row = retry.rows[0];
+          closed = true;
+          client.release(false);
+        }
+      }
+      if (!row) {
+        await client.query("begin");
+        await client.query("select pg_advisory_xact_lock(61422917)");
+        row = (await client.query<ReadRow>(readSql(), parameters)).rows[0];
+      }
       const version = Number(row?.version ?? "0");
       const before = new Map(selectedNames.map(name => [name, row?.[name] ?? []]));
       const snapshot = attachVersion(snapshotFromTableRows(selectedNames.map(tableName => ({ tableName, rows: before.get(tableName)! }))), version);
@@ -2388,9 +2407,9 @@ export class AlphaExchangeRepository {
         snapshot,
         close,
         commit: async (next, options) => {
+          if (row?.read_only_retry) throw new Error("A read-only lifecycle retry cannot commit a mutation.");
           if (closed) throw new Error("Trade lifecycle transaction is closed.");
           try {
-            if (row?.read_only_retry) throw new Error("A read-only lifecycle retry cannot commit a mutation.");
             if (trustReconciliation && row?.has_pending_trust === false) throw new Error("No pending trust reconciliation to commit.");
             const writeTables = Array.from(new Set(options.selectedTables));
             const allowedWrites = trustReconciliation ? TRADE_TRUST_WRITE_TABLES : TRADE_LIFECYCLE_WRITE_TABLES;
@@ -2411,7 +2430,7 @@ export class AlphaExchangeRepository {
                 changed = true;
               }
               if (!delta.changed.length) continue;
-              // These three legacy insert functions do not upsert. Delete only
+              // These legacy insert functions do not upsert. Delete only
               // changed existing rows; untouched queue/history rows stay intact.
               if (["activity_logs", "sms_deliveries", "disputes", "seller_profiles", "seller_settings", "trust_snapshots", "trust_score_history"].includes(name)) {
                 const priorIds = new Set(baseline.get(name)!.map(item => item.payload[identityKey]));

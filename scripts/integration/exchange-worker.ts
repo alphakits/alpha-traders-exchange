@@ -1,7 +1,9 @@
+import { createLesson, updateLesson, addMediaItem } from "@/lib/admin-store";
+import { getAdminContentRepository } from "@/lib/admin-content-repository";
 import { getAlphaExchangeRepository } from "@/lib/alpha-exchange-repository";
 import { getAuditQueryTimings, getRuntimePostgresPool } from "./postgres-runtime";
 import { addSellerBankAccount, beginBuyerVerification, broadcastNotificationByAdmin, changeUserRoleByAdmin, consumeEmailVerificationToken, consumePasswordResetToken, createEmailVerificationTokenForUser, createPasswordResetToken, deleteSellerBankAccount, disableUserAccountByAdmin, getTradeRoomData, invalidateAlphaExchangeStoreCache, issueSellerCommissionByAdmin, reconcilePendingTradeTrust, recordBuyerVerificationAttempt, setSellerVacationModeByAdmin, updatePurchaseRequestStatus, updateSellerBankAccount, updateSellerProfileStateByAdmin, updateTradeTerms, updateUserPassword, uploadTradeEvidence } from "@/lib/alpha-exchange-store";
-import type { AlphaExchangeDb } from "@/types/alpha-exchange";
+import type { AlphaExchangeDb, AuthSession } from "@/types/alpha-exchange";
 
 // External delivery is deliberately outside this database test. The child
 // environment contains no provider credentials, and outbound HTTP fails closed.
@@ -21,6 +23,11 @@ async function execute(operation: string, input: unknown) {
     invalidateAlphaExchangeStoreCache();
     return { seeded: true };
   }
+  if (operation === "cms-create") return createLesson(input as Parameters<typeof createLesson>[0], "admin");
+  if (operation === "cms-update") return updateLesson(input as Parameters<typeof updateLesson>[0], "admin");
+  if (operation === "cms-media") return addMediaItem(input as Parameters<typeof addMediaItem>[0]);
+  if (operation === "cms-snapshot") return (await getAdminContentRepository()).loadSnapshot();
+  if (operation === "auth-session") { await repository.upsertAuthSession(input as AuthSession); return { saved: true }; }
   if (operation === "snapshot") return repository.loadSnapshot();
   if (operation === "query-timings") return getAuditQueryTimings();
   if (operation === "reconcile-trust") return reconcilePendingTradeTrust();
