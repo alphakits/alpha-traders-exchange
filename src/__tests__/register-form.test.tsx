@@ -14,7 +14,7 @@ function completeRequiredFields() {
   fireEvent.change(screen.getByLabelText(/^كلمة المرور$|^Password$/), { target: { value: "password123" } });
   fireEvent.change(screen.getByLabelText(/تأكيد كلمة المرور|Confirm Password/), { target: { value: "password123" } });
   fireEvent.change(screen.getByLabelText(/رقم واتساب|WhatsApp Number/), { target: { value: "0501234567" } });
-  fireEvent.click(screen.getByRole("checkbox"));
+  for (const checkbox of screen.getAllByRole("checkbox")) fireEvent.click(checkbox);
 }
 
 describe("RegisterForm localization", () => {

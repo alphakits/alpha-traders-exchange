@@ -4,6 +4,7 @@ import { getCurrentSessionUser } from "@/lib/auth";
 import { isMarketplacePhoneVerificationEnabled, needsMarketplacePhoneVerification } from "@/lib/phone-verification";
 import { buildPageMetadata } from "@/lib/seo";
 import { getPhoneVerificationChannels } from "@/lib/phone-verification-delivery";
+import { isAdultConfirmationRequired } from "@/lib/age-eligibility";
 
 export const dynamic = "force-dynamic";
 
@@ -44,6 +45,7 @@ export default async function VerifyAccountPage({
       phoneVerificationEnabled={isMarketplacePhoneVerificationEnabled()}
       phoneVerificationChannels={getPhoneVerificationChannels()}
       phoneVerificationRequired={needsMarketplacePhoneVerification(user)}
+      adultConfirmationRequired={isAdultConfirmationRequired()}
     />
   );
 }

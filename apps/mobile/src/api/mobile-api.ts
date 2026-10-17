@@ -198,6 +198,7 @@ export type MobileRegistrationInput = {
   confirmPassword: string;
   whatsappNumber: string;
   agreedToTerms: boolean;
+  ageConfirmed: boolean;
 };
 
 export function registerMobile(input: MobileRegistrationInput, locale: MobileLocale) {

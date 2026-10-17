@@ -147,6 +147,8 @@ export interface AlphaExchangeUser {
   registeredViaInviteCodeId?: string;
   verifiedPhone?: string;
   phoneVerifiedAt?: string;
+  /** Private server-recorded adult confirmation; never inferred from roles or provider metadata. */
+  ageEligibility?: import("@/lib/age-eligibility").AdultEligibility;
   phoneOtpHash?: string;
   phoneOtpSalt?: string;
   phoneOtpExpiresAt?: string;
@@ -950,7 +952,7 @@ export interface CommissionRecord {
   listingId?: string;
   sellerId: string;
   buyerId?: string;
-  source?: "trade" | "admin_manual";
+  source?: "trade" | "admin_manual" | "tolerance_carry_forward";
   issuedByUserId?: string;
   /** Immutable identity/fingerprint for safe manual-assignment retries. */
   issueOperationId?: string;

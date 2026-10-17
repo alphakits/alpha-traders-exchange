@@ -27,6 +27,10 @@ const APP_VERSION_PATTERN = /^[A-Za-z0-9][A-Za-z0-9.+_-]{0,49}$/;
 const NON_NEGATIVE_INTEGER_PATTERN = /^(?:0|[1-9]\d*)$/;
 
 const errorMessages: Record<MobileApiErrorCode, Record<MobileLocale, string>> = {
+  AGE_CONFIRMATION_REQUIRED: {
+    en: "Confirm that you are 18 or older at alphatraders.co.il before using Alpha Exchange.",
+    ar: "أكد أن عمرك 18 عامًا أو أكثر على alphatraders.co.il قبل استخدام Alpha Exchange.",
+  },
   PHONE_VERIFICATION_REQUIRED: {
     en: "Verify your phone by SMS before using your buyer or seller account.",
     ar: "أكد رقم هاتفك برسالة نصية قبل استخدام حساب المشتري أو البائع.",

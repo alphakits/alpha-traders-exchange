@@ -6,6 +6,7 @@ import { hasSellerOperationalAccess } from "@/lib/seller-approval-verification";
 import { logEvent } from "@/lib/structured-logging";
 import { needsMarketplacePhoneVerification } from "@/lib/phone-verification";
 import { isVerified } from "@/lib/verification-bypass";
+import { needsAdultConfirmation } from "@/lib/age-eligibility";
 
 export async function requireApiUser() {
   let user: Awaited<ReturnType<typeof getCurrentSessionUserForAuthorization>>;
@@ -94,7 +95,10 @@ export function requireEmailVerificationForTrading(user: { id: string; role: str
  * Production actions require a verified phone or an exact owner-authorized account.
  * Local fixture switches cannot disable this boundary on a deployed host.
  */
-export function requirePhoneVerificationForTrading(user: { id: string; role: string; roles?: string[]; email?: string; verifiedPhone?: string; phoneVerifiedAt?: string }) {
+export function requirePhoneVerificationForTrading(user: { id: string; role: string; roles?: string[]; email?: string; verifiedPhone?: string; phoneVerifiedAt?: string; ageEligibility?: unknown }) {
+  if (needsAdultConfirmation(user)) return NextResponse.json({
+    code: "AGE_CONFIRMATION_REQUIRED", error: "Confirm that you are 18 or older before using Alpha Exchange.",
+  }, { status: 403, headers: { "Cache-Control": "no-store, max-age=0" } });
   if (!needsMarketplacePhoneVerification(user)) return null;
   logEvent("warn", {
     event: "permission_denied",
@@ -115,6 +119,7 @@ export function requirePhoneVerificationForTrading(user: { id: string; role: str
 export function requireMarketplaceVerificationForTrading(user: {
   id: string; role: string; roles?: string[]; email?: string;
   emailVerified?: boolean; verifiedPhone?: string; phoneVerifiedAt?: string;
+  ageEligibility?: unknown;
 }) {
   return requireEmailVerificationForTrading(user) ?? requirePhoneVerificationForTrading(user);
 }

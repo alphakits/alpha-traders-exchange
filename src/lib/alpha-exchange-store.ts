@@ -1,3 +1,4 @@
+import { materializeCommissionShortfalls } from "./commission-shortfall-ledger";
 import { calculateTradeTermsQuote } from "@alpha-traders/contracts";
 import { requireManualCommissionOperationId } from "@/lib/manual-commission-operation";
 import { priceAlertSchema, priceAlertMatchesListing, readMarketplacePriceAlert, type MarketplacePriceAlert } from "@/lib/marketplace-price-alert";
@@ -83,6 +84,7 @@ import { getSmsTemplate, isTwilioSendEnabled, normalizeE164, resolveSmsDeliveryS
 import { normalizeIsraeliPhone, canonicalPhoneNumber } from "@/lib/phone-number-normalization";
 import { assertAccountPhoneAvailable } from "@/lib/account-phone-ownership";
 import { isMarketplacePhoneVerificationEnabled, needsMarketplacePhoneVerification } from "@/lib/phone-verification";
+import { ADULT_CONFIRMATION_METHOD, hasAdultConfirmation, needsAdultConfirmation } from "@/lib/age-eligibility";
 import { normalizeSellerLevel } from "@/types/alpha-exchange";
 import { accountRoleIdentity } from "@/lib/account-role-identity";
 import { publicAccountId, publicAccountName, accountNameForViewer, isPublicOwnerIdentity, ownerIdentityText, identityTextRedactor } from "@/lib/public-account-identity";
@@ -1060,7 +1062,7 @@ function assertPayableTradeCommission(amount: string) {
 }
 
 function getCommissionSubject(record: CommissionRecord) {
-  return record.purchaseRequestId ? `trade ${record.purchaseRequestId}` : "this admin-issued commission";
+  return record.purchaseRequestId ? `trade ${record.purchaseRequestId}` : record.source === "tolerance_carry_forward" ? "this carried commission balance" : "this admin-issued commission";
 }
 
 const USDT_MICROS_PER_TOKEN = 1_000_000;
@@ -1085,13 +1087,14 @@ function microsToUsdt(value: number) {
  * be claimed for a future commission during its payment window.
  */
 function ensureCommissionPaymentExpectedAmounts(db: AlphaExchangeDb) {
+  const shortfallsChanged = materializeCommissionShortfalls(db, nowIso());
   const assignments = new Map<string, number>();
   const issuedUniqueExpectedMicros = new Map<number, string>();
   const usedExpectedMicros = new Set<number>();
   const payableRecords = db.commissionRecords.filter(
     (record) => normalizeCommissionPaymentStatus(record.paymentStatus, record.dueAt) !== "paid",
   );
-  let changed = false;
+  let changed = shortfallsChanged;
   const assignmentUpdatedAt = nowIso();
   const markAssignmentChanged = (record: CommissionRecord) => {
     record.updatedAt = assignmentUpdatedAt;
@@ -6312,6 +6315,8 @@ export async function upsertUserProfileForAuth(input: {
   whatsappNumber: string;
   emailVerified?: boolean;
   preferredLocale?: PreferredLocale;
+  /** Only the registration handler supplies this; provider metadata is not authoritative. */
+  ageConfirmed?: boolean;
 }) {
   // Authentication must never synchronize a cached account snapshot back over
   // a newer disable, role demotion, or seller suspension. Start from durable
@@ -6440,6 +6445,7 @@ export async function upsertUserProfileForAuth(input: {
     roles,
     sellerStatus: "buyer",
     emailVerified: input.emailVerified === true,
+    ageEligibility: input.ageConfirmed === true ? { method: ADULT_CONFIRMATION_METHOD, confirmedAt: timestamp } : undefined,
     emailVerifiedAt: input.emailVerified === true ? timestamp : undefined,
     emailVerificationTokenHash: undefined,
     emailVerificationTokenExpiresAt: undefined,
@@ -6469,6 +6475,19 @@ export async function upsertUserProfileForAuth(input: {
     rebaseOnLatest: addAccount, cacheResult: false,
   });
   return user;
+}
+
+export async function confirmAdultEligibility(userId: string, confirmed: unknown) {
+  if (confirmed !== true) throw new Error("Adult confirmation is required.");
+  return mutateCanonicalAccountRecords(AUTH_USER_READ_TABLES, USER_PROFILE_TABLES, snapshot => {
+    const user = snapshot.users.find(candidate => candidate.id === userId);
+    if (!user || user.disabled) throw new Error("Account access is restricted.");
+    if (hasAdultConfirmation(user)) return { changed: false, result: user };
+    const timestamp = nowIso();
+    user.ageEligibility = { method: ADULT_CONFIRMATION_METHOD, confirmedAt: timestamp };
+    user.updatedAt = nowIsoAfter(user.updatedAt);
+    return { changed: true, result: user };
+  });
 }
 
 /** Reject duplicate contact numbers before creating a provider auth account. */
@@ -6618,6 +6637,7 @@ export async function activateBuyerOnboardingWithoutPhone(input: {
     // The legacy function name predates mandatory SMS. All callers, including
     // native onboarding, must now prove phone verification before granting Buyer.
     if (needsMarketplacePhoneVerification(user)) throw new Error("Verify your phone number before activating Buyer access.");
+    if (needsAdultConfirmation(user)) throw new Error("Confirm that you are 18 or older before activating Buyer access.");
     const firstName = input.firstName.trim();
     const lastName = input.lastName.trim();
     if (!firstName || !lastName) {
@@ -18432,7 +18452,8 @@ export async function getAlphaExchangeSummaryForAdmin(dbInput?: AlphaExchangeDb)
     listingsCount: db.marketplaceListings.length,
     pendingRequestsCount: db.purchaseRequests.filter((item) => item.status === "pending").length,
     completedRequestsCount: db.purchaseRequests.filter((item) => item.status === "completed" || item.status === "review_open" || Boolean(item.completedAt)).length,
-    totalCommissionAmount: db.commissionRecords.reduce((acc, item) => acc + item.commissionAmount, 0),
+    // Carried balances are already part of the original fee, not new revenue.
+    totalCommissionAmount: db.commissionRecords.reduce((acc, item) => acc + (item.source === "tolerance_carry_forward" ? 0 : item.commissionAmount), 0),
   };
 }
 

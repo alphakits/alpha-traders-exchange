@@ -18,7 +18,7 @@ export interface CommissionPaymentVerificationRecord {
 }
 
 export interface CommissionRecordContextInput {
-  source?: "trade" | "admin_manual";
+  source?: "trade" | "admin_manual" | "tolerance_carry_forward";
   issueReason?: string;
   relatedRequestId?: string;
   relatedTradeId?: string;

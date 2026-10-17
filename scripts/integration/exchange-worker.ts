@@ -4,6 +4,8 @@ import { getAlphaExchangeRepository } from "@/lib/alpha-exchange-repository";
 import { getAuditQueryTimings, getRuntimePostgresPool } from "./postgres-runtime";
 import { addSellerBankAccount, beginBuyerVerification, broadcastNotificationByAdmin, changeUserRoleByAdmin, consumeEmailVerificationToken, consumePasswordResetToken, createEmailVerificationTokenForUser, createPasswordResetToken, deleteSellerBankAccount, disableUserAccountByAdmin, getTradeRoomData, invalidateAlphaExchangeStoreCache, issueSellerCommissionByAdmin, reconcilePendingTradeTrust, recordBuyerVerificationAttempt, setSellerVacationModeByAdmin, updatePurchaseRequestStatus, updateSellerBankAccount, updateSellerProfileStateByAdmin, updateTradeTerms, updateUserPassword, uploadTradeEvidence } from "@/lib/alpha-exchange-store";
 import type { AlphaExchangeDb, AuthSession } from "@/types/alpha-exchange";
+import { confirmAdultEligibility } from "@/lib/alpha-exchange-store";
+import { recordCommissionShortfall, materializeCommissionShortfalls } from "@/lib/commission-shortfall-ledger";
 
 // External delivery is deliberately outside this database test. The child
 // environment contains no provider credentials, and outbound HTTP fails closed.
@@ -29,6 +31,20 @@ async function execute(operation: string, input: unknown) {
   if (operation === "cms-snapshot") return (await getAdminContentRepository()).loadSnapshot();
   if (operation === "auth-session") { await repository.upsertAuthSession(input as AuthSession); return { saved: true }; }
   if (operation === "snapshot") return repository.loadSnapshot();
+  if (operation === "adult-confirm") return confirmAdultEligibility(input as string, true);
+  if (operation === "controlled-shortfall") {
+    // Synthetic settled input tests storage atomicity only, never a live receipt.
+    const action = input as { sellerId: string; settlementId: string };
+    const mutation = (snapshot: AlphaExchangeDb) => {
+      const createdAt = new Date().toISOString();
+      recordCommissionShortfall(snapshot, { ...action, shortfallMicros: 2_000_000, excessMicros: 0, createdAt });
+      materializeCommissionShortfalls(snapshot, createdAt, action.sellerId);
+      return snapshot;
+    };
+    const snapshot = mutation(await repository.loadSnapshot());
+    await repository.saveSnapshot(snapshot, { selectedTables: ["commissions", "audit_logs"], rebaseOnLatest: mutation });
+    return { saved: true };
+  }
   if (operation === "query-timings") return getAuditQueryTimings();
   if (operation === "reconcile-trust") return reconcilePendingTradeTrust();
   if (operation === "auth-password") {

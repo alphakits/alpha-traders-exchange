@@ -20,6 +20,23 @@ beforeEach(() => { mocks.refresh.mockReset().mockResolvedValue(undefined); });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 describe("required buyer and seller phone screen", () => {
+  it.each(["en", "ar"] as const)("keeps adult confirmation retryable after a failed save in %s", async locale => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: "Unavailable" }), { status: 503 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true })));
+    vi.stubGlobal("fetch", fetchMock);
+    render(<AccountVerificationGate {...props} locale={locale} adultConfirmationRequired />);
+    const save = screen.getByRole("button", { name: locale === "ar" ? "حفظ التأكيد" : "Save confirmation" }) as HTMLButtonElement;
+    expect(save.disabled).toBe(true);
+    fireEvent.click(screen.getByRole("checkbox", { name: /18/ }));
+    fireEvent.click(save);
+    expect(await screen.findByRole("alert")).toHaveProperty("textContent", locale === "ar" ? "تعذر حفظ التأكيد. حاول مرة أخرى." : "Unable to save confirmation. Please try again.");
+    expect(mocks.refresh).not.toHaveBeenCalled();
+    fireEvent.click(save);
+    await waitFor(() => expect(mocks.refresh).toHaveBeenCalledWith({ force: true }));
+    expect(fetchMock.mock.calls[1][0]).toBe("/api/auth/age-eligibility");
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({ confirmed: true });
+  });
   it.each(["sms"])("sends only through %s and verifies without promoting a seller to buyer", async channel => {
     const message = `Verification code sent via ${channel === "sms" ? "SMS" : "WhatsApp"}.`;
     const fetchMock = vi.fn()

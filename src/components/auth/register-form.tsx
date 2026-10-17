@@ -22,6 +22,7 @@ type RegistrationErrorCode =
   | "PHONE_ALREADY_IN_USE"
   | "EMAIL_ALREADY_REGISTERED"
   | "TERMS_REQUIRED"
+  | "AGE_CONFIRMATION_REQUIRED"
   | "PASSWORD_TOO_SHORT"
   | "WEAK_PASSWORD"
   | "PASSWORD_MISMATCH"
@@ -36,6 +37,7 @@ export function RegisterForm({ locale, learningIntent = false, mentorshipIntent 
     confirmPassword: "",
     whatsappNumber: "",
     agreedToTerms: false,
+    ageConfirmed: false,
   });
   const [errorMessage, setErrorMessage, errorMessageFeedbackKey] = useActionFeedbackState<string | null>(null);
   const [statusMessage, setStatusMessage, statusMessageFeedbackKey] = useActionFeedbackState<string | null>(null);
@@ -79,6 +81,10 @@ export function RegisterForm({ locale, learningIntent = false, mentorshipIntent 
       TERMS_REQUIRED: {
         ar: "يجب الموافقة على شروط الخدمة.",
         en: "You must accept the Terms of Service.",
+      },
+      AGE_CONFIRMATION_REQUIRED: {
+        ar: "يجب تأكيد أن عمرك 18 عامًا أو أكثر.",
+        en: "Confirm that you are 18 or older to create an account.",
       },
       PASSWORD_TOO_SHORT: {
         ar: "يجب أن تتكوّن كلمة المرور من 8 أحرف على الأقل.",
@@ -125,6 +131,10 @@ export function RegisterForm({ locale, learningIntent = false, mentorshipIntent 
       setErrorMessage(localizeRegistrationError(undefined, form.whatsappNumber.trim() ? "INVALID_WHATSAPP" : "WHATSAPP_REQUIRED"));
       return;
     }
+    if (!form.ageConfirmed) {
+      setErrorMessage(localizeRegistrationError(undefined, "AGE_CONFIRMATION_REQUIRED"));
+      return;
+    }
     setIsSubmitting(true);
     try {
       const { response, payload } = await fetchClientJson<{ error?: string; code?: RegistrationErrorCode; message?: string }>("/api/auth/register", {
@@ -149,6 +159,7 @@ export function RegisterForm({ locale, learningIntent = false, mentorshipIntent 
         confirmPassword: "",
         whatsappNumber: "",
         agreedToTerms: false,
+        ageConfirmed: false,
       });
     } catch {
       setErrorMessage(isAr ? "تعذر الاتصال بالخادم. حاول مرة أخرى." : "Unable to reach the server. Please try again.");
@@ -183,6 +194,12 @@ export function RegisterForm({ locale, learningIntent = false, mentorshipIntent 
               className="mt-0.5 h-4 w-4 rounded border-white/30 bg-transparent accent-[#C9A227]"
             />
             {isAr ? "أوافق على شروط الخدمة." : "I agree to the Terms of Service."}
+          </label>
+          <label className={`inline-flex items-start gap-2 text-sm text-[#D1D5DB] ${isAr ? "flex-row-reverse" : ""}`}>
+            <input type="checkbox" required checked={form.ageConfirmed}
+              onChange={event => setForm(previous => ({ ...previous, ageConfirmed: event.target.checked }))}
+              className="mt-0.5 h-4 w-4 rounded border-white/30 bg-transparent accent-[#C9A227]" />
+            {isAr ? "أؤكد أن عمري 18 عامًا أو أكثر." : "I confirm that I am 18 or older."}
           </label>
           <Button type="submit" loading={isSubmitting} loadingLabel={isAr ? "جاري الإنشاء..." : "Creating..."}>
             {isAr ? "إنشاء الحساب" : "Create Account"}

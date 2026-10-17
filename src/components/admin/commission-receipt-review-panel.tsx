@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 type Commission = { id: string; displayNumber?: number; sellerId: string; sellerName: string; commissionAmount: number; hasPaymentInProgress: boolean };
 type Batch = { id: string; sellerId: string; sellerName: string; commissionIds: string[]; expectedAmountMicros: number; lastAttemptCode?: string | null };
-type Settlement = { id: string; sellerName: string; createdAt: string; expectedMicros: number; receivedMicros: number; waivedMicros: number; excessMicros: number };
+type Settlement = { shortfallPolicy?: string; id: string; sellerName: string; createdAt: string; expectedMicros: number; receivedMicros: number; waivedMicros: number; excessMicros: number };
 type State = { enabled: boolean; commissions: Commission[]; batches: Batch[]; settlements: Settlement[]; checkedAt?: string };
 type Receipt = { signature: string; network: "TRC20" | "BEP20"; amountMicros: number; timestamp: number; conflicting: boolean; reserved: boolean };
 type History = { receipts: Receipt[]; checkedAt: string; complete: boolean; truncated: boolean };
@@ -136,7 +136,7 @@ export function CommissionReceiptReviewPanel({ locale }: { locale: "ar" | "en" }
         {state.batches.map((batch) => <div key={batch.id} className="rounded-lg border border-white/15 p-3 text-sm"><p>{batch.sellerName} · {money(batch.expectedAmountMicros)} USDT</p><p>{batch.lastAttemptCode ?? (ar ? "بانتظار فحص الاستلام" : "Waiting for receipt scan")}</p></div>)}
       </section>
       <section className="space-y-3"><h2 className="text-lg font-semibold">{ar ? "تسويات مؤكدة" : "Verified settlements"}</h2>
-        {state.settlements.map((item) => <article key={item.id} className="rounded-lg border border-white/15 p-3 text-sm"><p>{item.sellerName}</p><p>{ar ? "المستحق / المستلم / المعفى / الزيادة" : "Due / received / waived / excess"}: {money(item.expectedMicros)} / {money(item.receivedMicros)} / {money(item.waivedMicros)} / {money(item.excessMicros)} USDT</p><time className="text-xs text-slate-400">{item.createdAt}</time></article>)}
+        {state.settlements.map((item) => <article key={item.id} className="rounded-lg border border-white/15 p-3 text-sm"><p>{item.sellerName}</p><p>{item.shortfallPolicy === "carry_forward_v1" ? (ar ? "المستحق / المستلم / المرحّل / الزيادة" : "Due / received / carried / excess") : (ar ? "المستحق / المستلم / المعفى / الزيادة" : "Due / received / waived / excess")}: {money(item.expectedMicros)} / {money(item.receivedMicros)} / {money(item.waivedMicros)} / {money(item.excessMicros)} USDT</p><time className="text-xs text-slate-400">{item.createdAt}</time></article>)}
       </section>
     </>}
   </main>;

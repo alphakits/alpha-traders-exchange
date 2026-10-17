@@ -4,7 +4,7 @@ Object.assign(env,{NODE_ENV:'test',ALPHA_EXCHANGE_COMMISSION_CHECKOUT_V1:'0',ALP
 // Keep the CPU-heavy embedded PostgreSQL suite from starving DOM assertions
 // on small hosting build machines. All cases and their timeouts remain enforced.
 for(const args of [
- ['--experimental-strip-types','--test','scripts/check-commission-checkout.mjs','scripts/check-commission-checkout-recovery.mjs','scripts/check-commission-checkout-repeat.mjs'],
+ ['--experimental-strip-types','--import','./scripts/commission-batch-test-loader.mjs','--test','scripts/check-commission-checkout.mjs','scripts/check-commission-checkout-recovery.mjs','scripts/check-commission-checkout-repeat.mjs'],
  ['./node_modules/vitest/vitest.mjs','run','--no-file-parallelism','src/lib/commission-checkout-reservations.test.ts','src/lib/commission-checkout-runtime.test.ts','src/app/api/alpha-exchange/commissions/checkout/route.test.ts','src/app/api/cron/commission-checkout/route.test.ts','src/components/sections/usdt-exchange/commission-checkout-panel.test.tsx'],
 ]) {
  const result=spawnSync(process.execPath,args,{stdio:'inherit',env});

@@ -15,6 +15,7 @@ interface CheckoutState {
   walletAddress: string | null;
   pendingCount: number;
   totalDueUsdt: number;
+  carriedShortfallUsdt?: number;
   checkedAt?: string;
   lastVerificationCheckAt?: string;
   verificationCode?: string;
@@ -24,6 +25,7 @@ const ENDPOINT = "/api/alpha-exchange/commissions/checkout";
 function valid(value: unknown): value is CheckoutState {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const state = value as CheckoutState;
+  if (state.carriedShortfallUsdt !== undefined && (!Number.isFinite(state.carriedShortfallUsdt) || state.carriedShortfallUsdt < 0)) return false;
   if (state.canChangeNetwork !== undefined && typeof state.canChangeNetwork !== "boolean") return false;
   if (!["ready", "waiting", "paid", "changed"].includes(state.status)
     || !Number.isSafeInteger(state.pendingCount) || state.pendingCount < 0
@@ -194,8 +196,9 @@ function CheckoutContent({ isAr, embedded = false, onSettled, sessionAvailable }
         <span className="commission-notice text-sm">{message("Amount due", "المبلغ المستحق")}</span>
         <strong className="currency-money text-2xl" dir="ltr">{data.totalDueUsdt.toLocaleString("en-US", { maximumFractionDigits: 6 })} USDT</strong>
       </div>
+      {(data.carriedShortfallUsdt ?? 0) > 0 ? <p className="commission-notice rounded-xl border border-amber-300/30 p-3 text-sm">{message("Unpaid balance carried to your next commission:", "رصيد غير مدفوع يُرحّل إلى العمولة التالية:")} <span dir="ltr">{data.carriedShortfallUsdt?.toLocaleString("en-US", { maximumFractionDigits: 6 })} USDT</span></p> : null}
       {data.verificationCode ? <p role="status" className="commission-notice rounded-xl border border-amber-300/20 p-3 text-sm">{data.verificationCode === "receipt_pending" ? message("Payment found. Waiting for network confirmation. Do not send again.", "وُجدت الدفعة. ننتظر تأكيد الشبكة. لا تُعد الإرسال.") : data.verificationCode === "verification_unavailable" ? message("Verification is delayed. We will keep checking. Do not send again.", "تأخر التحقق. نواصل الفحص. لا تُعد الإرسال.") : message("Payment needs review. Check the original amount, network, and address. Do not pay again.", "تحتاج الدفعة للمراجعة. راجع المبلغ والشبكة والعنوان الأصلي. لا تدفع مجددًا.")}</p> : null}
-      {data.status === "paid" && data.pendingCount === 0 ? <p role="status" className="commission-notice">{message("Paid. No commission due. Other account restrictions may still apply.", "تم الدفع. لا توجد عمولة مستحقة. قد تبقى قيود أخرى على الحساب.")}</p> : null}
+      {data.status === "paid" && data.pendingCount === 0 ? <p role="status" className="commission-notice">{(data.carriedShortfallUsdt ?? 0) > 0 ? message("Payment verified. No commission payment is due now. Other account restrictions may still apply.", "تم تأكيد الدفع. لا توجد دفعة عمولة مستحقة الآن. قد تبقى قيود أخرى على الحساب.") : message("Paid. No commission due. Other account restrictions may still apply.", "تم الدفع. لا توجد عمولة مستحقة. قد تبقى قيود أخرى على الحساب.")}</p> : null}
       {data.status === "changed" ? <p role="alert" className="commission-notice">{message("The amount due changed. Check your original payment. Do not send again.", "تغيّر المبلغ المستحق. راجع دفعتك الأصلية. لا تُعد الإرسال.")}</p> : null}
       {(!checkout || changingNetwork) && data.pendingCount > 0 ? <>
         <p className="text-sm text-slate-300">{changingNetwork ? message("Choose the correct network before sending. The receiving address and exact payment amount will update.", "اختر الشبكة الصحيحة قبل الإرسال. سيتم تحديث عنوان الاستلام والمبلغ الدقيق.") : message("Choose your network, then get payment instructions.", "اختر الشبكة، ثم اعرض تعليمات الدفع.")}</p>
@@ -229,7 +232,7 @@ function CheckoutContent({ isAr, embedded = false, onSettled, sessionAvailable }
     </section> : null}
     <button type="button" className="min-h-11 rounded-lg border border-white/20 px-4 py-2 text-sm" onClick={() => void refresh()} disabled={!authorized || busy}>{message("Refresh payment status", "تحديث حالة الدفع")}</button>
     <HelpDetails title={message("Payment details", "تفاصيل الدفع")}>
-      <p>{message(`Up to ${COMMISSION_TOLERANCE_USDT} USDT above or below the combined total is accepted after verification. Ambiguous payments need review. Copy the final amount, including its decimal reference.`, `يُقبل فرق حتى ${COMMISSION_TOLERANCE_USDT} USDT زيادة أو نقصانًا عن الإجمالي بعد التحقق. الدفعات غير الواضحة تحتاج للمراجعة. انسخ المبلغ النهائي بكامل كسوره.`)}</p>
+      <p>{message(`Up to ${COMMISSION_TOLERANCE_USDT} USDT above or below the combined total is accepted after verification. Any unpaid difference carries forward to the next commission. Ambiguous payments need review. Copy the final amount, including its decimal reference.`, `يُقبل فرق حتى ${COMMISSION_TOLERANCE_USDT} USDT زيادة أو نقصانًا عن الإجمالي بعد التحقق. يُرحّل أي فرق غير مدفوع إلى العمولة التالية. الدفعات غير الواضحة تحتاج للمراجعة. انسخ المبلغ النهائي بكامل كسوره.`)}</p>
       <p>{message("Matching payments settle automatically. No screenshot, transaction ID, or owner approval is needed. Do not send a top-up while waiting.", "تُسوّى الدفعات المطابقة تلقائيًا دون صورة أو معرّف معاملة أو موافقة المالك. لا ترسل مبلغًا إضافيًا أثناء الانتظار.")}</p>
       {data?.checkedAt && Number.isFinite(Date.parse(data.checkedAt)) ? <p>{message("Status refreshed", "آخر تحديث للحالة")}: <time dateTime={data.checkedAt}>{new Date(data.checkedAt).toLocaleString(isAr ? "ar" : "en-US")}</time></p> : null}
       {data?.lastVerificationCheckAt && Number.isFinite(Date.parse(data.lastVerificationCheckAt)) ? <p>{message("Last payment check", "آخر فحص للدفع")}: <time dateTime={data.lastVerificationCheckAt}>{new Date(data.lastVerificationCheckAt).toLocaleString(isAr ? "ar" : "en-US")}</time></p> : null}

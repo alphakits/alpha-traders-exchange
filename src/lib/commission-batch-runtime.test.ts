@@ -69,6 +69,16 @@ describe("actual repository and batch runtime", () => {
     const snapshot = globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb;
     expect(snapshot.notifications.filter((item) => item.reason === "commission_payment_verified")).toHaveLength(1);
     expect(snapshot.auditLogs.filter((entry) => entry.action === "commission_paid")).toHaveLength(1);
+    const createdAt = new Date().toISOString();
+    snapshot.commissionRecords.push({ id: "new-debt", sellerId: "seller", rate: .01, grossAmount: 4000,
+      commissionAmount: 40, paymentStatus: "pending", createdAt, updatedAt: createdAt });
+    await getSellerCommissionStatus("seller");
+    const current = globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb;
+    expect(current.commissionRecords.filter(row => row.source === "tolerance_carry_forward")).toMatchObject([
+      { sellerId: "seller", commissionAmount: .3, paymentStatus: "pending" },
+    ]);
+    await getSellerCommissionStatus("seller");
+    expect((globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb).commissionRecords.filter(row => row.source === "tolerance_carry_forward")).toHaveLength(1);
   });
   it("independent receipt verification still blocks settlement after owner association", async () => {
     mocks.binance.mockResolvedValue({ verified: false, pending: true }); const runtime = await getCommissionBatchRuntime(); await runtime.approve(input);

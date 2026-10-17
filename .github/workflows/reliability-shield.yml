@@ -215,6 +215,14 @@ jobs:
         run: npx playwright install --with-deps chromium
       - name: Verify mandatory phone gates and exact owner exceptions
         run: npm run test:e2e:phone-verification
+      - name: Preserve adult confirmation visual checks
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: adult-confirmation-screenshots
+          path: test-results/**/adult-*.png
+          if-no-files-found: ignore
+          retention-days: 14
       - name: Preserve failure diagnostics
         if: failure()
         uses: actions/upload-artifact@v4

@@ -15,6 +15,14 @@ beforeEach(() => {
 });
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 async function flush() { await act(async () => { for (let i = 0; i < 16; i++) await Promise.resolve(); }); }
+it.each([false, true])("discloses the carried balance after a verified payment (Arabic=%s)", async isAr => {
+  fetchMock.mockResolvedValue(response({ ...ready, status: "paid", pendingCount: 0, totalDueUsdt: 0, carriedShortfallUsdt: 2 }));
+  render(<CommissionCheckoutPanel isAr={isAr} />);
+  await screen.findByText(isAr ? /رصيد غير مدفوع يُرحّل/ : /Unpaid balance carried/);
+  expect(screen.getByText("2 USDT")).toBeTruthy();
+  expect(screen.queryByRole("checkbox")).toBeNull();
+  expect(screen.queryByText(/Paid\. No commission due\./)).toBeNull();
+});
 it.each([0.002, 8.304056])("prefills the exact %s commission without rounding it to cents", async totalDueUsdt => {
   fetchMock.mockResolvedValue(response({ ...ready, totalDueUsdt }));
   render(<CommissionCheckoutPanel isAr={false} />);

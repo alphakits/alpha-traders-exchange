@@ -4,7 +4,8 @@ import type { AlphaExchangeDb } from "@/types/alpha-exchange";
 vi.mock("@/lib/postgres-runtime", () => ({ getRuntimePostgresPool: () => null }));
 import { getAlphaExchangeRepository } from "@/lib/alpha-exchange-repository";
 import { consumeEmailVerificationToken, consumePasswordResetToken, createEmailVerificationTokenForUser,
-  createPasswordResetToken, hashToken, invalidateAlphaExchangeStoreCache, updateUserPassword } from "@/lib/alpha-exchange-store";
+  createPasswordResetToken, hashToken, invalidateAlphaExchangeStoreCache, updateUserPassword,
+  confirmAdultEligibility, findUserById, upsertUserProfileForAuth } from "@/lib/alpha-exchange-store";
 
 const current = () => globalThis.__alphaExchangeMemorySnapshot as unknown as AlphaExchangeDb;
 beforeEach(() => {
@@ -24,6 +25,36 @@ beforeEach(() => {
 it("keeps concurrent password updates for different accounts", async () => {
   await Promise.all([updateUserPassword("account-a", "new-hash-a"), updateUserPassword("account-b", "new-hash-b")]);
   expect(current().users.map(user => user.passwordHash)).toEqual(["new-hash-a", "new-hash-b"]);
+});
+
+it("persists adult confirmation across reloads and retries without changing another account", async () => {
+  const first = await confirmAdultEligibility("account-a", true);
+  const confirmed = first.ageEligibility;
+  expect(confirmed?.method).toBe("self_attestation_v1");
+  expect(current().users[1].ageEligibility).toBeUndefined();
+  invalidateAlphaExchangeStoreCache();
+  expect((await findUserById("account-a"))?.ageEligibility).toEqual(confirmed);
+  expect((await confirmAdultEligibility("account-a", true)).ageEligibility).toEqual(confirmed);
+  await expect(confirmAdultEligibility("account-b", "true")).rejects.toThrow("Adult confirmation");
+});
+
+it("does not approve adult eligibility through unauthenticated profile synchronization", async () => {
+  await upsertUserProfileForAuth({ fullName: "account-a", email: "account-a@example.test", whatsappNumber: "", ageConfirmed: true });
+  expect(current().users[0].ageEligibility).toBeUndefined();
+});
+
+it("rechecks a concurrent account disable before adult confirmation commits", async () => {
+  const repository = await getAlphaExchangeRepository();
+  const persist = repository.saveSnapshot.bind(repository);
+  const save = vi.spyOn(repository, "saveSnapshot").mockImplementationOnce(async (incoming, options) => {
+    const newer = await repository.loadSnapshot(); newer.users[0].disabled = true;
+    await persist(newer, { selectedTables: ["users"] }); await persist(incoming, options);
+  });
+  try {
+    await expect(confirmAdultEligibility("account-a", true)).rejects.toThrow("restricted");
+    expect(current().users[0].disabled).toBe(true);
+    expect(current().users[0].ageEligibility).toBeUndefined();
+  } finally { save.mockRestore(); }
 });
 
 it("does not undo a security restriction committed while a password write waits", async () => {

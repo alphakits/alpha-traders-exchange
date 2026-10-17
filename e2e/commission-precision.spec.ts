@@ -16,6 +16,7 @@ for (const locale of ["en", "ar"] as const) {
       expect(login.ok()).toBeTruthy();
       let due = 0.002;
       let issued = false;
+      let carried = false;
       const writes: unknown[] = [];
       await page.route("**/api/alpha-exchange/commissions/checkout", async route => {
         if (route.request().method() === "POST") {
@@ -23,6 +24,10 @@ for (const locale of ["en", "ar"] as const) {
           expect(body).toEqual({ network: "TRC20", desiredAmount: String(due), hasNotPaidYet: true });
           writes.push(body);
           issued = true;
+        }
+        if (carried) {
+          await route.fulfill({ json: { status: "paid", pendingCount: 0, totalDueUsdt: 0, carriedShortfallUsdt: 2, walletAddress: null, checkout: null } });
+          return;
         }
         await route.fulfill({ json: {
           status: issued ? "waiting" : "ready", pendingCount: 1, totalDueUsdt: due,
@@ -48,6 +53,13 @@ for (const locale of ["en", "ar"] as const) {
         await page.screenshot({ path: testInfo.outputPath(`commission-precision-${amount}-${device}-${locale}.png`), fullPage: true, animations: "disabled" });
       }
       expect(writes).toHaveLength(2);
+      carried = true;
+      await page.reload();
+      await expect(page.getByText(locale === "en" ? /Unpaid balance carried to your next commission/ : /رصيد غير مدفوع يُرحّل إلى العمولة التالية/)).toBeVisible();
+      await expect(page.getByText("2 USDT", { exact: true })).toBeVisible();
+      await expect(page.getByRole("checkbox")).toHaveCount(0);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+      await page.screenshot({ path: testInfo.outputPath(`commission-carry-${device}-${locale}.png`), fullPage: true, animations: "disabled" });
     });
   }
 }

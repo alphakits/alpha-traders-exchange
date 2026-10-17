@@ -990,7 +990,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
       if (!query) return true;
       const tradeId = request?.tradeId ?? record.tradeId ?? record.purchaseRequestId ?? "";
       const tradeLabel = request || tradeId ? displayTradeId(request, tradeId) : "";
-      const sourceLabel = record.source === "admin_manual" ? "admin-issued manual commission" : "trade commission";
+      const sourceLabel = record.source === "tolerance_carry_forward" ? "carried commission balance" : record.source === "admin_manual" ? "admin-issued manual commission" : "trade commission";
       const haystack = `${record.id} ${displayCommissionId(record)} ${tradeId} ${tradeLabel} ${request?.buyerName ?? record.buyerId ?? ""} ${accountLabel(record.sellerId)} ${sourceLabel} ${record.issueReason ?? ""}`.toLowerCase();
       return haystack.includes(query);
     });
@@ -1588,8 +1588,8 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
         const tradeId = request || record.tradeId || record.purchaseRequestId
           ? displayTradeId(request, record.tradeId ?? record.purchaseRequestId)
           : "";
-        const source = record.source === "admin_manual" ? "Admin-issued" : "Trade";
-        const tradeValue = record.source === "admin_manual" ? "" : record.grossAmount.toFixed(2);
+        const source = record.source === "tolerance_carry_forward" ? "Carried balance" : record.source === "admin_manual" ? "Admin-issued" : "Trade";
+        const tradeValue = record.source === "admin_manual" || record.source === "tolerance_carry_forward" ? "" : record.grossAmount.toFixed(2);
         const reason = `"${String(record.issueReason ?? "").replace(/"/g, '""')}"`;
         return [source, tradeId, buyerName, sellerName, tradeValue, commissionAmountInput(record.commissionAmount), record.paymentStatus, reason, record.createdAt].join(",");
       }),
@@ -3110,9 +3110,10 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                               ? (data.purchaseRequests ?? []).find((item) => item.id === record.purchaseRequestId)
                               : undefined;
                             const sellerName = accountLabel(record.sellerId);
-                            const isAdminIssued = record.source === "admin_manual";
+                            const isCarried = record.source === "tolerance_carry_forward";
+                            const isAdminIssued = record.source === "admin_manual" || isCarried;
                             const sourceLabel = isAdminIssued
-                              ? `${t("Admin-issued", "صادرة عن الإدارة")} · ${displayCommissionId(record)}`
+                              ? `${(isCarried ? t("Carried balance", "رصيد مرحّل") : t("Admin-issued", "صادرة عن الإدارة"))} · ${displayCommissionId(record)}`
                               : displayTradeId(request, record.tradeId ?? record.purchaseRequestId);
                             const exactPayment = typeof record.paymentExpectedAmount === "number"
                               ? record.paymentExpectedAmount
@@ -3133,7 +3134,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                     {isAdminIssued ? (
                                       <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-1.5">
                                         <span className="rounded-full border border-[#C9A227]/30 bg-[#C9A227]/10 px-2 py-0.5 text-[10px] font-semibold text-[#F4D87A]">
-                                          {t("Admin-issued", "صادرة عن الإدارة")}
+                                          {(isCarried ? t("Carried balance", "رصيد مرحّل") : t("Admin-issued", "صادرة عن الإدارة"))}
                                         </span>
                                         <span className="break-all font-mono text-[11px] text-[#9CA3AF]">{currencyText(displayCommissionId(record))}</span>
                                       </div>

@@ -140,6 +140,34 @@ it("actual repository persists owner-free 38 for 38.30 and clears canonical sell
   expect(snapshot.notifications.filter((row) => row.reason === "commission_payment_verified")).toHaveLength(1);
   expect(snapshot.commissionRecords.every((row) => row.paymentConfirmationEmailPending)).toBe(true);
 });
+it("carries future shortfalls into the next commission instead of waiving two USDT on every payment", async () => {
+  const snapshot = globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb;
+  snapshot.commissionRecords = [{ ...snapshot.commissionRecords[0], commissionAmount: 40, paymentExpectedAmount: 40.000001 }];
+  let received = 0;
+  for (let cycle = 0; cycle < 3; cycle++) {
+    if (cycle) {
+      const current = globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb;
+      const createdAt = new Date().toISOString();
+      current.commissionRecords.push({ id: `next-${cycle}`, sellerId: "seller", rate: .01, grossAmount: 4000,
+        commissionAmount: 40, paymentStatus: "pending", createdAt, updatedAt: createdAt });
+    }
+    // Recreate the runtime to prove that the balance is persisted, not cached.
+    const service = await getCommissionCheckoutRuntime();
+    const state = await service.state("seller");
+    expect(state.totalDueUsdt).toBeCloseTo((cycle + 1) * 40 - received, 6);
+    if (cycle) await expect(service.issue({ sellerId: "seller", network: "BEP20", desiredAmount: "38" })).rejects.toMatchObject({ code: "outside_tolerance" });
+    const checkout = await service.issue({ sellerId: "seller", network: "BEP20", desiredAmount: cycle ? "40" : "38" });
+    const payment = { signature: `binance-deposit:${900000 + cycle}`, network: "BEP20" as const,
+      amountMicros: checkout.expectedMicros, timestamp: Date.parse(checkout.createdAt) + 1 };
+    received += payment.amountMicros / 1e6;
+    expect((await service.reconcile({ deposits: [payment], deadline: Date.now() + 60_000 })).verified).toBe(1);
+    expect((await service.reconcile({ deposits: [payment], deadline: Date.now() + 60_000 })).verified).toBe(0);
+  }
+  const state = await (await getCommissionCheckoutRuntime()).state("seller");
+  expect(state).toMatchObject({ status: "paid", pendingCount: 0 });
+  expect(state).toHaveProperty("carriedShortfallUsdt", expect.any(Number));
+  expect(120 - received).toBeLessThanOrEqual(2);
+});
 it("discovers an unselected 14 USDT receipt against 14.44, verifies it and clears canonical seller restrictions", async () => {
   const snapshot = globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb;
   snapshot.commissionRecords = [{ ...snapshot.commissionRecords[0], commissionAmount: 14.44,

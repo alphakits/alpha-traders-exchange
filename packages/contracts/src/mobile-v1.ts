@@ -31,6 +31,7 @@ export type MobileApiErrorCode =
   | "INVALID_CREDENTIALS"
   | "EMAIL_VERIFICATION_REQUIRED"
   | "PHONE_VERIFICATION_REQUIRED"
+  | "AGE_CONFIRMATION_REQUIRED"
   | "ACCOUNT_DISABLED"
   | "BUYER_ROLE_REQUIRED"
   | "SELLER_ROLE_REQUIRED"
@@ -766,7 +767,7 @@ export interface MobileSellerCommissionRecord {
     sellerFeeAmount?: number;
     buyerFeeCollectedAmount?: number;
   commissionId: string;
-  source?: "trade" | "admin_manual";
+  source?: "trade" | "admin_manual" | "tolerance_carry_forward";
   issueReason?: string;
   /** Exact USDT amount to transfer; includes the six-decimal verification suffix. */
   amountDue: number;
