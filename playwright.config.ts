@@ -23,6 +23,8 @@ export default defineConfig({
     url: E2E_BASE_URL,
     reuseExistingServer: false,
     timeout: 600_000,
+    stdout: "pipe",
+    stderr: "pipe",
     env: {
       ...process.env,
       NODE_ENV: "production",
