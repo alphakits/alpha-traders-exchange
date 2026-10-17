@@ -26,8 +26,23 @@ it.each([false, true])("discloses the carried balance after a verified payment (
 it.each([0.002, 8.304056])("prefills the exact %s commission without rounding it to cents", async totalDueUsdt => {
   fetchMock.mockResolvedValue(response({ ...ready, totalDueUsdt }));
   render(<CommissionCheckoutPanel isAr={false} />);
-  const input = await screen.findByLabelText("Payment amount (USDT)");
+  const input = await screen.findByLabelText("Amount to receive (USDT)");
   await waitFor(() => expect((input as HTMLInputElement).value).toBe(String(totalDueUsdt)));
+});
+it.each([false, true])("copies the exact net receipt target without adding the example network fee (Arabic=%s)", async isAr => {
+  const writeText = vi.fn().mockResolvedValue(undefined);
+  const original = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+  Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+  try {
+    fetchMock.mockResolvedValue(response({ ...waiting, checkout: { ...waiting.checkout, expectedMicros: 40_000_001 } }));
+    render(<CommissionCheckoutPanel isAr={isAr} />);
+    fireEvent.click(await screen.findByRole("button", { name: isAr ? "نسخ مبلغ الاستلام" : "Copy receive amount" }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledExactlyOnceWith("40.000001"));
+    expect(fetchMock.mock.calls.filter((call) => call[1]?.method === "POST")).toHaveLength(0);
+  } finally {
+    if (original) Object.defineProperty(navigator, "clipboard", original);
+    else Reflect.deleteProperty(navigator, "clipboard");
+  }
 });
 it("opens a network change without old wallet controls, permits cancellation, and requires acknowledgement", async () => {
   fetchMock.mockResolvedValue(response({ ...waiting, canChangeNetwork: true }));
@@ -35,7 +50,7 @@ it("opens a network change without old wallet controls, permits cancellation, an
   fireEvent.click(await screen.findByRole("button", { name: "Change network" }));
   expect(screen.queryByText(wallet)).toBeNull();
   expect(screen.queryByRole("button", { name: "Copy receiving address" })).toBeNull();
-  expect(screen.queryByLabelText("Payment amount (USDT)")).toBeNull();
+  expect(screen.queryByLabelText("Amount to receive (USDT)")).toBeNull();
   fireEvent.change(screen.getByLabelText("Network"), { target: { value: "TRC20" } });
   expect((screen.getByRole("button", { name: "Update payment network" }) as HTMLButtonElement).disabled).toBe(true);
   fireEvent.click(screen.getByRole("button", { name: "Keep current network" }));
@@ -85,7 +100,7 @@ it("does not permit payment creation without pre-payment acknowledgement", async
 });
 it("39 for 40 is requested by seller and waits for independent verification, not owner approval", async () => {
   render(<CommissionCheckoutPanel isAr={false} />);
-  fireEvent.change(await screen.findByLabelText("Payment amount (USDT)"), { target: { value: "39" } });
+  fireEvent.change(await screen.findByLabelText("Amount to receive (USDT)"), { target: { value: "39" } });
   fireEvent.change(screen.getByLabelText("Network"), { target: { value: "BEP20" } });
   fireEvent.click(screen.getByRole("checkbox"));
   fetchMock.mockResolvedValueOnce(response({ status: "waiting" }, 201)).mockResolvedValue(response(waiting));
@@ -150,7 +165,7 @@ it.each(["fetch", "body"])("releases a stalled status %s and permits a fresh rea
   await act(async () => { await vi.advanceTimersByTimeAsync(12_000); });
   expect(screen.getByRole("alert").textContent).toContain("Do not send another payment");
   fireEvent.click(screen.getByRole("button", { name: "Refresh payment status" })); await flush();
-  expect(screen.getByLabelText("Payment amount (USDT)")).toBeTruthy();
+  expect(screen.getByLabelText("Amount to receive (USDT)")).toBeTruthy();
 });
 it.each(["fetch", "body"])("reconciles a stalled checkout %s using a read without repeating the mutation", async (phase) => {
   vi.useFakeTimers();
@@ -197,7 +212,7 @@ it("replaces a cancelled locale read immediately and ignores its late response",
   fetchMock.mockImplementationOnce(() => new Promise((resolve) => { resolveRead = resolve; }));
   const view = render(<CommissionCheckoutPanel isAr={false} />); await flush();
   view.rerender(<CommissionCheckoutPanel isAr />); await flush();
-  expect(screen.getByLabelText("مبلغ الدفع (USDT)")).toBeTruthy();
+  expect(screen.getByLabelText("مبلغ الاستلام (USDT)")).toBeTruthy();
   await act(async () => { resolveRead(response(waiting)); });
   expect(screen.queryByText(wallet)).toBeNull();
 });
@@ -209,7 +224,7 @@ it("pauses offline reads and recovers automatically when connectivity returns", 
   expect(fetchMock).not.toHaveBeenCalled();
   vi.spyOn(navigator, "onLine", "get").mockReturnValue(true);
   act(() => window.dispatchEvent(new Event("online"))); await flush();
-  expect(screen.getByLabelText("Payment amount (USDT)")).toBeTruthy();
+  expect(screen.getByLabelText("Amount to receive (USDT)")).toBeTruthy();
 });
 it("rejects a contradictory paid result without notifying the workspace", async () => {
   const onSettled = vi.fn();

@@ -36,23 +36,42 @@ for (const locale of ["en", "ar"] as const) {
             dueMicros: Math.round(due * 1e6), expectedMicros: Math.round(due * 1e6) } : null,
         } });
       });
-      for (const amount of [0.002, 8.304056]) {
+      for (const amount of [0.002, 8.304056, 40]) {
         due = amount;
         issued = false;
         await page.goto(`/${locale}/seller/commission-checkout`);
-        await expect(page.getByLabel(locale === "en" ? "Payment amount (USDT)" : "مبلغ الدفع (USDT)", { exact: true })).toHaveValue(String(amount));
+        await expect(page.getByLabel(locale === "en" ? "Amount to receive (USDT)" : "مبلغ الاستلام (USDT)", { exact: true })).toHaveValue(String(amount));
         await expect(page.getByText(`${amount} USDT`, { exact: true })).toBeVisible();
         await page.getByRole("checkbox", { name: locale === "en" ? "I have not sent this payment yet." : "لم أرسل هذه الدفعة بعد.", exact: true }).check();
         await page.getByRole("button", { name: locale === "en" ? "Get payment instructions" : "عرض تعليمات الدفع", exact: true }).click();
         await expect(page.getByText(`${amount.toFixed(6)} USDT`, { exact: true }).last()).toBeVisible();
+        await expect(page.getByRole("heading", { name: locale === "en" ? "Platform must receive" : "يجب أن تستلم المنصة", exact: true })).toBeVisible();
         await expect(page.getByText(CANONICAL_TRC20_COMMISSION_WALLET, { exact: true })).toBeVisible();
         await expect(page.getByRole("status").filter({ hasText: locale === "en" ? "Waiting for payment confirmation" : "بانتظار تأكيد الدفع" })).toBeVisible();
         await page.reload();
         await expect(page.getByText(`${amount.toFixed(6)} USDT`, { exact: true }).last()).toBeVisible();
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
         await page.screenshot({ path: testInfo.outputPath(`commission-precision-${amount}-${device}-${locale}.png`), fullPage: true, animations: "disabled" });
+        if (amount === 40) {
+          const example = page.locator("details").filter({ has: page.locator("summary", { hasText: locale === "en" ? "Fee example" : "مثال على الرسوم" }) });
+          await expect(example).not.toHaveAttribute("open", "");
+          await example.locator("summary").click();
+          await expect(example).toHaveAttribute("open", "");
+          expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+          const heading = page.getByRole("heading", { name: locale === "en" ? "Platform must receive" : "يجب أن تستلم المنصة", exact: true });
+          await heading.scrollIntoViewIfNeeded();
+          const [surfaceBox, headingBox, exampleBox] = await Promise.all([
+            page.locator(".commission-surface").boundingBox(), heading.boundingBox(), example.boundingBox(),
+          ]);
+          expect(surfaceBox && headingBox && exampleBox).toBeTruthy();
+          // This shareable synthetic example excludes addresses, account details
+          // and real payment records; capture only the receiving amount and fee.
+          await page.screenshot({ path: testInfo.outputPath(`commission-fee-example-${device}-${locale}.png`), animations: "disabled",
+            clip: { x: surfaceBox!.x, y: headingBox!.y - 8, width: surfaceBox!.width,
+              height: exampleBox!.y + exampleBox!.height - headingBox!.y + 16 } });
+        }
       }
-      expect(writes).toHaveLength(2);
+      expect(writes).toHaveLength(3);
       carried = true;
       await page.reload();
       await expect(page.getByText(locale === "en" ? /Unpaid balance carried to your next commission/ : /رصيد غير مدفوع يُرحّل إلى العمولة التالية/)).toBeVisible();

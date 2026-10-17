@@ -102,7 +102,7 @@ async function main() {
       await page.goto(`/${locale}/seller/commission-checkout`, { waitUntil: 'domcontentloaded', timeout: 120000 });
       await expect(page.getByRole('heading', { name: locale === 'en' ? 'Pay commission' : 'دفع العمولة', exact: true })).toBeVisible();
       if (payment.status === 'ready') await expect(page.locator('.commission-surface input[type=checkbox]')).toBeVisible();
-      else await expect(page.locator('.commission-surface').getByRole('button', {name: locale === 'en' ? 'Copy exact amount' : 'نسخ المبلغ كاملًا'})).toBeVisible();
+      else await expect(page.locator('.commission-surface').getByRole('button', {name: locale === 'en' ? 'Copy receive amount' : 'نسخ مبلغ الاستلام'})).toBeVisible();
       await noOverflow(page, `${locale} commission ${payment.status}`);
       await shot(`after-checkout-${payment.status}-${locale}`, page.locator('.commission-surface'));
       await page.unroute('**/api/alpha-exchange/commissions/checkout');

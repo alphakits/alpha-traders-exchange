@@ -38,6 +38,34 @@ async function prepared() {
   const payment = { signature, network: "BEP20" as const, amountMicros: checkout.expectedMicros, timestamp: Date.parse(checkout.createdAt) + 1 };
   return { service, checkout, payment };
 }
+it.each(["TRC20", "BEP20"] as const)("automatically settles a full 40 USDT net receipt on %s once, after finality, without charging the sender's fee again", async (network) => {
+  const initial = globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb;
+  initial.commissionRecords = [{ ...initial.commissionRecords[0], commissionAmount: 40, paymentExpectedAmount: 40.000001 }];
+  const service = await getCommissionCheckoutRuntime();
+  const checkout = await service.issue({ sellerId: "seller", network });
+  expect(checkout.expectedMicros).toBe(40_000_000);
+  // Providers prove the net transfer to the platform; the sender's fee is
+  // external to the commission and must not become a second amount owed.
+  const payment = { signature: network === "TRC20" ? "f".repeat(64) : `0x${"f".repeat(64)}`,
+    network, amountMicros: 40_000_000, timestamp: Date.parse(checkout.createdAt) + 1 };
+  const scanner = network === "TRC20" ? mocks.scanTron : mocks.scanBsc;
+  const verifier = network === "TRC20" ? mocks.tron : mocks.bep20;
+  scanner.mockResolvedValue({ configured: true, complete: true, pages: 1, deposits: [payment] });
+  verifier.mockResolvedValue({ verified: false, pending: true });
+  expect(await service.scan(Date.now() + 60_000)).toMatchObject({ verified: 0, pending: 1 });
+  expect((await getSellerCommissionStatus("seller")).pendingCount).toBe(1);
+
+  verifier.mockResolvedValue({ verified: true, pending: false });
+  const reloaded = await getCommissionCheckoutRuntime();
+  const outcomes = await Promise.all([reloaded.scan(Date.now() + 60_000), service.scan(Date.now() + 60_000)]);
+  expect(outcomes.reduce((sum, result) => sum + result.verified, 0)).toBe(1);
+  expect(await reloaded.state("seller")).toMatchObject({ status: "paid", pendingCount: 0, totalDueUsdt: 0 });
+  const final = globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb;
+  expect(final.commissionRecords[0]).toMatchObject({ commissionAmount: 40, paymentStatus: "paid",
+    paymentBatchSettlement: { receivedMicros: 40_000_000, excessMicros: 0, waivedMicros: 0 } });
+  expect(final.notifications.filter((row) => row.reason === "commission_payment_verified")).toHaveLength(1);
+  expect((await reloaded.scan(Date.now() + 60_000)).verified).toBe(0);
+});
 it("switches a mistaken TRC20 choice to BEP20, survives reload, and clears restrictions after automatic verification", async () => {
   const service = await getCommissionCheckoutRuntime();
   const original = await service.issue({ sellerId: "seller", network: "TRC20", desiredAmount: "38" });
