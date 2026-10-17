@@ -2355,9 +2355,6 @@ export class AlphaExchangeRepository {
       const retryProjection = Boolean(requestId && nextStatus);
       const scopedRetryUsers = retryProjection && Boolean(actorUserId) && selectedNames.includes("users");
       const scopedParticipantUsers = scopedRetryUsers && (nextStatus === "accepted" || nextStatus === "completed");
-      const requestScope = retryProjection ? `seller_id = (select seller_id from alpha_exchange.purchase_requests where id = $1)
-        or buyer_id = (select buyer_id from alpha_exchange.purchase_requests where id = $1)
-        or exists (select 1 from alpha_exchange.purchase_requests where coalesce(payload->>'displayNumber', '') !~ '^[1-9][0-9]*$')` : "true";
       // A terminal retry still goes through every store permission/credential
       // guard, but cannot write. Its response needs the canonical request,
       // identities, evidence and disputes, not unrelated financial/history rows.
@@ -2365,28 +2362,37 @@ export class AlphaExchangeRepository {
       const retryModeSql = trustReconciliation ? `with lifecycle_mode as materialized (select exists (
         select 1 from alpha_exchange.purchase_requests where payload->'trustReconciliation'->>'requestedAt' is not null
           and payload->'trustReconciliation'->>'reconciledAt' is null
-      ) as has_pending_trust) ` : retryProjection ? `with lifecycle_mode as materialized (select exists (
-        select 1 from alpha_exchange.purchase_requests where id = $1
-          and payload->>'displayNumber' ~ '^[1-9][0-9]*$'
+      ) as has_pending_trust) ` : retryProjection ? `with target_trade as materialized (
+        select id, seller_id, buyer_id, status, payload from alpha_exchange.purchase_requests where id = $1
+      ), lifecycle_mode as materialized (select exists (
+        select 1 from target_trade
+          where payload->>'displayNumber' ~ '^[1-9][0-9]*$'
           and (status = $2 or ($2 = 'completed' and status in ('review_open', 'completed', 'locked')))
-      ) as read_only_retry) ` : "";
+      ) as read_only_retry), lifecycle_requests as materialized (
+        select * from alpha_exchange.purchase_requests where id = $1
+          or (not (select read_only_retry from lifecycle_mode) and (
+            seller_id = (select seller_id from target_trade)
+            or buyer_id = (select buyer_id from target_trade)
+            or exists (select 1 from alpha_exchange.purchase_requests where coalesce(payload->>'displayNumber', '') !~ '^[1-9][0-9]*$')
+          ))
+      ) ` : "";
       const retryReadTables = new Set<SnapshotTableName>(["users", "seller_applications", "purchase_requests", "evidence", "disputes"]);
       const columns = (onlyCommittedRetry = false) => selectedNames.filter(name => !onlyCommittedRetry || retryReadTables.has(name)).map(name => {
-        const filter = retryProjection && name === "purchase_requests"
-          ? `where id = $1 or (not (select read_only_retry from lifecycle_mode) and (${requestScope}))`
-          : scopedRetryUsers && name === "users"
+        const filter = scopedRetryUsers && name === "users"
             ? `where id = $3
-                or id in (select seller_id from alpha_exchange.purchase_requests where id = $1
-                  union select buyer_id from alpha_exchange.purchase_requests where id = $1)
+                or id in (select seller_id from target_trade union select buyer_id from target_trade)
                 or (not (select read_only_retry from lifecycle_mode)${scopedParticipantUsers ? ` and (
                   payload->>'role' in ('owner', 'admin')
                   or payload->'roles' ?| array['owner', 'admin']
                   or lower(btrim(coalesce(payload->>'email', ''))) = $4
-                  or id in (select seller_id from alpha_exchange.purchase_requests where ${requestScope}
-                    union select buyer_id from alpha_exchange.purchase_requests where ${requestScope})
+                  or id in (select seller_id from lifecycle_requests union select buyer_id from lifecycle_requests)
                 )` : ""})`
           : filters[name] ?? "";
-        const aggregate = `coalesce((select json_agg(json_build_object('payload', payload, 'sort_index', sort_index) order by sort_index asc) from alpha_exchange.${name} ${filter}), '[]'::json)`;
+        // Compute the canonical request dependency set once per statement.
+        // Both account authorization and request state consume that same set,
+        // instead of rescanning histories separately for each participant side.
+        const source = retryProjection && name === "purchase_requests" ? "lifecycle_requests" : `alpha_exchange.${name}`;
+        const aggregate = `coalesce((select json_agg(json_build_object('payload', payload, 'sort_index', sort_index) order by sort_index asc) from ${source} ${filter}), '[]'::json)`;
         const projection = trustReconciliation ? `case when (select has_pending_trust from lifecycle_mode) then ${aggregate} else '[]'::json end`
           : retryProjection && !retryReadTables.has(name) ? `case when (select read_only_retry from lifecycle_mode) then '[]'::json else ${aggregate} end` : aggregate;
         return `${onlyCommittedRetry ? `case when (select read_only_retry from lifecycle_mode) then ${projection} else '[]'::json end` : projection} as "${name}"`;

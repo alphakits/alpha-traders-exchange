@@ -15,6 +15,9 @@ const PUSH_FETCH_TIMEOUT_MS = 5_000;
 const PUSH_FETCH_MAX_ATTEMPTS = 3;
 const PUSH_RETRY_DELAY_CAP_MS = 5_000;
 const MAX_PUSH_BATCH = 100;
+// The shared runtime pool has five connections. Notification bursts must not
+// occupy all of them while financial actions wait to read or commit a trade.
+const MAX_CONCURRENT_PUSH_LOOKUPS = 2;
 const EXPO_PUSH_TOKEN_PATTERN = /^Expo(?:nent)?PushToken\[[A-Za-z0-9._=+\/-]{8,220}\]$/;
 const INSTALLATION_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{7,199}$/;
 
@@ -64,6 +67,23 @@ class ExpoPushResponseError extends Error {
 }
 
 let schemaPromise: Promise<void> | null = null;
+let activePushLookups = 0;
+const pushLookupWaiters: Array<() => void> = [];
+
+async function withPushLookupSlot<T>(lookup: () => Promise<T>): Promise<T> {
+  if (activePushLookups < MAX_CONCURRENT_PUSH_LOOKUPS) {
+    activePushLookups += 1;
+  } else {
+    await new Promise<void>(resolve => pushLookupWaiters.push(resolve));
+  }
+  try {
+    return await lookup();
+  } finally {
+    const next = pushLookupWaiters.shift();
+    if (next) next(); // Transfer this slot to the oldest waiting lookup.
+    else activePushLookups -= 1;
+  }
+}
 
 function sha256(value: string) {
   return createHash("sha256").update(value).digest("hex");
@@ -518,7 +538,10 @@ export async function deliverMobilePushNotification(notification: AlphaExchangeN
   await ensurePushSchema(pool);
   // Read the committed notification and eligible sessions together. A burst
   // without any registered devices needs no separate notification/count read.
-  const result = await pool.query<{
+  // Queue only the initial database lookup. Provider calls and shared receipt
+  // recovery never retain a slot, so a slow provider cannot block other users.
+  // The row and session remain canonical when a queued lookup actually runs.
+  const result = await withPushLookupSlot(() => pool.query<{
     payload: AlphaExchangeNotification;
     unread_count: number;
     id: string;
@@ -540,7 +563,7 @@ export async function deliverMobilePushNotification(notification: AlphaExchangeN
      order by push.updated_at desc
      limit 20`,
     [notification.id, notification.userId],
-  );
+  ));
   const canonical = result.rows[0]?.payload;
   if (!canonical || canonical.isRead || canonical.state === "read" || canonical.state === "archived") {
     // Receipt recovery is independent of whether this recipient has a device.
