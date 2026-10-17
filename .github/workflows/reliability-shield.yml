@@ -269,6 +269,19 @@ jobs:
           path: test-results/
           if-no-files-found: error
           retention-days: 14
+      - name: Verify owner login destination before the full WebKit group
+        if: matrix.shard == 4
+        env:
+          PLAYWRIGHT_JSON_OUTPUT_FILE: test-results/webkit-owner-login-preflight.json
+        run: node ./node_modules/playwright/cli.js test --config=playwright.webkit.config.ts e2e/seller-listing-lifecycle.spec.ts --grep="owner listing notification destination survives login, refresh, and history navigation" --repeat-each=3 --max-failures=1 --reporter=list,json
+      - name: Preserve focused WebKit owner login evidence
+        if: always() && matrix.shard == 4
+        uses: actions/upload-artifact@v4
+        with:
+          name: webkit-owner-login-preflight
+          path: test-results/
+          if-no-files-found: error
+          retention-days: 14
       - name: Verify marketplace, payments and owner flows in WebKit
         env:
           PLAYWRIGHT_JSON_OUTPUT_FILE: test-results/webkit-critical-results.json

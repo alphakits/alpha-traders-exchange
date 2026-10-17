@@ -999,7 +999,7 @@ test("seller dashboard and exchange route consolidate recent work, exact commiss
   await seller.context.close();
 });
 
-test("owner listing notification destination survives login, refresh, and history navigation", async ({ browser }) => {
+test("owner listing notification destination survives login, refresh, and history navigation", async ({ browser }, testInfo) => {
   test.setTimeout(240_000);
   const hasFixtures = await resetLifecycleFixtures();
   test.skip(!hasFixtures, "Set E2E owner/seller credentials and seed matching runtime accounts to run lifecycle tests.");
@@ -1011,37 +1011,51 @@ test("owner listing notification destination survives login, refresh, and histor
 
   const ownerContext = await browser.newContext();
   const ownerPage = await ownerContext.newPage();
-  await ownerPage.goto(destination);
-  await expect(ownerPage).toHaveURL(/\/en\/login(?:\?|$)/, { timeout: 30_000 });
-  const loginUrl = new URL(ownerPage.url());
-  expect(loginUrl.searchParams.get("redirectTo")).toBe(destination);
+  const captureFirstAttempt = testInfo.retry === 0;
+  if (captureFirstAttempt) await ownerContext.tracing.start({ screenshots: true, snapshots: true, sources: true });
+  try {
+    await ownerPage.goto(destination);
+    await expect(ownerPage).toHaveURL(/\/en\/login(?:\?|$)/, { timeout: 30_000 });
+    const loginUrl = new URL(ownerPage.url());
+    expect(loginUrl.searchParams.get("redirectTo")).toBe(destination);
 
-  await ownerPage.getByLabel("Email").fill(OWNER_EMAIL);
-  await ownerPage.getByLabel("Password", { exact: true }).fill(OWNER_PASSWORD);
-  await Promise.all([
-    ownerPage.waitForURL(destination, { timeout: 30_000 }),
-    ownerPage.getByRole("button", { name: "Login", exact: true }).click(),
-  ]);
+    await ownerPage.getByLabel("Email").fill(OWNER_EMAIL);
+    await ownerPage.getByLabel("Password", { exact: true }).fill(OWNER_PASSWORD);
+    const [loginResponse] = await Promise.all([
+      ownerPage.waitForResponse(response => response.request().method() === "POST" && new URL(response.url()).pathname === "/api/auth/login"),
+      ownerPage.waitForURL(destination, { timeout: 30_000 }),
+      ownerPage.getByRole("button", { name: "Login", exact: true }).click(),
+    ]);
 
-  const listingRow = ownerPage.locator(`#marketplace-listing-${listingId}`);
-  await expect(listingRow).toBeVisible({ timeout: 30_000 });
-  await expect(listingRow).toBeFocused({ timeout: 30_000 });
-  for (const viewport of [{ width: 390, height: 844 }, { width: 1366, height: 900 }]) {
-    await ownerPage.setViewportSize(viewport);
-    await expect(listingRow).toBeVisible();
-    await expect(listingRow).toHaveClass(/outline/);
-    const overflow = await ownerPage.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
-    expect(overflow, `horizontal overflow at ${viewport.width}px`).toBeLessThanOrEqual(1);
+    expect(loginResponse.status()).toBe(200);
+
+    const listingRow = ownerPage.locator(`#marketplace-listing-${listingId}`);
+    await expect(listingRow).toBeVisible({ timeout: 30_000 });
+    await expect(listingRow).toBeFocused({ timeout: 30_000 });
+    for (const viewport of [{ width: 390, height: 844 }, { width: 1366, height: 900 }]) {
+      await ownerPage.setViewportSize(viewport);
+      await expect(listingRow).toBeVisible();
+      await expect(listingRow).toHaveClass(/outline/);
+      const overflow = await ownerPage.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+      expect(overflow, `horizontal overflow at ${viewport.width}px`).toBeLessThanOrEqual(1);
+    }
+
+    await ownerPage.goto("/en/admin/alpha-exchange?section=overview");
+    await ownerPage.goBack();
+    await expect(ownerPage).toHaveURL(destination);
+    await expect(listingRow).toBeFocused({ timeout: 30_000 });
+    await ownerPage.goForward();
+    await expect(ownerPage).toHaveURL(/section=overview/);
+  } catch (error) {
+    if (captureFirstAttempt) {
+      const tracePath = testInfo.outputPath("owner-login-first-failure.zip");
+      await ownerContext.tracing.stop({ path: tracePath });
+      await testInfo.attach("owner-login-first-failure", { path: tracePath, contentType: "application/zip" });
+    }
+    throw error;
+  } finally {
+    await Promise.all([seller.context.close(), ownerContext.close()]);
   }
-
-  await ownerPage.goto("/en/admin/alpha-exchange?section=overview");
-  await ownerPage.goBack();
-  await expect(ownerPage).toHaveURL(destination);
-  await expect(listingRow).toBeFocused({ timeout: 30_000 });
-  await ownerPage.goForward();
-  await expect(ownerPage).toHaveURL(/section=overview/);
-
-  await Promise.all([seller.context.close(), ownerContext.close()]);
 });
 
 test("seller listing lifecycle is enforced end-to-end", async ({ browser }) => {
