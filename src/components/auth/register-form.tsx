@@ -176,7 +176,7 @@ export function RegisterForm({ locale, learningIntent = false, mentorshipIntent 
           {isAr ? "جميع الحقول مطلوبة. تحقّق من بريدك الإلكتروني لتفعيل الحساب." : "All fields are required. Verify your email to activate your account."}
         </p>
 
-        <form className="mt-6 grid gap-3" onSubmit={handleSubmit}>
+        <form dir={isAr ? "rtl" : "ltr"} className="mt-6 grid gap-3" onSubmit={handleSubmit}>
           <Input aria-label={isAr ? "الاسم الكامل" : "Full Name"} placeholder={isAr ? "الاسم الكامل" : "Full Name"} autoComplete="name" maxLength={100} required value={form.fullName} onChange={(event) => setForm((prev) => ({ ...prev, fullName: event.target.value }))} />
           <Input aria-label={isAr ? "البريد الإلكتروني" : "Email"} placeholder={isAr ? "البريد الإلكتروني" : "Email"} type="email" autoComplete="email" maxLength={254} required value={form.email} onChange={(event) => setForm((prev) => ({ ...prev, email: event.target.value }))} />
           <Input aria-label={isAr ? "كلمة المرور" : "Password"} placeholder={isAr ? "كلمة المرور" : "Password"} type="password" autoComplete="new-password" minLength={8} required value={form.password} onChange={(event) => setForm((prev) => ({ ...prev, password: event.target.value }))} />
@@ -185,7 +185,7 @@ export function RegisterForm({ locale, learningIntent = false, mentorshipIntent 
           <p id="registration-whatsapp-help" className="text-xs text-[#9CA3AF]">
             {brandText(isAr ? "لدعم حسابك. الرقم خاص افتراضيًا. استخدم رقمًا إسرائيليًا يبدأ بـ05 أو أضف رمز الدولة." : "For account support. Private by default. Use an Israeli 05 number or include your country code.")}
           </p>
-          <label className={`inline-flex items-start gap-2 text-sm text-[#D1D5DB] ${isAr ? "flex-row-reverse" : ""}`}>
+          <label className="inline-flex items-start gap-2 text-sm text-[#D1D5DB]">
             <input
               type="checkbox"
               required
@@ -195,7 +195,7 @@ export function RegisterForm({ locale, learningIntent = false, mentorshipIntent 
             />
             {isAr ? "أوافق على شروط الخدمة." : "I agree to the Terms of Service."}
           </label>
-          <label className={`inline-flex items-start gap-2 text-sm text-[#D1D5DB] ${isAr ? "flex-row-reverse" : ""}`}>
+          <label className="inline-flex items-start gap-2 text-sm text-[#D1D5DB]">
             <input type="checkbox" required checked={form.ageConfirmed}
               onChange={event => setForm(previous => ({ ...previous, ageConfirmed: event.target.checked }))}
               className="mt-0.5 h-4 w-4 rounded border-white/30 bg-transparent accent-[#C9A227]" />

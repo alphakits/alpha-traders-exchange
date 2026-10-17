@@ -11,6 +11,13 @@ for (const locale of ["en", "ar"] as const) for (const width of [390, 1440]) {
     const label = locale === "en" ? "I confirm that I am 18 or older." : "أؤكد أن عمري 18 عامًا أو أكثر.";
     await page.goto(`/${locale}/register`);
     await expect(page.getByRole("checkbox", { name: label, exact: true })).not.toBeChecked();
+    const checkboxAlignment = await page.locator('form input[type="checkbox"]').evaluateAll(elements => elements.map(element => {
+      const checkbox = element.getBoundingClientRect();
+      const parent = element.parentElement!;
+      const label = parent.getBoundingClientRect();
+      return Math.abs(getComputedStyle(parent).direction === "rtl" ? label.right - checkbox.right : checkbox.left - label.left) < 2;
+    }));
+    expect(checkboxAlignment, "Terms and age checkboxes follow the form's reading direction").toEqual([true, true]);
     await page.screenshot({ path: testInfo.outputPath(`adult-register-${locale}-${width}.png`), fullPage: true });
     const user = await provision(page.request, "buyer", true, undefined, undefined, false);
     await login(page, user);
