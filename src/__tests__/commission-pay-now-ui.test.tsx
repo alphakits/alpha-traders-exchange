@@ -407,6 +407,26 @@ describe("seller commission Pay Now", () => {
     });
   });
 
+  it.each(["en", "ar"] as const)("distinguishes carried and manual obligations and localizes the carried reason in %s", async (locale) => {
+    commissionRecordsOverride = [
+      { commissionId: "carry-1", source: "tolerance_carry_forward", amountDue: 2, paymentAmountDue: 2.000001,
+        dueAt: "2026-09-15T00:00:00.000Z", issueReason: "Unpaid balance from an earlier verified commission payment. This is not an additional trading fee." },
+      { commissionId: "manual-1", source: "admin_manual", amountDue: 9, paymentAmountDue: 9.000001,
+        dueAt: "2026-09-15T00:00:00.000Z", issueReason: "Documented seller adjustment" },
+    ];
+    render(<UsdtExchangePage locale={locale} initialSessionUser={seller} workspaceMode="seller" />);
+    const isAr = locale === "ar";
+    const manual = await screen.findByRole("button", { name: isAr ? /عمولة صادرة عن الإدارة/ : /Admin-issued commission/ });
+    expect(manual.textContent).toContain("9.000001");
+    const carried = screen.getByRole("button", { name: isAr ? /رصيد عمولة مرحّل/ : /Carried commission balance/ });
+    expect(carried.textContent).toContain("2.000001");
+    expect(document.getElementById("commission-status")?.textContent).toContain(isAr
+      ? "رصيد غير مدفوع من دفعة عمولة سابقة تم التحقق منها. هذه ليست رسوم تداول إضافية."
+      : "Unpaid balance from an earlier verified commission payment. This is not an additional trading fee.");
+    fireEvent.click(manual);
+    await waitFor(() => expect(document.getElementById("commission-payment")?.textContent).toContain("Documented seller adjustment"));
+  });
+
   it("shows a trade-less manual commission as admin-issued and keeps it payable", async () => {
     commissionRecordsOverride = [{
       commissionId: "commission-admin-2",

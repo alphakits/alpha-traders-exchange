@@ -3170,7 +3170,9 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                 <div className="mt-3 rounded-xl border border-white/10 bg-black/20 px-3 py-2.5 text-sm">
                                   <p className="text-[10px] uppercase tracking-[0.12em] text-[#7F8490]">{isAdminIssued ? t("Reason", "السبب") : t("Buyer", "المشتري")}</p>
                                   <p className="mt-1 whitespace-pre-wrap break-words text-[#D1D5DB]">
-                                    {currencyText(isAdminIssued
+                                    {currencyText(isCarried
+                                      ? t("Unpaid balance from an earlier verified commission payment. This is not an additional trading fee.", "رصيد غير مدفوع من دفعة عمولة سابقة تم التحقق منها. هذه ليست رسوم تداول إضافية.")
+                                      : isAdminIssued
                                       ? record.issueReason || t("Admin-issued seller obligation", "التزام بائع صادر عن الإدارة")
                                       : request?.buyerName ?? record.buyerId ?? "—")}
                                   </p>

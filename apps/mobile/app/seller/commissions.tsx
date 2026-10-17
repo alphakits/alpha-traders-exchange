@@ -37,6 +37,7 @@ export default function SellerCommissionsScreen() {
   const { status, user, requestWithSession } = useAuth();
   const { locale, isRTL } = useLocale();
   const isAr = locale === "ar";
+  const carriedReason = isAr ? "رصيد غير مدفوع من دفعة عمولة سابقة تم التحقق منها. هذه ليست رسوم تداول إضافية." : "Unpaid balance from an earlier verified commission payment. This is not an additional trading fee.";
   const canSell = canUseSellerTools(user) || user?.sellerStatus === "suspended";
   const queryKey = ["mobile-seller-commissions", user?.id ?? "anonymous", locale] as const;
   const query = useQuery({
@@ -263,7 +264,7 @@ export default function SellerCommissionsScreen() {
                 {recordContext.isAdminIssued || record.source === "tolerance_carry_forward" ? (
                   <View style={styles.adminIssuedCard}>
                     <Text style={[styles.adminIssuedTitle, isRTL && styles.rtlText]}>{record.source === "tolerance_carry_forward" ? (isAr ? "رصيد عمولة مرحّل" : "Carried commission balance") : (isAr ? "عمولة صادرة عن الإدارة" : "Admin-issued commission")}</Text>
-                    {recordContext.issueReason ? <Text style={[styles.body, isRTL && styles.rtlText]}>{recordContext.issueReason}</Text> : null}
+                    {record.source === "tolerance_carry_forward" || recordContext.issueReason ? <Text style={[styles.body, isRTL && styles.rtlText]}>{record.source === "tolerance_carry_forward" ? carriedReason : recordContext.issueReason}</Text> : null}
                   </View>
                 ) : recordContext.tradeReference ? (
                   <Text style={[styles.body, isRTL && styles.rtlText]}>{isAr ? "الصفقة" : "Trade"}: #{recordContext.tradeReference}</Text>
@@ -294,7 +295,7 @@ export default function SellerCommissionsScreen() {
           {selectedRecord.source === "admin_manual" || selectedRecord.source === "tolerance_carry_forward" ? (
             <View style={styles.adminIssuedCard}>
               <Text style={[styles.adminIssuedTitle, isRTL && styles.rtlText]}>{selectedRecord.source === "tolerance_carry_forward" ? (isAr ? "رصيد عمولة مرحّل" : "Carried commission balance") : (isAr ? "عمولة صادرة عن الإدارة" : "Admin-issued commission")}</Text>
-              {selectedRecord.issueReason ? <Text style={[styles.body, isRTL && styles.rtlText]}>{selectedRecord.issueReason}</Text> : null}
+              {selectedRecord.source === "tolerance_carry_forward" || selectedRecord.issueReason ? <Text style={[styles.body, isRTL && styles.rtlText]}>{selectedRecord.source === "tolerance_carry_forward" ? carriedReason : selectedRecord.issueReason}</Text> : null}
             </View>
           ) : null}
 

@@ -396,9 +396,9 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
     ?.find((record) => record.commissionId.trim() === selectedCommissionId);
   const selectedCommissionIsCarried = (selectedCommissionPayment?.source ?? sellerCommissionStatus?.source) === "tolerance_carry_forward";
   const selectedCommissionIsAdminIssued = (selectedCommissionPayment?.source ?? sellerCommissionStatus?.source) === "admin_manual";
-  const selectedCommissionIssueReason = selectedCommissionPayment?.issueReason?.trim()
-    || sellerCommissionStatus?.issueReason?.trim()
-    || "";
+  const selectedCommissionIssueReason = selectedCommissionIsCarried
+    ? (isAr ? "رصيد غير مدفوع من دفعة عمولة سابقة تم التحقق منها. هذه ليست رسوم تداول إضافية." : "Unpaid balance from an earlier verified commission payment. This is not an additional trading fee.")
+    : selectedCommissionPayment?.issueReason?.trim() || sellerCommissionStatus?.issueReason?.trim() || "";
   const selectedCommissionSubmittedAt = selectedCommissionPayment?.paymentSubmittedAt
     ? new Date(selectedCommissionPayment.paymentSubmittedAt)
     : null;
@@ -596,7 +596,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                             ? `${isAr ? "الصفقة" : "Trade"} #${record.relatedTradeDisplayNumber}`
                             : record.source === "tolerance_carry_forward" ? (isAr ? "رصيد عمولة مرحّل" : "Carried commission balance")
                             : record.source === "admin_manual"
-                              ? (selectedCommissionIsCarried ? (isAr ? "رصيد عمولة مرحّل" : "Carried commission balance") : (isAr ? "عمولة صادرة عن الإدارة" : "Admin-issued commission"))
+                              ? (isAr ? "عمولة صادرة عن الإدارة" : "Admin-issued commission")
                               : (isAr ? "سجل العمولة" : "Commission record"))}
                         </span>
                         <span className="text-[#FDE68A]">{currencyText(formatExactCommissionUsdt(record.paymentAmountDue ?? record.amountDue))}</span>
