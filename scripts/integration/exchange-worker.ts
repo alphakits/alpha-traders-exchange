@@ -46,6 +46,14 @@ async function execute(operation: string, input: unknown) {
     return { saved: true };
   }
   if (operation === "query-timings") return getAuditQueryTimings();
+  if (operation === "inspect-acceptance-scope") {
+    const action = input as { requestId: string; actorUserId: string };
+    const transaction = await repository.beginTradeLifecycleTransaction(["users", "purchase_requests"], action.requestId, "accepted", action.actorUserId);
+    if (!transaction) throw new Error("The scope check requires durable PostgreSQL.");
+    try {
+      return { userIds: transaction.snapshot.users.map(user => user.id).sort(), requestIds: transaction.snapshot.purchaseRequests.map(request => request.id).sort() };
+    } finally { await transaction.close(); }
+  }
   if (operation === "reconcile-trust") return reconcilePendingTradeTrust();
   if (operation === "auth-password") {
     const action = input as { userId: string; passwordHash: string };

@@ -86,7 +86,7 @@ describe("PostgreSQL lifecycle request dependencies", () => {
     expect((await db.query("select id from alpha_exchange.users")).rows).toHaveLength(4);
   });
 
-  it("completion retains related counterparties and every canonical admin/owner without unrelated account payloads", async () => {
+  it.each(["accepted", "completed"] as const)("%s retains related counterparties and every canonical admin/owner without unrelated account payloads", async nextStatus => {
     const accounts = [
       { id: "seller-a", role: "approved_seller" },
       { id: "buyer-a", role: "buyer" },
@@ -102,14 +102,14 @@ describe("PostgreSQL lifecycle request dependencies", () => {
     for (const [index, user] of accounts.entries()) {
       await db.query("insert into alpha_exchange.users values ($1,$2,$3)", [user.id, index, JSON.stringify(user)]);
     }
-    const tx = (await repository.beginTradeLifecycleTransaction(["users", "purchase_requests"], "target", "completed", "disabled-caller"))!;
+    const tx = (await repository.beginTradeLifecycleTransaction(["users", "purchase_requests"], "target", nextStatus, "disabled-caller"))!;
     try {
       expect(tx.snapshot.users).toEqual(accounts.filter(user => user.id !== "unrelated"));
       await expect(tx.commit(tx.snapshot, { selectedTables: ["users"] })).rejects.toThrow("unsupported lifecycle write table");
     } finally { await tx.close(); }
     expect((await db.query<{ payload: unknown }>("select payload from alpha_exchange.users order by sort_index")).rows.map(row => row.payload)).toEqual(accounts);
-    const accept = (await repository.beginTradeLifecycleTransaction(["users", "purchase_requests"], "target", "accepted", "seller-a"))!;
-    try { expect(accept.snapshot.users).toEqual(accounts); }
-    finally { await accept.close(); }
+    const payment = (await repository.beginTradeLifecycleTransaction(["users", "purchase_requests"], "target", "payment_sent", "seller-a"))!;
+    try { expect(payment.snapshot.users).toEqual(accounts); }
+    finally { await payment.close(); }
   });
 });

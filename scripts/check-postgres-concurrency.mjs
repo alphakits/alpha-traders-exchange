@@ -249,6 +249,15 @@ try {
   assert.equal(current.amountAdjustmentCount, 2);
   passed("Concurrent adjustments and durable two-submission limit", { processes: 4, submitted: 2 });
 
+  const scopeActor = "audit-buyer-14-3";
+  const acceptanceScope = requireOk(await workers[0].call("inspect-acceptance-scope", { requestId: first.id, actorUserId: scopeActor }));
+  const relatedRequests = snapshot.purchaseRequests.filter(request => request.sellerId === first.sellerId || request.buyerId === first.buyerId);
+  const authorityIds = snapshot.users.filter(user => [user.role, ...(user.roles ?? [])].some(role => role === "owner" || role === "admin")).map(user => user.id);
+  const expectedScopeUsers = [...new Set([scopeActor, ...authorityIds, ...relatedRequests.flatMap(request => [request.sellerId, request.buyerId])])].sort();
+  assert.deepEqual(acceptanceScope.userIds, expectedScopeUsers);
+  assert.deepEqual(acceptanceScope.requestIds, relatedRequests.map(request => request.id).sort());
+  passed("Acceptance reads retain actor, related counterparties and administrators without unrelated accounts", { retainedAccounts: acceptanceScope.userIds.length, totalAccounts: snapshot.users.length });
+
   const accepted = await batch(fixture.purchaseRequests.map(request => sellerCommand(request, "accepted")));
   snapshot = requireOk(await workers[0].call("snapshot"));
   const active = snapshot.purchaseRequests.filter(request => request.status === "accepted");
