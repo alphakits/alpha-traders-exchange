@@ -23,9 +23,8 @@ for (const locale of ["en", "ar"] as const) for (const width of [390, 1440]) {
     await expect(save).toBeDisabled();
     await page.getByRole("checkbox", { name: label, exact: true }).check();
     await page.route("**/api/auth/age-eligibility", async route => {
-      await page.unroute("**/api/auth/age-eligibility");
       await route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: "Temporary test interruption" }) });
-    });
+    }, { times: 1 });
     await save.click();
     await expect(page.getByRole("alert").last()).toBeVisible();
     await expect(save).toBeEnabled();
