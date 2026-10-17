@@ -37,6 +37,7 @@ describe("canonical trade lifecycle transaction", () => {
     const original = query.getMockImplementation()!;
     let reads = 0;
     query.mockImplementation(async (sql: string, values?: unknown[]) => {
+      if (sql.includes("pg_try_advisory_xact_lock(61422919")) return { rows: [{ acquired: false }] } as never;
       const result = await original(sql, values);
       if (sql.includes("json_agg") && ++reads === 2) Object.assign(result.rows[0], { read_only_retry: true });
       return result;
@@ -47,6 +48,15 @@ describe("canonical trade lifecycle transaction", () => {
     await expect(tx.commit(tx.snapshot, { selectedTables: ["purchase_requests"] })).rejects.toThrow("read-only lifecycle retry");
     await tx.close();
     expect(release).toHaveBeenCalledExactlyOnceWith(false);
+  });
+  it("rechecks canonical state under the mutation lock without an extra snapshot for an uncontested request", async () => {
+    const { repo, query } = fixture();
+    const tx = (await repo.beginTradeLifecycleTransaction(["users", "purchase_requests"], "target", "accepted"))!;
+    const sql = query.mock.calls.map(([statement]) => statement);
+    expect(sql.filter(statement => statement.includes("json_agg"))).toHaveLength(2);
+    expect(sql.some(statement => statement === "select pg_advisory_xact_lock(61422919, hashtext($1))")).toBe(false);
+    expect(sql.indexOf("select pg_advisory_xact_lock(61422917)")).toBeLessThan(sql.findLastIndex(statement => statement.includes("json_agg")));
+    await tx.close();
   });
   it("reads after obtaining the cross-instance lock and persists only changed rows with stable ordering", async () => {
     const { repo, query, release } = fixture();

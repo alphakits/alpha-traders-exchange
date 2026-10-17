@@ -104,7 +104,6 @@ jobs:
 
   critical-browser-flows:
     name: Mobile and desktop critical flows
-    needs: quality-gate
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
@@ -198,7 +197,6 @@ jobs:
 
   phone-verification-gate:
     name: Mandatory phone gates and owner exceptions
-    needs: quality-gate
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -227,3 +225,22 @@ jobs:
             test-results
           if-no-files-found: ignore
           retention-days: 7
+
+  release-acceptance:
+    name: Release acceptance
+    if: always()
+    needs: [quality-gate, postgres-concurrency, critical-browser-flows, phone-verification-gate]
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Require every independent regression job to pass
+        env:
+          QUALITY_RESULT: ${{ needs.quality-gate.result }}
+          DATABASE_RESULT: ${{ needs.postgres-concurrency.result }}
+          BROWSER_RESULT: ${{ needs.critical-browser-flows.result }}
+          PHONE_RESULT: ${{ needs.phone-verification-gate.result }}
+        run: |
+          test "$QUALITY_RESULT" = success
+          test "$DATABASE_RESULT" = success
+          test "$BROWSER_RESULT" = success
+          test "$PHONE_RESULT" = success

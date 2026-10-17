@@ -2340,8 +2340,10 @@ export class AlphaExchangeRepository {
     };
     try {
       // These append-only/event collections are consulted only for this trade.
-      // Keep accounts, listings, requests and all commission assignments global:
-      // buyer cross-seller limits and unique payment amounts depend on them.
+      // Accounts, listings and commission assignments remain global. Lifecycle
+      // request dependencies are the seller's trades and the buyer's trades,
+      // including trades with other counterparties. Legacy numbering needs the
+      // complete collection until every retained request has a display number.
       const filters: Partial<Record<SnapshotTableName, string>> = requestId ? {
         notifications: "where payload->>'relatedRequestId' = $1",
         audit_logs: "where purchase_request_id = $1",
@@ -2350,6 +2352,9 @@ export class AlphaExchangeRepository {
         evidence: "where purchase_request_id = $1",
       } : {};
       const retryProjection = Boolean(requestId && nextStatus);
+      const requestScope = retryProjection ? `seller_id = (select seller_id from alpha_exchange.purchase_requests where id = $1)
+        or buyer_id = (select buyer_id from alpha_exchange.purchase_requests where id = $1)
+        or exists (select 1 from alpha_exchange.purchase_requests where coalesce(payload->>'displayNumber', '') !~ '^[1-9][0-9]*$')` : "true";
       // A terminal retry still goes through every store permission/credential
       // guard, but cannot write. Its response needs the canonical request,
       // identities, evidence and disputes, not unrelated financial/history rows.
@@ -2364,7 +2369,9 @@ export class AlphaExchangeRepository {
       ) as read_only_retry) ` : "";
       const retryReadTables = new Set<SnapshotTableName>(["users", "seller_applications", "purchase_requests", "evidence", "disputes"]);
       const columns = (onlyCommittedRetry = false) => selectedNames.filter(name => !onlyCommittedRetry || retryReadTables.has(name)).map(name => {
-        const filter = retryProjection && name === "purchase_requests" ? "where not (select read_only_retry from lifecycle_mode) or id = $1" : filters[name] ?? "";
+        const filter = retryProjection && name === "purchase_requests"
+          ? `where id = $1 or (not (select read_only_retry from lifecycle_mode) and (${requestScope}))`
+          : filters[name] ?? "";
         const aggregate = `coalesce((select json_agg(json_build_object('payload', payload, 'sort_index', sort_index) order by sort_index asc) from alpha_exchange.${name} ${filter}), '[]'::json)`;
         const projection = trustReconciliation ? `case when (select has_pending_trust from lifecycle_mode) then ${aggregate} else '[]'::json end`
           : retryProjection && !retryReadTables.has(name) ? `case when (select read_only_retry from lifecycle_mode) then '[]'::json else ${aggregate} end` : aggregate;
@@ -2399,9 +2406,12 @@ export class AlphaExchangeRepository {
           // global financial queue. Once the first commits, its duplicate can
           // use a permission-checked read without holding the global lock.
           // The two-integer advisory namespace is separate from bigint locks.
-          await client.query("select pg_advisory_xact_lock(61422919, hashtext($1))", [requestId]);
-          const retry = await client.query<ReadRow>(readSql(true), parameters);
-          if (retry.rows[0]?.read_only_retry) { row = retry.rows[0]; await close(); }
+          const lock = await client.query<{ acquired: boolean }>("select pg_try_advisory_xact_lock(61422919, hashtext($1)) as acquired", [requestId]);
+          if (!lock.rows[0]?.acquired) {
+            await client.query("select pg_advisory_xact_lock(61422919, hashtext($1))", [requestId]);
+            const retry = await client.query<ReadRow>(readSql(true), parameters);
+            if (retry.rows[0]?.read_only_retry) { row = retry.rows[0]; await close(); }
+          }
         }
         if (!row && trustReconciliation) {
           const lock = await client.query<{ acquired: boolean; overdue: boolean }>(`select
