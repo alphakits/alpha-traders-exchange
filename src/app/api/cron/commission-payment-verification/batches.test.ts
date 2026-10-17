@@ -1,6 +1,8 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
-const mocks = vi.hoisted(() => ({ records: vi.fn(), retry: vi.fn(), recover: vi.fn(), submit: vi.fn(), tron: vi.fn(), bsc: vi.fn(), binance: vi.fn(), context: vi.fn(), reconcile: vi.fn(), runtime: vi.fn() }));
+import { commissionHistoryTestPool } from "@/test/commission-history-pool";
+const mocks = vi.hoisted(() => ({ pool: vi.fn(), records: vi.fn(), retry: vi.fn(), recover: vi.fn(), submit: vi.fn(), tron: vi.fn(), bsc: vi.fn(), binance: vi.fn(), context: vi.fn(), reconcile: vi.fn(), runtime: vi.fn() }));
+vi.mock("@/lib/postgres-runtime", () => ({ getRuntimePostgresPool: mocks.pool }));
 vi.mock("@/lib/alpha-exchange-store", () => ({ getCommissionRecordsForAutomaticReconciliation: mocks.records, reverifyPendingCommissionPayments: mocks.retry,
   recoverPendingCommissionPaymentConfirmationEmails: mocks.recover, submitSellerCommissionWalletPayment: mocks.submit }));
 vi.mock("@/lib/commission-deposit-discovery", () => ({ scanTronCommissionDeposits: mocks.tron, scanBep20CommissionDeposits: mocks.bsc, scanBinanceCommissionDeposits: mocks.binance }));
@@ -14,6 +16,7 @@ const deposit = { network: "BEP20", signature: tx, payer: "", amountMicros: 38_0
 function request(auth = true) { return new NextRequest("https://example.test/api/cron/commission-payment-verification", { headers: auth ? { authorization: `Bearer ${secret}` } : {} }); }
 beforeEach(() => {
   vi.clearAllMocks(); vi.stubEnv("CRON_SECRET", secret); vi.stubEnv("ALPHA_EXCHANGE_COMMISSION_BATCH_V1", "1");
+  mocks.pool.mockReturnValue(commissionHistoryTestPool());
   mocks.records.mockResolvedValue([]); mocks.retry.mockResolvedValue({ checked:0, verified:0, stillPending:0, failed:0, errors:0 });
   mocks.recover.mockResolvedValue({ checked:0, queued:0, errors:0, pending:0, budgetExhausted:false });
   mocks.submit.mockResolvedValue({ verification: { verified:true } });
@@ -29,7 +32,7 @@ describe("batch integration in the existing protected minute scanner", () => {
   it("scans approved batches even without individual unpaid candidates", async () => {
     const response = await GET(request()); const body = await response.json();
     expect(response.status).toBe(200); expect(body.autoReconciliation.batchSettlement.verified).toBe(1);
-    expect(mocks.binance).toHaveBeenCalledWith(time-300_000);
+    expect(mocks.binance).toHaveBeenCalledWith(time-300_000, { until: expect.any(Number) });
     expect(mocks.reconcile).toHaveBeenCalledWith(expect.objectContaining({ deposits:[deposit], limit:1 }));
     expect(mocks.submit).not.toHaveBeenCalled();
   });

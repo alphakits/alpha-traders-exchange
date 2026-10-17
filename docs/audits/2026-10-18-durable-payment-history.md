@@ -51,3 +51,19 @@ Provider references checked during implementation:
 This repair resolves the code portion of B12. It does not certify a live provider
 failure/recovery exercise, a production backup restore, physical Safari, all
 authenticated role journeys or a production application release.
+# Batch release-gate follow-up
+
+The c499513 preview gate found three outdated batch-scanner fixture failures.
+Those tests did not provide the private history store introduced by this change,
+so the scanner correctly failed closed. The fixture now provides the same isolated
+checkpoint pool as the scheduler regression tests and asserts the bounded provider
+window. All six batch integration checks pass without bypassing history persistence
+or weakening receipt reservation and provider-failure assertions.
+
+Reliability Shield #1042 passed the real PostgreSQL checkpoint race, transaction
+recovery and all three controlled restore checks. Its strict performance gate
+failed: 240 successful status actions measured median 320.84 ms, p95 1339.07 ms
+and maximum 1718.85 ms. The failure remains recorded; no timing threshold or
+workload has been relaxed. This is separate from the payment-history correctness
+checks and still requires investigation before production acceptance.
+
