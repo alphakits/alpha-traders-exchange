@@ -1,9 +1,11 @@
 // @vitest-environment node
 import { NextRequest } from "next/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { commissionHistoryTestPool } from "@/test/commission-history-pool";
 const SECRET = "test-cron-secret-that-is-at-least-32-characters";
 const TX = "a".repeat(64);
-const mocks = vi.hoisted(() => ({ records: vi.fn(), retry: vi.fn(), recoverEmails: vi.fn(), submit: vi.fn(), tron: vi.fn(), bsc: vi.fn(), binance: vi.fn() }));
+const mocks = vi.hoisted(() => ({ pool: vi.fn(), records: vi.fn(), retry: vi.fn(), recoverEmails: vi.fn(), submit: vi.fn(), tron: vi.fn(), bsc: vi.fn(), binance: vi.fn() }));
+vi.mock("@/lib/postgres-runtime", () => ({ getRuntimePostgresPool: mocks.pool }));
 vi.mock("@/lib/alpha-exchange-store", () => ({ getCommissionRecordsForAutomaticReconciliation: mocks.records,
   reverifyPendingCommissionPayments: mocks.retry, recoverPendingCommissionPaymentConfirmationEmails: mocks.recoverEmails,
   submitSellerCommissionWalletPayment: mocks.submit }));
@@ -18,6 +20,7 @@ const scan = (deposits: unknown[] = [], extra = {}) => ({ configured: true, comp
 describe("commission scheduler", () => {
   beforeEach(() => {
     vi.clearAllMocks(); vi.stubEnv("CRON_SECRET", SECRET);
+    mocks.pool.mockReturnValue(commissionHistoryTestPool());
     mocks.records.mockResolvedValue([candidate()]); mocks.tron.mockResolvedValue(scan()); mocks.bsc.mockResolvedValue(scan());
     mocks.binance.mockResolvedValue(scan([], { configured: false, complete: false, pages: 0 }));
     mocks.submit.mockResolvedValue({ verification: { verified: true } });
@@ -94,7 +97,7 @@ describe("commission scheduler", () => {
     (provider === "TRC20" ? mocks.tron : provider === "BEP20" ? mocks.bsc : mocks.binance).mockResolvedValue(scan([deposit({ network, signature })]));
     const response = await GET(request()); expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toBe("no-store");
-    expect(mocks.submit).toHaveBeenCalledWith({ sellerUserId: "seller-1", commissionId: "commission-1", network, payerWalletAddress: "sender", paymentSignature: signature });
+    expect(mocks.submit).toHaveBeenCalledWith({ sellerUserId: "seller-1", commissionId: "commission-1", network, payerWalletAddress: "sender", paymentSignature: signature, observedDepositTimestamp: expect.any(Number) });
     expect((await response.json()).autoReconciliation).toMatchObject({ matched: 1, verified: 1 });
     expect(mocks.retry).toHaveBeenCalledWith({ limit: 1, deadline: expect.any(Number) });
   });
@@ -187,9 +190,10 @@ describe("commission scheduler", () => {
 
     const body = await (await GET(request())).json();
 
-    expect(mocks.tron).toHaveBeenCalledWith(assignedAt - 5 * 60_000);
+    expect(mocks.tron).toHaveBeenCalledWith(assignedAt - 5 * 60_000, { until: expect.any(Number) });
     expect(mocks.submit).toHaveBeenCalledTimes(shouldMatch ? 1 : 0);
-    expect(body.autoReconciliation).toMatchObject({ verified: shouldMatch ? 1 : 0, beforeIntent: shouldMatch ? 0 : 1 });
+    // Out-of-range observations are now rejected before attribution begins.
+    expect(body.autoReconciliation).toMatchObject({ verified: shouldMatch ? 1 : 0, beforeIntent: 0 });
   });
   it("preserves pending and grandfathered original submissions", async () => {
     mocks.records.mockResolvedValue([candidate({ paymentSignature: TX, paymentVerificationStatus: "pending_verification" }),
@@ -199,7 +203,7 @@ describe("commission scheduler", () => {
   it("does not accept rounded, unrelated or pre-intent deposits", async () => {
     mocks.tron.mockResolvedValue(scan([deposit({ amountMicros: 6250000 }), deposit({ signature: "b".repeat(64), timestamp: Date.now() - 600_000 })]));
     const body = await (await GET(request())).json(); expect(mocks.submit).not.toHaveBeenCalled();
-    expect(body.autoReconciliation).toMatchObject({ unmatchedAmount: 1, beforeIntent: 1 });
+    expect(body.autoReconciliation).toMatchObject({ unmatchedAmount: 1, beforeIntent: 0 });
   });
   it("does not guess between equal amounts, even after other transfers", async () => {
     mocks.records.mockResolvedValue([candidate(), candidate({ id: "commission-2", sellerId: "seller-2" })]);
@@ -224,6 +228,20 @@ describe("commission scheduler", () => {
   });
   it("reports incomplete history instead of silently presenting it as a full scan", async () => {
     mocks.tron.mockResolvedValue(scan([], { complete: false, pages: 5 })); expect((await GET(request())).status).toBe(503);
+  });
+  it.each(["TRC20", "BEP20"] as const)("never submits a payment from incomplete %s history", async (network) => {
+    const scanner = network === "TRC20" ? mocks.tron : mocks.bsc;
+    scanner.mockResolvedValue(scan([deposit({ network })], { complete: false, pages: 5 }));
+    const response = await GET(request());
+    expect(response.status).toBe(503);
+    expect(mocks.submit).not.toHaveBeenCalled();
+    expect((await response.json()).autoReconciliation.historyComplete).toBe(false);
+  });
+  it("never submits a public receipt while configured internal receiving history is incomplete", async () => {
+    mocks.tron.mockResolvedValue(scan([deposit()]));
+    mocks.binance.mockResolvedValue(scan([], { complete: false, pages: 5 }));
+    expect((await GET(request())).status).toBe(503);
+    expect(mocks.submit).not.toHaveBeenCalled();
   });
   it("uses complete Binance deposit history when the BEP20 explorer plan is unavailable", async () => {
     mocks.bsc.mockRejectedValue(new Error("bep20_index_plan_unsupported"));

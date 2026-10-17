@@ -48,12 +48,12 @@ for (const locale of ["en", "ar"] as const) {
         await expect(page.locator(".commission-surface strong.currency-money")).toHaveText(`${amount} USDT`);
         await page.getByRole("checkbox", { name: locale === "en" ? "I have not sent this payment yet." : "لم أرسل هذه الدفعة بعد.", exact: true }).check();
         await page.getByRole("button", { name: locale === "en" ? "Get payment instructions" : "عرض تعليمات الدفع", exact: true }).click();
-        await expect(page.getByText(`${amount.toFixed(6)} USDT`, { exact: true }).last()).toBeVisible();
+        await expect(page.locator("p.currency-money").filter({ hasText: `${amount.toFixed(6)} USDT` })).toBeVisible();
         await expect(page.getByRole("heading", { name: locale === "en" ? "Platform must receive" : "يجب أن تستلم المنصة", exact: true })).toBeVisible();
         await expect(page.getByText(CANONICAL_TRC20_COMMISSION_WALLET, { exact: true })).toBeVisible();
         await expect(page.getByRole("status").filter({ hasText: locale === "en" ? "Waiting for payment confirmation" : "بانتظار تأكيد الدفع" })).toBeVisible();
         await page.reload();
-        await expect(page.getByText(`${amount.toFixed(6)} USDT`, { exact: true }).last()).toBeVisible();
+        await expect(page.locator("p.currency-money").filter({ hasText: `${amount.toFixed(6)} USDT` })).toBeVisible();
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
         await page.screenshot({ path: testInfo.outputPath(`commission-precision-${amount}-${device}-${locale}.png`), fullPage: true, animations: "disabled" });
         if (amount === 40) {

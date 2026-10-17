@@ -51,5 +51,7 @@ tests, not live transfers. Browser and release evidence is recorded separately.
 
 The rendered WebKit phone view also exposed a light native select with white
 text. The network selector now uses an explicit dark appearance and dropdown
-indicator. The final browser rerun checks the control and captures the real
-application with synthetic amounts; outside financial requests are disabled.
+indicator. The final browser rerun passed all eight phone/desktop English/Arabic
+cases, including the selector, exact six-decimal instructions and the three-stage
+carry-forward explanation. Screenshots capture the real application with synthetic
+amounts; outside financial requests are disabled.

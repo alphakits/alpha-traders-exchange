@@ -111,6 +111,14 @@ try {
   workers.push(startWorker(0)); const runtime = requireOk(await workers[0].call("ready"));
   const baselineMigration = await readFile("supabase/migrations/20261017003000_runtime_table_baseline.sql", "utf8");
   await pool.query(baselineMigration);
+  const historyMigration = await readFile("supabase/migrations/20261017212857_commission_deposit_scan_progress.sql", "utf8");
+  await pool.query(historyMigration);
+  await pool.query(historyMigration);
+  await pool.query("INSERT INTO alpha_exchange.commission_deposit_scan_progress(scope,version,payload) VALUES('checkout',1,'{\"schema\":1,\"auditFixture\":true}')");
+  const historyWriters = await Promise.all([0, 1].map(() => pool.query("UPDATE alpha_exchange.commission_deposit_scan_progress SET version=version+1 WHERE scope='checkout' AND version=1 RETURNING version")));
+  assert.equal(historyWriters.reduce((sum, result) => sum + result.rowCount, 0), 1);
+  await pool.query("DELETE FROM alpha_exchange.commission_deposit_scan_progress WHERE scope='checkout'");
+  passed("Competing receiving-history workers publish a checkpoint once; private migration replays safely", { winners: 1 });
   requireOk(await workers[0].call("seed", fixture));
   await pool.query(baselineMigration);
   const expectedSchema = JSON.parse(await readFile("scripts/integration/runtime-table-baseline.json", "utf8"));

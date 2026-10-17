@@ -35,6 +35,21 @@ describe("TRON deposit discovery", () => {
   });
 });
 describe("BEP20 deposit discovery", () => {
+  it("resumes after page five against the same frozen upper block", async () => {
+    const requests: URL[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input) => {
+      const url = new URL(String(input)); requests.push(url);
+      if (url.searchParams.get("action") === "getblocknobytime") return json({ status: "1", result: "200000" });
+      expect(url.searchParams.get("endblock")).toBe("200000");
+      return json({ status: "1", result: Number(url.searchParams.get("page")) <= 5 ? Array.from({ length: 200 }, () => bsc()) : [bsc()] });
+    }));
+    const since = Date.now() - 60000;
+    const first = await scanBep20CommissionDeposits(since, { until: Date.now() });
+    expect(first).toMatchObject({ complete: false, pages: 5, continuation: { page: 6, endBlock: "200000" } });
+    expect(await scanBep20CommissionDeposits(since, first.continuation)).toMatchObject({ complete: true, pages: 1 });
+    expect(requests.filter(url => url.searchParams.get("action") === "getblocknobytime")).toHaveLength(1);
+    expect(requests.at(-1)!.searchParams.get("page")).toBe("6");
+  });
   it("uses BSC and official USDT and preserves exact 18-decimal units", async () => {
     vi.stubGlobal("fetch", vi.fn(async (input) => {
       const url = new URL(String(input)); expect(url.searchParams.get("chainid")).toBe("56"); expect(url.searchParams.get("contractaddress")).toBe(BSC_USDT_CONTRACT);
@@ -57,6 +72,34 @@ describe("BEP20 deposit discovery", () => {
   });
 });
 describe("Binance read-only internal deposit verification", () => {
+  it("resumes a fixed Binance window after 1,000 observations", async () => {
+    enableBinance(); const requests: URL[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input) => {
+      const url = new URL(String(input)); requests.push(url);
+      const offset = Number(url.searchParams.get("offset"));
+      return json(offset < 1000 ? Array.from({ length: 200 }, (_, index) => internal({ id: String(offset + index + 1) })) : [internal({ id: "1001" })]);
+    }));
+    const since = Date.now() - 60000;
+    const until = Date.now();
+    const first = await scanBinanceCommissionDeposits(since, { until });
+    expect(first).toMatchObject({ complete: false, continuation: { offset: 1000, windowEnd: until, until } });
+    const next = await scanBinanceCommissionDeposits(since, first.continuation);
+    expect(next).toMatchObject({ complete: true, pages: 1 });
+    expect(next.deposits[0].signature).toBe("binance-deposit:1001");
+    expect(requests.every(url => url.searchParams.get("endTime") === String(until))).toBe(true);
+  });
+  it("uses an observed time only as a search hint and revalidates the receiving account", async () => {
+    enableBinance(); const timestamp = Date.now() - 60000;
+    vi.stubGlobal("fetch", vi.fn(async (input) => {
+      const url = new URL(String(input));
+      expect(url.searchParams.get("startTime")).toBe(String(timestamp - 1));
+      expect(url.searchParams.get("endTime")).toBe(String(timestamp + 1));
+      return json([internal({ insertTime: timestamp, amount: "4.000001" })]);
+    }));
+    const result = await verifyBinanceInternalCommissionDeposit({ signature: "binance-deposit:1234567890", network: "TRC20", recipient: TRON,
+      amount: 5.000001, earliestTimestamp: timestamp - 100000, depositTimestamp: timestamp });
+    expect(result.verified).toBe(false);
+  });
   it("does not call Binance until both read-only credentials exist", async () => {
     vi.stubGlobal("fetch", vi.fn()); expect((await scanBinanceCommissionDeposits(1)).configured).toBe(false); expect(fetch).not.toHaveBeenCalled();
   });

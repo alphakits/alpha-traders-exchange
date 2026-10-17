@@ -66,7 +66,7 @@ for (const locale of ["en", "ar"] as const) {
       // Collapse the optional previous receipt, keeping the current breakdown visible.
       if (await previous.getAttribute("open") !== null) await previous.locator("summary").click();
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-      const network = page.getByLabel(locale === "en" ? "Network" : "الشبكة", { exact: true });
+      const network = page.getByRole("combobox", { name: locale === "en" ? "Network" : "الشبكة", exact: true });
       await expect(network).toHaveCSS("appearance", "none");
       await surface.getByTestId("commission-balance-summary").screenshot({ path: testInfo.outputPath(`commission-next-${device}-${locale}.png`), animations: "disabled" });
       await network.screenshot({ path: testInfo.outputPath(`commission-network-${device}-${locale}.png`), animations: "disabled" });

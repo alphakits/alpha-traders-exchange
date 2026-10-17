@@ -4,9 +4,10 @@ import { getAlphaExchangeRepository } from "@/lib/alpha-exchange-repository";
 import { invalidateAlphaExchangeStoreCache } from "@/lib/alpha-exchange-store";
 import { verifyBep20Commission } from "@/lib/bep20-commission-verifier";
 import { resolveCommissionWalletForNetwork } from "@/lib/commission-config";
-import { verifyBinanceInternalCommissionDeposit, scanTronCommissionDeposits, scanBep20CommissionDeposits, scanBinanceCommissionDeposits, type DepositScan } from "@/lib/commission-deposit-discovery";
+import { verifyBinanceInternalCommissionDeposit, scanTronCommissionDeposits, scanBep20CommissionDeposits, scanBinanceCommissionDeposits } from "@/lib/commission-deposit-discovery";
+import { discoverCommissionHistory, postgresCommissionHistoryStore } from "@/lib/commission-deposit-history";
 import { verifyCommissionBatchTronReceipt } from "@/lib/commission-batch-tron-verifier";
-import { createCommissionCheckoutWorkflow, pendingCommissionCheckouts, type CheckoutDeposit, type CheckoutNetwork } from "./commission-checkout-workflow";
+import { createCommissionCheckoutWorkflow, pendingCommissionCheckouts } from "./commission-checkout-workflow";
 
 export async function getCommissionCheckoutRuntime() {
   if (process.env.ALPHA_EXCHANGE_COMMISSION_CHECKOUT_V1 !== "1") throw new Error("Automatic checkout is not enabled");
@@ -14,6 +15,7 @@ export async function getCommissionCheckoutRuntime() {
   if (!pool) throw new Error("Durable checkout storage is required");
   const guard = await pool.query<{ ready: boolean }>(`SELECT
     to_regclass('alpha_exchange.commission_checkouts') IS NOT NULL
+    AND to_regclass('alpha_exchange.commission_deposit_scan_progress') IS NOT NULL
     AND to_regclass('alpha_exchange.commission_checkout_amount_reservations') IS NOT NULL
     AND to_regclass('alpha_exchange.commission_checkout_receipt_recoveries') IS NOT NULL
     AND to_regclass('alpha_exchange.commission_batch_receipt_reservations') IS NOT NULL
@@ -48,7 +50,7 @@ export async function getCommissionCheckoutRuntime() {
       if (!resolved.available) return { verified: false };
       if (receipt.signature.startsWith("binance-deposit:")) return verifyBinanceInternalCommissionDeposit({
         signature: receipt.signature, network: receipt.network, recipient: resolved.walletAddress,
-        amount: receipt.amountMicros / 1e6, earliestTimestamp });
+        amount: receipt.amountMicros / 1e6, earliestTimestamp, depositTimestamp: receipt.timestamp });
       if (receipt.network === "BEP20") return verifyBep20Commission({ txHash: receipt.signature,
         recipientWalletAddress: resolved.walletAddress, amountDueUsdt: receipt.amountMicros / 1e6,
         earliestPaymentTimestampMs: earliestTimestamp });
@@ -62,32 +64,12 @@ export async function getCommissionCheckoutRuntime() {
       const pending = pendingCommissionCheckouts(snapshot);
       if (!pending.length) return { enabled: true, pendingCheckouts: 0, scanned: 0, verified: 0, errors: 0, complete: true };
       const since = Math.min(...pending.map((checkout) => Date.parse(checkout.createdAt)));
-      const providers = [scanTronCommissionDeposits, scanBep20CommissionDeposits, scanBinanceCommissionDeposits];
-      const scans = await Promise.allSettled(providers.map((scan) => scan(since)));
-      const hasCompleteHistory = (scan: PromiseSettledResult<DepositScan>) =>
-        scan.status === "fulfilled" && scan.value.configured && scan.value.complete;
-      const binance = scans[2];
-      const binanceComplete = hasCompleteHistory(binance);
-      // An absent optional Binance integration cannot contain internal payments.
-      // A configured but failed/truncated scan can: chain history alone cannot
-      // rule out another payment option for the same commission instructions.
-      const binanceCovered = binanceComplete || (binance.status === "fulfilled" && !binance.value.configured);
-      const historyComplete: Record<CheckoutNetwork, boolean> = {
-        TRC20: hasCompleteHistory(scans[0]) && binanceCovered,
-        BEP20: (hasCompleteHistory(scans[1]) || binanceComplete) && binanceCovered,
-      };
-      const incompleteNetworks = [...new Set(pending.map((checkout) => checkout.network))]
-        .filter((network) => !historyComplete[network]);
-      const deposits: CheckoutDeposit[] = [];
-      for (const scan of scans) {
-        if (scan.status === "fulfilled") deposits.push(...scan.value.deposits);
-      }
-      // Reconciliation relies on the full receiving history to reject competing
-      // payment options. Never let a page cap or provider outage manufacture
-      // uniqueness. Complete networks can still progress; others retry next run.
-      const result = await workflow.reconcile({ deposits: deposits.filter((deposit) => historyComplete[deposit.network]), deadline, limit: 2 });
-      return { enabled: true, pendingCheckouts: pending.length, scanned: deposits.length,
-        complete: incompleteNetworks.length === 0, incompleteNetworks, ...result };
+      const history = await discoverCommissionHistory({ scope: "checkout", since,
+        networks: [...new Set(pending.map(checkout => checkout.network))], store: postgresCommissionHistoryStore(pool),
+        scanners: { TRC20: scanTronCommissionDeposits, BEP20: scanBep20CommissionDeposits, BINANCE_DEPOSITS: scanBinanceCommissionDeposits } });
+      const result = await workflow.reconcile({ deposits: history.deposits, deadline, limit: 2 });
+      return { enabled: true, pendingCheckouts: pending.length, scanned: history.scanned,
+        complete: history.complete, incompleteNetworks: history.incompleteNetworks, checkpointConflict: history.checkpointConflict, ...result };
     },
   };
 }

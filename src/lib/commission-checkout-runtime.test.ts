@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { beforeEach, afterEach, it, expect, vi } from "vitest";
 import type { AlphaExchangeDb } from "@/types/alpha-exchange";
+import { commissionHistoryTestPool } from "@/test/commission-history-pool";
 const mocks = vi.hoisted(() => ({ pool: vi.fn(), binance: vi.fn(), tron: vi.fn(), bep20: vi.fn(), scanBinance: vi.fn(), scanTron: vi.fn(), scanBsc: vi.fn() }));
 vi.mock("@/lib/postgres-runtime", () => ({ getRuntimePostgresPool: mocks.pool }));
 vi.mock("@/lib/commission-deposit-discovery", () => ({ verifyBinanceInternalCommissionDeposit: mocks.binance,
@@ -28,14 +29,14 @@ beforeEach(async () => {
   // Initialize the actual repository's isolated memory adapter, then separately
   // mock only the checkout schema-readiness query. No live SQL/provider is used.
   mocks.pool.mockReturnValue(null); const repository = await getAlphaExchangeRepository(); await repository.loadSnapshot();
-  mocks.pool.mockReturnValue({ query: vi.fn().mockResolvedValue({ rows: [{ ready: true }] }) });
+  mocks.pool.mockReturnValue(commissionHistoryTestPool());
   mocks.binance.mockResolvedValue({ verified: true, pending: false });
   for (const scan of [mocks.scanBinance, mocks.scanTron, mocks.scanBsc]) scan.mockResolvedValue({ configured: true, complete: true, pages: 1, deposits: [] });
 });
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllEnvs(); });
 async function prepared() {
   const service = await getCommissionCheckoutRuntime(); const checkout = await service.issue({ sellerId: "seller", network: "BEP20", desiredAmount: "38" });
-  const payment = { signature, network: "BEP20" as const, amountMicros: checkout.expectedMicros, timestamp: Date.parse(checkout.createdAt) + 1 };
+  const payment = { signature, network: "BEP20" as const, amountMicros: checkout.expectedMicros, timestamp: Date.parse(checkout.createdAt) };
   return { service, checkout, payment };
 }
 it.each(["TRC20", "BEP20"] as const)("automatically settles a full 40 USDT net receipt on %s once, after finality, without charging the sender's fee again", async (network) => {
@@ -47,7 +48,7 @@ it.each(["TRC20", "BEP20"] as const)("automatically settles a full 40 USDT net r
   // Providers prove the net transfer to the platform; the sender's fee is
   // external to the commission and must not become a second amount owed.
   const payment = { signature: network === "TRC20" ? "f".repeat(64) : `0x${"f".repeat(64)}`,
-    network, amountMicros: 40_000_000, timestamp: Date.parse(checkout.createdAt) + 1 };
+    network, amountMicros: 40_000_000, timestamp: Date.parse(checkout.createdAt) };
   const scanner = network === "TRC20" ? mocks.scanTron : mocks.scanBsc;
   const verifier = network === "TRC20" ? mocks.tron : mocks.bep20;
   scanner.mockResolvedValue({ configured: true, complete: true, pages: 1, deposits: [payment] });
@@ -99,7 +100,7 @@ it.each(["TRC20", "BEP20"] as const)("an unsubmitted overdue reset remains payab
   const service = await getCommissionCheckoutRuntime();
   const checkout = await service.issue({ sellerId: "seller", network });
   const payment = { signature: network === "TRC20" ? "c".repeat(64) : `0x${"c".repeat(64)}`,
-    network, amountMicros: checkout.expectedMicros, timestamp: Date.parse(checkout.createdAt) + 1 };
+    network, amountMicros: checkout.expectedMicros, timestamp: Date.parse(checkout.createdAt) };
   const verifier = network === "TRC20" ? mocks.tron : mocks.bep20;
   const scanner = network === "TRC20" ? mocks.scanTron : mocks.scanBsc;
   verifier.mockResolvedValue({ verified: false, pending: true });
@@ -188,7 +189,7 @@ it.each(["TRC20", "BEP20"] as const)("shows 100 + 2 = 102, carries a repeated sh
       amountBreakdown: { commissionsUsdt: 100, previousPaymentBalanceUsdt: cycle ? 2 : 0 } });
     const checkout = await service.issue({ sellerId: "seller", network });
     const payment = { signature: `binance-deposit:${810000 + cycle}`, network,
-      amountMicros: amountsReceived[cycle] * 1e6, timestamp: Date.parse(checkout.createdAt) + 1 };
+      amountMicros: amountsReceived[cycle] * 1e6, timestamp: Date.parse(checkout.createdAt) };
     expect(await service.reconcile({ deposits: [payment], deadline: Date.now() + 60_000 }), `payment cycle ${cycle}`).toMatchObject({ verified: 1 });
     expect((await service.reconcile({ deposits: [payment], deadline: Date.now() + 60_000 })).verified).toBe(0);
     expect(await (await getCommissionCheckoutRuntime()).state("seller")).toMatchObject({ status: "paid", totalDueUsdt: 0,
@@ -219,7 +220,7 @@ it("carries future shortfalls into the next commission instead of waiving two US
     if (cycle) await expect(service.issue({ sellerId: "seller", network: "BEP20", desiredAmount: "38" })).rejects.toMatchObject({ code: "outside_tolerance" });
     const checkout = await service.issue({ sellerId: "seller", network: "BEP20", desiredAmount: cycle ? "40" : "38" });
     const payment = { signature: `binance-deposit:${900000 + cycle}`, network: "BEP20" as const,
-      amountMicros: checkout.expectedMicros, timestamp: Date.parse(checkout.createdAt) + 1 };
+      amountMicros: checkout.expectedMicros, timestamp: Date.parse(checkout.createdAt) };
     received += payment.amountMicros / 1e6;
     expect((await service.reconcile({ deposits: [payment], deadline: Date.now() + 60_000 })).verified).toBe(1);
     expect((await service.reconcile({ deposits: [payment], deadline: Date.now() + 60_000 })).verified).toBe(0);
@@ -235,7 +236,7 @@ it("discovers an unselected 14 USDT receipt against 14.44, verifies it and clear
     paymentExpectedAmount: 14.440001, sellerFeeAmount: 7.22, buyerFeeCollectedAmount: 7.22 }];
   const service = await getCommissionCheckoutRuntime();
   const checkout = await service.issue({ sellerId: "seller", network: "BEP20", desiredAmount: "14.44" });
-  const payment = { signature, network: "BEP20", amountMicros: 14_000_000, timestamp: Date.parse(checkout.createdAt) + 1 };
+  const payment = { signature, network: "BEP20", amountMicros: 14_000_000, timestamp: Date.parse(checkout.createdAt) };
   mocks.scanBinance.mockResolvedValue({ configured: true, complete: true, pages: 1, deposits: [payment] });
   mocks.scanBsc.mockRejectedValue(Error("bep20_index_plan_unsupported"));
   expect((await service.scan(Date.now() + 60_000)).verified).toBe(1);
@@ -272,6 +273,7 @@ it("the TRC20 scanner verifies 5.01 for 4.14 and clears the seller despite older
   const checkout = await service.issue({ sellerId: "seller", network: "TRC20", desiredAmount: "4.14" });
   const payment = { signature: "b".repeat(64), network: "TRC20", amountMicros: 5_010_000,
     timestamp: Math.max(Date.parse(checkout.createdAt), Date.parse(earlier.createdAt)) + 100 };
+  vi.spyOn(Date, "now").mockReturnValue(payment.timestamp + 1);
   mocks.tron.mockResolvedValue({ verified: true, pending: false });
   mocks.scanTron.mockResolvedValue({ configured: true, complete: true, pages: 1, deposits: [payment] });
   const result = await service.scan(Date.now() + 60_000);
@@ -295,10 +297,12 @@ it("incomplete receiving history is not labeled complete", async () => {
   expect((await service.scan(Date.now() + 60_000)).complete).toBe(false);
 });
 it.each(["TRC20", "BEP20"] as const)("keeps %s unpaid until its receiving history is complete, then recovers once", async (network) => {
+  const now = Date.now();
+  const clock = vi.spyOn(Date, "now").mockReturnValue(now);
   const service = await getCommissionCheckoutRuntime();
   const checkout = await service.issue({ sellerId: "seller", network });
   const payment = { signature: network === "TRC20" ? "e".repeat(64) : `0x${"e".repeat(64)}`,
-    network, amountMicros: checkout.expectedMicros - 300_000, timestamp: Date.parse(checkout.createdAt) + 1 };
+    network, amountMicros: checkout.expectedMicros - 300_000, timestamp: Date.parse(checkout.createdAt) };
   const scanner = network === "TRC20" ? mocks.scanTron : mocks.scanBsc;
   const verifier = network === "TRC20" ? mocks.tron : mocks.bep20;
   mocks.scanBinance.mockResolvedValue({ configured: false, complete: false, pages: 0, deposits: [] });
@@ -312,6 +316,9 @@ it.each(["TRC20", "BEP20"] as const)("keeps %s unpaid until its receiving histor
   expect((await getSellerCommissionStatus("seller")).pendingCount).toBe(2);
 
   scanner.mockResolvedValue({ configured: true, complete: true, pages: 1, deposits: [payment] });
+  clock.mockReturnValue(now + 1000);
+  expect(await service.scan(Date.now() + 60_000)).toMatchObject({ complete: false, verified: 0 });
+  clock.mockReturnValue(now + 2000);
   expect(await service.scan(Date.now() + 60_000)).toMatchObject({ complete: true, verified: 1 });
   expect((await getSellerCommissionStatus("seller")).pendingCount).toBe(0);
   expect((await service.scan(Date.now() + 60_000)).verified).toBe(0);
@@ -347,7 +354,7 @@ it.each(["2.54", "3.54", "4.54"])("today's 2%% fee settles automatically for a p
   const service = await getCommissionCheckoutRuntime();
   const checkout = await service.issue({ sellerId: "seller", network: "BEP20", desiredAmount });
   expect(checkout.expectedMicros).toBe(Math.round(Number(desiredAmount) * 1e6));
-  const payment = { signature, network: "BEP20", amountMicros: checkout.expectedMicros, timestamp: Date.parse(checkout.createdAt) + 1 };
+  const payment = { signature, network: "BEP20", amountMicros: checkout.expectedMicros, timestamp: Date.parse(checkout.createdAt) };
   mocks.scanBinance.mockResolvedValue({ configured: true, complete: true, pages: 1, deposits: [payment] });
   const result = await service.scan(Date.now() + 60_000);
   expect(result.verified).toBe(1);
@@ -365,7 +372,7 @@ it("receiving 30 for a 29.20 checkout automatically clears canonical seller acce
   const checkout = await service.issue({ sellerId: "seller", network: "BEP20" });
   expect(checkout.roundedMicros).toBe(30_000_000);
   mocks.scanBinance.mockResolvedValue({ configured: true, complete: true, pages: 1, deposits: [{
-    signature, network: "BEP20", amountMicros: 30_000_000, timestamp: Date.parse(checkout.createdAt) + 1,
+    signature, network: "BEP20", amountMicros: 30_000_000, timestamp: Date.parse(checkout.createdAt),
   }] });
   expect((await service.scan(Date.now() + 60_000)).verified).toBe(1);
   expect((await getSellerCommissionStatus("seller")).status).toBe("clear");
@@ -396,7 +403,7 @@ it.each([
   const service = await getCommissionCheckoutRuntime();
   const current = await service.issue({ sellerId: "seller", network });
   const payment = { signature: network === "TRC20" ? "e".repeat(64) : `0x${"e".repeat(64)}`, network,
-    amountMicros: (30 + delta) * 1e6, timestamp: Date.parse(current.createdAt) + 1 };
+    amountMicros: (30 + delta) * 1e6, timestamp: Date.parse(current.createdAt) };
   (network === "TRC20" ? mocks.tron : mocks.bep20).mockResolvedValue({ verified: true });
   (network === "TRC20" ? mocks.scanTron : mocks.scanBsc).mockResolvedValue({ configured: true, complete: true, pages: 1, deposits: [payment] });
   expect((await service.scan(Date.now() + 60_000)).verified).toBe(1);

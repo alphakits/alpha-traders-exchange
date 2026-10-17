@@ -56,7 +56,7 @@ export async function getCommissionBatchRuntime() {
       if (receipt.signature.startsWith("binance-deposit:")) {
         const result = await verifyBinanceInternalCommissionDeposit({ signature: receipt.signature,
           network: receipt.network, recipient: destination.walletAddress,
-          amount: receipt.amountMicros / 1e6, earliestTimestamp });
+          amount: receipt.amountMicros / 1e6, earliestTimestamp, depositTimestamp: receipt.timestamp });
         return { verified: result.verified, pending: result.pending,
           code: result.verified ? "binance_verified" : result.pending ? "binance_pending" : "binance_receipt_rejected" };
       }

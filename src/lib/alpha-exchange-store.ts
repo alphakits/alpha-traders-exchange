@@ -16112,6 +16112,7 @@ async function verifyCommissionWalletPayment(input: {
   existingSignatures?: string[];
   earliestPaymentTimestampMs?: number;
   allowLegacyTronOverpayment?: boolean;
+  observedDepositTimestamp?: number;
 }): Promise<CommissionWalletVerificationResult> {
   const normalizedHash = normalizeTransactionHash(input.paymentSignature);
   const txHash = input.network === "TRC20" && /^0x/i.test(normalizedHash)
@@ -16129,6 +16130,7 @@ async function verifyCommissionWalletPayment(input: {
     return verifyBinanceInternalCommissionDeposit({
       signature: txHash, network: input.network, recipient: input.recipientWalletAddress,
       amount: input.amountDue, earliestTimestamp: input.earliestPaymentTimestampMs ?? Number.NaN,
+      depositTimestamp: input.observedDepositTimestamp,
     });
   }
 
@@ -16217,6 +16219,7 @@ export async function submitSellerCommissionWalletPayment(input: {
   paymentSignature: string;
   network: string;
   automaticReverification?: boolean;
+  observedDepositTimestamp?: number;
 }) {
   const startedAt = Date.now();
   const dbReadStartedAt = Date.now();
@@ -16312,6 +16315,7 @@ export async function submitSellerCommissionWalletPayment(input: {
     existingSignatures,
     earliestPaymentTimestampMs,
     allowLegacyTronOverpayment: current.paymentExpectedAmountMode === "legacy_base",
+    observedDepositTimestamp: input.observedDepositTimestamp,
   });
   const submittedPaymentAgeMs = Date.now() - new Date(paymentSubmittedAt).getTime();
   if (
