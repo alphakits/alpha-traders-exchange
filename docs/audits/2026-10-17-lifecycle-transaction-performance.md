@@ -103,3 +103,23 @@ from their read. The recoverable post-commit trust transaction still loads that
 history from canonical records. The 330 focused financial, lifecycle and scoped
 SQL checks pass locally; the real PostgreSQL measurement remains the acceptance
 gate and its actual result is recorded separately.
+## Priority during completion bursts
+
+The 1a1660 application passed with a 966.66 ms maximum, but the unchanged
+application in 22a8d80 reached 1,019.21 ms. Both runs passed all 27 functional
+database checks and three restore checks. This variation means a single passing
+timing was not enough margin. The threshold and 240-action workload are unchanged.
+
+Fresh derived trust work now yields when another lifecycle request holds or waits
+in the per-request advisory-lock namespace, including gaps between holders of
+the global financial lock. It keeps the same canonical financial lock and durable
+intent. Intents older than 30 seconds retain their existing queued recovery path
+so continuous trading cannot starve recovery. The priority observation is scoped
+to the current database and the two-integer lifecycle namespace.
+
+An isolated PostgreSQL regression failed before this change: fresh trust work
+started while a lifecycle request lock was active. The paired overdue-intent
+case checks that recovery still proceeds. The real four-process harness also
+holds an active lifecycle lock, verifies that all intents remain pending, then
+releases it and verifies exact-once recovery with account/session preservation.
+Fresh real-PostgreSQL timing results must still be read from the new CI run.

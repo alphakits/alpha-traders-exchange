@@ -2414,14 +2414,19 @@ export class AlphaExchangeRepository {
           }
         }
         if (!row && trustReconciliation) {
-          const lock = await client.query<{ acquired: boolean; overdue: boolean }>(`select
-            pg_try_advisory_xact_lock(61422917) as acquired,
-            exists (select 1 from alpha_exchange.purchase_requests
-              where payload->'trustReconciliation'->>'requestedAt' is not null
-                and payload->'trustReconciliation'->>'reconciledAt' is null
-                and (payload->'trustReconciliation'->>'requestedAt')::timestamptz < now() - interval '30 seconds') as overdue`);
+          const lock = await client.query<{ acquired: boolean; overdue: boolean }>(`with pressure as materialized (
+            select exists (select 1 from pg_locks
+              where locktype = 'advisory' and classid = 61422919 and objsubid = 2
+                and database = (select oid from pg_database where datname = current_database())) as financial_work,
+              exists (select 1 from alpha_exchange.purchase_requests
+                where payload->'trustReconciliation'->>'requestedAt' is not null
+                  and payload->'trustReconciliation'->>'reconciledAt' is null
+                  and (payload->'trustReconciliation'->>'requestedAt')::timestamptz < now() - interval '30 seconds') as overdue
+          ) select case when financial_work and not overdue then false
+              else pg_try_advisory_xact_lock(61422917) end as acquired, overdue from pressure`);
           if (!lock.rows[0]?.acquired && !lock.rows[0]?.overdue) {
-            // A fresh derived update may yield to queued financial actions.
+            // A fresh derived update yields while lifecycle requests hold or
+            // wait for their request lock, even between global-lock holders.
             // Its committed intent remains pending; subsequent callbacks and
             // maintenance recover it. Older work joins the lock queue so a
             // sustained trading burst cannot starve reconciliation forever.

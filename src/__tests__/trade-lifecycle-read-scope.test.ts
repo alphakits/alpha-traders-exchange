@@ -12,7 +12,9 @@ describe("PostgreSQL lifecycle request dependencies", () => {
       create table alpha_exchange.runtime_meta (singleton boolean, version bigint);
       insert into alpha_exchange.runtime_meta values (true, 1);
       create table alpha_exchange.purchase_requests
-        (id text primary key, seller_id text, buyer_id text, status text, sort_index bigint, payload jsonb);`);
+        (id text primary key, seller_id text, buyer_id text, status text, sort_index bigint, payload jsonb);
+      create table alpha_exchange.seller_profiles (sort_index bigint, payload jsonb);
+      create table alpha_exchange.seller_settings (sort_index bigint, payload jsonb);`);
     const client = { query: (sql: string, parameters?: unknown[]) => db.query(sql, parameters), release: () => {} };
     repository = new AlphaExchangeRepository({ connect: async () => client } as unknown as Pool);
     vi.spyOn(repository, "ensureReady").mockResolvedValue();
@@ -51,4 +53,21 @@ describe("PostgreSQL lifecycle request dependencies", () => {
     await expect(tx.commit(tx.snapshot, { selectedTables: ["purchase_requests"] })).rejects.toThrow("read-only lifecycle retry");
     await tx.close();
   });
+  it.each([{ ageMs: 0, deferred: true }, { ageMs: 45_000, deferred: false }])(
+    "gives active financial requests priority without starving overdue trust work ($ageMs ms old)", async ({ ageMs, deferred }) => {
+      await db.query("update alpha_exchange.purchase_requests set payload = jsonb_set(payload, '{trustReconciliation}', $1::jsonb) where id='target'",
+        [JSON.stringify({ requestedAt: new Date(Date.now() - ageMs).toISOString() })]);
+      // Keep the global financial lock free: a duplicate or pooled lifecycle
+      // request can still be pending in the per-request lock namespace.
+      await db.query("select pg_advisory_lock(61422919, hashtext($1))", ["target"]);
+      try {
+        const tx = (await repository.beginTradeTrustTransaction(["purchase_requests"]))!;
+        try { expect(tx.snapshot.purchaseRequests.length === 0).toBe(deferred); }
+        finally { await tx.close(); }
+        const result = await db.query<{ payload: { trustReconciliation: { reconciledAt?: string } } }>("select payload from alpha_exchange.purchase_requests where id='target'");
+        expect(result.rows[0].payload.trustReconciliation.reconciledAt).toBeUndefined();
+      } finally {
+        await db.query("select pg_advisory_unlock(61422919, hashtext($1))", ["target"]);
+      }
+    });
 });

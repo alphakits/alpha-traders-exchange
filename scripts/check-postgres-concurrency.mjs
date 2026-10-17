@@ -363,6 +363,22 @@ try {
   for (const worker of workers) worker.child.kill("SIGKILL");
   workers.splice(0, workers.length, ...Array.from({ length: 4 }, (_, index) => startWorker(index + 8)));
   (await Promise.all(workers.map(worker => worker.call("ready")))).forEach(requireOk);
+  // An active lifecycle request may be waiting for its request lock or a pooled
+  // connection while the global lock is momentarily free. Derived work yields
+  // to that burst, but retains every committed intent for idle recovery below.
+  const lifecycleHolder = await pool.connect();
+  try {
+    await lifecycleHolder.query("begin");
+    await lifecycleHolder.query("select pg_advisory_xact_lock(61422919, hashtext($1))", [recoveryRequest.id]);
+    const deferred = (await Promise.all(workers.map(worker => worker.call("reconcile-trust")))).map(requireOk);
+    assert.equal(deferred.reduce((total, result) => total + result.reconciled, 0), 0);
+    const retained = await pool.query("select count(*)::int as n from alpha_exchange.purchase_requests where id = any($1::text[]) and payload->'trustReconciliation'->>'reconciledAt' is null", [pendingTrustIds]);
+    assert.equal(retained.rows[0].n, pendingTrustIds.length);
+    passed("Derived trust yields to active financial requests without losing durable intents", { workers: 4, pending: pendingTrustIds.length });
+  } finally {
+    await lifecycleHolder.query("rollback");
+    lifecycleHolder.release();
+  }
   const reconciled = (await Promise.all(workers.map(worker => worker.call("reconcile-trust")))).map(requireOk);
   assert.equal(reconciled.reduce((total, result) => total + result.reconciled, 0), pendingTrustIds.length);
   snapshot = requireOk(await workers[0].call("snapshot"));
