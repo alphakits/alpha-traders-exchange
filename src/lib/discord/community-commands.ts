@@ -1,4 +1,5 @@
 import "server-only";
+import { isUncertainPostgresConnection, rollbackFailedTransaction } from "@/lib/postgres-transaction";
 
 import { createHash } from "node:crypto";
 
@@ -14,7 +15,7 @@ import {
   type InteractionEditReplyOptions,
   type RESTPostAPIChannelMessageJSONBody,
 } from "discord.js";
-import type { Pool, PoolClient } from "pg";
+import type { Pool } from "pg";
 
 import type { DiscordGatewayClient } from "@/lib/discord/gateway-client";
 import {
@@ -213,6 +214,7 @@ async function claimInteraction(input: {
   now?: Date;
 }): Promise<InteractionClaimOutcome> {
   const client = await input.pool.connect();
+  let destroy = false;
   const now = input.now ?? new Date();
   try {
     await client.query("begin");
@@ -290,21 +292,10 @@ async function claimInteraction(input: {
     await client.query("commit");
     return outcome;
   } catch (error) {
-    await rollback(client, error);
+    destroy = await rollbackFailedTransaction(client, error);
     throw error;
   } finally {
-    client.release();
-  }
-}
-
-async function rollback(client: PoolClient, cause: unknown): Promise<void> {
-  try {
-    await client.query("rollback");
-  } catch (rollbackError) {
-    throw new AggregateError(
-      [cause, rollbackError],
-      "Discord interaction transaction rollback failed.",
-    );
+    client.release(destroy);
   }
 }
 
@@ -800,6 +791,7 @@ export class DiscordCommunityCommandService {
   async reconcile(): Promise<void> {
     const database = await this.pool.connect();
     let locked = false;
+    let destroyClient = false;
     try {
       await database.query(
         "select pg_advisory_lock(hashtext($1))",
@@ -984,10 +976,12 @@ export class DiscordCommunityCommandService {
         lastReconciledAt: new Date().toISOString(),
         errorCode: null,
       };
+    } catch (error) {
+      destroyClient = isUncertainPostgresConnection(error);
+      throw error;
     } finally {
-      let destroyClient = false;
       let unlockError: unknown;
-      if (locked) {
+      if (locked && !destroyClient) {
         try {
           await database.query(
             "select pg_advisory_unlock(hashtext($1))",

@@ -30,3 +30,12 @@ Storage-backed media deletion remains outside this transaction change: a remote
 storage deletion cannot be rolled back by a database transaction. The complete
 storage/delete/import recovery journey remains an explicit unverified scope
 item, including failures between upload, content creation and media association.
+
+The actual lesson editor sends a full lesson including its status. The update
+API previously interpreted any valid status as a status-only action, returning
+success while ignoring edited titles, descriptions and other fields. API-to-
+repository tests reproduced this, an editable body-ID override and silent
+publication for an unsupported status (four failures, two passes before repair).
+The API now saves the complete patch, enforces the path ID, rejects unsupported
+statuses and records the matching publication audit in the same transaction.
+All six API checks and ten content/localization checks pass after repair.

@@ -1,4 +1,5 @@
 import "server-only";
+import { rollbackFailedTransaction } from "@/lib/postgres-transaction";
 
 import type { Pool, PoolClient } from "pg";
 
@@ -189,6 +190,7 @@ async function transaction<T>(
   operation: (client: PoolClient) => Promise<T>,
 ): Promise<T> {
   const client = await pool.connect();
+  let destroy = false;
   try {
     await client.query("begin");
     const result = await operation(client);
@@ -196,13 +198,19 @@ async function transaction<T>(
     return result;
   } catch (error) {
     if (error instanceof DiscordListingShareError) {
-      await client.query("commit");
+      // Persist the denial audit, but a failed COMMIT is still a failed
+      // transaction: never return its uncertain connection to the pool.
+      try { await client.query("commit"); }
+      catch (commitError) {
+        destroy = await rollbackFailedTransaction(client, commitError);
+        throw commitError;
+      }
     } else {
-      await client.query("rollback");
+      destroy = await rollbackFailedTransaction(client, error);
     }
     throw error;
   } finally {
-    client.release();
+    client.release(destroy);
   }
 }
 

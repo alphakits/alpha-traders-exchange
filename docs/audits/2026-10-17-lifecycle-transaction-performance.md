@@ -73,3 +73,19 @@ still run. The read-only result cannot commit any write. Actions that need to
 change state acquire the lock and re-read the complete dependency set before
 validation. The same 240-action workload measures the result again; the
 subsecond target remains unresolved until that measurement passes.
+
+`5d00036` passed all 26 correctness/recovery checks and three restoration checks,
+including the corrected session precondition and the owner-content races. Its
+median was 408.90 ms, p95 1,290.83 ms and maximum 1,585.64 ms: still a performance
+failure. Queue analysis showed fresh background trust transactions competing
+with financial transitions. Reconciliation now tries the common transaction
+lock without waiting; when busy, it leaves the durable intent pending for the
+next callback/maintenance invocation. Pending work older than 30 seconds joins
+the lock queue to prevent starvation. No pending intent is marked reconciled
+when the lock was not acquired.
+
+The CI database job now explicitly fails if any of the 240 measured actions
+reaches 1,000 ms, or if timing evidence is missing/invalid. Backup/restore still
+runs before that gate. Controlled boundary checks verified 999.999 ms passes,
+1,000 and 1,000.001 ms fail, and a missing measurement fails. This does not prove
+provider-side branch protection or deployment gating is configured.

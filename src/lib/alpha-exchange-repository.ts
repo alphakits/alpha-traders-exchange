@@ -2394,7 +2394,24 @@ export class AlphaExchangeRepository {
       }
       if (!row) {
         await client.query("begin");
-        await client.query("select pg_advisory_xact_lock(61422917)");
+        if (trustReconciliation) {
+          const lock = await client.query<{ acquired: boolean; overdue: boolean }>(`select
+            pg_try_advisory_xact_lock(61422917) as acquired,
+            exists (select 1 from alpha_exchange.purchase_requests
+              where payload->'trustReconciliation'->>'requestedAt' is not null
+                and payload->'trustReconciliation'->>'reconciledAt' is null
+                and (payload->'trustReconciliation'->>'requestedAt')::timestamptz < now() - interval '30 seconds') as overdue`);
+          if (!lock.rows[0]?.acquired && !lock.rows[0]?.overdue) {
+            // A fresh derived update may yield to queued financial actions.
+            // Its committed intent remains pending; subsequent callbacks and
+            // maintenance recover it. Older work joins the lock queue so a
+            // sustained trading burst cannot starve reconciliation forever.
+            await close();
+            return { snapshot: emptySnapshotCollections(), close,
+              commit: async () => { throw new Error("Deferred trust work did not acquire its transaction lock."); } };
+          }
+          if (!lock.rows[0]?.acquired) await client.query("select pg_advisory_xact_lock(61422917)");
+        } else await client.query("select pg_advisory_xact_lock(61422917)");
         row = (await client.query<ReadRow>(readSql(), parameters)).rows[0];
       }
       const version = Number(row?.version ?? "0");

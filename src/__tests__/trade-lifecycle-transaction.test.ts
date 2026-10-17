@@ -10,6 +10,7 @@ function fixture(fail?: (sql: string) => Error | undefined) {
     void values;
     const error = fail?.(sql);
     if (error) throw error;
+    if (sql.includes("pg_try_advisory_xact_lock")) return { rows: [{ acquired: true, overdue: false }] } as never;
     if (sql.includes("as version") && sql.includes("json_agg")) return { rows: [{
       version: "12",
       read_only_retry: false,
@@ -208,6 +209,23 @@ describe("durable trade trust transaction", () => {
     });
     return setup;
   }
+
+  it.each([false, true])("yields fresh trust work but queues an overdue intent (overdue=%s)", async overdue => {
+    const { repo, query, release } = trustFixture();
+    const original = query.getMockImplementation()!;
+    query.mockImplementation(async (sql, values) => sql.includes("pg_try_advisory_xact_lock")
+      ? { rows: [{ acquired: false, overdue }] } as never : original(sql, values));
+    const tx = (await repo.beginTradeTrustTransaction(["users", "purchase_requests"]))!;
+    if (!overdue) {
+      expect(tx.snapshot.purchaseRequests).toEqual([]);
+      await expect(tx.commit(tx.snapshot, { selectedTables: ["purchase_requests"] })).rejects.toThrow("did not acquire");
+      expect(query.mock.calls.some(([sql]) => sql.includes("json_agg"))).toBe(false);
+    }
+    expect(query.mock.calls.some(([sql]) => sql === "select pg_advisory_xact_lock(61422917)")).toBe(overdue);
+    expect(query.mock.calls.some(([sql]) => /^(insert|update|delete)\b/i.test(sql))).toBe(false);
+    await tx.close();
+    expect(release).toHaveBeenCalledExactlyOnceWith(false);
+  });
 
   it("updates only the derived account fields without deleting accounts or sessions", async () => {
     const { repo, query } = trustFixture();

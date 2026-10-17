@@ -1,4 +1,5 @@
 import "server-only";
+import { isUncertainPostgresConnection, rollbackFailedTransaction } from "@/lib/postgres-transaction";
 
 import type { Pool, PoolClient } from "pg";
 
@@ -63,6 +64,7 @@ async function provisionManagedRoles(
   manager: DiscordRoleManager,
 ): Promise<DiscordManagedRoleIds> {
   const client = await pool.connect();
+  let destroy = false;
   try {
     await client.query("begin");
     await client.query("select pg_advisory_xact_lock(61422918)");
@@ -83,10 +85,10 @@ async function provisionManagedRoles(
     await client.query("commit");
     return roles;
   } catch (error) {
-    await client.query("rollback");
+    destroy = await rollbackFailedTransaction(client, error);
     throw error;
   } finally {
-    client.release();
+    client.release(destroy);
   }
 }
 
@@ -409,6 +411,7 @@ export class DiscordRoleSyncWorker {
             );
             await lockClient.query("commit");
           } catch (error) {
+            if (isUncertainPostgresConnection(error)) throw error;
             const failureCode = safeFailureCode(error);
             try {
               await failJob(lockClient, job, failureCode);
@@ -428,15 +431,7 @@ export class DiscordRoleSyncWorker {
             });
           }
         } catch (error) {
-          try {
-            await lockClient.query("rollback");
-          } catch (rollbackError) {
-            destroyClient = true;
-            throw new AggregateError(
-              [error, rollbackError],
-              "Discord role synchronization transaction rollback failed.",
-            );
-          }
+          destroyClient = await rollbackFailedTransaction(lockClient, error);
           throw error;
         } finally {
           lockClient.release(destroyClient);

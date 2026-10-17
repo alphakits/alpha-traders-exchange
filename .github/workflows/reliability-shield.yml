@@ -61,6 +61,8 @@ jobs:
           docker exec "$POSTGRES_CONTAINER" createdb -U postgres alpha_exchange_restore_ci
           docker exec -i "$POSTGRES_CONTAINER" pg_restore -U postgres -d alpha_exchange_restore_ci --exit-on-error < test-results/postgres-concurrency/controlled-backup.dump
           node scripts/check-postgres-restoration.mjs
+      - name: Enforce the subsecond database action target
+        run: node scripts/check-postgres-performance.mjs
       - name: Preserve database verification evidence
         if: always()
         uses: actions/upload-artifact@v4

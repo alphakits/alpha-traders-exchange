@@ -257,6 +257,9 @@ export async function updateLesson(input: LessonUpdate, role: LessonVersion["rol
     lessons[index] = merged;
     await writeLessons(lessons);
     await appendVersion({ lessonId: merged.id, action: "updated", role, snapshot: merged });
+    if (input.status !== undefined) {
+      await appendVersion({ lessonId: merged.id, action: merged.status === "published" ? "published" : "unpublished", role, snapshot: merged });
+    }
     return merged;
   });
 }
@@ -320,16 +323,7 @@ export async function reorderLessons(input: Array<{ id: string; order: number; c
 }
 
 export async function setLessonStatus(lessonId: string, status: LessonStatus, role: LessonVersion["role"]) {
-  return mutateAdminContent(async () => {
-    const lesson = await updateLesson({ id: lessonId, status }, role);
-    await appendVersion({
-      lessonId,
-      action: status === "published" ? "published" : "unpublished",
-      role,
-      snapshot: lesson,
-    });
-    return lesson;
-  });
+  return updateLesson({ id: lessonId, status }, role);
 }
 
 export function searchLessons(lessons: Lesson[], query: {
