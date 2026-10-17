@@ -250,13 +250,12 @@ try {
   passed("Concurrent adjustments and durable two-submission limit", { processes: 4, submitted: 2 });
 
   const scopeActor = "audit-buyer-14-3";
-  const acceptanceScope = requireOk(await workers[0].call("inspect-acceptance-scope", { requestId: first.id, actorUserId: scopeActor }));
-  const relatedRequests = snapshot.purchaseRequests.filter(request => request.sellerId === first.sellerId || request.buyerId === first.buyerId);
-  const authorityIds = snapshot.users.filter(user => [user.role, ...(user.roles ?? [])].some(role => role === "owner" || role === "admin")).map(user => user.id);
-  const expectedScopeUsers = [...new Set([scopeActor, ...authorityIds, ...relatedRequests.flatMap(request => [request.sellerId, request.buyerId])])].sort();
-  assert.deepEqual(acceptanceScope.userIds, expectedScopeUsers);
-  assert.deepEqual(acceptanceScope.requestIds, relatedRequests.map(request => request.id).sort());
-  passed("Acceptance reads retain actor, related counterparties and administrators without unrelated accounts", { retainedAccounts: acceptanceScope.userIds.length, totalAccounts: snapshot.users.length });
+  const legacyCount = await pool.query("select count(*)::int as n from alpha_exchange.purchase_requests where coalesce(payload->>'displayNumber', '') !~ '^[1-9][0-9]*$'");
+  assert(legacyCount.rows[0].n > 0, "The legacy fixture must exercise global numbering dependencies");
+  const legacyScope = requireOk(await workers[0].call("inspect-acceptance-scope", { requestId: first.id, actorUserId: scopeActor }));
+  assert.deepEqual(legacyScope.userIds, snapshot.users.map(user => user.id).sort());
+  assert.deepEqual(legacyScope.requestIds, snapshot.purchaseRequests.map(request => request.id).sort());
+  passed("Legacy acceptance preserves every numbering dependency and counterparty", { retainedAccounts: legacyScope.userIds.length, requests: legacyScope.requestIds.length });
 
   const accepted = await batch(fixture.purchaseRequests.map(request => sellerCommand(request, "accepted")));
   snapshot = requireOk(await workers[0].call("snapshot"));
@@ -266,6 +265,19 @@ try {
   assert.equal(snapshot.commissionRecords.length, 0);
   assert.equal(new Set(active.map(request => request.tradeId)).size, 45);
   passed("15 concurrent sellers, 60 buyer requests, three accepted per seller", { accepted: 45, blocked: 15, prematureCommissions: 0 });
+
+  const unnumbered = await pool.query("select count(*)::int as n from alpha_exchange.purchase_requests where coalesce(payload->>'displayNumber', '') !~ '^[1-9][0-9]*$'");
+  assert.equal(unnumbered.rows[0].n, 0, "Real lifecycle mutations must persist legacy numbering before the scoped read check");
+  const pendingForScope = snapshot.purchaseRequests.find(request => request.sellerId === first.sellerId && request.status === "pending");
+  assert(pendingForScope, "The scope probe must exercise a mutable acceptance, not a committed retry");
+  const acceptanceScope = requireOk(await workers[0].call("inspect-acceptance-scope", { requestId: pendingForScope.id, actorUserId: scopeActor }));
+  const relatedRequests = snapshot.purchaseRequests.filter(request => request.sellerId === pendingForScope.sellerId || request.buyerId === pendingForScope.buyerId);
+  const authorityIds = snapshot.users.filter(user => [user.role, ...(user.roles ?? [])].some(role => role === "owner" || role === "admin")).map(user => user.id);
+  const expectedScopeUsers = [...new Set([scopeActor, ...authorityIds, ...relatedRequests.flatMap(request => [request.sellerId, request.buyerId])])].sort();
+  assert.deepEqual(acceptanceScope.userIds, expectedScopeUsers);
+  assert.deepEqual(acceptanceScope.requestIds, relatedRequests.map(request => request.id).sort());
+  assert(acceptanceScope.userIds.length < snapshot.users.length, "The canonical scope must exclude unrelated accounts");
+  passed("Numbered acceptance retains actor, related counterparties and administrators without unrelated accounts", { retainedAccounts: acceptanceScope.userIds.length, totalAccounts: snapshot.users.length });
 
   // A retained request must never be transiently deleted during snapshot
   // replacement. Such a deletion can silently cascade a dependent record.

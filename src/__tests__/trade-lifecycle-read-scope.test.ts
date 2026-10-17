@@ -44,9 +44,15 @@ describe("PostgreSQL lifecycle request dependencies", () => {
   });
   it("retains the whole collection while a legacy request still needs a global display number", async () => {
     await db.exec("update alpha_exchange.purchase_requests set payload = payload - 'displayNumber' where id='unrelated'");
-    const tx = (await repository.beginTradeLifecycleTransaction(["purchase_requests"], "target", "accepted"))!;
-    expect(tx.snapshot.purchaseRequests.map(request => request.id)).toEqual(["target", "seller-capacity", "buyer-other-seller", "unrelated"]);
-    await tx.close();
+    const accounts = ["seller-a", "buyer-a", "seller-b", "buyer-b", "seller-c", "buyer-c", "caller"];
+    for (const [index, id] of accounts.entries()) {
+      await db.query("insert into alpha_exchange.users values ($1,$2,$3)", [id, index, JSON.stringify({ id, role: "buyer" })]);
+    }
+    const tx = (await repository.beginTradeLifecycleTransaction(["users", "purchase_requests"], "target", "accepted", "caller"))!;
+    try {
+      expect(tx.snapshot.purchaseRequests.map(request => request.id)).toEqual(["target", "seller-capacity", "buyer-other-seller", "unrelated"]);
+      expect(tx.snapshot.users.map(user => user.id)).toEqual(accounts);
+    } finally { await tx.close(); }
   });
   it("acknowledges a committed completion with one read-only request and cannot write through that retry", async () => {
     await db.exec("update alpha_exchange.purchase_requests set status='completed', payload=jsonb_set(payload,'{status}','\"completed\"') where id='target'");
