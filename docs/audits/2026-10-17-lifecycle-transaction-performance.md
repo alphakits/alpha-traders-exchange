@@ -45,3 +45,16 @@ An already-applied transition uses a read-only retry projection. Store-level
 actor, dispute and credential checks still execute before acknowledging it.
 The repository rejects any attempted write from that projection. Legacy
 unnumbered records keep the complete read path.
+
+The second run for `89bf213` passed 22 database correctness/recovery checks and
+three restoration checks. Median action latency was 416.94 ms, p95 1,351.27 ms,
+and maximum 1,789.27 ms. Completion remained the slowest action. This result
+still fails the subsecond target.
+
+Trust reconciliation now uses the same lock-before-read transaction and writes
+only changed rows, including account/profile/settings and trust records with
+their actual primary keys. Accounts are upserted and cannot be deleted through
+this path; session rows are never replaced. Other workers that find no pending
+intent skip the full snapshot and cannot commit derived work. All sellers,
+trades, listings, commissions and enforcement dependencies remain authoritative.
+The real PostgreSQL recovery scenario additionally verifies session survival.

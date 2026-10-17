@@ -189,3 +189,73 @@ describe("canonical trade lifecycle transaction", () => {
     expect(release).toHaveBeenCalledExactlyOnceWith(true);
   });
 });
+
+
+describe("durable trade trust transaction", () => {
+  function trustFixture(pending = true) {
+    const setup = fixture();
+    const original = setup.query.getMockImplementation()!;
+    setup.query.mockImplementation(async (sql, values) => {
+      const result = await original(sql, values);
+      if (result.rows[0]) Object.assign(result.rows[0], {
+        has_pending_trust: pending,
+        users: [{ payload: { id: "seller", email: "seller@example.test", role: "approved_seller", disabled: true,
+          passwordHash: "latest-password", createdAt: at, updatedAt: at }, sort_index: 8 }],
+        trust_snapshots: [{ payload: { sellerId: "seller", snapshot: { trustScore: 50 }, updatedAt: at }, sort_index: 5 }],
+        seller_profiles: [], seller_settings: [],
+      });
+      return result;
+    });
+    return setup;
+  }
+
+  it("updates only the derived account fields without deleting accounts or sessions", async () => {
+    const { repo, query } = trustFixture();
+    const tx = (await repo.beginTradeTrustTransaction(["users", "purchase_requests"]))!;
+    tx.snapshot.users[0].lifetimeCompletedVolumeUsdt = 250;
+    await tx.commit(tx.snapshot, { selectedTables: ["users", "seller_profiles", "seller_settings"] });
+    const write = query.mock.calls.find(([sql]) => sql.startsWith("INSERT INTO alpha_exchange.users"))!;
+    expect(write[0]).toContain("ON CONFLICT (id) DO UPDATE");
+    expect(write[1]?.[8]).toEqual(["8"]);
+    expect(JSON.parse((write[1]?.[9] as string[])[0])).toMatchObject({ disabled: true, passwordHash: "latest-password", lifetimeCompletedVolumeUsdt: 250 });
+    expect(query.mock.calls.some(([sql]) => /delete from alpha_exchange.users|alpha_exchange.sessions/.test(sql))).toBe(false);
+    const profile = query.mock.calls.find(([sql]) => sql.startsWith("INSERT INTO alpha_exchange.seller_profiles"))!;
+    expect(profile[1]?.[0]).toEqual(["seller"]);
+    const settings = query.mock.calls.find(([sql]) => sql.startsWith("INSERT INTO alpha_exchange.seller_settings"))!;
+    expect(settings[1]?.[0]).toEqual(["seller"]);
+  });
+
+  it("replaces a changed trust snapshot by seller identity and preserves its order", async () => {
+    const { repo, query } = trustFixture();
+    const tx = (await repo.beginTradeTrustTransaction(["users", "purchase_requests", "trust_snapshots"]))!;
+    tx.snapshot.trustSnapshots[0].snapshot.trustScore = 60;
+    await tx.commit(tx.snapshot, { selectedTables: ["trust_snapshots"] });
+    expect(query).toHaveBeenCalledWith("delete from alpha_exchange.trust_snapshots where seller_id = any($1::text[])", [["seller"]]);
+    const write = query.mock.calls.find(([sql]) => sql.startsWith("INSERT INTO alpha_exchange.trust_snapshots"))!;
+    expect(write[1]?.[0]).toEqual(["seller"]);
+    expect(write[1]?.[2]).toEqual(["5"]);
+  });
+
+  it("refuses to delete an account during derived trust work", async () => {
+    const { repo, query, release } = trustFixture();
+    const tx = (await repo.beginTradeTrustTransaction(["users", "purchase_requests"]))!;
+    tx.snapshot.users = [];
+    await expect(tx.commit(tx.snapshot, { selectedTables: ["users"] })).rejects.toThrow("cannot delete accounts");
+    expect(query.mock.calls.some(([sql]) => sql.startsWith("delete"))).toBe(false);
+    expect(release).toHaveBeenCalledExactlyOnceWith(false);
+  });
+
+  it("does not allow an already-consumed intent to produce another write", async () => {
+    const { repo, query } = trustFixture(false);
+    const tx = (await repo.beginTradeTrustTransaction(["users", "purchase_requests"]))!;
+    await expect(tx.commit(tx.snapshot, { selectedTables: ["purchase_requests"] })).rejects.toThrow("No pending trust");
+    expect(query.mock.calls.some(([sql]) => /^(insert|update|delete)\b/i.test(sql))).toBe(false);
+  });
+
+  it("cannot modify financial obligations through trust reconciliation", async () => {
+    const { repo, query } = trustFixture();
+    const tx = (await repo.beginTradeTrustTransaction(["users", "purchase_requests", "commissions"]))!;
+    await expect(tx.commit(tx.snapshot, { selectedTables: ["commissions"] })).rejects.toThrow("unsupported lifecycle");
+    expect(query.mock.calls.some(([sql]) => /^(insert|update|delete)\b/i.test(sql))).toBe(false);
+  });
+});

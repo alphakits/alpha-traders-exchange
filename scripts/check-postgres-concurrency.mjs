@@ -351,6 +351,9 @@ try {
   assert(!snapshot.purchaseRequests.find(row => row.id === recoveryRequest.id).trustReconciliation?.reconciledAt);
   const changedAccount = snapshot.users.find(row => row.id === "audit-buyer-14-3");
   changedAccount.disabled = true; changedAccount.passwordHash = "synthetic-new-account-password-hash";
+  const retainedSession = { token: "synthetic-trust-session", userId: recoveryRequest.sellerId,
+    createdAt: now, expiresAt: new Date(Date.now() + 3600_000).toISOString() };
+  snapshot.authSessions.push(retainedSession);
   requireOk(await workers[0].call("seed", snapshot));
   await captureQueryMetrics("all-payment-methods-and-before-lost-follow-up-restart");
   for (const worker of workers) worker.child.kill("SIGKILL");
@@ -366,6 +369,8 @@ try {
   assert.equal(snapshot.users.find(row => row.id === changedAccount.id).passwordHash, "synthetic-new-account-password-hash");
   assert.equal(snapshot.users.find(row => row.id === recoveryRequest.sellerId).lifetimeCompletedVolumeUsdt, 1000);
   passed("Lost completion follow-up recovers after all workers restart without reverting account security or settlement", { recovered: 1, workers: 4, duplicateSettlements: 0 });
+  assert.deepEqual(snapshot.authSessions.find(session => session.token === retainedSession.token), retainedSession);
+  passed("Trust reconciliation preserves authenticated sessions while updating seller accounts", { sessions: 1, workers: 4 });
 
   const before = snapshot.marketplaceListings[0];
   await captureQueryMetrics("trust-recovery-before-transaction-kill");

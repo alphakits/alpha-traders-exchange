@@ -5189,39 +5189,54 @@ export function reconcilePendingTradeTrust(): Promise<{ reconciled: number }> {
     // Bound each invocation so continuous trading cannot monopolize a worker.
     // Every unprocessed intent remains in the committed request for the next run.
     for (let batch = 0; batch < 4; batch++) {
-      const { db } = await readDbForCriticalTradeMutation(TRADE_STATUS_TERMINAL_READ_TABLES);
-      if (!db.purchaseRequests.some(request => request.trustReconciliation && !request.trustReconciliation.reconciledAt)) break;
-      let publications: TradeMutationPublications;
-      let committedCount = 0;
-      const apply = async (snapshot: AlphaExchangeDb) => {
-        publications = { notifications: [], trustNotifications: [], trustEvents: [], promotionEmails: [], calculatingTrust: true };
-        const pending = snapshot.purchaseRequests.filter(request => request.trustReconciliation && !request.trustReconciliation.reconciledAt);
-        committedCount = pending.length;
-        if (!pending.length) return snapshot;
-        tradeMutationPublications.set(snapshot, publications);
-        try {
-          await recalculateTrustEngine(snapshot, {
-            reason: "Committed trade lifecycle reconciliation",
-            triggeredBy: pending.length === 1 ? pending[0].trustReconciliation!.requestedByUserId : SYSTEM_ACTOR_USER_ID,
+      const repository = await getAlphaExchangeRepository();
+      const transaction = typeof repository.beginTradeTrustTransaction === "function"
+        ? await repository.beginTradeTrustTransaction(TRADE_STATUS_TERMINAL_READ_TABLES) : null;
+      try {
+        const db = transaction ? normalizeDb(transaction.snapshot)
+          : (await readDbForCriticalTradeMutation(TRADE_STATUS_TERMINAL_READ_TABLES)).db;
+        if (!db.purchaseRequests.some(request => request.trustReconciliation && !request.trustReconciliation.reconciledAt)) break;
+        let publications: TradeMutationPublications;
+        let committedCount = 0;
+        const apply = async (snapshot: AlphaExchangeDb) => {
+          publications = { notifications: [], trustNotifications: [], trustEvents: [], promotionEmails: [], calculatingTrust: true };
+          const pending = snapshot.purchaseRequests.filter(request => request.trustReconciliation && !request.trustReconciliation.reconciledAt);
+          committedCount = pending.length;
+          if (!pending.length) return snapshot;
+          tradeMutationPublications.set(snapshot, publications);
+          try {
+            await recalculateTrustEngine(snapshot, {
+              reason: "Committed trade lifecycle reconciliation",
+              triggeredBy: pending.length === 1 ? pending[0].trustReconciliation!.requestedByUserId : SYSTEM_ACTOR_USER_ID,
+            });
+          } finally { tradeMutationPublications.delete(snapshot); }
+          const reconciledAt = nowIso();
+          for (const request of pending) request.trustReconciliation = { ...request.trustReconciliation!, reconciledAt };
+          return snapshot;
+        };
+        await apply(db);
+        if (transaction) {
+          // Read, derive and persist against the same canonical account state.
+          // Row deltas preserve sessions and avoid rewriting unrelated history.
+          const normalized = normalizeDb(db);
+          ensureDisplayNumbers(normalized);
+          await transaction.commit(normalized, { selectedTables: TRADE_COMPLETION_TRUST_TABLES });
+          invalidateAlphaExchangeStoreCache();
+        } else {
+          await writeDb(db, {
+            selectedTables: TRADE_COMPLETION_TRUST_TABLES,
+            rebaseOnLatest: apply,
+            rebaseTables: TRADE_STATUS_TERMINAL_READ_TABLES,
+            cacheResult: false,
           });
-        } finally { tradeMutationPublications.delete(snapshot); }
-        const reconciledAt = nowIso();
-        for (const request of pending) request.trustReconciliation = { ...request.trustReconciliation!, reconciledAt };
-        return snapshot;
-      };
-      await apply(db);
-      await writeDb(db, {
-        selectedTables: TRADE_COMPLETION_TRUST_TABLES,
-        rebaseOnLatest: apply,
-        rebaseTables: TRADE_STATUS_TERMINAL_READ_TABLES,
-        cacheResult: false,
-      });
-      // If another process changed any record while this work waited, apply()
-      // recalculated under the transaction lock and replaced the publications.
-      publications!.trustNotifications.forEach(publishNotificationPublication);
-      publications!.trustEvents.forEach(publishRealtimeEvent);
-      for (const email of publications!.promotionEmails) await sendSellerPrestigePromotionEmail(email);
-      reconciled += committedCount;
+        }
+        // Publish only after commit acknowledgement. A failed transaction leaves
+        // the durable intent pending for the next maintenance run.
+        publications!.trustNotifications.forEach(publishNotificationPublication);
+        publications!.trustEvents.forEach(publishRealtimeEvent);
+        for (const email of publications!.promotionEmails) await sendSellerPrestigePromotionEmail(email);
+        reconciled += committedCount;
+      } finally { await transaction?.close(); }
     }
     return { reconciled };
   })();

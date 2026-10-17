@@ -6,6 +6,7 @@ import { createHash, randomUUID } from "crypto";
 import { isDeepStrictEqual } from "util";
 import alphaExchangeSeed from "../../data/alpha-exchange-db.json";
 import { getRuntimePostgresPool } from "@/lib/postgres-runtime";
+import { isUncertainPostgresConnection as isTransientReadError, rollbackFailedTransaction } from "@/lib/postgres-transaction";
 import { isProductionSecurityRuntime, allowsRuntimeDiagnostics } from "@/lib/runtime-safety";
 import { logEvent } from "@/lib/structured-logging";
 import { isPublicOwnerIdentity } from "@/lib/public-account-identity";
@@ -546,6 +547,9 @@ export type SnapshotTableName = (typeof SNAPSHOT_TABLE_NAMES)[number];
 const TRADE_LIFECYCLE_WRITE_TABLES = new Set<SnapshotTableName>([
   "purchase_requests", "listings", "notifications", "audit_logs", "commissions", "activity_logs", "sms_deliveries", "disputes",
 ]);
+const TRADE_TRUST_WRITE_TABLES = new Set<SnapshotTableName>([
+  "users", "seller_profiles", "seller_settings", "purchase_requests", "notifications", "audit_logs", "activity_logs", "trust_snapshots", "trust_score_history",
+]);
 
 export type TradeLifecycleTransaction = {
   snapshot: AlphaExchangeDb;
@@ -557,53 +561,55 @@ export type TradeLifecycleTransaction = {
   close: () => Promise<void>;
 };
 
-type IndexedPayload = { payload: { id: string }; sort_index: number };
+type LifecycleRow = { id?: string; userId?: unknown; sellerId?: unknown };
+type IndexedPayload = { payload: LifecycleRow; sort_index: number };
 type LifecycleSortBounds = { minimum: number | null; maximum: number | null; append?: boolean };
 
 /** Keep existing order without rewriting every historical event on an append.
  * Unusual interior insertions/reorders fall back to a deterministic reindex. */
-function lifecycleRowDelta(before: IndexedPayload[], after: Array<{ id: string }>, bounds?: LifecycleSortBounds) {
-  const previous = new Map(before.map(row => [row.payload.id, row]));
-  const nextIds = new Set(after.map(row => row.id));
-  if (nextIds.size !== after.length || after.some(row => !row.id)) throw new Error("Invalid lifecycle row identity.");
+function lifecycleRowDelta(before: IndexedPayload[], after: LifecycleRow[], bounds?: LifecycleSortBounds, identityKey: "id" | "userId" | "sellerId" = "id") {
+  const idOf = (row: LifecycleRow) => String(row[identityKey] ?? "");
+  const previous = new Map(before.map(row => [idOf(row.payload), row]));
+  const nextIds = new Set(after.map(row => idOf(row)));
+  if (nextIds.size !== after.length || after.some(row => !idOf(row))) throw new Error("Invalid lifecycle row identity.");
   const positions = new Map<string, number>();
   let lastPosition: number | undefined;
   let reindex = false;
   let offset = 0;
   while (offset < after.length) {
-    const existing = previous.get(after[offset].id);
+    const existing = previous.get(idOf(after[offset]));
     if (existing) {
       if (!Number.isSafeInteger(existing.sort_index) || (lastPosition !== undefined && (existing.sort_index < lastPosition || (!bounds && existing.sort_index === lastPosition)))) { reindex = true; break; }
-      positions.set(existing.payload.id, existing.sort_index);
+      positions.set(idOf(existing.payload), existing.sort_index);
       lastPosition = existing.sort_index;
       offset += 1;
       continue;
     }
     let end = offset;
-    while (end < after.length && !previous.has(after[end].id)) end += 1;
-    const nextPosition = end < after.length ? previous.get(after[end].id)!.sort_index : undefined;
+    while (end < after.length && !previous.has(idOf(after[end]))) end += 1;
+    const nextPosition = end < after.length ? previous.get(idOf(after[end]))!.sort_index : undefined;
     const minimum = bounds?.minimum ?? nextPosition;
     const start = lastPosition === undefined
       ? (bounds?.append && nextPosition === undefined ? (bounds.maximum ?? -1) + 1 : minimum === undefined ? 0 : minimum - (end - offset))
       : end === after.length && bounds?.maximum !== null && bounds?.maximum !== undefined
         ? Math.max(lastPosition, bounds.maximum) + 1 : lastPosition + 1;
     if (nextPosition !== undefined && start + (end - offset) > nextPosition) { reindex = true; break; }
-    for (let i = offset; i < end; i += 1) positions.set(after[i].id, start + i - offset);
+    for (let i = offset; i < end; i += 1) positions.set(idOf(after[i]), start + i - offset);
     lastPosition = start + (end - offset) - 1;
     offset = end;
   }
   if (reindex || Array.from(positions.values()).some(value => value < -2147483648 || value > 2147483647)) {
     if (bounds) throw new Error("Cannot reorder a partial lifecycle history.");
     positions.clear();
-    after.forEach((row, index) => positions.set(row.id, index));
+    after.forEach((row, index) => positions.set(idOf(row), index));
   }
   return {
-    deletedIds: before.filter(row => !nextIds.has(row.payload.id)).map(row => row.payload.id),
+    deletedIds: before.filter(row => !nextIds.has(idOf(row.payload))).map(row => idOf(row.payload)),
     changed: after.filter(row => {
-      const prior = previous.get(row.id);
+      const prior = previous.get(idOf(row));
       // JSONB canonicalizes key order and omits undefined properties. Compare
       // persisted JSON values so normalization alone does not rewrite history.
-      return !prior || prior.sort_index !== positions.get(row.id) || !isDeepStrictEqual(prior.payload, JSON.parse(json(row)));
+      return !prior || prior.sort_index !== positions.get(idOf(row)) || !isDeepStrictEqual(prior.payload, JSON.parse(json(row)));
     }),
     positions,
   };
@@ -761,7 +767,7 @@ FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[],$7
         sellerStatus: user.sellerStatus,
         updatedAt: user.updatedAt,
       })),
-    insert: async (tx, rows: Array<Record<string, unknown>>) => {
+    insert: async (tx, rows: Array<Record<string, unknown>>, context) => {
       await bulkInsert(tx, `INSERT INTO alpha_exchange.seller_profiles (user_id, seller_status, availability_status, updated_at, sort_index, payload)
 SELECT user_id, seller_status, availability_status, updated_at::timestamptz, sort_index::int, payload::jsonb
 FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[])
@@ -770,7 +776,7 @@ FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[])
         rows.map(r => String(r.sellerStatus)),
         rows.map(r => String(r.availabilityStatus)),
         rows.map(r => String(r.updatedAt)),
-        rows.map((_, i) => String(i)),
+        rows.map((row, i) => String(context.rowSortIndexes?.get(String(row.userId)) ?? i)),
         rows.map(r => json(r)),
       ]);
     },
@@ -787,7 +793,7 @@ FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[])
         notificationPreferences: user.notificationPreferences ?? { inApp: true, email: false, sms: false },
         updatedAt: user.updatedAt,
       })),
-    insert: async (tx, rows: Array<Record<string, unknown>>) => {
+    insert: async (tx, rows: Array<Record<string, unknown>>, context) => {
       await bulkInsert(tx, `INSERT INTO alpha_exchange.seller_settings (user_id, availability_status, notification_preferences, updated_at, sort_index, payload)
 SELECT user_id, availability_status, notification_preferences::jsonb, updated_at::timestamptz, sort_index::int, payload::jsonb
 FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[])
@@ -796,7 +802,7 @@ FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[])
         rows.map(r => String(r.availabilityStatus)),
         rows.map(r => json(r.notificationPreferences)),
         rows.map(r => String(r.updatedAt)),
-        rows.map((_, i) => String(i)),
+        rows.map((row, i) => String(context.rowSortIndexes?.get(String(row.userId)) ?? i)),
         rows.map(r => json(r)),
       ]);
     },
@@ -1170,14 +1176,14 @@ FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[],$7
     name: "trust_snapshots",
     selectSql: "select payload from alpha_exchange.trust_snapshots order by sort_index asc",
     values: (db) => db.trustSnapshots,
-    insert: async (tx, rows: TrustSnapshotRecord[]) => {
+    insert: async (tx, rows: TrustSnapshotRecord[], context) => {
       await bulkInsert(tx, `INSERT INTO alpha_exchange.trust_snapshots (seller_id, updated_at, sort_index, payload)
 SELECT seller_id, updated_at::timestamptz, sort_index::int, payload::jsonb
 FROM unnest($1::text[],$2::text[],$3::text[],$4::text[])
   AS t(seller_id,updated_at,sort_index,payload)`, [
         rows.map(r => r.sellerId),
         rows.map(r => r.updatedAt),
-        rows.map((_, i) => String(i)),
+        rows.map((row, i) => String(context.rowSortIndexes?.get(row.sellerId) ?? i)),
         rows.map(r => json(r)),
       ]);
     },
@@ -1186,7 +1192,7 @@ FROM unnest($1::text[],$2::text[],$3::text[],$4::text[])
     name: "trust_score_history",
     selectSql: "select payload from alpha_exchange.trust_score_history order by sort_index asc",
     values: (db) => db.trustScoreHistory,
-    insert: async (tx, rows: TrustScoreChangeLog[]) => {
+    insert: async (tx, rows: TrustScoreChangeLog[], context) => {
       await bulkInsert(tx, `INSERT INTO alpha_exchange.trust_score_history (id, seller_id, created_at, sort_index, payload)
 SELECT id, seller_id, created_at::timestamptz, sort_index::int, payload::jsonb
 FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[])
@@ -1194,7 +1200,7 @@ FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[])
         rows.map(r => r.id),
         rows.map(r => r.sellerId),
         rows.map(r => r.createdAt),
-        rows.map((_, i) => String(i)),
+        rows.map((row, i) => String(context.rowSortIndexes?.get(row.id) ?? i)),
         rows.map(r => json(r)),
       ]);
     },
@@ -1423,7 +1429,7 @@ function snapshotFromAggregatedRow(
   }));
 }
 
-async function upsertUsersTable(tx: PoolClient, rows: AlphaExchangeUser[]) {
+async function upsertUsersTable(tx: PoolClient, rows: AlphaExchangeUser[], rowSortIndexes?: ReadonlyMap<string, number>) {
   await bulkInsert(tx, `INSERT INTO alpha_exchange.users (id, email, role, seller_status, availability_status, online_status, created_at, updated_at, sort_index, payload)
 SELECT id, email, role, seller_status, availability_status, online_status, created_at::timestamptz, updated_at::timestamptz, sort_index::int, payload::jsonb
 FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[],$7::text[],$8::text[],$9::text[],$10::text[])
@@ -1446,7 +1452,7 @@ ON CONFLICT (id) DO UPDATE SET
     rows.map(r => r.onlineStatus),
     rows.map(r => r.createdAt),
     rows.map(r => r.updatedAt),
-    rows.map((_, i) => String(i)),
+    rows.map((row, i) => String(rowSortIndexes?.get(row.id) ?? i)),
     rows.map(r => json(r)),
   ]);
 }
@@ -2163,27 +2169,6 @@ function databaseErrorMetadata(error: unknown) {
   };
 }
 
-function isTransientReadError(error: unknown) {
-  const code = typeof error === "object" && error !== null ? (error as { code?: unknown }).code : undefined;
-  if (typeof code === "string" && ["08000", "08003", "08006", "57P01", "57P02", "57P03"].includes(code)) {
-    return true;
-  }
-  const message = error instanceof Error ? error.message : "";
-  return /query read timeout|timeout exceeded when trying to connect|connection terminated|connection closed|ECONNRESET|EPIPE|ETIMEDOUT/i.test(message);
-}
-
-/** A timed-out or broken socket may still have a query in flight. Never queue
- * another command on it or return an uncertain transaction to the pool. */
-async function rollbackFailedTransaction(client: PoolClient, error: unknown): Promise<boolean> {
-  if (isTransientReadError(error)) return true;
-  try {
-    await client.query("rollback");
-    return false;
-  } catch {
-    return true;
-  }
-}
-
 async function queryReadWithRetry<T extends QueryResultRow>(
   target: Queryable,
   queryText: string,
@@ -2332,6 +2317,14 @@ export class AlphaExchangeRepository {
    * when multiple buyers/sellers act concurrently. All declared dependencies
    * remain authoritative; only changed rows are written. */
   async beginTradeLifecycleTransaction(tableNames: readonly SnapshotTableName[], requestId?: string, nextStatus?: PurchaseRequest["status"]): Promise<TradeLifecycleTransaction | null> {
+    return this.beginCanonicalTradeTransaction(tableNames, false, requestId, nextStatus);
+  }
+
+  async beginTradeTrustTransaction(tableNames: readonly SnapshotTableName[]): Promise<TradeLifecycleTransaction | null> {
+    return this.beginCanonicalTradeTransaction([...tableNames, "seller_profiles", "seller_settings"], true);
+  }
+
+  private async beginCanonicalTradeTransaction(tableNames: readonly SnapshotTableName[], trustReconciliation: boolean, requestId?: string, nextStatus?: PurchaseRequest["status"]): Promise<TradeLifecycleTransaction | null> {
     await this.ensureReady();
     const pool = this.pool;
     if (this.usesMemoryFallback || !pool) return null;
@@ -2363,7 +2356,10 @@ export class AlphaExchangeRepository {
       // guard, but cannot write. Its response needs the canonical request,
       // identities, evidence and disputes, not unrelated financial/history rows.
       // Keep legacy unnumbered records on the complete read path.
-      const retryModeSql = retryProjection ? `with lifecycle_mode as materialized (select exists (
+      const retryModeSql = trustReconciliation ? `with lifecycle_mode as materialized (select exists (
+        select 1 from alpha_exchange.purchase_requests where payload->'trustReconciliation'->>'requestedAt' is not null
+          and payload->'trustReconciliation'->>'reconciledAt' is null
+      ) as has_pending_trust) ` : retryProjection ? `with lifecycle_mode as materialized (select exists (
         select 1 from alpha_exchange.purchase_requests where id = $1
           and payload->>'displayNumber' ~ '^[1-9][0-9]*$'
           and (status = $2 or ($2 = 'completed' and status in ('review_open', 'completed', 'locked')))
@@ -2372,13 +2368,15 @@ export class AlphaExchangeRepository {
       const columns = selectedNames.map(name => {
         const filter = retryProjection && name === "purchase_requests" ? "where not (select read_only_retry from lifecycle_mode) or id = $1" : filters[name] ?? "";
         const aggregate = `coalesce((select json_agg(json_build_object('payload', payload, 'sort_index', sort_index) order by sort_index asc) from alpha_exchange.${name} ${filter}), '[]'::json)`;
-        return `${retryProjection && !retryReadTables.has(name) ? `case when (select read_only_retry from lifecycle_mode) then '[]'::json else ${aggregate} end` : aggregate} as "${name}"`;
+        const projection = trustReconciliation ? `case when (select has_pending_trust from lifecycle_mode) then ${aggregate} else '[]'::json end`
+          : retryProjection && !retryReadTables.has(name) ? `case when (select read_only_retry from lifecycle_mode) then '[]'::json else ${aggregate} end` : aggregate;
+        return `${projection} as "${name}"`;
       });
       const scopedNames = selectedNames.filter(name => filters[name]);
       const boundsSql = scopedNames.length ? `, json_build_object(${scopedNames.map(name => `'${name}', (select json_build_object('minimum', min(sort_index), 'maximum', max(sort_index)) from alpha_exchange.${name})`).join(", ")}) as sort_bounds` : "";
       const parameters = retryProjection ? [requestId, nextStatus] : scopedNames.some(name => filters[name]?.includes("$1")) ? [requestId] : undefined;
-      const result = await client.query<{ version: string; read_only_retry?: boolean; sort_bounds?: Partial<Record<SnapshotTableName, LifecycleSortBounds>> } & Partial<Record<SnapshotTableName, IndexedPayload[]>>>(`${retryModeSql}select
-        (select version::text from alpha_exchange.runtime_meta where singleton = true) as version${retryProjection ? ", (select read_only_retry from lifecycle_mode) as read_only_retry" : ""}${columns.length ? `,\n${columns.join(",\n")}` : ""}${boundsSql}`, parameters);
+      const result = await client.query<{ version: string; read_only_retry?: boolean; has_pending_trust?: boolean; sort_bounds?: Partial<Record<SnapshotTableName, LifecycleSortBounds>> } & Partial<Record<SnapshotTableName, IndexedPayload[]>>>(`${retryModeSql}select
+        (select version::text from alpha_exchange.runtime_meta where singleton = true) as version${trustReconciliation ? ", (select has_pending_trust from lifecycle_mode) as has_pending_trust" : retryProjection ? ", (select read_only_retry from lifecycle_mode) as read_only_retry" : ""}${columns.length ? `,\n${columns.join(",\n")}` : ""}${boundsSql}`, parameters);
       const row = result.rows[0];
       const version = Number(row?.version ?? "0");
       const before = new Map(selectedNames.map(name => [name, row?.[name] ?? []]));
@@ -2393,8 +2391,10 @@ export class AlphaExchangeRepository {
           if (closed) throw new Error("Trade lifecycle transaction is closed.");
           try {
             if (row?.read_only_retry) throw new Error("A read-only lifecycle retry cannot commit a mutation.");
+            if (trustReconciliation && row?.has_pending_trust === false) throw new Error("No pending trust reconciliation to commit.");
             const writeTables = Array.from(new Set(options.selectedTables));
-            if (writeTables.some(name => !TRADE_LIFECYCLE_WRITE_TABLES.has(name) || !baseline.has(name))) {
+            const allowedWrites = trustReconciliation ? TRADE_TRUST_WRITE_TABLES : TRADE_LIFECYCLE_WRITE_TABLES;
+            if (writeTables.some(name => !allowedWrites.has(name) || !baseline.has(name))) {
               throw new Error("Undeclared or unsupported lifecycle write table.");
             }
             options.validateBeforeCommit?.(next);
@@ -2402,20 +2402,24 @@ export class AlphaExchangeRepository {
             for (const name of writeTables) {
               const table = getTable(name);
               const bounds = row?.sort_bounds?.[name];
-              const delta = lifecycleRowDelta(baseline.get(name)!, table.values(next) as Array<{ id: string }>, bounds ? { ...bounds, append: name === "sms_deliveries" } : undefined);
+              const identityKey = name === "seller_profiles" || name === "seller_settings" ? "userId" : name === "trust_snapshots" ? "sellerId" : "id";
+              const primaryKey = identityKey === "userId" ? "user_id" : identityKey === "sellerId" ? "seller_id" : "id";
+              const delta = lifecycleRowDelta(baseline.get(name)!, table.values(next) as LifecycleRow[], bounds ? { ...bounds, append: name === "sms_deliveries" } : undefined, identityKey);
               if (delta.deletedIds.length) {
-                await client.query(`delete from alpha_exchange.${name} where id = any($1::text[])`, [delta.deletedIds]);
+                if (name === "users") throw new Error("Trust reconciliation cannot delete accounts.");
+                await client.query(`delete from alpha_exchange.${name} where ${primaryKey} = any($1::text[])`, [delta.deletedIds]);
                 changed = true;
               }
               if (!delta.changed.length) continue;
               // These three legacy insert functions do not upsert. Delete only
               // changed existing rows; untouched queue/history rows stay intact.
-              if (["activity_logs", "sms_deliveries", "disputes"].includes(name)) {
-                const priorIds = new Set(baseline.get(name)!.map(item => item.payload.id));
-                const replacedIds = delta.changed.filter(item => priorIds.has(item.id)).map(item => item.id);
-                if (replacedIds.length) await client.query(`delete from alpha_exchange.${name} where id = any($1::text[])`, [replacedIds]);
+              if (["activity_logs", "sms_deliveries", "disputes", "seller_profiles", "seller_settings", "trust_snapshots", "trust_score_history"].includes(name)) {
+                const priorIds = new Set(baseline.get(name)!.map(item => item.payload[identityKey]));
+                const replacedIds = delta.changed.filter(item => priorIds.has(item[identityKey])).map(item => item[identityKey]);
+                if (replacedIds.length) await client.query(`delete from alpha_exchange.${name} where ${primaryKey} = any($1::text[])`, [replacedIds]);
               }
-              await table.insert(client, delta.changed, { evidenceContentById: new Map(), rowSortIndexes: delta.positions });
+              if (name === "users") await upsertUsersTable(client, delta.changed as AlphaExchangeUser[], delta.positions);
+              else await table.insert(client, delta.changed, { evidenceContentById: new Map(), rowSortIndexes: delta.positions });
               changed = true;
             }
             if (changed) await client.query("update alpha_exchange.runtime_meta set version = version + 1, updated_at = now() where singleton = true");
