@@ -3,6 +3,7 @@ import { randomBytes, randomUUID, scrypt as scryptCallback } from "node:crypto";
 import { promisify } from "node:util";
 import { E2E_BASE_URL } from "./support/base-url";
 import { createE2eSellerApprovalVerification } from "./support/seller-verification";
+import { createHardNavigationErrorAudit } from "./support/hard-navigation-errors";
 
 const scrypt = promisify(scryptCallback);
 const SUPPORT_HEADERS = {
@@ -1118,16 +1119,16 @@ test("Trade Room Poke is recipient-only, cooldown-protected, reconnect-safe, and
 });
 
 for (const paymentMethod of ["Bank Transfer", "Cardless ATM Withdrawal", "Face-to-Face (Meet in Person)"]) {
-  test(`stable trade room across the complete ${paymentMethod} flow`, async ({ browser }, testInfo) => {
+  test(`stable trade room across the complete ${paymentMethod} flow`, async ({ browser, browserName }, testInfo) => {
     test.setTimeout(180_000);
     const api = await pwRequest.newContext({ baseURL: E2E_BASE_URL });
     const buyerContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
     const sellerContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
     const buyerPage = await buyerContext.newPage();
     const sellerPage = await sellerContext.newPage();
-    const errors: string[] = [];
+    const errorAudit = createHardNavigationErrorAudit(browserName);
     for (const page of [buyerPage, sellerPage]) {
-      page.on("pageerror", (error) => errors.push(error.message));
+      errorAudit.observe(page);
       page.on("dialog", (dialog) => void dialog.accept());
     }
     try {
@@ -1154,19 +1155,19 @@ for (const paymentMethod of ["Bank Transfer", "Cardless ATM Withdrawal", "Face-t
       await writeDb(api, db);
       const path = `/en/trade-room/${requestId}`;
       if (paymentMethod === "Bank Transfer") {
-        await buyerPage.goto(path);
+        await errorAudit.navigate(buyerPage, () => buyerPage.goto(path));
         await expect(buyerPage.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "0");
         await buyerPage.getByRole("button", { name: "Reveal Bank Details", exact: true }).click();
         await expect(buyerPage.getByText("9000000000", { exact: true })).toBeVisible();
         await expect(buyerPage.getByText("Guided Flow Seller", { exact: true })).toHaveCount(0);
         await buyerPage.screenshot({ path: testInfo.outputPath("bank-details-before-acceptance-mobile.png"), fullPage: true });
       }
-      await sellerPage.goto(path);
+      await errorAudit.navigate(sellerPage, () => sellerPage.goto(path));
       await expect(sellerPage.getByTestId("trade-header-notice")).toHaveCount(0);
       await expect(sellerPage.getByRole("button", { name: "Accept Trade", exact: true })).toBeInViewport();
       await sellerPage.getByRole("button", { name: "Accept Trade", exact: true }).click();
       await expect(sellerPage.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "20");
-      await buyerPage.goto(path);
+      await errorAudit.navigate(buyerPage, () => buyerPage.goto(path));
       await expect(buyerPage.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "20");
       const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=", "base64");
       if (paymentMethod === "Bank Transfer") {
@@ -1181,7 +1182,7 @@ for (const paymentMethod of ["Bank Transfer", "Cardless ATM Withdrawal", "Face-t
         await expect(sellerPage.getByRole("button", { name: "I Collected the ATM Cash", exact: true })).toHaveCount(0);
         const premature = await sellerContext.request.patch(`/api/alpha-exchange/purchase-requests/${requestId}`, { data: { status: "funds_received" } });
         expect(premature.ok()).toBe(false);
-        await buyerPage.reload();
+        await errorAudit.navigate(buyerPage, () => buyerPage.reload());
         await expect(buyerPage.getByText(/Your saved withdrawal details are still private/)).toBeVisible();
         await buyerPage.screenshot({ path: testInfo.outputPath("atm-private-before-confirmation-mobile.png"), fullPage: true });
         const [submitted] = await Promise.all([
@@ -1244,7 +1245,7 @@ for (const paymentMethod of ["Bank Transfer", "Cardless ATM Withdrawal", "Face-t
       if (paymentMethod !== "Face-to-Face (Meet in Person)") {
         await expect(sellerPage.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "80");
       }
-      await buyerPage.reload();
+      await errorAudit.navigate(buyerPage, () => buyerPage.reload());
       await expect(buyerPage.getByRole("button", { name: /Confirm USDT Received|Mark Trade as Completed|Confirm Trade Completed/i })).toHaveCount(0);
       const beforeRejection = await readDb(api);
       const rejected = await buyerContext.request.patch(`/api/alpha-exchange/purchase-requests/${requestId}`, { data: { status: "completed" } });
@@ -1279,11 +1280,14 @@ for (const paymentMethod of ["Bank Transfer", "Cardless ATM Withdrawal", "Face-t
       expect(saved.request.status).toMatch(/review_open|completed|locked/);
       expect(saved.request.buyerReview).toBeTruthy();
       expect(saved.request.sellerBuyerReview).toBeTruthy();
-      expect(errors).toEqual([]);
+      expect(errorAudit.errors).toEqual([]);
     } finally {
-      await buyerContext.close();
-      await sellerContext.close();
-      await api.dispose();
+      try { await testInfo.attach("browser-error-audit", { body: JSON.stringify(errorAudit.report(), null, 2), contentType: "application/json" }); }
+      finally {
+        await buyerContext.close();
+        await sellerContext.close();
+        await api.dispose();
+      }
     }
   });
 }
