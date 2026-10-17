@@ -68,6 +68,7 @@ it.each(["TRC20", "BEP20"] as const)("automatically settles a full 40 USDT net r
   expect((await reloaded.scan(Date.now() + 60_000)).verified).toBe(0);
 });
 it("switches a mistaken TRC20 choice to BEP20, survives reload, and clears restrictions after automatic verification", async () => {
+  const clock = vi.spyOn(Date, "now").mockReturnValue(Date.now());
   const service = await getCommissionCheckoutRuntime();
   const original = await service.issue({ sellerId: "seller", network: "TRC20", desiredAmount: "38" });
   const updated = await service.issue({ sellerId: "seller", network: "BEP20", currentCheckoutId: original.id });
@@ -78,6 +79,10 @@ it("switches a mistaken TRC20 choice to BEP20, survives reload, and clears restr
     signature: `0x${"d".repeat(64)}`, network: "BEP20", amountMicros: updated.expectedMicros, timestamp: Date.parse(updated.createdAt) + 1,
   }] });
   mocks.bep20.mockResolvedValue({ verified: true });
+  // A receipt one millisecond after issuance is outside the first history
+  // window. Advance the controlled clock instead of relying on machine speed.
+  expect((await reloaded.scan(Date.now() + 60_000)).verified).toBe(0);
+  clock.mockReturnValue(Date.parse(updated.createdAt) + 1_000);
   expect((await reloaded.scan(Date.now() + 60_000)).verified).toBe(1);
   expect(await getSellerListingWorkspaceData({ sellerId: "seller" })).toMatchObject({
     commissionStatus: { status: "clear", pendingCount: 0 }, summary: { canCreateListing: true },

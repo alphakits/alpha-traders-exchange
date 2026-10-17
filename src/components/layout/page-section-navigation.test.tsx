@@ -22,6 +22,7 @@ beforeEach(() => {
   pathname = "/en/usdt-exchange";
   window.history.replaceState({}, "", pathname);
   Object.defineProperty(Element.prototype, "scrollIntoView", { configurable: true, value: vi.fn() });
+  vi.stubGlobal("scrollTo", vi.fn());
   vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: false })));
   vi.stubGlobal("ResizeObserver", class {
     constructor(callback: () => void) { resized = callback; }
@@ -191,6 +192,30 @@ describe("first-click section navigation", () => {
     await settle();
     expect(document.activeElement).not.toBe(form);
     expect(form.scrollIntoView).not.toHaveBeenCalled();
+  });
+
+  it.each(["pointerdown", "keydown", "wheel", "touchmove"])("stops an in-flight smooth scroll at the current position on %s", async (event) => {
+    const form = section("create-listing");
+    vi.stubGlobal("scrollX", 20);
+    vi.stubGlobal("scrollY", 350);
+    revealPageSection(form.id);
+    expect(form.scrollIntoView).toHaveBeenCalledWith({ behavior: "smooth", block: "start" });
+    const interaction = new Event(event, { bubbles: true, cancelable: true });
+    document.dispatchEvent(interaction);
+    expect(window.scrollTo).toHaveBeenCalledExactlyOnceWith({ left: 20, top: 350, behavior: "instant" });
+    expect(interaction.defaultPrevented).toBe(false);
+    vi.mocked(form.scrollIntoView).mockClear();
+    await settle();
+    expect(form.scrollIntoView).not.toHaveBeenCalled();
+  });
+
+  it("does not interrupt viewport scrolling when no smooth section scroll was started", () => {
+    vi.mocked(window.matchMedia).mockReturnValue({ matches: true } as MediaQueryList);
+    const form = section("create-listing");
+    revealPageSection(form.id);
+    expect(form.scrollIntoView).toHaveBeenCalledWith({ behavior: "instant", block: "start" });
+    document.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+    expect(window.scrollTo).not.toHaveBeenCalled();
   });
 
   it("discards pending focus when the user leaves the page", async () => {

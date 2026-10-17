@@ -172,7 +172,12 @@ test.describe("Authentication", () => {
     // out-of-band API logout races the old protected page's session redirect.
     await expect(page).toHaveURL(/\/en\/?$/, { timeout: 30_000 });
     await expect(page.locator("header").first().getByRole("button", { name: "Sign out", exact: true })).toHaveCount(0);
-    expect((await page.request.get("/api/auth/me")).status()).toBe(401);
+    // Session discovery is public: signed-out clients receive 200/user:null.
+    // Separately require the private account endpoint to deny the old session.
+    const signedOutSession = await page.request.get("/api/auth/me");
+    expect(signedOutSession.status()).toBe(200);
+    expect(await signedOutSession.json()).toEqual({ user: null });
+    expect((await page.request.get("/api/alpha-exchange/account-sessions")).status()).toBe(401);
     // Logout must remove access while retaining the protected destination.
     await page.goto("/en/academy");
     await expect(page).toHaveURL(/\/en\/login\?redirectTo=%2Fen%2Facademy$/, { timeout: 30_000 });
