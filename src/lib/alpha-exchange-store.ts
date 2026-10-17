@@ -10145,7 +10145,10 @@ export async function reviewMarketplaceListingByOwner(input: {
     throw new Error("Reason is required.");
   }
   if (input.decision === "approve") await assertListingPriceAtCurrentReference(current);
-  const now = nowIso();
+  // A cached create can leave this snapshot one version behind its committed
+  // listing. Give the review a strictly newer revision even within one clock
+  // tick so the repository's stale-snapshot merge retains the owner decision.
+  const now = nowIsoAfter(current.updatedAt);
   const nextStatus: ListingStatus = input.decision === "approve" ? "active" : "draft";
   const nextApprovalStatus: ListingApprovalStatus =
     input.decision === "approve" ? "approved" : input.decision === "reject" ? "rejected" : "changes_requested";
