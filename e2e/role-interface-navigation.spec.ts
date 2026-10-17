@@ -65,8 +65,10 @@ for (const locale of ["en", "ar"] as const) {
       if (role === "ADMIN") {
         await expect(page.getByRole("main").getByRole("link", { name: locale === "ar" ? "فتح ملفي الشخصي" : "Open my profile", exact: true })).toHaveAttribute("href", `/${locale}/profile`);
         expect(privateDashboardReads).toEqual([]);
+        const previousViewport = page.viewportSize();
         if (locale === "ar") await page.setViewportSize({ width: 390, height: 844 });
         await page.screenshot({ path: info.outputPath(`admin-access-${locale}.png`) });
+        if (previousViewport) await page.setViewportSize(previousViewport);
       }
       if (role === "BUYER") {
         await page.goto(`/${locale}/admin/alpha-exchange`);
