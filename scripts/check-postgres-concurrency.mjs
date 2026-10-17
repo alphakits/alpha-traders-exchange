@@ -357,20 +357,23 @@ try {
   requireOk(await workers[0].call("auth-session", retainedSession));
   const sessionBeforeRecovery = await pool.query("select payload from alpha_exchange.sessions where token_hash=$1", [retainedSession.token]);
   assert.deepEqual(sessionBeforeRecovery.rows[0]?.payload, retainedSession, "Session must exist before testing preservation");
+  const pendingTrustIds = snapshot.purchaseRequests.filter(row => row.trustReconciliation?.requestedAt && !row.trustReconciliation?.reconciledAt).map(row => row.id);
+  assert(pendingTrustIds.includes(recoveryRequest.id));
   await captureQueryMetrics("all-payment-methods-and-before-lost-follow-up-restart");
   for (const worker of workers) worker.child.kill("SIGKILL");
   workers.splice(0, workers.length, ...Array.from({ length: 4 }, (_, index) => startWorker(index + 8)));
   (await Promise.all(workers.map(worker => worker.call("ready")))).forEach(requireOk);
   const reconciled = (await Promise.all(workers.map(worker => worker.call("reconcile-trust")))).map(requireOk);
-  assert.equal(reconciled.reduce((total, result) => total + result.reconciled, 0), 1);
+  assert.equal(reconciled.reduce((total, result) => total + result.reconciled, 0), pendingTrustIds.length);
   snapshot = requireOk(await workers[0].call("snapshot"));
+  for (const id of pendingTrustIds) assert(snapshot.purchaseRequests.find(row => row.id === id).trustReconciliation?.reconciledAt, `Pending trust intent ${id} must recover exactly once`);
   assert(snapshot.purchaseRequests.find(row => row.id === recoveryRequest.id).trustReconciliation?.reconciledAt);
   assert.equal(snapshot.commissionRecords.filter(row => row.purchaseRequestId === recoveryRequest.id).length, 1);
   assert.equal(snapshot.marketplaceListings.find(row => row.id === recoveryRequest.listingId).availableAmount, "750");
   assert.equal(snapshot.users.find(row => row.id === changedAccount.id).disabled, true);
   assert.equal(snapshot.users.find(row => row.id === changedAccount.id).passwordHash, "synthetic-new-account-password-hash");
   assert.equal(snapshot.users.find(row => row.id === recoveryRequest.sellerId).lifetimeCompletedVolumeUsdt, 1000);
-  passed("Lost completion follow-up recovers after all workers restart without reverting account security or settlement", { recovered: 1, workers: 4, duplicateSettlements: 0 });
+  passed("Lost completion follow-up recovers after all workers restart without reverting account security or settlement", { recovered: pendingTrustIds.length, workers: 4, duplicateSettlements: 0 });
   assert.deepEqual(snapshot.authSessions.find(session => session.token === retainedSession.token), retainedSession);
   passed("Trust reconciliation preserves authenticated sessions while updating seller accounts", { sessions: 1, workers: 4 });
 
@@ -394,6 +397,18 @@ try {
   assert.equal(content.lessons.find(row => row.id === "audit-cms-0").description, "Concurrent description");
   assert.equal(content.versions.filter(row => row.lessonId === "audit-cms-0" && row.action === "updated").length, 2);
   passed("Owner content preserves concurrent lesson creations, independent edits and audit history", { independentProcesses: 4, creations: 12, simultaneousEdits: 2 });
+  const staleLesson = content.lessons.find(row => row.id === "audit-cms-0");
+  const fullEdits = [{ ...staleLesson, title: "Full editor A" }, { ...staleLesson, title: "Full editor B" }];
+  const fullResults = await batch(fullEdits.map(input => ({ operation: "cms-update", input })));
+  assert.equal(fullResults.filter(row => row.ok).length, 1);
+  assert.equal(fullResults.filter(row => !row.ok && /changed in another tab/.test(row.error)).length, 1);
+  content = requireOk(await workers[0].call("cms-snapshot"));
+  const winner = fullEdits[fullResults.findIndex(row => row.ok)];
+  assert.equal(content.lessons.find(row => row.id === staleLesson.id).title, winner.title);
+  const versionCount = content.versions.length;
+  requireOk(await workers[3].call("cms-update", winner));
+  assert.equal(requireOk(await workers[0].call("cms-snapshot")).versions.length, versionCount);
+  passed("Stale full-editor saves conflict and lost-response retries do not duplicate owner audit", { concurrentEditors: 2, acceptedWrites: 1, rejectedConflicts: 1, duplicateAudits: 0 });
 
   await pool.query(`create or replace function admin_cms.audit_test_failure() returns trigger language plpgsql as $$
     begin if new.lesson_id = 'audit-cms-failure' then raise exception 'Controlled content audit failure'; end if; return new; end; $$;

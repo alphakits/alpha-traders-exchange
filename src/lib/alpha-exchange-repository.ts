@@ -2363,7 +2363,7 @@ export class AlphaExchangeRepository {
           and (status = $2 or ($2 = 'completed' and status in ('review_open', 'completed', 'locked')))
       ) as read_only_retry) ` : "";
       const retryReadTables = new Set<SnapshotTableName>(["users", "seller_applications", "purchase_requests", "evidence", "disputes"]);
-      const columns = (onlyCommittedRetry = false) => selectedNames.map(name => {
+      const columns = (onlyCommittedRetry = false) => selectedNames.filter(name => !onlyCommittedRetry || retryReadTables.has(name)).map(name => {
         const filter = retryProjection && name === "purchase_requests" ? "where not (select read_only_retry from lifecycle_mode) or id = $1" : filters[name] ?? "";
         const aggregate = `coalesce((select json_agg(json_build_object('payload', payload, 'sort_index', sort_index) order by sort_index asc) from alpha_exchange.${name} ${filter}), '[]'::json)`;
         const projection = trustReconciliation ? `case when (select has_pending_trust from lifecycle_mode) then ${aggregate} else '[]'::json end`
@@ -2419,7 +2419,7 @@ export class AlphaExchangeRepository {
       const snapshot = attachVersion(snapshotFromTableRows(selectedNames.map(tableName => ({ tableName, rows: before.get(tableName)! }))), version);
       // Business rules mutate the returned objects; retain an immutable basis
       // for row comparison without a second database read.
-      const baseline = structuredClone(before);
+      const baseline = row?.read_only_retry ? before : structuredClone(before);
       return {
         snapshot,
         close,

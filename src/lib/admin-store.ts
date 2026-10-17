@@ -1,5 +1,6 @@
 import path from "path";
 import { randomUUID } from "crypto";
+import { isDeepStrictEqual } from "node:util";
 import { getAdminContentRepository } from "@/lib/admin-content-repository";
 import { createSupabaseAdminClient, getAdminMediaBucket } from "@/lib/supabase-admin";
 import { validateTextUploadContent, validateUploadContent, type ValidatedUploadType } from "@/lib/file-content-validation";
@@ -7,6 +8,16 @@ import type { Lesson, LessonCategory, LessonStatus, QuizQuestion } from "@/types
 import type { AdminAnalytics, LessonVersion, MediaItem, MediaProvider, MediaType } from "@/types/admin";
 
 type LessonUpdate = Partial<Lesson> & Pick<Lesson, "id">;
+
+export class LessonConflictError extends Error {
+  constructor(readonly currentLesson: Lesson) {
+    super("This lesson changed in another tab. Your edits are still here; review the saved version before retrying.");
+    this.name = "LessonConflictError";
+  }
+}
+function nextLessonRevision(current: Lesson) {
+  return new Date(Math.max(Date.now(), (Date.parse(current.updatedAt ?? "") || 0) + 1)).toISOString();
+}
 
 async function mutateAdminContent<T>(action: () => Promise<T>) {
   const repository = await getAdminContentRepository();
@@ -57,7 +68,8 @@ function normalizeLesson(lesson: Lesson): Lesson {
     estimatedDurationMinutes: lesson.estimatedDurationMinutes ?? lesson.durationMinutes,
     instructor: lesson.instructor ?? "",
     thumbnail: lesson.thumbnail ?? "",
-    updatedAt: lesson.updatedAt ?? new Date().toISOString(),
+    // Legacy rows need a stable revision across reads, until their first edit.
+    updatedAt: lesson.updatedAt ?? "1970-01-01T00:00:00.000Z",
     assets: {
       ...lesson.assets,
       videoId: lesson.assets.videoId ?? "",
@@ -176,6 +188,7 @@ export async function createLesson(input: Partial<Lesson>, role: LessonVersion["
     const id = input.id?.trim() || `l-${randomUUID()}`;
     const lesson: Lesson = normalizeLesson({
       id,
+      updatedAt: new Date().toISOString(),
       courseId: input.courseId || "c1",
       module: input.module || "Module",
       moduleAr: input.moduleAr || "الوحدة",
@@ -253,6 +266,13 @@ export async function updateLesson(input: LessonUpdate, role: LessonVersion["rol
       quiz: normalizeQuestions(input.quiz ?? current.quiz),
     });
 
+    if (input.updatedAt !== undefined) {
+      // An acknowledged retry may arrive with its original revision after a
+      // response was lost. It must not write a second audit or revert content.
+      if (isDeepStrictEqual({ ...merged, updatedAt: current.updatedAt }, current)) return current;
+      if (input.updatedAt !== current.updatedAt) throw new LessonConflictError(current);
+    }
+    merged.updatedAt = nextLessonRevision(current);
     validateLessonPayload(merged, lessons, "update");
     lessons[index] = merged;
     await writeLessons(lessons);
@@ -312,6 +332,7 @@ export async function reorderLessons(input: Array<{ id: string; order: number; c
           lessonNumber: patch.order,
           category: patch.category ?? lesson.category,
           courseId: patch.courseId ?? lesson.courseId,
+          updatedAt: nextLessonRevision(lesson),
         });
       })
       .sort((a, b) => a.order - b.order);

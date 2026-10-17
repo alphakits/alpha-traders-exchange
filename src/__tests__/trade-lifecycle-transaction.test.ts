@@ -105,10 +105,12 @@ describe("canonical trade lifecycle transaction", () => {
       if (result.rows[0]) Object.assign(result.rows[0], { read_only_retry: true });
       return result;
     });
-    const tx = (await repo.beginTradeLifecycleTransaction(["users", "purchase_requests", "notifications"], "target", "completed"))!;
+    const tx = (await repo.beginTradeLifecycleTransaction(["users", "purchase_requests", "notifications", "commissions", "listings", "trust_snapshots"], "target", "completed"))!;
     await expect(tx.commit(tx.snapshot, { selectedTables: ["purchase_requests"] })).rejects.toThrow("read-only lifecycle retry");
     expect(query.mock.calls.some(([sql]) => /^(insert|update|delete)\b/i.test(sql))).toBe(false);
     expect(query.mock.calls.some(([sql]) => /begin|rollback|pg_advisory_xact_lock/.test(sql))).toBe(false);
+    const probe = query.mock.calls.find(([sql]) => sql.includes("json_agg"))![0];
+    for (const table of ["notifications", "commissions", "listings", "trust_snapshots"]) expect(probe).not.toContain(`alpha_exchange.${table}`);
   });
 
   it("does not rewrite rows for JSON key order or omitted undefined fields", async () => {

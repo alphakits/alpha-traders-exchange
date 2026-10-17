@@ -16,6 +16,30 @@ beforeEach(async () => {
   await createLesson(content, "admin");
 });
 describe("owner lesson API persistence", () => {
+  it("rejects a stale full-editor save without overwriting another tab", async () => {
+    const original = (await readLessons())[0];
+    expect((await save({ ...original, title: "First tab" })).status).toBe(200);
+    expect((await save({ ...original, description: "Second tab" })).status).toBe(409);
+    expect((await readLessons())[0]).toMatchObject({ title: "First tab", description: original.description });
+  });
+  it("acknowledges a repeated saved revision without duplicating its audit", async () => {
+    const original = (await readLessons())[0];
+    const patch = { ...original, title: "Retry after lost response" };
+    const first = await save(patch);
+    expect(first.status).toBe(200);
+    const versions = await readVersions();
+    const retry = await save(patch);
+    expect(retry.status).toBe(200);
+    expect((await retry.json()).lesson).toEqual((await first.json()).lesson);
+    expect(await readVersions()).toEqual(versions);
+  });
+  it("advances the saved revision even when two writes share a millisecond", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(1792195200000);
+    const original = (await readLessons())[0];
+    const first = (await (await save({ ...original, title: "One" })).json()).lesson;
+    const second = (await (await save({ ...first, title: "Two" })).json()).lesson;
+    expect(Date.parse(second.updatedAt)).toBeGreaterThan(Date.parse(first.updatedAt));
+  });
   it("saves every edited field when the editor includes its current draft status", async () => {
     const response = await save({ ...content, title: "Edited", description: "Edited description", durationMinutes: 25 });
     expect(response.status).toBe(200);

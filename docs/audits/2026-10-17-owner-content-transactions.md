@@ -39,3 +39,21 @@ publication for an unsupported status (four failures, two passes before repair).
 The API now saves the complete patch, enforces the path ID, rejects unsupported
 statuses and records the matching publication audit in the same transaction.
 All six API checks and ten content/localization checks pass after repair.
+
+Three additional API regressions reproduced stale full-form overwrites, duplicate
+audits after retrying a lost response, and unchanged revisions after edits. Saves
+now compare the supplied revision under the content transaction lock. Conflicts
+return 409 with the saved lesson; identical retries return that lesson without a
+second audit. Successful changes advance the revision even within a millisecond.
+Legacy lessons have a stable initial revision. Reordering advances affected
+lesson revisions so an older editor cannot silently undo a reorder.
+
+The editor now retains a queue of drafts by lesson ID, serializes writes, keeps
+newer edits when an older response arrives, and retains failed or timed-out
+drafts with an explicit retry. Publication uses that same queue. A conflict
+shows the saved title and lets the owner explicitly choose the saved version or
+save their current version against the newly observed revision. A later
+concurrent edit still conflicts. Seven queue tests and 19 API/content/localization
+checks pass locally. Desktop English and mobile Arabic browser tests cover
+selection changes, publishing the current draft, temporary save failures and
+stale-tab conflict recovery; their actual results belong to the run evidence.

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminErrorStatus, resolveAdminIdentity } from "@/lib/admin-auth";
-import { deleteLesson, setLessonStatus, updateLesson } from "@/lib/admin-store";
+import { deleteLesson, LessonConflictError, setLessonStatus, updateLesson } from "@/lib/admin-store";
 import type { LessonStatus } from "@/types/academy";
 
 export async function PUT(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -25,6 +25,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
       : await updateLesson({ ...lessonPatch, id }, identity.role);
     return NextResponse.json({ lesson });
   } catch (error) {
+    if (error instanceof LessonConflictError) return NextResponse.json({ error: error.message, currentLesson: error.currentLesson }, { status: 409 });
     return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to update lesson." }, { status: adminErrorStatus(error) });
   }
 }
