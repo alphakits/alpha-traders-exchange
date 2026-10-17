@@ -49,7 +49,9 @@ test.describe("Navigation hardening", () => {
     const tradeHistory = main.locator("#my-trade-requests-section");
     await expect(tradeRequests).toHaveCount(1);
     await expect(tradeHistory).toBeVisible();
+    await expect(main.locator("#workspace-summary")).not.toHaveAttribute("inert");
     await tradeRequests.focus();
+    await expect(tradeRequests).toBeFocused();
     await page.keyboard.press("Enter");
 
     await expect(page).toHaveURL(/\/en\/dashboard$/);
@@ -120,7 +122,9 @@ test.describe("Navigation hardening", () => {
     const purchaseRequests = main.getByRole("button", { name: /^Purchase Requests:/ });
     await expect(purchaseRequests).toHaveCount(1);
     await expect(purchaseRequests).not.toContainText("Loading current trades…");
+    await expect(main.locator("#workspace-summary")).not.toHaveAttribute("inert");
     await purchaseRequests.focus();
+    await expect(purchaseRequests).toBeFocused();
     await page.keyboard.press("Enter");
     await expect(main.locator("#purchase-requests-section")).toBeFocused();
 
@@ -133,7 +137,11 @@ test.describe("Navigation hardening", () => {
     await expect(main.getByText("Approved Seller", { exact: true }).first()).toBeVisible();
     const manageListings = main.getByRole("button", { name: /^My Listings:/ });
     await expect(manageListings).toHaveCount(1);
+    // Programmatic focus does not wait for inert hydration placeholders to
+    // become interactive. Assert readiness and actual focus before Enter.
+    await expect(main.locator("#workspace-summary")).not.toHaveAttribute("inert");
     await manageListings.focus();
+    await expect(manageListings).toBeFocused();
     await page.keyboard.press("Enter");
     try {
       await expect(main.locator("#my-listings-section")).toBeFocused({ timeout: 10_000 });
