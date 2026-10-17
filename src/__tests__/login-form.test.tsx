@@ -331,6 +331,40 @@ describe("LoginForm", () => {
     expect(forgotLink.getAttribute("href")).toBe("/forgot-password");
   });
 
+  it("keeps login usable when an upstream rejection returns a structured error", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({ ok: false, status: 403, json: async () => ({ error: { message: "Upstream rejection", code: "FORBIDDEN" } }) })
+      .mockResolvedValueOnce({ ok: false, status: 401, json: async () => ({ error: "Invalid credentials." }) });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<LoginForm locale="en" />);
+    fireEvent.change(screen.getByLabelText("Email"), { target: { value: "audit@example.test" } });
+    fireEvent.change(screen.getByLabelText("Password"), { target: { value: "test-password" } });
+    fireEvent.click(screen.getByRole("button", { name: "Login" }));
+
+    expect(await screen.findByRole("alert")).toHaveProperty("textContent", "Login failed.");
+    expect((screen.getByRole("button", { name: "Login" }) as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "Login" }));
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toBe("Invalid credentials."));
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([false, true])("keeps verification-email recovery usable with structured response copy (ok=%s)", async (ok) => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({ ok: false, status: 403, json: async () => ({ requiresEmailVerification: true }) })
+      .mockResolvedValueOnce({ ok, json: async () => ({ error: { message: "Internal rejection", code: "UPSTREAM" }, message: { sent: true } }) });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<LoginForm locale="en" />);
+    fireEvent.change(screen.getByLabelText("Email"), { target: { value: "audit@example.test" } });
+    fireEvent.change(screen.getByLabelText("Password"), { target: { value: "test-password" } });
+    fireEvent.click(screen.getByRole("button", { name: "Login" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Resend verification email" }));
+    expect(await screen.findByText(ok
+      ? "If the account exists and is unverified, a new verification email has been sent."
+      : "Failed to resend verification email.")).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Resend verification email" }) as HTMLButtonElement).disabled).toBe(false);
+    expect(screen.queryByText("Internal rejection")).toBeNull();
+  });
+
   it("shows password-reset success confirmation when arriving from reset flow", () => {
     render(<LoginForm locale="en" passwordResetSuccess />);
     expect(screen.getByText("Your password has been updated successfully. Please sign in.")).toBeTruthy();

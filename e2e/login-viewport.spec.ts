@@ -24,6 +24,35 @@ async function expectLoginFits(page: Page) {
 }
 
 for (const locale of ["en", "ar"]) {
+  test(`${locale} structured login rejection preserves the form and retry`, async ({ page }, testInfo) => {
+    const pageErrors: string[] = [];
+    page.on("pageerror", error => pageErrors.push(error.message));
+    let attempts = 0;
+    await page.route("**/api/auth/login", route => {
+      attempts += 1;
+      return route.fulfill({ status: 403, json: attempts === 1
+        ? { error: { message: "Upstream rejection", code: "FORBIDDEN" } }
+        : { error: "Invalid credentials." } });
+    });
+    await page.goto(`/${locale}/login`);
+    await expect(page.locator("form[data-hydrated]")).toHaveAttribute("data-hydrated", "true");
+    await page.locator("#login-email").fill("audit@example.test");
+    await page.locator("#login-password").fill("synthetic-test-only");
+    const submit = page.locator('form button[type="submit"]');
+    await submit.click();
+    const alert = page.locator('main [role="alert"]');
+    await expect(alert).toHaveText(locale === "ar"
+      ? "تعذر تسجيل الدخول. تحقق من البريد الإلكتروني وكلمة المرور." : "Login failed.");
+    await expect(submit).toBeEnabled();
+    await page.screenshot({ path: testInfo.outputPath(`login-${locale}-structured-rejection.png`) });
+    await submit.click();
+    await expect.poll(() => attempts).toBe(2);
+    await expect(alert).toHaveText(locale === "ar"
+      ? "تعذر تسجيل الدخول. تحقق من البريد الإلكتروني وكلمة المرور." : "Invalid credentials.");
+    await expect(submit).toBeEnabled();
+    expect(pageErrors).toEqual([]);
+  });
+
   test(`${locale} login fits desktop, laptop, scaled and landscape viewports`, async ({ page }, testInfo) => {
     await page.goto(`/${locale}/login`);
     await expect(page.locator("form[data-hydrated]")).toHaveAttribute("data-hydrated", "true");

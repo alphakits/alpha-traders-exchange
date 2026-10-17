@@ -163,6 +163,7 @@ jobs:
             test-results/**/bank-*.png
             test-results/**/commission-*.png
             test-results/**/owner-editor-*.png
+            test-results/**/login-*-structured-rejection.png
           if-no-files-found: error
           retention-days: 7
 

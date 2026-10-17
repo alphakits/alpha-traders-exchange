@@ -1,6 +1,7 @@
 "use client";
 
 import { fetchClientJson } from "@/lib/client-request-deadline";
+import { clientResponseMessage } from "@/lib/client-response-message";
 
 import { ActionFeedback, useActionFeedbackState } from "@/components/ui/action-feedback";
 import { useState, type FormEvent } from "react";
@@ -25,13 +26,13 @@ export function ForgotPasswordForm({ locale }: { locale: "ar" | "en" }) {
     if (isSubmitting) return;
     setIsSubmitting(true);
     try {
-      const { response, payload } = await fetchClientJson<{ error?: string; message?: string }>("/api/auth/reset/request", {
+      const { response, payload } = await fetchClientJson<{ error?: unknown; message?: unknown } | null>("/api/auth/reset/request", {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-Locale": locale },
         body: JSON.stringify({ email }),
       }, 30_000);
       if (!response.ok) {
-        setErrorMessage(isAr ? "فشل إرسال رابط إعادة التعيين." : (payload.error ?? "Failed to send reset link."));
+        setErrorMessage(isAr ? "فشل إرسال رابط إعادة التعيين." : clientResponseMessage(payload?.error, "Failed to send reset link."));
         return;
       }
       setStatusMessage(genericSuccessMessage);

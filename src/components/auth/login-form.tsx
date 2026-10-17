@@ -1,6 +1,7 @@
 "use client";
 
 import { fetchClientJson, runClientRequest } from "@/lib/client-request-deadline";
+import { clientResponseMessage } from "@/lib/client-response-message";
 
 
 import { brandText, currencyText } from "@/components/ui/currency-text";
@@ -171,13 +172,13 @@ export function LoginForm({
         });
         appendLoginJourneyServerTimeline(response.headers?.get?.("X-Auth-Login-Timeline") ?? null);
         let payload: {
-          error?: string;
+          error?: unknown;
           user?: { role?: string; roles?: string[]; sellerStatus?: string; onboardingSelection?: string; onboardingCompletedAt?: string };
           requiresEmailVerification?: boolean;
         } | null = null;
         try {
           payload = (await response.json()) as {
-            error?: string;
+            error?: unknown;
             user?: { role?: string; roles?: string[]; sellerStatus?: string; onboardingSelection?: string; onboardingCompletedAt?: string };
             requiresEmailVerification?: boolean;
           };
@@ -191,7 +192,7 @@ export function LoginForm({
         setRequiresEmailVerification(needsVerification);
         setErrorMessage(isAr
           ? (needsVerification ? "يجب تأكيد بريدك الإلكتروني قبل تسجيل الدخول." : "تعذر تسجيل الدخول. تحقق من البريد الإلكتروني وكلمة المرور.")
-          : (payload?.error ?? "Login failed."));
+          : clientResponseMessage(payload?.error, "Login failed."));
         return;
       }
 
@@ -235,19 +236,19 @@ export function LoginForm({
     if (isResendVerificationSubmitting) return;
     setIsResendVerificationSubmitting(true);
     try {
-      const { response, payload } = await fetchClientJson<{ error?: string; message?: string }>("/api/auth/verify-email/resend", {
+      const { response, payload } = await fetchClientJson<{ error?: unknown; message?: unknown } | null>("/api/auth/verify-email/resend", {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-Locale": locale },
         body: JSON.stringify({ email: form.email }),
       }, 30_000);
       if (!response.ok) {
-        setErrorMessage(isAr ? "فشل إرسال بريد التحقق." : (payload.error ?? "Failed to resend verification email."));
+        setErrorMessage(isAr ? "فشل إرسال بريد التحقق." : clientResponseMessage(payload?.error, "Failed to resend verification email."));
         return;
       }
       setStatusMessage(
         isAr
           ? "إذا كان الحساب موجودًا وغير موثق، تم إرسال رسالة تحقق جديدة."
-          : (payload.message ?? "If the account exists and is unverified, a new verification email has been sent."),
+          : clientResponseMessage(payload?.message, "If the account exists and is unverified, a new verification email has been sent."),
       );
     } catch {
       setErrorMessage(isAr ? "تعذر الاتصال بالخادم. حاول مرة أخرى." : "Unable to reach the server. Please try again.");
