@@ -563,8 +563,8 @@ export function LessonManagementDashboard() {
         </div>
       ) : null}
 
-      <div className="mt-6 grid gap-4 xl:grid-cols-[360px_1fr]">
-        <Card className="h-fit">
+      <div className="mt-6 grid min-w-0 grid-cols-1 gap-4 xl:grid-cols-[360px_minmax(0,1fr)]">
+        <Card className="h-fit min-w-0">
           <CardHeader>
             <CardTitle className="text-lg">{isAr ? "إدارة الدروس" : "Lesson Management"}</CardTitle>
             <CardDescription>{isAr ? "بحث، فلترة، سحب وإفلات، نشر." : "Search, filter, drag & drop, publish."}</CardDescription>
@@ -624,7 +624,7 @@ export function LessonManagementDashboard() {
 
             <div className="space-y-2 rounded-xl border border-white/10 p-3 text-xs">
               <p className="text-[#9CA3AF]">{isAr ? "منظم الدورات (سحب بين الأقسام)" : "Course Organizer (move between sections)"}</p>
-              <div className="grid grid-cols-3 gap-1">
+              <div className="grid grid-cols-1 gap-1 sm:grid-cols-3">
                 {(["beginner", "intermediate", "advanced"] as LessonCategory[]).map((category) => (
                   <div
                     key={category}
@@ -642,7 +642,7 @@ export function LessonManagementDashboard() {
           </CardContent>
         </Card>
 
-        <div className="space-y-4">
+        <div className="min-w-0 space-y-4">
           {selectedLesson ? (
             <>
               <Card>
@@ -653,7 +653,7 @@ export function LessonManagementDashboard() {
                       <CardDescription>{(selectedLesson && (autosaveRef.current?.hasDraft(selectedLesson.id) || pendingEditsRef.current.has(selectedLesson.id))) ? (isAr ? "توجد تغييرات غير محفوظة" : "Unsaved changes") : saving ? (isAr ? "جاري الحفظ..." : "Auto saving...") : isAr ? "✓ محفوظ" : "✓ Saved"}</CardDescription>
                       {saveFailed && !saveConflicts[selectedLesson.id] ? <Button type="button" variant="outline" size="sm" disabled={saving} onClick={() => autosaveRef.current?.retry()}>{isAr ? "إعادة محاولة الحفظ" : "Retry saving"}</Button> : null}
                     </div>
-                    <div className="flex gap-2">
+                    <div className="flex flex-wrap gap-2">
                       <Button size="sm" variant="secondary" onClick={() => setPublishState("draft")}>{isAr ? "إلغاء النشر" : "Unpublish"}</Button>
                       <Button size="sm" onClick={() => setPublishState("published")}>{isAr ? "نشر" : "Publish"}</Button>
                     </div>

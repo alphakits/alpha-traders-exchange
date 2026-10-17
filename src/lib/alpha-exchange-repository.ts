@@ -2394,7 +2394,16 @@ export class AlphaExchangeRepository {
       }
       if (!row) {
         await client.query("begin");
-        if (trustReconciliation) {
+        if (retryProjection) {
+          // Serialize duplicate commands for one request before they enter the
+          // global financial queue. Once the first commits, its duplicate can
+          // use a permission-checked read without holding the global lock.
+          // The two-integer advisory namespace is separate from bigint locks.
+          await client.query("select pg_advisory_xact_lock(61422919, hashtext($1))", [requestId]);
+          const retry = await client.query<ReadRow>(readSql(true), parameters);
+          if (retry.rows[0]?.read_only_retry) { row = retry.rows[0]; await close(); }
+        }
+        if (!row && trustReconciliation) {
           const lock = await client.query<{ acquired: boolean; overdue: boolean }>(`select
             pg_try_advisory_xact_lock(61422917) as acquired,
             exists (select 1 from alpha_exchange.purchase_requests
@@ -2411,8 +2420,8 @@ export class AlphaExchangeRepository {
               commit: async () => { throw new Error("Deferred trust work did not acquire its transaction lock."); } };
           }
           if (!lock.rows[0]?.acquired) await client.query("select pg_advisory_xact_lock(61422917)");
-        } else await client.query("select pg_advisory_xact_lock(61422917)");
-        row = (await client.query<ReadRow>(readSql(), parameters)).rows[0];
+        } else if (!row) await client.query("select pg_advisory_xact_lock(61422917)");
+        if (!row) row = (await client.query<ReadRow>(readSql(), parameters)).rows[0];
       }
       const version = Number(row?.version ?? "0");
       const before = new Map(selectedNames.map(name => [name, row?.[name] ?? []]));

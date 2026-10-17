@@ -17,12 +17,12 @@ async function saved(page: Page, id: string) {
   expect(response.ok()).toBeTruthy();
   return ((await response.json()).lessons as Lesson[]).find(lesson => lesson.id === id)!;
 }
-for (const locale of ["en", "ar"] as const) {
+for (const locale of ["en", "ar"] as const) for (const width of [390, 1440]) test.describe(`${locale} at ${width}px`, () => {
   const isAr = locale === "ar";
-  test.beforeEach(async ({ page }) => { await owner(page); await page.setViewportSize({ width: isAr ? 390 : 1440, height: isAr ? 844 : 936 }); });
+  test.beforeEach(async ({ page }) => { await owner(page); await page.setViewportSize({ width, height: width < 600 ? 844 : 936 }); });
 
   test(`owner preserves edits across selection changes and publishes the edited draft (${locale})`, async ({ page }, info) => {
-    const prefix = `audit-editor-switch-${locale}-${info.retry}`;
+    const prefix = `audit-editor-switch-${locale}-${width}-${info.retry}`;
     const first = await create(page, `${prefix}-first`); const second = await create(page, `${prefix}-second`);
     await page.goto(`/${locale}/admin`);
     await page.getByPlaceholder(isAr ? "بحث بالعنوان/الرقم" : "Search by title/number").fill(prefix);
@@ -43,7 +43,7 @@ for (const locale of ["en", "ar"] as const) {
   });
 
   test(`owner retains a failed save and explicitly retries it (${locale})`, async ({ page }, info) => {
-    const lesson = await create(page, `audit-editor-retry-${locale}-${info.retry}`);
+    const lesson = await create(page, `audit-editor-retry-${locale}-${width}-${info.retry}`);
     await page.goto(`/${locale}/admin`);
     await page.getByPlaceholder(isAr ? "بحث بالعنوان/الرقم" : "Search by title/number").fill(lesson.id);
     await page.getByRole("button", { name: new RegExp(lesson.title) }).click();
@@ -65,7 +65,7 @@ for (const locale of ["en", "ar"] as const) {
   });
 
   test(`owner resolves a stale-tab conflict without silently losing either version (${locale})`, async ({ page }, info) => {
-    const lesson = await create(page, `audit-editor-conflict-${locale}-${info.retry}`);
+    const lesson = await create(page, `audit-editor-conflict-${locale}-${width}-${info.retry}`);
     await page.goto(`/${locale}/admin`);
     await page.getByPlaceholder(isAr ? "بحث بالعنوان/الرقم" : "Search by title/number").fill(lesson.id);
     await page.getByRole("button", { name: new RegExp(lesson.title) }).click();
@@ -82,4 +82,4 @@ for (const locale of ["en", "ar"] as const) {
     await expect.poll(async () => (await saved(page, lesson.id)).title).toBe(`${lesson.title} local draft`);
     await expect(conflict).toBeHidden();
   });
-}
+});

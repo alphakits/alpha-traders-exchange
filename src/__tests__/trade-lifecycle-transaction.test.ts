@@ -32,6 +32,22 @@ function fixture(fail?: (sql: string) => Error | undefined) {
 }
 
 describe("canonical trade lifecycle transaction", () => {
+  it("rechecks a duplicate after its request lock without joining the global mutation queue", async () => {
+    const { repo, query, release } = fixture();
+    const original = query.getMockImplementation()!;
+    let reads = 0;
+    query.mockImplementation(async (sql: string, values?: unknown[]) => {
+      const result = await original(sql, values);
+      if (sql.includes("json_agg") && ++reads === 2) Object.assign(result.rows[0], { read_only_retry: true });
+      return result;
+    });
+    const tx = (await repo.beginTradeLifecycleTransaction(["users", "purchase_requests", "notifications"], "target", "completed"))!;
+    expect(query).toHaveBeenCalledWith("select pg_advisory_xact_lock(61422919, hashtext($1))", ["target"]);
+    expect(query.mock.calls.some(([sql]) => sql === "select pg_advisory_xact_lock(61422917)")).toBe(false);
+    await expect(tx.commit(tx.snapshot, { selectedTables: ["purchase_requests"] })).rejects.toThrow("read-only lifecycle retry");
+    await tx.close();
+    expect(release).toHaveBeenCalledExactlyOnceWith(false);
+  });
   it("reads after obtaining the cross-instance lock and persists only changed rows with stable ordering", async () => {
     const { repo, query, release } = fixture();
     const tx = await repo.beginTradeLifecycleTransaction(["purchase_requests", "audit_logs", "notifications"]);
