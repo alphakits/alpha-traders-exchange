@@ -163,7 +163,16 @@ test.describe("Authentication", () => {
     test.setTimeout(60_000);
     test.skip(!BUYER_EMAIL || !BUYER_PASSWORD, "Set E2E_BUYER_EMAIL and E2E_BUYER_PASSWORD to run credentialed login checks.");
     await login(page, BUYER_EMAIL, BUYER_PASSWORD);
-    await page.request.post("/api/auth/logout");
+    const [logoutResponse] = await Promise.all([
+      page.waitForResponse(response => response.url().endsWith("/api/auth/logout") && response.request().method() === "POST"),
+      page.locator("header").first().getByRole("button", { name: "Sign out", exact: true }).click(),
+    ]);
+    expect(logoutResponse.ok()).toBe(true);
+    // Finish the actual logout navigation before requesting another page. An
+    // out-of-band API logout races the old protected page's session redirect.
+    await expect(page).toHaveURL(/\/en\/?$/, { timeout: 30_000 });
+    await expect(page.locator("header").first().getByRole("button", { name: "Sign out", exact: true })).toHaveCount(0);
+    expect((await page.request.get("/api/auth/me")).status()).toBe(401);
     // Logout must remove access while retaining the protected destination.
     await page.goto("/en/academy");
     await expect(page).toHaveURL(/\/en\/login\?redirectTo=%2Fen%2Facademy$/, { timeout: 30_000 });
