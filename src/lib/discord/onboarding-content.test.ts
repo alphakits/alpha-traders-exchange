@@ -23,6 +23,18 @@ const siteUrl = "https://www.alphatraders.co.il";
 const discordUserId = "1".repeat(18);
 
 describe("Discord onboarding content", () => {
+  it.each(["seller_rules_public", "seller_rules"] as const)("explains both commission shares and seller remittance in %s", key => {
+    const message = buildDiscordOnboardingContent({ key, siteUrl });
+    const commission = message.embeds?.flatMap(embed => embed.fields ?? [])
+      .find(field => field.name === "Commission")?.value;
+    expect(commission).toContain("1% buyer + 1% seller = 2% total");
+    expect(commission).toContain("seller pays Alpha the full 2% in USDT");
+    expect(commission).toContain("buyer’s 1% is included in the displayed payment total");
+    expect(commission).toContain("Do not collect it twice");
+    expect(commission).toContain("Historical trades retain their issued fee terms");
+    expect(message.allowed_mentions).toEqual({ parse: [] });
+  });
+
   it("generates every singleton deterministically from shared contracts", () => {
     for (const key of DISCORD_ONBOARDING_CONTENT_KEYS) {
       const first = buildDiscordOnboardingContent({ key, siteUrl });
