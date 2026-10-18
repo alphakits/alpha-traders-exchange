@@ -9,6 +9,34 @@ const calendar = weeklyCalendarSchema.parse(snapshot);
 const checked = Date.parse(calendar.verifiedAt);
 const clone = () => structuredClone(snapshot);
 
+// Fixed historical scenarios must not inherit dates or events from the rolling
+// production snapshot: weekly maintenance changes its coverage and verifiedAt.
+const scenario = weeklyCalendarSchema.parse({
+  version: 1,
+  verifiedAt: "2026-10-04T16:56:40Z",
+  resultsVerifiedAt: "2026-10-08T17:00:00Z",
+  coverageStart: "2026-09-27T00:00:00Z",
+  coverageEnd: "2026-11-09T00:00:00Z",
+  weekStart: "2026-10-05",
+  weekEnd: "2026-10-12",
+  events: [{
+    id: "official-dol-initial-claims-20261006",
+    agency: "dol",
+    title: "Synthetic claims result",
+    titleAr: "نتيجة تجريبية لطلبات الإعانة",
+    scheduledAt: "2026-10-06T12:30:00Z",
+    timing: "exact",
+    kind: "release",
+    actual: "0%",
+    previous: null,
+    revised: null,
+    reference: null,
+    publishedAt: "2026-10-06T12:30:00Z",
+    sourceUrl: "https://www.dol.gov/ui/data.pdf",
+  }],
+});
+const scenarioChecked = Date.parse(scenario.resultsVerifiedAt!);
+
 describe("free weekly official calendar", () => {
   it("validates the deployed snapshot and keeps results factual with no live source freshness or forecasts", () => {
     const feed = readWeeklyNewsFeed(checked);
@@ -29,14 +57,14 @@ describe("free weekly official calendar", () => {
     expect(readWeeklyNewsFeed(checked - 5 * 60_000 - 1)).toMatchObject({ status: "unavailable", events: [] });
   });
   it("never exposes an actual before publication, even within the clock-skew allowance", () => {
-    const event = { ...calendar.events[0], actual: "0", publishedAt: calendar.events[0].scheduledAt };
-    const nearRelease = { ...calendar, verifiedAt: event.scheduledAt, events: [event] };
+    const event = { ...scenario.events[0], actual: "0", publishedAt: scenario.events[0].scheduledAt };
+    const nearRelease = { ...scenario, verifiedAt: event.scheduledAt, events: [event] };
     expect(weeklyNewsFeed(nearRelease, Date.parse(event.scheduledAt) - 1).events[0].actual).toBeNull();
     expect(weeklyNewsFeed(nearRelease, Date.parse(event.scheduledAt)).events[0].actual).toBe("0");
   });
   it("accepts a verified midweek result without changing the Sunday schedule verification", () => {
-    const event = { ...calendar.events[0], scheduledAt: "2026-10-06T12:30:00Z", publishedAt: "2026-10-06T12:30:00Z", actual: "0%" };
-    const data = { ...calendar, verifiedAt: "2026-10-04T16:56:40Z", resultsVerifiedAt: "2026-10-08T17:00:00Z", events: [event] };
+    const event = { ...scenario.events[0], scheduledAt: "2026-10-06T12:30:00Z", publishedAt: "2026-10-06T12:30:00Z", actual: "0%" };
+    const data = { ...scenario, verifiedAt: "2026-10-04T16:56:40Z", resultsVerifiedAt: "2026-10-08T17:00:00Z", events: [event] };
     expect(weeklyCalendarSchema.safeParse(data).success).toBe(true);
     const feed = weeklyNewsFeed(data, Date.parse("2026-10-08T18:00:00Z"));
     expect(feed.events[0].actual).toBe("0%");
@@ -45,10 +73,10 @@ describe("free weekly official calendar", () => {
     expect(weeklyCalendarSchema.safeParse({ ...data, resultsVerifiedAt: data.verifiedAt }).success).toBe(false);
   });
   it("publishes sourced bilingual speech outcomes only after publication without inventing a number", () => {
-    const event = { ...calendar.events[0], kind: "speech" as const, actual: null, outcome: { en: "Verified statement.", ar: "بيان مؤكد." } };
-    const data = { ...calendar, events: [event] };
+    const event = { ...scenario.events[0], kind: "speech" as const, actual: null, outcome: { en: "Verified statement.", ar: "بيان مؤكد." } };
+    const data = { ...scenario, events: [event] };
     expect(weeklyCalendarSchema.safeParse(data).success).toBe(true);
-    expect(weeklyNewsFeed(data, checked).events[0]).toMatchObject({ actual: null, outcome: event.outcome });
+    expect(weeklyNewsFeed(data, scenarioChecked).events[0]).toMatchObject({ actual: null, outcome: event.outcome });
     const future = { ...event, scheduledAt: "2026-10-08T18:00:00Z", publishedAt: "2026-10-08T18:01:00Z" };
     const ahead = { ...data, verifiedAt: future.scheduledAt, resultsVerifiedAt: future.publishedAt, events: [future] };
     const before = weeklyNewsFeed(ahead, Date.parse(future.scheduledAt));
@@ -60,8 +88,8 @@ describe("free weekly official calendar", () => {
     expect(weeklyCalendarSchema.safeParse({ ...data, events: [{ ...event, kind: "release" }] }).success).toBe(false);
   });
   it("retains the start of the previous full week on Sunday and preserves old event links", () => {
-    const previousMonday = { ...calendar.events[0], scheduledAt: "2026-09-28T12:30:00Z", publishedAt: "2026-09-28T12:30:00Z", actual: "0%" };
-    const data = { ...calendar, events: [previousMonday] };
+    const previousMonday = { ...scenario.events[0], scheduledAt: "2026-09-28T12:30:00Z", publishedAt: "2026-09-28T12:30:00Z", actual: "0%" };
+    const data = { ...scenario, events: [previousMonday] };
     const sunday = Date.parse("2026-10-11T20:59:59Z");
     expect(weeklyNewsFeed(data, sunday).events[0]).toMatchObject({ id: previousMonday.id, actual: "0%" });
     expect(weeklyNewsFeed(data, sunday + 7 * 86_400_000).events).toHaveLength(0);
@@ -72,7 +100,7 @@ describe("free weekly official calendar", () => {
     if (problem === "duplicate") data.events.push({ ...data.events[0] });
     if (problem === "source") data.events[0].sourceUrl = "https://www.bls.gov.evil.example/release";
     if (problem === "malformed URL") data.events[0].sourceUrl = "invalid";
-    if (problem === "agency") data.events[0].agency = "fed";
+    if (problem === "agency") data.events[0].agency = data.events[0].agency === "fed" ? "bls" : "fed";
     if (problem === "future actual") data.events[0].publishedAt = data.coverageEnd;
     if (problem === "offset") data.events[0].scheduledAt = "2026-10-01T08:30:00-04:00";
     if (problem === "forecast") Object.assign(data.events[0], { forecast: "1%" });
