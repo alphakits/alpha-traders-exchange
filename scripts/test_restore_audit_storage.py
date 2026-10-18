@@ -74,6 +74,30 @@ class RecoveryBoundaries(unittest.TestCase):
                 self.assertEqual(len(call.args), 4)
             self.assertEqual(json.loads(report.read_text())['status'], 'INCOMPLETE')
 
+    def test_explicit_subset_excludes_all_other_objects(self):
+        with tempfile.TemporaryDirectory() as directory:
+            manifest, report = Path(directory)/'manifest.json', Path(directory)/'report.json'
+            manifest.write_text(json.dumps(self.manifest()))
+            argv = ['restore', '--manifest', str(manifest), '--report', str(report),
+                    '--target-key-file', 'synthetic-target', '--verify-only', '--indices', '16,17']
+            with patch.object(restore, 'headers'), patch.object(restore, 'transfer', return_value=404) as transfer, \
+                 patch('sys.argv', argv), patch('builtins.print'):
+                self.assertEqual(restore.main(), 1)
+            self.assertEqual([c.args[1]['name'] for c in transfer.call_args_list], ['fixture-16.bin','fixture-17.bin'])
+            evidence = json.loads(report.read_text())
+            self.assertEqual(evidence['selectedObjects'], 2)
+            self.assertEqual([x['index'] for x in evidence['objects']], [16,17])
+
+    def test_invalid_subset_rejected_before_network(self):
+        with tempfile.TemporaryDirectory() as directory:
+            manifest = Path(directory)/'manifest.json'
+            manifest.write_text(json.dumps(self.manifest()))
+            for selection in ['-1','18','11,11']:
+                argv = ['restore', '--manifest', str(manifest), '--report', str(Path(directory)/'report.json'), '--indices', selection]
+                with self.subTest(selection=selection), patch('sys.argv', argv), patch.object(restore, 'transfer') as transfer:
+                    with self.assertRaises(ValueError):restore.main()
+                    transfer.assert_not_called()
+
 
 if __name__ == '__main__':
     unittest.main()

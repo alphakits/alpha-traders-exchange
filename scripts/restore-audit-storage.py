@@ -88,11 +88,17 @@ def main():
     parser.add_argument('--cache-dir', help='Private directory for checksum-validated source downloads across interruptions')
     parser.add_argument('--apply', action='store_true')
     parser.add_argument('--verify-only', action='store_true', help='Read recovered bytes only; never upload or read source')
+    parser.add_argument('--indices', help='Optional comma-separated manifest indices for an explicitly approved subset')
     args = parser.parse_args()
     manifest = json.loads(Path(args.manifest).read_text())
     validate(manifest)
+    selected = list(range(len(manifest))) if args.indices is None else [int(v) for v in args.indices.split(',')]
+    require(selected and len(selected) == len(set(selected)), 'Empty or duplicate selection')
+    require(all(0 <= i < len(manifest) for i in selected), 'Selection outside manifest')
     report = {'sourceProject': SOURCE, 'recoveryProject': TARGET, 'totalObjects': len(manifest),
-              'expectedBytes': sum(i['metadata']['size'] for i in manifest), 'objects': []}
+              'expectedBytes': sum(i['metadata']['size'] for i in manifest),
+              'selectedIndices': selected, 'selectedObjects': len(selected),
+              'selectedBytes': sum(manifest[i]['metadata']['size'] for i in selected), 'objects': []}
     require(not (args.apply and args.verify_only), 'Choose apply or verify-only, never both')
     if not args.apply and not args.verify_only:
         print(json.dumps({**report, 'mode': 'manifest-validation-only'}))
@@ -111,6 +117,8 @@ def main():
         cache = Path(args.cache_dir) if args.cache_dir else root
         cache.mkdir(mode=0o700, parents=True, exist_ok=True)
         for index, item in enumerate(manifest):
+            if index not in selected:
+                continue
             expected = (item['metadata']['size'], item['metadata']['eTag'].strip('"'))
             source_file, target_file = cache/(expected[1]+'.bin'), root/'target.bin'
             record = {'index': index, 'bucket': item['bucket_id'], 'objectPathHash': hashlib.sha256(item['name'].encode()).hexdigest(),
