@@ -48,6 +48,9 @@ for (const locale of ["en", "ar"] as const) {
       for (const width of [390, 1440]) {
         await page.setViewportSize({ width, height: 900 });
         await page.goto(`/${locale}`);
+        const hero = page.getByRole("img", { name: locale === "ar" ? "مساحة عمل التداول في Alpha Traders" : "Alpha Traders cinematic workspace", exact: true });
+        await expect(hero).toBeVisible();
+        await expect.poll(() => hero.evaluate((image: HTMLImageElement) => image.complete && image.naturalWidth > 0)).toBe(true);
         const footer = page.locator("footer");
         await expect(footer.locator(`a[href='/${locale}/login'],a[href='/${locale}/register']`)).toHaveCount(0);
         await expect(footer.locator(`a[href='/${locale}${dashboard}']`)).toHaveCount(2);

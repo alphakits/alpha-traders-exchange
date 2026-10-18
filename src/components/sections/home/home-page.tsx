@@ -49,7 +49,9 @@ export async function HomePage({
               alt={isRtl ? "مساحة عمل التداول في Alpha Traders" : "Alpha Traders cinematic workspace"}
               fill
               priority
-              quality={85}
+              // Already a 107 KiB WebP. Serve it directly so viewport changes
+              // cannot block navigation on an unnecessary runtime conversion.
+              unoptimized
               sizes="(min-width: 1280px) 1280px, 100vw"
               className="object-cover object-[30%_center] md:object-center"
             />
