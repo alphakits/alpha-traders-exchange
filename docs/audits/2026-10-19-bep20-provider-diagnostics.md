@@ -33,3 +33,20 @@ confirmations, scan limits, provider credentials and release gates are
 unchanged. The actual current provider cause must be read from a fresh
 checkpoint after the tested release is deployed; successful live payment
 settlement is not asserted by these tests.
+
+## Release-gate finding: remembered-login request cleanup
+
+CI1081 passed all 5,732 unit assertions but correctly failed on an unhandled
+native remembered-login timeout after the test document closed. The initial
+native lookup had unmount cancellation; checkbox-triggered clear requests and
+the post-authentication save did not share that cancellation lifecycle.
+
+The login form now uses its mounted native-request controller for load, clear,
+and save. Closing the screen cancels pending requests and prevents a late
+native save from navigating an abandoned screen. Native secure-storage writes
+still require successful authentication and finish before normal navigation.
+
+Two targeted regressions failed before this repair. All 65 login-form and
+native-bridge tests pass after it, as do focused ESLint and TypeScript checks.
+The original CI failure remains audit evidence; no release check, retry rule,
+browser requirement, or performance threshold was relaxed.

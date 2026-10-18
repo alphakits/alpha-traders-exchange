@@ -102,6 +102,22 @@ describe("LoginForm", () => {
     expect(localStorage.length).toBe(0);
   });
 
+  it("cancels an unanswered native forget request when the login screen closes", async () => {
+    vi.useFakeTimers();
+    window.ReactNativeWebView = { postMessage: vi.fn() };
+    const page = render(<LoginForm locale="en" />);
+    try {
+      fireEvent.click(screen.getByRole("checkbox", { name: "Remember Me" }));
+      expect(window.ReactNativeWebView.postMessage).toHaveBeenCalledTimes(2);
+      page.unmount();
+      expect(window.__alphaRememberedLoginRequestId).toBeUndefined();
+    } finally {
+      page.unmount();
+      await act(async () => { await vi.runOnlyPendingTimersAsync(); });
+      vi.useRealTimers();
+    }
+  });
+
   it("restores only the remember preference when the login page is reopened", () => {
     const first = render(<LoginForm locale="en" />);
     fireEvent.change(screen.getByLabelText("Email"), { target: { value: "test@example.test" } });
