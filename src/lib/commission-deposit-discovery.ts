@@ -98,6 +98,19 @@ export async function scanTronCommissionDeposits(minTimestamp: number, progress?
   return scan;
 }
 
+function bep20IndexFailure(payload: unknown, fallback: "bep20_index_block_unavailable" | "bep20_index_unavailable") {
+  const reason = payload && typeof payload === "object" && "result" in payload && typeof payload.result === "string"
+    ? payload.result : "";
+  // Both lookup stages return only fixed codes, never provider bodies or keys.
+  // A shared quota can mention an upgrade too; keep it distinct from plan access.
+  if (/community free api limit reached/i.test(reason)) return new Error("bep20_index_quota_exhausted");
+  if (/paid plan|free api access.*not supported|upgrade.*plan/i.test(reason)) return new Error("bep20_index_plan_unsupported");
+  if (/invalid api key|missing.*api key/i.test(reason)) return new Error("bep20_index_key_invalid");
+  if (/rate limit/i.test(reason)) return new Error("bep20_index_rate_limited");
+  if (/query timeout|timeout occurred|server too busy/i.test(reason)) return new Error("bep20_index_query_timeout");
+  return new Error(fallback);
+}
+
 export async function scanBep20CommissionDeposits(minTimestamp: number, progress?: DepositScanProgress): Promise<DepositScan> {
   const key = process.env.ALPHA_EXCHANGE_ETHERSCAN_API_KEY?.trim();
   const scan: DepositScan = { deposits: [], pages: 0, complete: false, configured: Boolean(key) };
@@ -111,7 +124,7 @@ export async function scanBep20CommissionDeposits(minTimestamp: number, progress
     const response = await fetch(url, { cache: "no-store", signal, redirect: "error" });
     if (!response.ok) throw new Error(`bep20_index_http_${response.status}`);
     const payload = await response.json();
-    if (payload.status !== "1" || typeof payload.result !== "string" || !/^\d{1,16}$/.test(payload.result)) throw new Error("bep20_index_block_unavailable");
+    if (payload?.status !== "1" || typeof payload.result !== "string" || !/^\d{1,16}$/.test(payload.result)) throw bep20IndexFailure(payload, "bep20_index_block_unavailable");
     endBlock = payload.result;
   }
   let nextPage = progress?.page ?? 1;
@@ -125,16 +138,11 @@ export async function scanBep20CommissionDeposits(minTimestamp: number, progress
     const response = await fetch(url, { cache: "no-store", signal, redirect: "error" });
     if (!response.ok) throw new Error(`bep20_index_http_${response.status}`);
     const payload = await response.json();
-    if (payload.status === "0" && payload.message === "No transactions found" && Array.isArray(payload.result) && payload.result.length === 0) {
+    if (payload?.status === "0" && payload.message === "No transactions found" && Array.isArray(payload.result) && payload.result.length === 0) {
       scan.complete = true; scan.pages++; break;
     }
-    if (payload.status !== "1" || !Array.isArray(payload.result)) {
-      const reason = typeof payload.result === "string" ? payload.result : "";
-      // Classify failures without copying API response bodies or keys into logs.
-      if (/paid plan|free api access.*not supported|upgrade.*plan/i.test(reason)) throw new Error("bep20_index_plan_unsupported");
-      if (/invalid api key|missing.*api key/i.test(reason)) throw new Error("bep20_index_key_invalid");
-      if (/rate limit/i.test(reason)) throw new Error("bep20_index_rate_limited");
-      throw new Error("bep20_index_unavailable");
+    if (payload?.status !== "1" || !Array.isArray(payload.result)) {
+      throw bep20IndexFailure(payload, "bep20_index_unavailable");
     }
     scan.pages++;
     let reachedLowerBound = false;
