@@ -1,7 +1,7 @@
 import { createLesson, updateLesson, addMediaItem } from "@/lib/admin-store";
 import { getAdminContentRepository } from "@/lib/admin-content-repository";
 import { getAlphaExchangeRepository } from "@/lib/alpha-exchange-repository";
-import { getAuditQueryTimings, getRuntimePostgresPool } from "./postgres-runtime";
+import { getAuditQueryTimings, getAuditRuntimeDiagnostics, getRuntimePostgresPool } from "./postgres-runtime";
 import { addSellerBankAccount, beginBuyerVerification, broadcastNotificationByAdmin, changeUserRoleByAdmin, consumeEmailVerificationToken, consumePasswordResetToken, createEmailVerificationTokenForUser, createPasswordResetToken, deleteSellerBankAccount, disableUserAccountByAdmin, getTradeRoomData, invalidateAlphaExchangeStoreCache, issueSellerCommissionByAdmin, reconcilePendingTradeTrust, recordBuyerVerificationAttempt, setSellerVacationModeByAdmin, updatePurchaseRequestStatus, updateSellerBankAccount, updateSellerProfileStateByAdmin, updateTradeTerms, updateUserPassword, uploadTradeEvidence } from "@/lib/alpha-exchange-store";
 import type { AlphaExchangeDb, AuthSession } from "@/types/alpha-exchange";
 import { confirmAdultEligibility } from "@/lib/alpha-exchange-store";
@@ -46,6 +46,7 @@ async function execute(operation: string, input: unknown) {
     return { saved: true };
   }
   if (operation === "query-timings") return getAuditQueryTimings();
+  if (operation === "runtime-diagnostics") return getAuditRuntimeDiagnostics();
   if (operation === "inspect-acceptance-scope") {
     const action = input as { requestId: string; actorUserId: string };
     const transaction = await repository.beginTradeLifecycleTransaction(["users", "purchase_requests"], action.requestId, "accepted", action.actorUserId);
