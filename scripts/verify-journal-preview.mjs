@@ -12,6 +12,37 @@ const browser=await chromium.launch({headless:true,executablePath:process.env.JO
 const url=`http://127.0.0.1:${server.address().port}/journal.html`,errors=[],checks=[];let debugPage;
 async function ready(page){await page.locator('#preview-fallback').waitFor({state:'detached'});await page.getByText("Opening your journal…").waitFor({state:"hidden"});await page.locator('.j-stat').first().waitFor();}
 async function overflow(page,label){assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1),false,label);assert.equal(await page.locator('.j-stat-pnl .j-money').evaluateAll(elements=>elements.every(el=>{const value=el.getBoundingClientRect(),card=el.closest('.j-stat').getBoundingClientRect();return value.left>=card.left&&value.right<=card.right;})),true,`${label}: P&L must fit inside its card`);checks.push(`${label}: no horizontal overflow or clipped P&L`);}
+async function verifyDraftProtection(page,locale){
+  const t=(en,ar)=>locale==="ar"?ar:en;
+  const dialogs=[];let accept=false;
+  page.removeAllListeners('dialog');
+  page.on('dialog',dialog=>{dialogs.push(dialog.message());return accept?dialog.accept():dialog.dismiss();});
+  try{
+    for(const kind of ['daily','weekly','rules']){
+      const review=t('Review','المراجعة'),overview=t('Overview','نظرة عامة'),rules=t('My rules','قواعدي');
+      await page.getByRole('button',{name:kind==='rules'?rules:review,exact:true}).click();
+      if(kind==='weekly'){
+        await page.getByRole('button',{name:t('Weekly review','مراجعة أسبوعية'),exact:true}).click();
+        await page.getByLabel(t('Review date','تاريخ المراجعة'),{exact:true}).fill('2026-10-12');
+      }
+      const field=page.getByLabel(kind==='rules'?t('My trading plan','خطة التداول الخاصة بي'):t('What I learned','ما تعلمته'),{exact:true});
+      const draft=`${locale} ${kind} draft must remain protected`;
+      await field.fill(draft);dialogs.length=0;
+      await page.getByRole('button',{name:kind==='rules'?rules:review,exact:true}).click();
+      if(kind!=='rules')await page.getByRole('button',{name:kind==='daily'?t('Daily review','مراجعة يومية'):t('Weekly review','مراجعة أسبوعية'),exact:true}).click();
+      if(kind==='weekly')await page.getByLabel(t('Review date','تاريخ المراجعة'),{exact:true}).fill('2026-10-14');
+      assert.deepEqual(dialogs,[],`${locale} ${kind}: same form selection must not discard or prompt`);
+      assert.equal(await field.inputValue(),draft);
+      const share=kind==='rules'?t('Share my plan','مشاركة خطتي'):kind==='weekly'?t('Share this week','مشاركة هذا الأسبوع'):t('Share this day','مشاركة هذا اليوم');
+      assert.equal(await page.getByRole('button',{name:share,exact:true}).isDisabled(),true);
+      await page.getByRole('button',{name:overview,exact:true}).click();
+      assert.equal(dialogs.length,1,`${locale} ${kind}: leaving still warns about unsaved changes`);
+      assert.equal(await field.inputValue(),draft);
+      accept=true;await page.getByRole('button',{name:overview,exact:true}).click();accept=false;
+      checks.push(`${locale} ${kind}: reselecting the form preserves draft and leaving protection`);
+    }
+  }finally{page.removeAllListeners('dialog');page.on('dialog',dialog=>dialog.accept());}
+}
 try{
   const restricted=await browser.newContext({viewport:{width:390,height:844},javaScriptEnabled:false}),restrictedPage=await restricted.newPage();
   await restrictedPage.goto(url);
@@ -49,6 +80,7 @@ try{
   await page.getByRole('button',{name:'Review',exact:true}).click();
   await page.getByRole('heading',{name:'Session notes',exact:true}).waitFor();
   await page.screenshot({path:path.join(outDir,"Alpha-Journal-Review.png"),fullPage:true,animations:"disabled"});
+  await verifyDraftProtection(page,"en");
   const mobile=await browser.newContext({viewport:{width:390,height:844},isMobile:true,hasTouch:true,deviceScaleFactor:1}),phone=await mobile.newPage();
   phone.on('pageerror',e=>errors.push(e.message));phone.on('dialog',d=>d.accept());
   await phone.goto(url);await ready(phone);await overflow(phone,"Mobile overview");
@@ -62,6 +94,7 @@ try{
   await phone.getByRole('button',{name:'Overview',exact:true}).click();await phone.getByRole('button',{name:'العربية',exact:true}).click();
   await phone.getByRole('heading',{name:'سجل التداول',exact:true}).waitFor();await overflow(phone,"Arabic mobile overview");
   await phone.screenshot({path:path.join(outDir,"Alpha-Journal-Arabic.png"),fullPage:true,animations:"disabled"});
+  await verifyDraftProtection(phone,"ar");
   await phone.getByRole('button',{name:'إضافة صفقة',exact:true}).click();await overflow(phone,"Arabic trade entry");
   await phone.screenshot({path:path.join(outDir,"Alpha-Journal-Trade-Entry.png"),fullPage:false,animations:"disabled"});
   await phone.getByRole('tab',{name:'ملاحظات وسلوك',exact:true}).click();await overflow(phone,'Arabic emotion check-in');

@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Check, LoaderCircle, SlidersHorizontal, Star } from "lucide-react";
 import type { JournalAdapter } from "@/lib/journal/client";
 import { JournalClientError } from "@/lib/journal/client";
@@ -18,12 +18,13 @@ export function ReviewForm({ initial,locale,adapter,onSaved,onDirty }: {
     ["improve","What I learned","ما تعلمته",t("One pattern or mistake worth reviewing…","نمط أو خطأ يستحق المراجعة…")],
     ["nextSession","My next focus","تركيزي القادم",t("One clear action for the next session…","خطوة واضحة للجلسة القادمة…")],
   ];
-  useEffect(()=>()=>onDirty(false),[onDirty]);
+  const mounted=useRef(false);
+  useEffect(()=>{mounted.current=true;return()=>{mounted.current=false;onDirty(false);};},[onDirty]);
   const change=(next:JournalReview)=>{setReview(next);onDirty(true);setMessage("");};
   return <form aria-busy={busy} className="j-panel j-review-form" onSubmit={async e=>{
     e.preventDefault();if(busy)return;setBusy(true);setError("");setMessage("");
-    try{const value=journalReviewInput.parse(review);const saved=await adapter.saveReview(value);setReview(saved);onSaved(saved);onDirty(false);setMessage(t("Review saved","تم حفظ المراجعة"));}
-    catch(error){setError(error instanceof JournalClientError && error.status===408?t("The connection timed out. Check whether it saved before retrying; your draft is still here.","انتهت مهلة الاتصال. تحقق من الحفظ قبل المحاولة مجدداً؛ مسودتك ما زالت هنا."):t("Could not save. If this review changed elsewhere, reload before editing again.","تعذّر الحفظ. إذا تغيرت المراجعة على جهاز آخر، أعد التحميل قبل التعديل."));}finally{setBusy(false);}
+    try{const value=journalReviewInput.parse(review);const saved=await adapter.saveReview(value);onSaved(saved);if(!mounted.current)return;setReview(saved);onDirty(false);setMessage(t("Review saved","تم حفظ المراجعة"));}
+    catch(error){if(mounted.current)setError(error instanceof JournalClientError && error.status===408?t("The connection timed out. Check whether it saved before retrying; your draft is still here.","انتهت مهلة الاتصال. تحقق من الحفظ قبل المحاولة مجدداً؛ مسودتك ما زالت هنا."):t("Could not save. If this review changed elsewhere, reload before editing again.","تعذّر الحفظ. إذا تغيرت المراجعة على جهاز آخر، أعد التحميل قبل التعديل."));}finally{if(mounted.current)setBusy(false);}
   }}>
     <fieldset className="j-form-lock" disabled={busy}>
     <div className="j-panel-head"><div><span className="j-kicker">{t("REFLECT & RESET","راجع واستعد")}</span><h2>{review.period==="week"?t("Weekly notes","ملاحظات الأسبوع"):t("Session notes","ملاحظات الجلسة")}</h2></div><span className="j-pill">{t("Private","خاصة")}</span></div>
@@ -39,12 +40,13 @@ export function RulesForm({ initial,locale,adapter,onSaved,onDirty }: {initial:J
   const t=phrase(locale),[settings,setSettings]=useState(initial),[limit,setLimit]=useState(String(initial.dailyLossLimitCents/100)),[busy,setBusy]=useState(false),[error,setError]=useState(""),[message,setMessage]=useState("");
   const [dirty,setDirty]=useState(false);
   useEffect(()=>{if(!dirty)return;const warn=(e:BeforeUnloadEvent)=>e.preventDefault();window.addEventListener("beforeunload",warn);return()=>window.removeEventListener("beforeunload",warn);},[dirty]);
-  useEffect(()=>()=>onDirty(false),[onDirty]);
+  const mounted=useRef(false);
+  useEffect(()=>{mounted.current=true;return()=>{mounted.current=false;onDirty(false);};},[onDirty]);
   return <form aria-busy={busy} className="j-panel j-rules-form" onChange={()=>{setDirty(true);onDirty(true);setMessage("");}} onSubmit={async e=>{
     e.preventDefault();if(busy)return;setError("");setMessage("");
     const parsed=journalSettingsInput.safeParse({...settings,dailyLossLimitCents:parseMoney(limit)});
     if(!parsed.success){setError(t("Check your timezone and enter positive limits.","راجع المنطقة الزمنية وأدخل حدوداً موجبة."));return;}
-    setBusy(true);try{const saved=await adapter.saveSettings(parsed.data);setSettings(saved);onSaved(saved);setDirty(false);onDirty(false);setMessage(t("Rules saved","تم حفظ القواعد"));}catch(error){setError(error instanceof JournalClientError && error.status===408?t("The connection timed out. Check whether it saved before retrying; your draft is still here.","انتهت مهلة الاتصال. تحقق من الحفظ قبل المحاولة مجدداً؛ مسودتك ما زالت هنا."):t("Could not save. Reload if your rules changed on another device.","تعذّر الحفظ. أعد التحميل إذا تغيرت قواعدك على جهاز آخر."));}finally{setBusy(false);}
+    setBusy(true);try{const saved=await adapter.saveSettings(parsed.data);onSaved(saved);if(!mounted.current)return;setSettings(saved);setDirty(false);onDirty(false);setMessage(t("Rules saved","تم حفظ القواعد"));}catch(error){if(mounted.current)setError(error instanceof JournalClientError && error.status===408?t("The connection timed out. Check whether it saved before retrying; your draft is still here.","انتهت مهلة الاتصال. تحقق من الحفظ قبل المحاولة مجدداً؛ مسودتك ما زالت هنا."):t("Could not save. Reload if your rules changed on another device.","تعذّر الحفظ. أعد التحميل إذا تغيرت قواعدك على جهاز آخر."));}finally{if(mounted.current)setBusy(false);}
   }}>
     <fieldset className="j-form-lock" disabled={busy}>
     <div className="j-panel-head"><div><span className="j-kicker">{t("YOUR PROCESS","طريقتك")}</span><h2>{t("Trading rules","قواعد التداول")}</h2></div><SlidersHorizontal size={22} className="j-gold"/></div>
