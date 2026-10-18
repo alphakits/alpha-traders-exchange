@@ -13,6 +13,10 @@ export function isActiveOwnerTrade(request: Pick<PurchaseRequest, "status">) {
   return activeStatuses.has(request.status);
 }
 
+export function isCompletedOwnerTrade(request: Pick<PurchaseRequest, "status" | "completedAt">) {
+  return request.status === "completed" || request.status === "review_open" || request.status === "locked" || Boolean(request.completedAt);
+}
+
 /** Explicit projection: private identities are only for a canonical owner. */
 export function buildOwnerActiveTradeSummaries(
   requests: readonly PurchaseRequest[], users: readonly AlphaExchangeUser[], ownerId: string,

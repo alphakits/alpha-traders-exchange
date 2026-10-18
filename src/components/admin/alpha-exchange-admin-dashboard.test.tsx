@@ -249,6 +249,36 @@ describe("AlphaExchangeAdminDashboard admin destinations", () => {
     expect(vi.mocked(fetch).mock.calls.every(([, init]) => !init?.method || init.method === "GET")).toBe(true);
   });
 
+  it.each(["en", "ar"] as const)("reconciles analytics totals with active and completed trade filters (%s)", async (locale) => {
+    navigationState.search = "section=analytics";
+    const statuses = ["accepted", "payment_sent", "funds_received", "usdt_release_pending", "usdt_sent", "pending", "completed", "review_open", "locked", "cancelled", "declined"];
+    const purchaseRequests = statuses.map(status => ({
+      id: `request-${status}`, buyerId: "buyer-1", buyerName: `Buyer ${status}`, sellerId: "seller-1", listingId: listing.id,
+      status, usdtAmount: "100", fiatAmount: "320", currency: "ILS", paymentMethod: "Bank Transfer", network: "TRC20",
+      timeline: [], createdAt: "2026-09-23T00:00:00.000Z", updatedAt: "2026-09-23T00:00:00.000Z",
+    }));
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({
+      ...adminPayload(), purchaseRequests,
+      ownerBusiness: {
+        today: { estimatedCommission: 0, tradeVolumeUsdt: 0 },
+        thisWeek: { topSeller: "" },
+        financialOverview: { estimatedCommissionThisWeek: 0, estimatedCommissionThisMonth: 0 },
+      },
+    })));
+    render(<AlphaExchangeAdminDashboard isOwner locale={locale} />);
+    await screen.findByRole("heading", { name: locale === "ar" ? "التحليلات" : "Analytics" });
+    const activeCard = screen.getByText(locale === "ar" ? "الصفقات النشطة" : "Active Trades").parentElement!;
+    const completedCard = screen.getByText(locale === "ar" ? "الصفقات المكتملة" : "Completed Trades").parentElement!;
+    expect(within(activeCard).getByRole("heading").textContent).toBe("5");
+    expect(within(completedCard).getByRole("heading").textContent).toBe("3");
+    fireEvent.click(screen.getByRole("button", { name: locale === "ar" ? "فتح طلبات الشراء والصفقات" : "Open Purchase Requests" }));
+    const filter = await screen.findByRole("combobox", { name: locale === "ar" ? "تصفية الصفقات حسب الحالة" : "Filter trades by status" });
+    fireEvent.change(filter, { target: { value: "active" } });
+    expect(within(screen.getByRole("table")).getAllByRole("button")).toHaveLength(5);
+    fireEvent.change(filter, { target: { value: "completed" } });
+    expect(within(screen.getByRole("table")).getAllByRole("button")).toHaveLength(3);
+  });
+
   it.each(["en", "ar"] as const)("shows a clear empty active list (%s)", async (locale) => {
     navigationState.search = "section=purchase-requests&status=active";
     render(<AlphaExchangeAdminDashboard isOwner locale={locale} />);

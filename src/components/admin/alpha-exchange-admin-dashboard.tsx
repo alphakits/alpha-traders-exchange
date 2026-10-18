@@ -27,7 +27,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { createExchangeDisplayLookup, replaceExchangeEntityIds } from "@/lib/alpha-exchange-display";
 import { parseAdminDashboardDestination, type AdminDashboardSection } from "@/lib/action-destinations";
-import { isActiveOwnerTrade } from "@/lib/owner-active-trades";
+import { isActiveOwnerTrade, isCompletedOwnerTrade } from "@/lib/owner-active-trades";
 import { formatCommissionId, formatListingId, formatRequestId, formatTradeId } from "@/lib/format-id";
 import { RoleBadge } from "@/components/ui/role-badge";
 import { SELLER_LEVELS, normalizeSellerLevel, type AlphaExchangeActivityLogEntry, type AlphaExchangeNotification, type AuditLogEntry, type BetaAnnouncement, type BetaAnnouncementType, type BetaFeedbackCategory, type CommissionRecord, type MarketplaceEnforcementRecord, type MarketplaceListing, type OwnerBusinessDashboardMetrics, type OwnerPrivateBetaDashboardData, type PurchaseRequest, type SellerApplication, type SellerAvailabilityStatus, type SellerLevel, type SellerReviewRecord, type SmsDeliveryRecord, type SupportedNetwork, type TradeDisputeCase } from "@/types/alpha-exchange";
@@ -969,7 +969,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
       if (requestsStatus === "active") {
         if (!isActiveOwnerTrade(request)) return false;
       } else if (requestsStatus === "completed") {
-        if (!["completed", "review_open", "locked"].includes(request.status) && !request.completedAt) return false;
+        if (!isCompletedOwnerTrade(request)) return false;
       } else if (requestsStatus !== "all" && request.status !== requestsStatus) return false;
       const query = requestsQuery.trim().toLowerCase();
       if (!query) return true;
@@ -3743,8 +3743,8 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                         </CardHeader>
                         <CardContent className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                           {[
-                            { label: t("Active Trades", "الصفقات النشطة"), value: (data.purchaseRequests ?? []).filter((r) => r.status !== "completed" && r.status !== "cancelled" && r.status !== "declined").length },
-                            { label: t("Completed Trades", "الصفقات المكتملة"), value: (data.purchaseRequests ?? []).filter((r) => r.status === "completed").length },
+                            { label: t("Active Trades", "الصفقات النشطة"), value: (data.purchaseRequests ?? []).filter(isActiveOwnerTrade).length },
+                            { label: t("Completed Trades", "الصفقات المكتملة"), value: (data.purchaseRequests ?? []).filter(isCompletedOwnerTrade).length },
                             { label: t("Open Listings", "العروض المفتوحة"), value: (data.listings ?? []).filter((l) => l.status === "active").length },
                             { label: t("Estimated Commission Today", "العمولة المقدرة لليوم"), value: formatUsdt(data.ownerBusiness.today.estimatedCommission) },
                             { label: t("Estimated Commission This Week", "العمولة المقدرة لهذا الأسبوع"), value: formatUsdt(data.ownerBusiness.financialOverview.estimatedCommissionThisWeek) },
