@@ -80,6 +80,43 @@ describe("action result navigation", () => {
     expect(document.activeElement).toBe(screen.getByRole("alert"));
   });
 
+  it("keeps the editor focused when the user returns before queued feedback is revealed", () => {
+    render(<form aria-label="Chat" onSubmit={(event) => event.preventDefault()}>
+      <textarea aria-label="Message" />
+      <ActionFeedback role="alert">Keep contact details private.</ActionFeedback>
+    </form>);
+    const draft = screen.getByRole("textbox");
+    draft.focus();
+    flush();
+    expect(document.activeElement).toBe(draft);
+    expect(scroll).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert").textContent).toContain("Keep contact details private.");
+
+    // A subsequent explicit submission must still reveal the unchanged error.
+    fireEvent.submit(screen.getByRole("form"));
+    flush();
+    expect(document.activeElement).toBe(screen.getByRole("alert"));
+    expect(scroll).toHaveBeenCalledOnce();
+  });
+
+  it.each(["keydown", "beforeinput", "pointerdown", "wheel", "touchstart"])(
+    "cancels queued feedback when a new %s interaction starts",
+    (eventName) => {
+      const view = render(<><textarea aria-label="Message" /><ActionFeedback>{""}</ActionFeedback></>);
+      const draft = screen.getByRole("textbox");
+      draft.focus();
+      view.rerender(<><textarea aria-label="Message" /><ActionFeedback>Unable to send.</ActionFeedback></>);
+      fireEvent(draft, new Event(eventName, { bubbles: true }));
+      flush();
+      expect(document.activeElement).toBe(draft);
+      expect(scroll).not.toHaveBeenCalled();
+      // Background rerenders cannot revive the cancelled result navigation.
+      view.rerender(<><textarea aria-label="Message" /><ActionFeedback>Unable to send.</ActionFeedback></>);
+      flush();
+      expect(scroll).not.toHaveBeenCalled();
+    },
+  );
+
   it("selects one visible copy closest to the user's viewport", () => {
     render(<><ActionFeedback data-top="1800">Listing paused.</ActionFeedback>
       <ActionFeedback data-top="350">Listing paused.</ActionFeedback>

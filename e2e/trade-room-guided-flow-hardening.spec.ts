@@ -973,6 +973,8 @@ test("Trade Room Poke is recipient-only, cooldown-protected, reconnect-safe, and
     });
     const validChatMessage = `Secure in-room message ${randomUUID()}`;
     await buyerChatDraft.fill(validChatMessage);
+    await expect(buyerChatDraft).toBeFocused();
+    await expect(buyerChatDraft).toHaveValue(validChatMessage);
     await expect(inlineChatError).toBeHidden();
     await buyerChatForm.getByRole("button", { name: "Send Message" }).click();
     await expect(buyerPage.getByText(validChatMessage, { exact: true })).toBeVisible({ timeout: 20_000 });

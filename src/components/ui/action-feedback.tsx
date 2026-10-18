@@ -20,6 +20,18 @@ export function useActionFeedbackState<T>(initialValue: T) {
 
 const pendingFeedback = new Set<HTMLElement>();
 let pendingFrame: number | null = null;
+const feedbackInteractionEvents = ["focusin", "pointerdown", "keydown", "beforeinput", "wheel", "touchstart"] as const;
+
+function removeFeedbackInteractionListeners() {
+  for (const event of feedbackInteractionEvents) window.removeEventListener(event, cancelPendingFeedback, true);
+}
+
+function cancelPendingFeedback() {
+  if (pendingFrame !== null) window.cancelAnimationFrame(pendingFrame);
+  pendingFrame = null;
+  pendingFeedback.clear();
+  removeFeedbackInteractionListeners();
+}
 
 function isVisible(element: HTMLElement) {
   if (!element.isConnected) return false;
@@ -35,6 +47,7 @@ function activeDialog() {
 
 function flushFeedback() {
   pendingFrame = null;
+  removeFeedbackInteractionListeners();
   const candidates = [...pendingFeedback].filter((element) => isVisible(element) && element.textContent?.trim());
   pendingFeedback.clear();
   // A result behind a modal must never pull the page or focus out of that modal.
@@ -63,7 +76,14 @@ function flushFeedback() {
 
 function revealFeedback(element: HTMLElement) {
   pendingFeedback.add(element);
-  if (pendingFrame === null) pendingFrame = window.requestAnimationFrame(flushFeedback);
+  if (pendingFrame === null) {
+    // A delayed result must yield if the user has already resumed editing or
+    // navigation. Otherwise its focus can interrupt the next input event.
+    for (const event of feedbackInteractionEvents) {
+      window.addEventListener(event, cancelPendingFeedback, { capture: true, passive: true });
+    }
+    pendingFrame = window.requestAnimationFrame(flushFeedback);
+  }
 }
 
 type ActionFeedbackProps = HTMLAttributes<HTMLElement> & {
@@ -121,8 +141,7 @@ export function ActionFeedback({
       scope?.removeEventListener("click", repeatSubmission, true);
       pendingFeedback.delete(element);
       if (!pendingFeedback.size && pendingFrame !== null) {
-        window.cancelAnimationFrame(pendingFrame);
-        pendingFrame = null;
+        cancelPendingFeedback();
       }
     };
   }, [autoReveal, role, portalHost]);
