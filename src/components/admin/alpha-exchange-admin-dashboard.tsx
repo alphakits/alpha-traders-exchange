@@ -1875,11 +1875,11 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                           </CardHeader>
                           <CardContent className="grid gap-3 text-sm text-[#D1D5DB] md:grid-cols-2 xl:grid-cols-3">
                             <p>{t("Trade Volume:", "حجم التداول:")} <span className="text-white">{currencyText(formatUsdt(data.ownerBusiness.thisWeek.tradeVolumeUsdt))}</span></p>
-                            <p>{t("Revenue:", "الإيرادات:")} <span className="text-white">{currencyText(formatUsdt(data.ownerBusiness.thisWeek.revenue))}</span></p>
+                            <p>{t("Estimated Commission:", "العمولة التقديرية:")} <span className="text-white">{currencyText(formatUsdt(data.ownerBusiness.thisWeek.revenue))}</span></p>
                             <p>{t("Top Seller:", "أفضل بائع:")} <span className="text-white">{currencyText(data.ownerBusiness.thisWeek.topSeller)}</span></p>
                             <p>{t("Fastest Growing Seller:", "الأسرع نموًا:")} <span className="text-white">{currencyText(data.ownerBusiness.thisWeek.fastestGrowingSeller)}</span></p>
                             <p>{t("Highest Trust Score Increase:", "أكبر ارتفاع في الثقة:")} <span className="text-white">{currencyText(data.ownerBusiness.thisWeek.highestTrustScoreIncrease)}</span></p>
-                            <p>{t("Avg Response Time:", "متوسط وقت الرد:")} <span className="text-white">{data.ownerBusiness.thisWeek.averageResponseTimeMinutes.toFixed(2)} {t("min", "دقيقة")}</span></p>
+                            <p>{t("Recorded Response Time (all time):", "وقت الاستجابة المسجل (كل الفترات):")} <span className="text-white">{data.ownerBusiness.thisWeek.averageResponseTimeMinutes.toFixed(2)} {t("min", "دقيقة")}</span></p>
                             <p>{t("Avg Completion Time:", "متوسط وقت الإكمال:")} <span className="text-white">{data.ownerBusiness.thisWeek.averageTradeCompletionTimeMinutes.toFixed(2)} {t("min", "دقيقة")}</span></p>
                             <p>{t("Avg Buyer Rating:", "متوسط تقييم المشتري:")} <span className="text-white">{data.ownerBusiness.thisWeek.averageBuyerRating.toFixed(2)}</span></p>
                             <p>{t("Repeat Buyers:", "المشترون المتكررون:")} <span className="text-white">{currencyText(formatPercent(data.ownerBusiness.thisWeek.repeatBuyersPercent))}</span></p>

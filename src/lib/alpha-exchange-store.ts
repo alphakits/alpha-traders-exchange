@@ -17470,10 +17470,11 @@ export async function getOwnerPrivateBetaDashboardData(dbInput?: AlphaExchangeDb
 
 export async function getOwnerBusinessDashboardForAdmin(dbInput?: AlphaExchangeDb): Promise<OwnerBusinessDashboardMetrics> {
   const db = dbInput ?? await readDb();
-  const trustInitialized = await ensureTrustSnapshots(db);
-  if (trustInitialized && !dbInput) {
-    await writeDb(db, { selectedTables: TRUST_INIT_TABLES });
-  }
+  // Use the same current facts as the public profiles and Trust Engine panel.
+  // A business-report read must not revive stale estimates or write trust state.
+  const trustSnapshots = [...computeTrustSnapshotMap(db).values()];
+  const currentSellerIds = new Set(trustSnapshots.map(snapshot => snapshot.sellerId));
+  const responseFacts = measureSellerActivity(db.purchaseRequests.filter(request => currentSellerIds.has(request.sellerId)));
 
   const now = new Date();
   const nowMs = now.getTime();
@@ -17588,8 +17589,7 @@ export async function getOwnerBusinessDashboardForAdmin(dbInput?: AlphaExchangeD
       .map((request) => request.buyerId),
   );
 
-  const leaderboard = [...db.trustSnapshots]
-    .map((entry) => entry.snapshot)
+  const leaderboard = [...trustSnapshots]
     .sort((left, right) => {
       if (right.trustScore !== left.trustScore) return right.trustScore - left.trustScore;
       if (right.totalUsdtVolume !== left.totalUsdtVolume) return right.totalUsdtVolume - left.totalUsdtVolume;
@@ -17608,9 +17608,11 @@ export async function getOwnerBusinessDashboardForAdmin(dbInput?: AlphaExchangeD
       responseTimeMinutes: Number(snapshot.responseTimeMinutes.toFixed(2)),
     }));
 
-  const todayCommission = sumCommissionAmounts(db.commissionRecords.filter((record) => isToday(record.createdAt)).map(record => record.commissionAmount));
-  const weekCommission = sumCommissionAmounts(db.commissionRecords.filter((record) => isThisWeek(record.createdAt)).map(record => record.commissionAmount));
-  const monthCommission = sumCommissionAmounts(db.commissionRecords.filter((record) => isThisMonth(record.createdAt)).map(record => record.commissionAmount));
+  // A carried shortfall is part of an existing fee, never newly generated revenue.
+  const generatedCommissions = db.commissionRecords.filter(record => record.source !== "tolerance_carry_forward");
+  const todayCommission = sumCommissionAmounts(generatedCommissions.filter((record) => isToday(record.createdAt)).map(record => record.commissionAmount));
+  const weekCommission = sumCommissionAmounts(generatedCommissions.filter((record) => isThisWeek(record.createdAt)).map(record => record.commissionAmount));
+  const monthCommission = sumCommissionAmounts(generatedCommissions.filter((record) => isThisMonth(record.createdAt)).map(record => record.commissionAmount));
 
   const liveActivity = [
     ...db.sellerApplications
@@ -17664,8 +17666,8 @@ export async function getOwnerBusinessDashboardForAdmin(dbInput?: AlphaExchangeD
   const completionRatePercent = totalRequests ? (completedRequests.length / totalRequests) * 100 : 0;
   const cancellationRatePercent = totalRequests ? (db.purchaseRequests.filter((request) => request.status === "cancelled").length / totalRequests) * 100 : 0;
   const disputeRatePercent = totalRequests ? (db.disputes.length / totalRequests) * 100 : 0;
-  const averageTrustScore = db.trustSnapshots.length
-    ? db.trustSnapshots.reduce((sum, entry) => sum + entry.snapshot.trustScore, 0) / db.trustSnapshots.length
+  const averageTrustScore = trustSnapshots.length
+    ? trustSnapshots.reduce((sum, snapshot) => sum + snapshot.trustScore, 0) / trustSnapshots.length
     : 0;
 
   return {
@@ -17698,7 +17700,7 @@ export async function getOwnerBusinessDashboardForAdmin(dbInput?: AlphaExchangeD
           ? `${sellerName(highestTrustIncreaseEvent.sellerId)} (+${(highestTrustIncreaseEvent.newScore - highestTrustIncreaseEvent.oldScore).toFixed(1)})`
           : "No trust changes yet",
       averageResponseTimeMinutes: Number(
-        (db.trustSnapshots.length ? db.trustSnapshots.reduce((sum, entry) => sum + entry.snapshot.responseTimeMinutes, 0) / db.trustSnapshots.length : 0).toFixed(2),
+        responseFacts.responseTimeMinutes.toFixed(2),
       ),
       averageTradeCompletionTimeMinutes: Number(
         (tradeCompletionMinutes.length ? tradeCompletionMinutes.reduce((sum, value) => sum + value, 0) / tradeCompletionMinutes.length : 0).toFixed(2),
