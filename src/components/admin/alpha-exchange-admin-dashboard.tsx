@@ -1,4 +1,5 @@
 "use client";
+import { csvRow } from "@/lib/csv";
 import { OwnerAttentionQueue } from "@/components/admin/owner-attention-queue";
 
 import { currencyText, moneyText } from "@/components/ui/currency-text";
@@ -1580,7 +1581,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
   function exportCommissionsCsv() {
     const rows = commissionsRows.rows;
     const csvRows = [
-      ["Source", "Trade ID", "Buyer", "Seller", "Trade Value", "Commission", "Payment Status", "Reason", "Date"].join(","),
+      csvRow(["Source", "Trade ID", "Buyer", "Seller", "Trade Value", "Commission", "Payment Status", "Reason", "Date"]),
       ...rows.map((record) => {
         const request = record.purchaseRequestId ? requestsById.get(record.purchaseRequestId) : undefined;
         const buyerName = request?.buyerName ?? record.buyerId ?? "";
@@ -1590,8 +1591,8 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
           : "";
         const source = record.source === "tolerance_carry_forward" ? "Carried balance" : record.source === "admin_manual" ? "Admin-issued" : "Trade";
         const tradeValue = record.source === "admin_manual" || record.source === "tolerance_carry_forward" ? "" : record.grossAmount.toFixed(2);
-        const reason = `"${String(record.issueReason ?? "").replace(/"/g, '""')}"`;
-        return [source, tradeId, buyerName, sellerName, tradeValue, commissionAmountInput(record.commissionAmount), record.paymentStatus, reason, record.createdAt].join(",");
+        const reason = record.issueReason ?? "";
+        return csvRow([source, tradeId, buyerName, sellerName, tradeValue, commissionAmountInput(record.commissionAmount), record.paymentStatus, reason, record.createdAt]);
       }),
     ];
     const blob = new Blob([csvRows.join("\n")], { type: "text/csv;charset=utf-8;" });
@@ -1606,9 +1607,9 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
   function exportTradesCsv() {
     const rows = requestsRows.rows;
     const csvRows = [
-      ["Trade ID", "Request ID", "Buyer", "Seller", "USDT Amount", "Fiat Amount", "Currency", "Network", "Payment Method", "Bank", "Status", "Submitted", "Completed"].join(","),
+      csvRow(["Trade ID", "Request ID", "Buyer", "Seller", "USDT Amount", "Fiat Amount", "Currency", "Network", "Payment Method", "Bank", "Status", "Submitted", "Completed"]),
       ...rows.map((request) => {
-        return [
+        return csvRow([
           displayTradeId(request),
           displayRequestId(request),
           request.buyerName,
@@ -1617,12 +1618,12 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
           request.fiatAmount,
           request.currency,
           request.network,
-          `"${request.paymentMethod.replace(/"/g, '""')}"`,
-          `"${(request.bankName ?? "").replace(/"/g, '""')}"`,
+          request.paymentMethod,
+          request.bankName ?? "",
           request.status,
           request.createdAt,
           request.completedAt ?? "",
-        ].join(",");
+        ]);
       }),
     ];
     const blob = new Blob([csvRows.join("\n")], { type: "text/csv;charset=utf-8;" });
