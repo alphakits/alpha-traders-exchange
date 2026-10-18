@@ -100,7 +100,7 @@ Required variables are documented in `.env.example`. The safe activation
 order after written approval is:
 
 1. Apply
-   `supabase/migrations/20260912023000_alpha_exchange_whatsapp_notifications.sql`
+   `supabase/optional-migrations/20260912023000_alpha_exchange_whatsapp_notifications.sql`
    to the production database before deploying or enabling either feature
    switch. The application does not create these tables at runtime.
 2. Add all `META_WHATSAPP_*` credentials and the approval reference.

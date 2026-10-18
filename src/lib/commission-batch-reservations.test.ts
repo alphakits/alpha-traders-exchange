@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { PGlite } from "@electric-sql/pglite";
 let db: PGlite;
-const migration = readFileSync(new URL("../../db/migrations/20260925_commission_batch_receipt_reservations.sql", import.meta.url), "utf8");
+const migration = readFileSync(new URL("../../supabase/migrations/20260925154330_commission_batch_receipt_reservations.sql", import.meta.url), "utf8");
 const signature = "a".repeat(64);
 const approval = { kind: "commission_batch_receipt_approval_v1", batch: { id: "batch-test", kind: "owner_confirmed_receipt",
   sellerId: "seller", commissionIds: ["cm42", "cm43"], signature: `0x${signature.toUpperCase()}`, network: "BEP20", approvedByUserId: "owner" } };

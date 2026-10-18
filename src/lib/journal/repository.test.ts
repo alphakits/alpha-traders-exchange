@@ -13,7 +13,7 @@ import { POST } from "@/app/api/journal/trades/route";
 const base:JournalTrade={id:"10000000-0000-4000-8000-000000000001",version:0,date:"2026-10-08",time:"09:30",symbol:"NQ",direction:"long",status:"closed",grossPnlCents:20000,feesCents:400,riskCents:10000,quantity:1,entry:null,exit:null,stop:null,target:null,strategy:"FVG",session:"new_york",emotion:"calm",followedPlan:true,mistakes:[],notes:"Private Alice note"};
 beforeAll(async()=>{
   state.db=new PGlite();await state.db.exec(`create role anon;create role authenticated;create schema alpha_exchange;create table alpha_exchange.users(id text primary key);insert into alpha_exchange.users values('alice'),('bob');create schema storage;create table storage.buckets(id text primary key,name text,public boolean,file_size_limit bigint,allowed_mime_types text[]);`);
-  await state.db.exec(await readFile("supabase/migrations/20261008200530_private_trading_journal.sql","utf8"));
+  await state.db.exec(await readFile("supabase/migrations/20261009004039_private_trading_journal.sql","utf8"));
   await state.db.exec(await readFile("supabase/migrations/20261017143401_journal_owner_statement_context.sql","utf8"));
   vi.stubEnv("ALPHA_JOURNAL_ENABLED","1");
 });

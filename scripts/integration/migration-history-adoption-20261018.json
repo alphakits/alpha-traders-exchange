@@ -1,0 +1,378 @@
+{
+  "schemaFingerprint": "92457b4d68824f657a9ecd284b2389d3",
+  "existing": [
+    {
+      "version": "20260728000000",
+      "name": "contact_submissions",
+      "statementsMd5": "347da376a251f205fde6f2a5ec3e6d44",
+      "recoveryVersion": "20260728000000"
+    },
+    {
+      "version": "20260809070000",
+      "name": "discord_onboarding_ux",
+      "statementsMd5": "132d0ab3aa9a1019017eeeed01882fe4",
+      "recoveryVersion": "20260809070000"
+    },
+    {
+      "version": "20260925154330",
+      "name": "commission_batch_receipt_reservations",
+      "statementsMd5": "54f7b63da6c319467d0c1beb21b7c05a",
+      "recoveryVersion": "20260925154330"
+    },
+    {
+      "version": "20260925163055",
+      "name": "commission_self_service_checkout",
+      "statementsMd5": "bea2c7ee70ed287ba09451ca2ef34354",
+      "recoveryVersion": "20260925163055"
+    },
+    {
+      "version": "20260927004759",
+      "name": "learning_campaign_attribution",
+      "statementsMd5": "829210356d665f67c20428b22046c150",
+      "recoveryVersion": "20260927004759"
+    },
+    {
+      "version": "20260928204816",
+      "name": "owner_analytics_fresh_start",
+      "statementsMd5": "186b06a029781b25a295b1aa03275b17",
+      "recoveryVersion": "20260928204816"
+    },
+    {
+      "version": "20260928233913",
+      "name": "pin_private_function_search_paths",
+      "statementsMd5": "db5337b098b369685f81166d86ba9c02",
+      "recoveryVersion": "20260928233913"
+    },
+    {
+      "version": "20261003200429",
+      "name": "commission_checkout_rounded_receipts",
+      "statementsMd5": "88dfd260a41706c75df9339c7be84fe8",
+      "recoveryVersion": "20261003200429"
+    },
+    {
+      "version": "20261004101724",
+      "name": "unique_exchange_phone_ownership",
+      "statementsMd5": "ff165a5cf72a8d6c16cc86aebdc8dcef",
+      "recoveryVersion": "20261004101724"
+    },
+    {
+      "version": "20261004220600",
+      "name": "commission_checkout_bidirectional_tolerance",
+      "statementsMd5": "e39cf01573d329464d76f3ad026048ab",
+      "recoveryVersion": "20261004220600"
+    },
+    {
+      "version": "20261006212854",
+      "name": "commission_checkout_active_payment_attribution",
+      "statementsMd5": "8378ee83410dd8514111c423547a3843",
+      "recoveryVersion": "20261006212854"
+    },
+    {
+      "version": "20261009004039",
+      "name": "private_trading_journal",
+      "statementsMd5": "cff9740e7fa1e7f18fbb49ea0f574b0b",
+      "recoveryVersion": "20261009004039"
+    },
+    {
+      "version": "20261011145639",
+      "name": "commission_checkout_collision_tolerance",
+      "statementsMd5": "1d5909972b6324e0bc7ebccf64b89d17",
+      "recoveryVersion": "20261011145639"
+    },
+    {
+      "version": "20261011205852",
+      "name": "commission_checkout_repeated_received_amounts",
+      "statementsMd5": "b4f9f96db581d35f8b9d1d80fba48ccb",
+      "recoveryVersion": "20261011205852"
+    },
+    {
+      "version": "20261016130658",
+      "name": "commission_two_usdt_closed_rounded_references",
+      "statementsMd5": "50193d4ddc5d4b626db651e23f45d54f",
+      "recoveryVersion": "20261016130658"
+    },
+    {
+      "version": "20261017143401",
+      "name": "journal_owner_statement_context",
+      "statementsMd5": "7620ad82cb11196982b2f6a958b9eb18",
+      "recoveryVersion": "20261018013446"
+    },
+    {
+      "version": "20261017211725",
+      "name": "commission_same_seller_closed_references",
+      "statementsMd5": "ce98adcccb58f29198b85caeb8c495e6",
+      "recoveryVersion": "20261018013456"
+    },
+    {
+      "version": "20261017212857",
+      "name": "commission_deposit_scan_progress",
+      "statementsMd5": "5b3d311e7abd0deee24bbf8caf908afc",
+      "recoveryVersion": "20261018013501"
+    },
+    {
+      "version": "20261017214355",
+      "name": "announcement_request_key_required",
+      "statementsMd5": "0e2760f866499e0b410b7469b8198a88",
+      "recoveryVersion": "20261018013505"
+    }
+  ],
+  "adopt": [
+    "20260720160000",
+    "20260720193000",
+    "20260807000000",
+    "20260807190000",
+    "20260807210000",
+    "20260808030000",
+    "20260808070000",
+    "20260808100000",
+    "20260808140000",
+    "20260808170000",
+    "20260827090000",
+    "20260905223000",
+    "20260906010000",
+    "20260907231500",
+    "20260911113000",
+    "20260912010000",
+    "20260924120000",
+    "20260925033000",
+    "20261017003000",
+    "20261017010000"
+  ],
+  "files": [
+    {
+      "file": "supabase/migrations/20260720160000_alpha_exchange_runtime.sql",
+      "version": "20260720160000",
+      "name": "alpha_exchange_runtime",
+      "sha256": "81dc42dc7abd16258ab99247cddf78513cf822704719671b6f08c773d48bb576"
+    },
+    {
+      "file": "supabase/migrations/20260720193000_admin_cms_storage.sql",
+      "version": "20260720193000",
+      "name": "admin_cms_storage",
+      "sha256": "ac8f07010241f0e2ae138c6c040e98480598af17afd674d729ff93573deeedcd"
+    },
+    {
+      "file": "supabase/migrations/20260728000000_contact_submissions.sql",
+      "version": "20260728000000",
+      "name": "contact_submissions",
+      "sha256": "eb1d990fdc2397a8c657fa8aaf59f5a05a64fc6fcc817f8b8cd37ab46059dc34"
+    },
+    {
+      "file": "supabase/migrations/20260807000000_discord_identity_sync.sql",
+      "version": "20260807000000",
+      "name": "discord_identity_sync",
+      "sha256": "dc3c4ae6eec2746ad409f83797a9ba6c52cb5ce51ef0ce0c2e07c0c2491d7f7e"
+    },
+    {
+      "file": "supabase/migrations/20260807190000_discord_seller_resources.sql",
+      "version": "20260807190000",
+      "name": "discord_seller_resources",
+      "sha256": "61861049ebab096642b786039b9fe1b4b2dae719888e77907fecc129c416c79a"
+    },
+    {
+      "file": "supabase/migrations/20260807210000_discord_resource_reconciliation_lease.sql",
+      "version": "20260807210000",
+      "name": "discord_resource_reconciliation_lease",
+      "sha256": "dc57ccf41e1f0abc97a1cbedd5bb645b66ae24bcc9e5dfe384e61bed22f77cad"
+    },
+    {
+      "file": "supabase/migrations/20260808030000_discord_listing_sharing.sql",
+      "version": "20260808030000",
+      "name": "discord_listing_sharing",
+      "sha256": "c33439f557e07c40c18a41088b8b8faa7bcc949c60a83cc8b570c3d94532de9f"
+    },
+    {
+      "file": "supabase/migrations/20260808070000_discord_channel_topology.sql",
+      "version": "20260808070000",
+      "name": "discord_channel_topology",
+      "sha256": "392bf5aa369b8ff2b72ed63fce0365d9253ebbff4259a98f3a9b5a91f5a15142"
+    },
+    {
+      "file": "supabase/migrations/20260808100000_discord_market_intelligence.sql",
+      "version": "20260808100000",
+      "name": "discord_market_intelligence",
+      "sha256": "4e3de3a020567cff6e864a6e9bc0465751a7df0f2259f2a4c70b997b2a72c061"
+    },
+    {
+      "file": "supabase/migrations/20260808140000_discord_community_interactions.sql",
+      "version": "20260808140000",
+      "name": "discord_community_interactions",
+      "sha256": "c6e8212791955cc13819305ff25d99e2e36169d5edb77608688a66788a5912d4"
+    },
+    {
+      "file": "supabase/migrations/20260808170000_discord_management_dashboard.sql",
+      "version": "20260808170000",
+      "name": "discord_management_dashboard",
+      "sha256": "91301130d37bff7b977e70bb00bed78d068b56703f1d9414ed52bcd4fe648b4d"
+    },
+    {
+      "file": "supabase/migrations/20260809070000_discord_onboarding_ux.sql",
+      "version": "20260809070000",
+      "name": "discord_onboarding_ux",
+      "sha256": "787cd72db5495a9a03bab8e9ebb0cee14c20103a0be7971488f14939efc0b2ad"
+    },
+    {
+      "file": "supabase/migrations/20260827090000_alpha_exchange_preferred_locale.sql",
+      "version": "20260827090000",
+      "name": "alpha_exchange_preferred_locale",
+      "sha256": "d5211de624da5fc27ef9a59ea19a4500783c5233692a816009f1e97e31ab261c"
+    },
+    {
+      "file": "supabase/migrations/20260905223000_alpha_exchange_runtime_schema_parity.sql",
+      "version": "20260905223000",
+      "name": "alpha_exchange_runtime_schema_parity",
+      "sha256": "8c3c3e0ef6c65f85df4e4c5619b5770c3d294de619518cd1702ca7b0138ed0c0"
+    },
+    {
+      "file": "supabase/migrations/20260906010000_alpha_exchange_mobile_device_sessions.sql",
+      "version": "20260906010000",
+      "name": "alpha_exchange_mobile_device_sessions",
+      "sha256": "e7c3872a4369e0abaa5252bdbd8586393dfcc41ca665ae30fafca6f3d6bbb3b0"
+    },
+    {
+      "file": "supabase/migrations/20260907231500_alpha_exchange_mobile_push.sql",
+      "version": "20260907231500",
+      "name": "alpha_exchange_mobile_push",
+      "sha256": "c1113e7fbc069dd6a18a2039a9a3d2c90666601d9d4b09bc4cc4ce7a0808f282"
+    },
+    {
+      "file": "supabase/migrations/20260911113000_reconcile_resurrected_owner_trust_notifications.sql",
+      "version": "20260911113000",
+      "name": "reconcile_resurrected_owner_trust_notifications",
+      "sha256": "ee0df176dec6aee0bb51fe1f482383370602bdcb5a22b80fa4a3485b89290772"
+    },
+    {
+      "file": "supabase/migrations/20260912010000_manual_seller_commissions.sql",
+      "version": "20260912010000",
+      "name": "manual_seller_commissions",
+      "sha256": "090b7bdd113110df2352e0a9c6bb8ee98bbdd3fde4ab2322226045c8395a5979"
+    },
+    {
+      "file": "supabase/migrations/20260924120000_live_user_presence.sql",
+      "version": "20260924120000",
+      "name": "live_user_presence",
+      "sha256": "1278ca746527ce89ad3fa7fb3b080e83dbe3d808fd9a6cc23c67f98342cd5fe0"
+    },
+    {
+      "file": "supabase/migrations/20260925033000_owner_traffic_analytics.sql",
+      "version": "20260925033000",
+      "name": "owner_traffic_analytics",
+      "sha256": "0a0bf27fe9b238f8bb627a7136bef6d6322d2c25053abde85de13f0436240eb4"
+    },
+    {
+      "file": "supabase/migrations/20260925154330_commission_batch_receipt_reservations.sql",
+      "version": "20260925154330",
+      "name": "commission_batch_receipt_reservations",
+      "sha256": "fe069743258e37223397699b47cf3fb874a896b988311492821c6e75ea4305c4"
+    },
+    {
+      "file": "supabase/migrations/20260925163055_commission_self_service_checkout.sql",
+      "version": "20260925163055",
+      "name": "commission_self_service_checkout",
+      "sha256": "4c4c58610ce0b664c335985d1914de3003dbd05de01f814ea9942ae5d8193ca3"
+    },
+    {
+      "file": "supabase/migrations/20260927004759_learning_campaign_attribution.sql",
+      "version": "20260927004759",
+      "name": "learning_campaign_attribution",
+      "sha256": "51ae7d6cec6a7bfaffc4c6888e91520c4f5c3d1a7bfcc139ceab59dd5410eb8b"
+    },
+    {
+      "file": "supabase/migrations/20260928204816_owner_analytics_fresh_start.sql",
+      "version": "20260928204816",
+      "name": "owner_analytics_fresh_start",
+      "sha256": "0dfc39d8a5cbf2420a657de38f7cb31c70b9449aa8bf6950c3162b92799ca105"
+    },
+    {
+      "file": "supabase/migrations/20260928233913_pin_private_function_search_paths.sql",
+      "version": "20260928233913",
+      "name": "pin_private_function_search_paths",
+      "sha256": "c7dbf0039a0b2ffc467928d792f58732c87b6da12a18003ae3d4e612709075c5"
+    },
+    {
+      "file": "supabase/migrations/20261003200429_commission_checkout_rounded_receipts.sql",
+      "version": "20261003200429",
+      "name": "commission_checkout_rounded_receipts",
+      "sha256": "362648f20e43927e56a35d6558cb26fe38c557361f8ff6afcee7198e3ef5ecdd"
+    },
+    {
+      "file": "supabase/migrations/20261004101724_unique_exchange_phone_ownership.sql",
+      "version": "20261004101724",
+      "name": "unique_exchange_phone_ownership",
+      "sha256": "4b9b91b29b8a409d68fe4ee33d5413e11ab7ac38f1aaeddb86a36fb483751a04"
+    },
+    {
+      "file": "supabase/migrations/20261004220600_commission_checkout_bidirectional_tolerance.sql",
+      "version": "20261004220600",
+      "name": "commission_checkout_bidirectional_tolerance",
+      "sha256": "82b70fe4f138da3fe9739659ccdf0faaa8bbbb615cc38f963265717eda987ca9"
+    },
+    {
+      "file": "supabase/migrations/20261006212854_commission_checkout_active_payment_attribution.sql",
+      "version": "20261006212854",
+      "name": "commission_checkout_active_payment_attribution",
+      "sha256": "b70b703066f85d03776953852d00f7d7447a0bcea8160cbe11dea83bf5b88259"
+    },
+    {
+      "file": "supabase/migrations/20261009004039_private_trading_journal.sql",
+      "version": "20261009004039",
+      "name": "private_trading_journal",
+      "sha256": "ec16057a0babfcb4b0f0f9e32e65e976a911e8684b5f85717992120c433537b1"
+    },
+    {
+      "file": "supabase/migrations/20261011145639_commission_checkout_collision_tolerance.sql",
+      "version": "20261011145639",
+      "name": "commission_checkout_collision_tolerance",
+      "sha256": "a491c76b5756996be8a4cbdf3e62998f2dd80b568fe32c8784b34b05c7ab6049"
+    },
+    {
+      "file": "supabase/migrations/20261011205852_commission_checkout_repeated_received_amounts.sql",
+      "version": "20261011205852",
+      "name": "commission_checkout_repeated_received_amounts",
+      "sha256": "980cf0d98fd05a97c1fa0985898e54b0ed90784ee8be5881f6d12bce7b2f5518"
+    },
+    {
+      "file": "supabase/migrations/20261016130658_commission_two_usdt_closed_rounded_references.sql",
+      "version": "20261016130658",
+      "name": "commission_two_usdt_closed_rounded_references",
+      "sha256": "c072c71f53f4e31436c21e802a6b20330c1406c3c6690be69b5280d626582443"
+    },
+    {
+      "file": "supabase/migrations/20261017003000_runtime_table_baseline.sql",
+      "version": "20261017003000",
+      "name": "runtime_table_baseline",
+      "sha256": "0e8b6c4875b8e12e034586fcf02f5a1e48772ed0b29358355fef2ec9bb3fcea5"
+    },
+    {
+      "file": "supabase/migrations/20261017010000_persist_deployed_row_security.sql",
+      "version": "20261017010000",
+      "name": "persist_deployed_row_security",
+      "sha256": "0891de84391166b13773b2a0433c9a5aa061593ca087aad8263d5feeedd094c2"
+    },
+    {
+      "file": "supabase/migrations/20261017143401_journal_owner_statement_context.sql",
+      "version": "20261017143401",
+      "name": "journal_owner_statement_context",
+      "sha256": "65e73168b3a254b58ac0866172edfed7639dff79aa3c2bb51a641486d0ac2c8e"
+    },
+    {
+      "file": "supabase/migrations/20261017211725_commission_same_seller_closed_references.sql",
+      "version": "20261017211725",
+      "name": "commission_same_seller_closed_references",
+      "sha256": "2dee0e3009b269d0687aba4f800996cdb41d92b4f3b00c14899b84b340e050e2"
+    },
+    {
+      "file": "supabase/migrations/20261017212857_commission_deposit_scan_progress.sql",
+      "version": "20261017212857",
+      "name": "commission_deposit_scan_progress",
+      "sha256": "1a5259e37c22a297879e3b3c386ce4474cf867e6eae278eb32b4e58a56cd9680"
+    },
+    {
+      "file": "supabase/migrations/20261017214355_announcement_request_key_required.sql",
+      "version": "20261017214355",
+      "name": "announcement_request_key_required",
+      "sha256": "25b4d3e9328f9a8cfa395326a1991ff7db36cee8dce737fea8ea8832fe73b921"
+    }
+  ],
+  "meaning": "The 20 adoption entries record verified existing schema/data end states on 2026-10-18; their historical SQL is not replayed. Existing 19 production history records remain byte-for-byte unchanged."
+}

@@ -155,7 +155,7 @@ describe("WhatsApp notification delivery policy", () => {
 
   it("keeps durable WhatsApp rows independent from snapshot-table rewrites", () => {
     const migration = readFileSync(
-      "supabase/migrations/20260912023000_alpha_exchange_whatsapp_notifications.sql",
+      "supabase/optional-migrations/20260912023000_alpha_exchange_whatsapp_notifications.sql",
       "utf8",
     );
     expect(migration).toContain("whatsapp_inbound_commands");

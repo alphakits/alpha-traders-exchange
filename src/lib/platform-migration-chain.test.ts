@@ -36,10 +36,11 @@ describe("platform migration reconstruction", () => {
     const db = new PGlite({ extensions: { pgcrypto } });
     try {
       await db.exec("create role anon; create role authenticated; create role service_role; create schema storage; create table storage.buckets(id text primary key,name text,public boolean,file_size_limit bigint,allowed_mime_types text[]);");
-      const files = (await Promise.all(["supabase/migrations", "db/migrations"].map(async directory =>
+      const files = (await Promise.all(["supabase/migrations"].map(async directory =>
         (await readdir(directory)).filter(name => name.endsWith(".sql")).map(name => ({ name, path: `${directory}/${name}` })),
       ))).flat().sort((a, b) => a.name.localeCompare(b.name));
       expect(files.length).toBeGreaterThanOrEqual(35);
+      expect(new Set(files.map(file => file.name.split("_")[0])).size).toBe(files.length);
       for (const file of files) {
         try {
           for (const statement of statements(await readFile(file.path, "utf8"))) {
@@ -52,6 +53,8 @@ describe("platform migration reconstruction", () => {
       expect(tables.rows.map(row => row.table_name)).toEqual(expect.arrayContaining([
         "users", "purchase_requests", "commissions", "journal_trades", "journal_file_cleanup",
       ]));
+      // Opt-in provider tables must not be silently added by the default chain.
+      expect(tables.rows.some(row => row.table_name.startsWith("whatsapp_"))).toBe(false);
       const policies = await db.query("select tablename from pg_policies where schemaname='alpha_exchange' and tablename like 'journal_%'");
       expect(policies.rows).toHaveLength(5);
       // These protections were observed on production but were missing from

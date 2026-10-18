@@ -27,7 +27,7 @@ A release gate was added before the existing Vercel build. It runs the original 
 Before enabling:
 1. Verify the hosted release gates, TypeScript/lint and production build on the exact branch head. Exercise repository-level concurrency and actual web/native status refresh in a safe test environment.
 2. Finish the owner receipt-review UI and independent payer-evidence association flow. The API is not a finished self-service "pay all" interface. Fully automatic rounded internal transfers still need reliable sender binding; unidentified/ambiguous deposits must not be auto-assigned.
-3. Apply and verify `db/migrations/20260925_commission_batch_receipt_reservations.sql` through the authorized migration process, then explicitly enable the environment flag in the intended deployment. Missing guards fail closed.
+3. Apply and verify `supabase/migrations/20260925154330_commission_batch_receipt_reservations.sql` through the authorized migration process, then explicitly enable the environment flag in the intended deployment. Missing guards fail closed.
 4. Verify notification/email wording, actual-received/waiver/excess reporting and the seller's commission restriction disappearing only when no dues remain. Other account restrictions must stay in place.
 5. Confirm a genuine received-and-attributed payment with read-only production evidence. Never fabricate a customer deposit or ask someone to pay twice for testing.
 

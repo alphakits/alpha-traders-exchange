@@ -21,7 +21,7 @@ async function asUser<T>(userId: string, operation: () => Promise<T>) {
 beforeAll(async () => {
   db = new PGlite();
   await db.exec("create role anon; create role authenticated; create schema alpha_exchange; create table alpha_exchange.users(id text primary key); insert into alpha_exchange.users values('alice'),('bob'); create schema storage; create table storage.buckets(id text primary key,name text,public boolean,file_size_limit bigint,allowed_mime_types text[]);");
-  await db.exec(await readFile("supabase/migrations/20261008200530_private_trading_journal.sql", "utf8"));
+  await db.exec(await readFile("supabase/migrations/20261009004039_private_trading_journal.sql", "utf8"));
   await db.exec("insert into alpha_exchange.journal_settings(user_id,payload) values('alice','{\"private\":\"alice\"}'),('bob','{\"private\":\"bob\"}');");
   originalRows = (await db.query("select * from alpha_exchange.journal_settings order by user_id")).rows;
   migration = await readFile("supabase/migrations/20261017143401_journal_owner_statement_context.sql", "utf8");
