@@ -25,7 +25,9 @@ async function verifyDraftProtection(page,locale){
         await page.getByRole('button',{name:t('Weekly review','مراجعة أسبوعية'),exact:true}).click();
         await page.getByLabel(t('Review date','تاريخ المراجعة'),{exact:true}).fill('2026-10-12');
       }
-      const field=page.getByLabel(kind==='rules'?t('My trading plan','خطة التداول الخاصة بي'):t('What I learned','ما تعلمته'),{exact:true});
+      // A wrapped textarea's label text can include its initial saved value.
+      // Use the control's accessible name, which excludes that value.
+      const field=page.getByRole('textbox',{name:kind==='rules'?t('My trading plan','خطة التداول الخاصة بي'):t('What I learned','ما تعلمته'),exact:true});
       const draft=`${locale} ${kind} draft must remain protected`;
       await field.fill(draft);dialogs.length=0;
       await page.getByRole('button',{name:kind==='rules'?rules:review,exact:true}).click();
