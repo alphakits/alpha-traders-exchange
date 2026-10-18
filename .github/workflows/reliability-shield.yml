@@ -60,6 +60,8 @@ jobs:
           docker exec "$POSTGRES_CONTAINER" psql -U postgres -d alpha_exchange_ci -v ON_ERROR_STOP=1 -c "SELECT pg_reload_conf()"
       - name: Exercise real database races and process recovery
         run: node scripts/check-postgres-concurrency.mjs
+      - name: Recover provider history through process crashes and HTTP outages
+        run: node scripts/check-commission-history-recovery.mjs
       - name: Back up and restore controlled database
         env:
           POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
