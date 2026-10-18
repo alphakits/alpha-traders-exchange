@@ -3745,9 +3745,9 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                             { label: t("Active Trades", "الصفقات النشطة"), value: (data.purchaseRequests ?? []).filter((r) => r.status !== "completed" && r.status !== "cancelled" && r.status !== "declined").length },
                             { label: t("Completed Trades", "الصفقات المكتملة"), value: (data.purchaseRequests ?? []).filter((r) => r.status === "completed").length },
                             { label: t("Open Listings", "العروض المفتوحة"), value: (data.listings ?? []).filter((l) => l.status === "active").length },
-                            { label: t("Revenue Today (est.)", "إيراد اليوم (تقديري)"), value: formatUsdt(data.ownerBusiness.today.estimatedCommission) },
-                            { label: t("Revenue This Week", "إيراد هذا الأسبوع"), value: formatUsdt(data.ownerBusiness.financialOverview.estimatedCommissionThisWeek) },
-                            { label: t("Revenue This Month", "إيراد هذا الشهر"), value: formatUsdt(data.ownerBusiness.financialOverview.estimatedCommissionThisMonth) },
+                            { label: t("Estimated Commission Today", "العمولة المقدرة لليوم"), value: formatUsdt(data.ownerBusiness.today.estimatedCommission) },
+                            { label: t("Estimated Commission This Week", "العمولة المقدرة لهذا الأسبوع"), value: formatUsdt(data.ownerBusiness.financialOverview.estimatedCommissionThisWeek) },
+                            { label: t("Estimated Commission This Month", "العمولة المقدرة لهذا الشهر"), value: formatUsdt(data.ownerBusiness.financialOverview.estimatedCommissionThisMonth) },
                             { label: t("Volume Today", "حجم اليوم"), value: formatUsdt(data.ownerBusiness.today.tradeVolumeUsdt) },
                             { label: t("Top Seller (Week)", "أفضل بائع (الأسبوع)"), value: data.ownerBusiness.thisWeek.topSeller || "—" },
                           ].map((stat) => (
