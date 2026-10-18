@@ -5,6 +5,7 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { build } from "esbuild";
 import pg from "pg";
+import { requireAuditDatabaseUrl } from "./integration/audit-database-url.mjs";
 
 const output = path.resolve("test-results/postgres-concurrency");
 await mkdir(output, { recursive: true });
@@ -16,9 +17,7 @@ await build({ entryPoints: ["scripts/integration/exchange-worker.ts"], outfile: 
     "@alpha-traders/contracts": path.resolve("packages/contracts/src/index.ts") } });
 if (process.argv.includes("--build-only")) { console.log("Isolated PostgreSQL harness bundled; no database tests executed."); process.exit(0); }
 
-const connectionString = process.env.ALPHA_AUDIT_DATABASE_URL ?? "";
-const target = new URL(connectionString);
-assert(["localhost", "127.0.0.1"].includes(target.hostname) && target.pathname === "/alpha_exchange_ci" && target.username === "postgres", "Dedicated loopback database required");
+const connectionString = requireAuditDatabaseUrl(process.env.ALPHA_AUDIT_DATABASE_URL ?? "").toString();
 const pool = new pg.Pool({ connectionString, max: 2, application_name: "alpha-audit-controller" });
 let sequence = 0;
 const timings = [];

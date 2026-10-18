@@ -43,6 +43,26 @@ The existing financial correctness, backup/restore and one-second performance
 gates remain unchanged. The history test does not add new timing samples to
 the financial action benchmark or change its threshold.
 
+## Connection isolation repair
+
+Review found that the previous audit guards checked `URL.hostname`, while the
+installed PostgreSQL driver gives a `?host=...` connection option precedence.
+An offline reproduction constructed a driver client without connecting: the
+guard saw `127.0.0.1`, but the driver selected `external.invalid`. Query options
+could also replace the checked user or port. No external connection was made.
+
+The concurrency controller, its child runtime, restoration tool and both new
+history tools now share one validator. It accepts only the two named loopback
+fixture databases, the PostgreSQL schemes and the expected role; it rejects
+query overrides and fragments before the driver sees them. Malformed input
+returns a fixed error without exposing the original connection string. The
+restoration target is validated again after changing its database name.
+
+Three offline regression tests reproduce the driver's override, reject routing,
+credential and TLS-file options, and preserve valid escaped fixture passwords.
+The first two tests failed with the old guard and pass with the repair. They
+run before the database acceptance steps in the release workflow.
+
 These checks prove controlled process recovery when the gate passes. They do
 not establish live-provider credentials or account behavior, actual deposits,
 settlement, hosted Railway restart, or physical-device acceptance. Receipt

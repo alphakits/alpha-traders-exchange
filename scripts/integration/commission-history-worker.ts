@@ -1,15 +1,11 @@
 import { Pool } from "pg";
 import { discoverCommissionHistory, postgresCommissionHistoryStore } from "../../src/lib/commission-deposit-history";
 import { scanBep20CommissionDeposits, scanBinanceCommissionDeposits, scanTronCommissionDeposits } from "../../src/lib/commission-deposit-discovery";
+import { requireAuditDatabaseUrl } from "./audit-database-url.mjs";
 
 // This worker is bundled only by the disposable PostgreSQL acceptance harness.
 // It cannot use the application's connection string or reach a live provider.
-const connectionString = process.env.ALPHA_AUDIT_DATABASE_URL ?? "";
-const database = new URL(connectionString);
-if (!["127.0.0.1", "localhost"].includes(database.hostname)
-  || database.pathname !== "/alpha_exchange_ci" || database.username !== "postgres") {
-  throw new Error("History recovery requires the dedicated loopback CI database.");
-}
+const connectionString = requireAuditDatabaseUrl(process.env.ALPHA_AUDIT_DATABASE_URL ?? "").toString();
 const fixture = new URL(process.env.ALPHA_AUDIT_PROVIDER_ORIGIN ?? "");
 if (fixture.protocol !== "http:" || fixture.hostname !== "127.0.0.1" || !fixture.port
   || fixture.username || fixture.password || fixture.pathname !== "/" || fixture.search || fixture.hash) {

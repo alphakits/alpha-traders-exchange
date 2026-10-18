@@ -6,16 +6,12 @@ import { createServer } from "node:http";
 import path from "node:path";
 import { build } from "esbuild";
 import pg from "pg";
+import { requireAuditDatabaseUrl } from "./integration/audit-database-url.mjs";
 
 const output = path.resolve("test-results/postgres-concurrency/history-recovery.json");
 const workerFile = path.resolve("tmp/postgres-audit/history-worker.cjs");
 const buildOnly = process.argv.includes("--build-only");
-const connectionString = process.env.ALPHA_AUDIT_DATABASE_URL ?? "";
-if (!buildOnly) {
-  const target = new URL(connectionString);
-  assert(["localhost", "127.0.0.1"].includes(target.hostname)
-    && target.pathname === "/alpha_exchange_ci" && target.username === "postgres", "Dedicated loopback database required");
-}
+const connectionString = buildOnly ? "" : requireAuditDatabaseUrl(process.env.ALPHA_AUDIT_DATABASE_URL ?? "").toString();
 await build({ entryPoints: ["scripts/integration/commission-history-worker.ts"], outfile: workerFile,
   bundle: true, platform: "node", format: "cjs", packages: "external", tsconfig: "tsconfig.json",
   alias: { "server-only": path.resolve("src/test/server-only.ts") } });
