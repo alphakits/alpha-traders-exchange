@@ -1,4 +1,5 @@
 import { Pool } from "pg";
+import { monitorEventLoopDelay } from "node:perf_hooks";
 
 // This adapter is bundled ONLY into the isolated CI harness. Never import it
 // from application code. It cannot connect to a customer or hosted database.
@@ -15,7 +16,14 @@ const pool = new Pool({ connectionString, max: 5, application_name: `alpha-audit
 // identify database waiting versus snapshot work without relaxing production
 // diagnostics or security settings.
 const queryTimings = new Map<string, { count: number; totalMs: number; maximumMs: number }>();
+const eventLoop = monitorEventLoopDelay({ resolution: 10 });
+const diagnosticsEnabled = process.env.ALPHA_AUDIT_WAIT_DIAGNOSTICS === "1";
+if (diagnosticsEnabled) eventLoop.enable();
+let cpuBaseline = process.cpuUsage();
+const slowQueries: { operation: string; startedAt: number; elapsedMs: number; backendPid: number | null }[] = [];
+let omittedSlowQueries = 0;
 pool.on("connect", client => {
+  const backendPid = (client as typeof client & { processID?: number }).processID ?? null;
   const original = client.query.bind(client);
   client.query = ((...args: unknown[]) => {
     const query = args[0];
@@ -26,6 +34,7 @@ pool.on("connect", client => {
       : /^(begin|commit|rollback)$/i.test(sql.trim()) ? sql.trim().toLowerCase()
       : `${sql.trim().split(/\s+/)[0]?.toLowerCase() ?? "other"}:${sql.match(/alpha_exchange\.([a-z_]+)/)?.[1] ?? "schema"}`;
     const started = performance.now();
+    const startedAt = Date.now();
     let finished = false;
     const record = () => {
       if (finished) return;
@@ -34,6 +43,10 @@ pool.on("connect", client => {
       const previous = queryTimings.get(operation) ?? { count: 0, totalMs: 0, maximumMs: 0 };
       previous.count++; previous.totalMs += elapsed; previous.maximumMs = Math.max(previous.maximumMs, elapsed);
       queryTimings.set(operation, previous);
+      if (diagnosticsEnabled && elapsed >= 40) {
+        if (slowQueries.length < 512) slowQueries.push({ operation, startedAt, elapsedMs: elapsed, backendPid });
+        else omittedSlowQueries++;
+      }
     };
     const last = args[args.length - 1];
     if (typeof last === "function") args[args.length - 1] = (...values: unknown[]) => { record(); return last(...values); };
@@ -47,6 +60,17 @@ pool.on("connect", client => {
 export function getAuditQueryTimings() {
   const result = [...queryTimings].map(([operation, metrics]) => ({ operation, ...metrics }));
   queryTimings.clear();
+  return result;
+}
+export function getAuditRuntimeDiagnostics() {
+  const cpu = process.cpuUsage(cpuBaseline);
+  cpuBaseline = process.cpuUsage();
+  const ms = (ns: number) => Number.isFinite(ns) ? ns / 1_000_000 : null;
+  const result = { pid: process.pid, workerId: process.env.ALPHA_AUDIT_WORKER_ID,
+    capturedAt: Date.now(), cpuMs: { user: cpu.user / 1000, system: cpu.system / 1000 },
+    eventLoopDelayMs: { mean: ms(eventLoop.mean), max: ms(eventLoop.max), p99: ms(eventLoop.percentile(99)) },
+    slowQueries: slowQueries.splice(0), omittedSlowQueries };
+  eventLoop.reset(); omittedSlowQueries = 0;
   return result;
 }
 export function getRuntimePostgresPool() { return pool; }

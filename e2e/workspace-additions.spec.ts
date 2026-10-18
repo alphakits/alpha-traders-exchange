@@ -53,6 +53,30 @@ for (const locale of ["en", "ar"] as const) {
     expect(Object.keys(payload.sessions[0]).sort()).toEqual(["createdAt", "deviceLabel", "expiresAt", "id", "isCurrent"]);
     await sessions.screenshot({ path: `test-results/workspace-additions-${locale}-sessions.png` });
   });
+
+  test(`owner security navigation stays available during a stalled dashboard read (${locale})`, async ({ page }) => {
+    expect((await page.request.post("/api/auth/login", { headers: { "x-forwarded-for": "198.51.100.232" }, data: { email: process.env.E2E_OWNER_EMAIL!, password: process.env.E2E_OWNER_PASSWORD!, rememberMe: true } })).ok()).toBeTruthy();
+    let releaseRead!: () => void;
+    const readHeld = new Promise<void>(resolve => { releaseRead = resolve; });
+    await page.route("**/api/alpha-exchange/admin-prep", async route => {
+      await readHeld;
+      await route.fulfill({ status: 503, json: { error: "Controlled unavailable dashboard" } });
+    });
+    try {
+      await page.goto(`/${locale}/admin/alpha-exchange`);
+      const queue = page.getByRole("region", { name: isAr ? "قائمة متابعة المالك" : "Owner attention queue" });
+      await expect(queue).toBeVisible();
+      await expect(queue).toHaveAttribute("aria-busy", "true");
+      await expect(queue.getByRole("status")).toHaveText(isAr ? "جارٍ تحميل أولويات المتابعة…" : "Loading follow-up priorities…");
+      await expect(queue.getByRole("button")).toHaveCount(0);
+      await queue.getByRole("link", { name: isAr ? "أمان حساب المالك" : "Owner account security" }).click();
+      await expect(page).toHaveURL(new RegExp(`/${locale}/settings\\?tab=security`));
+      const sessions = page.getByRole("region", { name: isAr ? "جلسات حسابك" : "Your account sessions" });
+      await expect(sessions.getByText(isAr ? "الجلسة الحالية" : "Current session", { exact: true })).toBeVisible();
+    } finally {
+      releaseRead();
+    }
+  });
 }
 
 for (const locale of ["en", "ar"] as const) {
