@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
 import { mkdir, writeFile } from "node:fs/promises";
 import pg from "pg";
+import { requireAuditDatabaseUrl } from "./integration/audit-database-url.mjs";
 
-const target = new URL(process.env.ALPHA_AUDIT_DATABASE_URL ?? "");
-assert(["127.0.0.1", "localhost"].includes(target.hostname) && target.pathname === "/alpha_exchange_ci" && target.username === "postgres", "Dedicated loopback database required");
+const target = requireAuditDatabaseUrl(process.env.ALPHA_AUDIT_DATABASE_URL ?? "");
 const original = new pg.Client({ connectionString: target.toString() });
 target.pathname = "/alpha_exchange_restore_ci";
-const restored = new pg.Client({ connectionString: target.toString() });
+const restored = new pg.Client({ connectionString: requireAuditDatabaseUrl(target.toString(), "alpha_exchange_restore_ci").toString() });
 const report = { scope: "Controlled CI runtime database; no production backup or hosted-provider recovery is certified", checks: [] };
 async function fingerprints(client) {
   const tables = await client.query("select tablename from pg_tables where schemaname='alpha_exchange' order by tablename");
