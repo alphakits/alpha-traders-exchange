@@ -32,7 +32,7 @@ beforeAll(async () => {
     create function shadow.lower(text) returns text language sql immutable as $$select 'spoofed'::text$$;
     set search_path = shadow, pg_catalog;
   `);
-  await db.exec(read("db/migrations/20260925_commission_batch_receipt_reservations.sql"));
+  await db.exec(read("supabase/migrations/20260925154330_commission_batch_receipt_reservations.sql"));
   for (const filename of discordMigrations) {
     // Exercise the actual committed function bodies without installing worker
     // schedules or requiring a live Discord/database connection.

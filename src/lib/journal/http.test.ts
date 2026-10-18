@@ -98,7 +98,7 @@ let chartPng: Buffer;
 beforeAll(async () => {
   state.db = new PGlite();
   await state.db.exec("create role anon; create role authenticated; create schema alpha_exchange; create table alpha_exchange.users(id text primary key); insert into alpha_exchange.users values('buyer'),('seller'),('student'),('owner'); create schema storage; create table storage.buckets(id text primary key,name text,public boolean,file_size_limit bigint,allowed_mime_types text[]);");
-  await state.db.exec(await readFile("supabase/migrations/20261008200530_private_trading_journal.sql", "utf8"));
+  await state.db.exec(await readFile("supabase/migrations/20261009004039_private_trading_journal.sql", "utf8"));
   chartPng = await sharp({ create: { width: 2800, height: 1400, channels: 3, background: "#171717" } })
     .withMetadata({ exif: { IFD0: { Copyright: "Private journal test metadata" } } }).png().toBuffer();
   vi.stubEnv("CRON_SECRET", schedulerSecret);

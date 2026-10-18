@@ -62,7 +62,7 @@ The preview is clearly labelled, contains sample data, and offers a separate emp
 Production is disabled unless `ALPHA_JOURNAL_ENABLED=1`. The default remains disabled in this review branch. Before enabling:
 
 1. Obtain Mark's review of the working preview.
-2. Apply `20261008200530_private_trading_journal.sql` in a staging database and verify the runtime database identity can assume `alpha_journal_runtime`. Verify the `journal-charts` bucket is private and that no broad existing storage policy exposes it.
+2. Apply `20261009004039_private_trading_journal.sql` in a staging database and verify the runtime database identity can assume `alpha_journal_runtime`. Verify the `journal-charts` bucket is private and that no broad existing storage policy exposes it.
 3. Verify actual signed-in buyer, seller, and student routes and cross-account denial on staging, plus an actual private storage upload/download/deletion round trip and native iOS/Android image-picker behavior.
 4. Run the existing repository release gates; merge/deploy only after approval, then enable the feature and verify production reads and saves.
 
