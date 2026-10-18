@@ -28,10 +28,21 @@ for item in files:
         statement = "-- Existing end state verified and adopted on 2026-10-18. Historical SQL below was NOT replayed.\n" + content
         adopt.append({**item, "statement": statement, "digest": hashlib.md5(statement.encode()).hexdigest()})
 
-expected = [{"version": x["version"], "name": x["name"], "digest": x["statementsMd5"],
+repairs = {}
+for repair in manifest.get("statementRepairs", []):
+    file = next(item for item in files if item["version"] == repair["version"])
+    existing = next(item for item in manifest["existing"] if item["version"] == repair["version"])
+    assert existing["statementsMd5"] == repair["originalMd5"]
+    assert repair["version"] not in repairs
+    content = (ROOT / file["file"]).read_text()
+    assert hashlib.sha256(content.encode()).hexdigest() == file["sha256"]
+    statement = "-- Recorded history corrected on 2026-10-18: explicit transaction and timeout wrappers. Historical SQL was NOT replayed.\n" + content
+    repairs[repair["version"]] = {"statement": statement, "digest": hashlib.md5(statement.encode()).hexdigest(), "original": repair["originalMd5"]}
+
+expected = [{"version": x["version"], "name": x["name"], "digests": [x["statementsMd5"]] + ([repairs[x["version"]]["digest"]] if x["version"] in repairs else []),
              "alternate": x["recoveryVersion"] if args.target == "recovery" else x["version"]}
             for x in manifest["existing"]]
-allowed = expected + [{"version": x["version"], "alternate": x["version"], "name": x["name"], "digest": x["digest"]} for x in adopt]
+allowed = expected + [{"version": x["version"], "alternate": x["version"], "name": x["name"], "digests": [x["digest"]]} for x in adopt]
 trust = (ROOT / "supabase/migrations/20260911113000_reconcile_resurrected_owner_trust_notifications.sql").read_text()
 assert trust.count("), repaired as (") == 1
 trust_query = trust.split("), repaired as (")[0] + ") select count(*) from resurrected_alerts"
@@ -55,14 +66,14 @@ begin
   for item in select value from jsonb_array_elements({literal(json.dumps(expected))}::jsonb) loop
     select count(*) into matches from supabase_migrations.schema_migrations m
       where m.version in (item->>'version',item->>'alternate') and m.name=item->>'name'
-        and md5(array_to_string(m.statements,E'\\n'))=item->>'digest';
+        and md5(array_to_string(m.statements,E'\\n')) in (select jsonb_array_elements_text(item->'digests'));
     if matches <> 1 then raise exception 'Existing migration changed: %',item->>'name'; end if;
   end loop;
   if exists (
     select 1 from supabase_migrations.schema_migrations m where not exists (
       select 1 from jsonb_array_elements({literal(json.dumps(allowed))}::jsonb) e
       where m.version in (e->>'version',e->>'alternate') and m.name=e->>'name'
-        and md5(array_to_string(m.statements,E'\\n'))=e->>'digest'
+        and md5(array_to_string(m.statements,E'\\n')) in (select jsonb_array_elements_text(e->'digests'))
     )
   ) then raise exception 'Unexpected or modified migration history record'; end if;
   if exists (select 1 from alpha_exchange.users where payload->>'preferredLocale' is null or payload->>'preferredLocale' not in ('ar','en'))
@@ -77,6 +88,8 @@ begin
 end
 $audit_history$;
 """
+for version, repair in repairs.items():
+    sql += "update supabase_migrations.schema_migrations set statements=array[" + literal(repair["statement"]) + "] where version=" + literal(version) + " and md5(array_to_string(statements,E'\\n'))=" + literal(repair["original"]) + ";\n"
 if args.target == "recovery":
     for item in expected:
         if item["alternate"] != item["version"]:
@@ -88,4 +101,4 @@ for item in adopt:
 sql += "commit;\n"
 args.output.write_text(sql)
 print(json.dumps({"output": str(args.output), "target": args.target, "adoptedRecords": len(adopt),
-                  "existingRecordsPreserved": len(expected), "sqlSha256": hashlib.sha256(sql.encode()).hexdigest()}))
+                  "existingRecordsPreserved": len(expected)-len(repairs), "transactionWrapperRepairs": len(repairs), "sqlSha256": hashlib.sha256(sql.encode()).hexdigest()}))

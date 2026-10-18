@@ -374,5 +374,12 @@
       "sha256": "25b4d3e9328f9a8cfa395326a1991ff7db36cee8dce737fea8ea8832fe73b921"
     }
   ],
-  "meaning": "The 20 adoption entries record verified existing schema/data end states on 2026-10-18; their historical SQL is not replayed. Existing 19 production history records remain byte-for-byte unchanged."
+  "meaning": "20 entries adopt verified existing end states without replay. Eighteen original history bodies remain unchanged. One phone migration history body receives its already-tested transaction/timeout wrappers so individual-statement replay succeeds.",
+  "statementRepairs": [
+    {
+      "version": "20261004101724",
+      "originalMd5": "ff165a5cf72a8d6c16cc86aebdc8dcef",
+      "reason": "Recorded phone migration lacks BEGIN/COMMIT and bounded timeouts. Correct metadata to the already-tested canonical file without executing its data changes."
+    }
+  ]
 }

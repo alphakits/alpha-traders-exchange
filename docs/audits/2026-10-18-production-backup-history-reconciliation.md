@@ -52,8 +52,9 @@ runbook use that location. The default chain therefore has 39 unique versions.
 
 All 19 recorded production migration bodies were compared with source. Seventeen
 match after whitespace/comment normalization; the other two differ only in
-transaction/timeout wrappers. Existing production statements and versions were
-preserved exactly.
+transaction/timeout wrappers. All recorded versions were preserved. Eighteen
+recorded statement bodies remain unchanged; the phone migration's recorded body
+was corrected to include the transaction and timeout wrappers already in source.
 
 Twenty foundational migrations were missing from history because their existing
 end states had been created outside that history. In addition to full catalog
@@ -74,6 +75,23 @@ The repair was applied twice to the recovery copy to verify idempotence. Its 81
 original table fingerprints and complete catalog remained unchanged. Production
 application then succeeded, and readback found all 39 versions with the same
 catalog fingerprint `92457b4d68824f657a9ecd284b2389d3`.
+
+A stricter replay of the recorded history, submitting each top-level statement
+separately, exposed a remaining defect: the recorded phone migration lacked
+`BEGIN`/`COMMIT`, so `LOCK TABLE` failed outside a transaction. Whole-string replay
+had concealed this problem. The correction changes that one history entry to the
+canonical SQL with an explicit note that the historical transformation was not
+replayed. It was rehearsed on the restored copy before applying to production,
+with guards for the existing body digest, 39-row history and exact catalog hash.
+No phone records or application tables were modified by this metadata update.
+
+The corrected 39-entry production history exactly equals the restored copy's
+history. Statement-by-statement replay now succeeds and recreates all 82 tables,
+669 columns, 182 indexes, 266 constraints, 5 policies, 16 triggers and 24
+application functions. Eleven function text differences are CRLF/LF line endings;
+the isolated engine's 37 pgcrypto functions and 24 managed public-table grants are
+documented prerequisite differences. The restored copy's 81 original table
+fingerprints and the production catalog fingerprint remain unchanged.
 
 Generate the bounded, reviewable repair artifact with:
 
