@@ -4172,10 +4172,7 @@ const SMOKE_TEST_PURGE_TABLES = [
   "activity_logs",
   "disputes",
   "seller_reports",
-  "trust_score_history",
   "sms_deliveries",
-] as const satisfies readonly SnapshotTableName[];
-const SMOKE_TEST_TRUST_RECALC_TABLES = [
   ...USER_PROFILE_TABLES,
   "trust_snapshots",
 ] as const satisfies readonly SnapshotTableName[];
@@ -18591,13 +18588,31 @@ export async function forceCompleteTradeByAdmin(input: { requestId: string; reas
 }
 
 export async function purgeMarketplaceSmokeTestByAdmin(input: { listingId: string; actorUserId: string }) {
-  const initial = await readDb({ bypassCache: true });
-  const initialPurge = purgeMarketplaceSmokeTestSnapshot(initial, input.listingId);
+  let removedRequestIds: string[] = [];
+  let removedTradeIds: string[] = [];
+  const apply = async (snapshot: AlphaExchangeDb) => {
+    assertAccountAdministrationActor(snapshot, input.actorUserId, false);
+    const purge = purgeMarketplaceSmokeTestSnapshot(snapshot, input.listingId);
+    await recalculateTrustEngine(purge.snapshot, {
+      reason: "Smoke-test records purged", triggeredBy: input.actorUserId, suppressSideEffects: true,
+    });
+    await appendAuditLog(purge.snapshot, {
+      action: "listing_removed", actorUserId: input.actorUserId, listingId: input.listingId,
+      targetUserId: purge.sellerId, reason: "Guarded smoke-test cleanup",
+      details: "Synthetic listing and linked test records purged after safety checks.",
+      newValue: { removedRequestIds: purge.requestIds, removedTradeIds: purge.tradeIds },
+    });
+    removedRequestIds = purge.requestIds;
+    removedTradeIds = purge.tradeIds;
+    return purge.snapshot;
+  };
+  const candidate = await apply(await readDb({ bypassCache: true }));
 
-  await writeDb(initialPurge.snapshot, {
+  await writeDb(candidate, {
     selectedTables: SMOKE_TEST_PURGE_TABLES,
-    rebaseOnLatest: (latest) => purgeMarketplaceSmokeTestSnapshot(latest, input.listingId).snapshot,
+    rebaseOnLatest: apply,
     validateBeforeCommit: (candidate) => {
+      assertAccountAdministrationActor(candidate, input.actorUserId, false);
       if (candidate.marketplaceListings.some((listing) => listing.id === input.listingId)) {
         throw new Error("Smoke-test listing was not removed.");
       }
@@ -18608,27 +18623,9 @@ export async function purgeMarketplaceSmokeTestByAdmin(input: { listingId: strin
   });
 
   invalidateAlphaExchangeStoreCache();
-  const trustSnapshot = await readDb({ bypassCache: true });
-  await recalculateTrustEngine(trustSnapshot, {
-    reason: "Smoke-test records purged",
-    triggeredBy: input.actorUserId,
-    suppressSideEffects: true,
-  });
-  await writeDb(trustSnapshot, {
-    selectedTables: SMOKE_TEST_TRUST_RECALC_TABLES,
-    rebaseOnLatest: async (latest) => {
-      await recalculateTrustEngine(latest, {
-        reason: "Smoke-test records purged",
-        triggeredBy: input.actorUserId,
-        suppressSideEffects: true,
-      });
-      return latest;
-    },
-  });
-  invalidateAlphaExchangeStoreCache();
 
   publishRealtimeEvent({ type: "listing.removed", payload: { listingId: input.listingId } });
-  for (const requestId of initialPurge.requestIds) {
+  for (const requestId of removedRequestIds) {
     publishRealtimeEvent({
       type: "trade.status_changed",
       payload: { requestId, status: "cancelled", removed: true, publishedAtEpochMs: Date.now() },
@@ -18637,8 +18634,8 @@ export async function purgeMarketplaceSmokeTestByAdmin(input: { listingId: strin
 
   return {
     listingId: input.listingId,
-    removedRequestIds: initialPurge.requestIds,
-    removedTradeIds: initialPurge.tradeIds,
+    removedRequestIds,
+    removedTradeIds,
   };
 }
 
