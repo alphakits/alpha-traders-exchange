@@ -25,10 +25,16 @@ const timings = [];
 const workers = [];
 const checks = [];
 const queryMetrics = [];
+const diagnosticsEnabled = process.env.ALPHA_AUDIT_WAIT_DIAGNOSTICS === "1";
+const runtimeDiagnostics = [];
+const databaseSamples = [];
+const samplingErrors = [];
+let monitoringQuery;
 let peakActiveConnections = 0;
 function startWorker(index) {
   const child = fork(workerFile, [], { env: { PATH: process.env.PATH, NODE_ENV: "production",
     ALPHA_AUDIT_DATABASE_URL: connectionString, ALPHA_AUDIT_WORKER_ID: String(index),
+    ALPHA_AUDIT_WAIT_DIAGNOSTICS: diagnosticsEnabled ? "1" : "0",
     DATABASE_URL: connectionString, NEXT_PUBLIC_SUPABASE_URL: "http://127.0.0.1:59999",
     NEXT_PUBLIC_SUPABASE_ANON_KEY: "isolated-ci-placeholder", SUPABASE_SERVICE_ROLE_KEY: "isolated-ci-placeholder-no-provider-access",
     ALPHA_EXCHANGE_CARDLESS_CREDENTIAL_SECRET: "isolated-ci-synthetic-cardless-key-0001",
@@ -38,7 +44,7 @@ function startWorker(index) {
     const task = pending.get(message.id);
     if (!task) return;
     clearTimeout(task.timeout); pending.delete(message.id);
-    timings.push({ operation: task.operation, requestId: task.input?.requestId, nextStatus: task.input?.nextStatus,
+    timings.push({ operation: task.operation, startedAt: task.startedAt, finishedAt: Date.now(), requestId: task.input?.requestId, nextStatus: task.input?.nextStatus,
       ok: message.ok, code: message.code, details: message.details, elapsedMs: message.elapsedMs,
       actionElapsedMs: message.result?.actionElapsedMs, backgroundElapsedMs: message.result?.backgroundElapsedMs,
       metrics: message.result?.metrics, worker: index });
@@ -51,7 +57,7 @@ function startWorker(index) {
   return { child, call(operation, input) { return new Promise((resolve, reject) => {
     const id = ++sequence;
     const timeout = setTimeout(() => { pending.delete(id); reject(new Error(`${operation} exceeded 60 seconds`)); }, 60_000);
-    pending.set(id, { resolve, reject, timeout, operation, input }); child.send({ id, operation, input });
+    pending.set(id, { resolve, reject, timeout, operation, input, startedAt: Date.now() }); child.send({ id, operation, input });
   }); } };
 }
 function passed(name, details) { checks.push({ name, status: "PASS", details }); console.log(`PASS ${name}: ${JSON.stringify(details)}`); }
@@ -61,6 +67,10 @@ async function batch(commands) {
 }
 async function captureQueryMetrics(phase) {
   queryMetrics.push({ phase, workers: (await Promise.all(workers.map(worker => worker.call("query-timings")))).map(requireOk) });
+  if (!diagnosticsEnabled) return;
+  runtimeDiagnostics.push({ phase, capturedAt: Date.now(),
+    workers: (await Promise.all(workers.map(worker => worker.call("runtime-diagnostics")))).map(requireOk),
+    wal: (await pool.query("select wal_records,wal_bytes,wal_write,wal_sync,wal_write_time,wal_sync_time,stats_reset from pg_stat_wal")).rows[0] });
 }
 const now = new Date().toISOString();
 function user(id, seller, index) {
@@ -109,6 +119,13 @@ let monitor;
 try {
   // Initialize schema before starting the remaining independent processes.
   workers.push(startWorker(0)); const runtime = requireOk(await workers[0].call("ready"));
+  if (diagnosticsEnabled) {
+    runtime.diagnosticSettings = (await pool.query("select name,setting from pg_settings where name in ('fsync','synchronous_commit','full_page_writes','wal_sync_method','track_wal_io_timing') order by name")).rows;
+    assert(runtime.diagnosticSettings.some(row => row.name === "track_wal_io_timing" && row.setting === "on"), "WAL timing must be enabled in this isolated diagnostic container");
+    assert(runtime.diagnosticSettings.some(row => row.name === "fsync" && row.setting === "on"), "Durability must remain enabled");
+    assert(runtime.diagnosticSettings.some(row => row.name === "synchronous_commit" && row.setting === "on"), "Synchronous commit must remain enabled");
+    await captureQueryMetrics("initial-before-fixtures");
+  }
   const baselineMigration = await readFile("supabase/migrations/20261017003000_runtime_table_baseline.sql", "utf8");
   await pool.query(baselineMigration);
   const historyMigration = await readFile("supabase/migrations/20261017212857_commission_deposit_scan_progress.sql", "utf8");
@@ -132,8 +149,18 @@ try {
   passed("Runtime/legacy baseline recreates 11 observed table definitions and replays without deleting seeded accounts", { tables: 11, users: 76 });
   for (let index = 1; index < 4; index++) workers.push(startWorker(index));
   (await Promise.all(workers.map(worker => worker.call("ready")))).forEach(requireOk);
-  monitor = setInterval(() => { pool.query("select count(*)::int as n from pg_stat_activity where datname=current_database() and application_name like 'alpha-audit-worker-%' and state='active'")
-    .then(result => { peakActiveConnections = Math.max(peakActiveConnections, result.rows[0].n); }).catch(() => {}); }, 100);
+  monitor = setInterval(() => {
+    if (monitoringQuery) return;
+    const startedAt = Date.now();
+    monitoringQuery = pool.query(`select pid,application_name,state,wait_event_type,wait_event,
+      extract(epoch from (clock_timestamp()-xact_start))*1000 as transaction_age_ms
+      from pg_stat_activity where datname=current_database() and application_name like 'alpha-audit-worker-%'`)
+      .then(result => {
+        peakActiveConnections = Math.max(peakActiveConnections, result.rows.filter(row => row.state === 'active').length);
+        if (diagnosticsEnabled && databaseSamples.length < 2000) databaseSamples.push({ startedAt, finishedAt: Date.now(), backends: result.rows });
+      }).catch(error => { if (samplingErrors.length < 20) samplingErrors.push(String(error.message)); })
+      .finally(() => { monitoringQuery = undefined; });
+  }, 100);
 
   const authAccounts = ["audit-buyer-0-0", "audit-buyer-0-1"];
   (await batch(authAccounts.map((userId, index) => ({ operation: "auth-password", input: { userId, passwordHash: `synthetic-updated-hash-${index}` } })))).forEach(requireOk);
@@ -517,6 +544,11 @@ try {
 } finally {
   await writeFile(path.join(output, "query-timings.json"), JSON.stringify(queryMetrics, null, 2));
   clearInterval(monitor);
+  if (monitoringQuery) await monitoringQuery;
+  await writeFile(path.join(output, "wait-diagnostics.json"), JSON.stringify({
+    scope: "Dedicated loopback PostgreSQL only; diagnostics add measurement overhead. No SQL text, credentials or bound values are collected.",
+    enabled: diagnosticsEnabled,
+    runtimeDiagnostics, databaseSamples, samplingErrors }, null, 2));
   for (const worker of workers) worker.child.kill("SIGKILL");
   await pool.end();
   const durations = timings.filter(row => row.ok && row.operation === "status").map(row => row.actionElapsedMs ?? row.elapsedMs).sort((a, b) => a - b);
