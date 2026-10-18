@@ -53,6 +53,39 @@ for (const locale of ["en", "ar"] as const) {
     expect(Object.keys(payload.sessions[0]).sort()).toEqual(["createdAt", "deviceLabel", "expiresAt", "id", "isCurrent"]);
     await sessions.screenshot({ path: `test-results/workspace-additions-${locale}-sessions.png` });
   });
+
+  for (const state of ["pending", "failed"] as const) {
+    test(`owner security stays reachable when dashboard records are ${state} (${locale})`, async ({ page }) => {
+      const login = await page.request.post("/api/auth/login", { headers: { "x-forwarded-for": "198.51.100.232" }, data: { email: process.env.E2E_OWNER_EMAIL!, password: process.env.E2E_OWNER_PASSWORD!, rememberMe: true } });
+      expect(login.ok()).toBeTruthy();
+      let releaseRead!: () => void;
+      const pendingRead = new Promise<void>(resolve => { releaseRead = resolve; });
+      await page.route("**/api/alpha-exchange/admin-prep", async route => {
+        if (state === "failed") {
+          await route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: "Temporarily unavailable" }) });
+          return;
+        }
+        await pendingRead;
+        // Navigation can cancel the deliberately unfinished dashboard request.
+        await route.abort("aborted").catch(() => {});
+      });
+      try {
+        await page.goto(`/${locale}/admin/alpha-exchange`);
+        const queue = page.getByRole("region", { name: isAr ? "قائمة متابعة المالك" : "Owner attention queue" });
+        await expect(queue.getByRole("status")).toHaveText(state === "pending"
+          ? (isAr ? "جارٍ تحميل أولويات المتابعة..." : "Loading follow-up priorities...")
+          : (isAr ? "أولويات المتابعة غير متاحة حاليًا. يمكنك فتح إعدادات الأمان." : "Follow-up priorities are currently unavailable. You can still open security settings."));
+        await expect(queue).not.toContainText("(0)");
+        await queue.getByRole("link", { name: isAr ? "أمان حساب المالك" : "Owner account security" }).click();
+        await expect(page).toHaveURL(new RegExp(`/${locale}/settings\\?tab=security`));
+        await expect(page.getByRole("region", { name: isAr ? "جلسات حسابك" : "Your account sessions" })
+          .getByText(isAr ? "الجلسة الحالية" : "Current session", { exact: true })).toBeVisible();
+      } finally {
+        releaseRead();
+        await page.unrouteAll({ behavior: "wait" });
+      }
+    });
+  }
 }
 
 for (const locale of ["en", "ar"] as const) {

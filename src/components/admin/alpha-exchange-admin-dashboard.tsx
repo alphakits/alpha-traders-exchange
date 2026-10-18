@@ -1746,6 +1746,14 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
         </aside>
 
         <div className="admin-main-panel min-w-0">
+          {isOwner && activeSection === "overview" ? <div className="mb-6 xl:mb-8">
+            <OwnerAttentionQueue isAr={isArabic} operations={data?.operations ?? null} disputes={data?.disputes ?? []} commissions={data?.commissionRecords ?? []}
+              readState={loading ? "loading" : error || !data ? "unavailable" : "ready"} onOpen={item => {
+                if (item.kind === "incident") openOperationalIncident(item.incident);
+                else if (item.kind === "dispute") { setRequestsQuery(item.dispute.purchaseRequestId); setRequestsStatus("all"); setRequestsPage(1); setActiveSection("purchase-requests"); }
+                else { setCommissionsQuery(item.commission.id); setCommissionsPage(1); setActiveSection("commissions"); }
+              }} />
+          </div> : null}
           <div key={activeSection} className="alpha-reveal-rise">
               {loading ? (
                 <Card className="border-white/10 bg-[#0B0B0B]/90">
@@ -1769,11 +1777,6 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                 <>
                   {activeSection === "overview" ? (
                     <div className="space-y-6 xl:space-y-8">
-                      {isOwner ? <OwnerAttentionQueue isAr={isArabic} operations={data.operations ?? null} disputes={data.disputes} commissions={data.commissionRecords} onOpen={item => {
-                        if (item.kind === "incident") openOperationalIncident(item.incident);
-                        else if (item.kind === "dispute") { setRequestsQuery(item.dispute.purchaseRequestId); setRequestsStatus("all"); setRequestsPage(1); setActiveSection("purchase-requests"); }
-                        else { setCommissionsQuery(item.commission.id); setCommissionsPage(1); setActiveSection("commissions"); }
-                      }} /> : null}
                       <Card className="border-white/10 bg-[#0B0B0B]/90">
                         <CardHeader>
                           <CardTitle className="text-xl md:text-2xl">{isOwner ? t("Owner Business Dashboard", "لوحة أعمال المالك") : t("Admin Operations Dashboard", "لوحة عمليات الإدارة")}</CardTitle>

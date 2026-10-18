@@ -123,6 +123,24 @@ describe("AlphaExchangeAdminDashboard admin destinations", () => {
     expect(await screen.findByRole("heading", { name: "Marketplace Listings" })).toBeTruthy();
     await act(async () => resolveSms(Response.json({ deliveries: [] })));
   });
+
+  it.each(["en", "ar"] as const)("keeps owner security reachable while the %s dashboard read is pending", async locale => {
+    navigationState.search = "";
+    let finishRead!: (response: Response) => void;
+    vi.mocked(fetch).mockImplementation(() => new Promise<Response>(resolve => { finishRead = resolve; }));
+    render(<AlphaExchangeAdminDashboard isOwner locale={locale} />);
+    const queue = screen.getByRole("region", { name: locale === "ar" ? "قائمة متابعة المالك" : "Owner attention queue" });
+    expect(within(queue).getByRole("link", { name: locale === "ar" ? "أمان حساب المالك" : "Owner account security" }).getAttribute("href"))
+      .toBe(`/${locale}/settings?tab=security`);
+    expect(within(queue).getByRole("status").textContent).toBe(locale === "ar" ? "جارٍ تحميل أولويات المتابعة..." : "Loading follow-up priorities...");
+    expect(queue.textContent).not.toContain("(0)");
+    await act(async () => finishRead(new Response(null, { status: 503 })));
+    expect(within(queue).getByRole("link")).toBeTruthy();
+    expect(within(queue).getByRole("status").textContent).toBe(locale === "ar"
+      ? "أولويات المتابعة غير متاحة حاليًا. يمكنك فتح إعدادات الأمان."
+      : "Follow-up priorities are currently unavailable. You can still open security settings.");
+    expect(queue.textContent).not.toContain("(0)");
+  });
   it("shows buyer and suspended-account names beside AT IDs in audit and notification history", async () => {
     navigationState.search = "section=audit-logs";
     const buyer = { id: "identity-buyer", fullName: "AT-100001 (Private Buyer)", role: "buyer" };
