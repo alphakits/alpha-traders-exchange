@@ -115,6 +115,31 @@ describe("AlphaExchangeAdminDashboard admin destinations", () => {
     vi.unstubAllGlobals();
   });
 
+  it.each(["en", "ar"] as const)("keeps account security reachable while the dashboard read is pending or unavailable (%s)", async locale => {
+    navigationState.search = "";
+    let finishRead!: (response: Response) => void;
+    vi.mocked(fetch).mockImplementation(() => new Promise<Response>(resolve => { finishRead = resolve; }));
+    const view = render(<AlphaExchangeAdminDashboard isOwner locale={locale} />);
+    try {
+      const queue = screen.getByRole("region", { name: locale === "ar" ? "قائمة متابعة المالك" : "Owner attention queue" });
+      const security = within(queue).getByRole("link", { name: locale === "ar" ? "أمان حساب المالك" : "Owner account security" });
+      expect(security.getAttribute("href")).toBe(`/${locale}/settings?tab=security`);
+      expect(queue.getAttribute("aria-busy")).toBe("true");
+      expect(within(queue).getByRole("status").textContent).toBe(locale === "ar" ? "جارٍ تحميل أولويات المتابعة…" : "Loading follow-up priorities…");
+      expect(within(queue).queryByText("(0)")).toBeNull();
+      expect(within(queue).queryByRole("button")).toBeNull();
+      await act(async () => finishRead(new Response(null, { status: 503 })));
+      expect(queue.getAttribute("aria-busy")).toBe("false");
+      expect(within(queue).getByRole("link").getAttribute("href")).toBe(`/${locale}/settings?tab=security`);
+      expect(within(queue).getByRole("status").textContent).toBe(locale === "ar" ? "أولويات المتابعة غير متاحة. أعد تحديث اللوحة." : "Follow-up priorities are unavailable. Refresh the dashboard.");
+      expect(within(queue).queryByText("(0)")).toBeNull();
+      expect(navigationState.router.refresh).not.toHaveBeenCalled();
+    } finally {
+      view.unmount();
+      await act(async () => finishRead(new Response(null, { status: 503 })));
+    }
+  });
+
   it("loads owner account data without waiting for the optional SMS request", async () => {
     let resolveSms!: (response: Response) => void;
     vi.mocked(fetch).mockImplementation(async input => String(input).includes("sms-deliveries")
