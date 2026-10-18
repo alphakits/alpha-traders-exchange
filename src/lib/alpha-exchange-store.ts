@@ -4172,10 +4172,7 @@ const SMOKE_TEST_PURGE_TABLES = [
   "activity_logs",
   "disputes",
   "seller_reports",
-  "trust_score_history",
   "sms_deliveries",
-] as const satisfies readonly SnapshotTableName[];
-const SMOKE_TEST_TRUST_RECALC_TABLES = [
   ...USER_PROFILE_TABLES,
   "trust_snapshots",
 ] as const satisfies readonly SnapshotTableName[];
@@ -17473,10 +17470,11 @@ export async function getOwnerPrivateBetaDashboardData(dbInput?: AlphaExchangeDb
 
 export async function getOwnerBusinessDashboardForAdmin(dbInput?: AlphaExchangeDb): Promise<OwnerBusinessDashboardMetrics> {
   const db = dbInput ?? await readDb();
-  const trustInitialized = await ensureTrustSnapshots(db);
-  if (trustInitialized && !dbInput) {
-    await writeDb(db, { selectedTables: TRUST_INIT_TABLES });
-  }
+  // Use the same current facts as the public profiles and Trust Engine panel.
+  // A business-report read must not revive stale estimates or write trust state.
+  const trustSnapshots = [...computeTrustSnapshotMap(db).values()];
+  const currentSellerIds = new Set(trustSnapshots.map(snapshot => snapshot.sellerId));
+  const responseFacts = measureSellerActivity(db.purchaseRequests.filter(request => currentSellerIds.has(request.sellerId)));
 
   const now = new Date();
   const nowMs = now.getTime();
@@ -17591,8 +17589,7 @@ export async function getOwnerBusinessDashboardForAdmin(dbInput?: AlphaExchangeD
       .map((request) => request.buyerId),
   );
 
-  const leaderboard = [...db.trustSnapshots]
-    .map((entry) => entry.snapshot)
+  const leaderboard = [...trustSnapshots]
     .sort((left, right) => {
       if (right.trustScore !== left.trustScore) return right.trustScore - left.trustScore;
       if (right.totalUsdtVolume !== left.totalUsdtVolume) return right.totalUsdtVolume - left.totalUsdtVolume;
@@ -17611,9 +17608,11 @@ export async function getOwnerBusinessDashboardForAdmin(dbInput?: AlphaExchangeD
       responseTimeMinutes: Number(snapshot.responseTimeMinutes.toFixed(2)),
     }));
 
-  const todayCommission = sumCommissionAmounts(db.commissionRecords.filter((record) => isToday(record.createdAt)).map(record => record.commissionAmount));
-  const weekCommission = sumCommissionAmounts(db.commissionRecords.filter((record) => isThisWeek(record.createdAt)).map(record => record.commissionAmount));
-  const monthCommission = sumCommissionAmounts(db.commissionRecords.filter((record) => isThisMonth(record.createdAt)).map(record => record.commissionAmount));
+  // A carried shortfall is part of an existing fee, never newly generated revenue.
+  const generatedCommissions = db.commissionRecords.filter(record => record.source !== "tolerance_carry_forward");
+  const todayCommission = sumCommissionAmounts(generatedCommissions.filter((record) => isToday(record.createdAt)).map(record => record.commissionAmount));
+  const weekCommission = sumCommissionAmounts(generatedCommissions.filter((record) => isThisWeek(record.createdAt)).map(record => record.commissionAmount));
+  const monthCommission = sumCommissionAmounts(generatedCommissions.filter((record) => isThisMonth(record.createdAt)).map(record => record.commissionAmount));
 
   const liveActivity = [
     ...db.sellerApplications
@@ -17667,8 +17666,8 @@ export async function getOwnerBusinessDashboardForAdmin(dbInput?: AlphaExchangeD
   const completionRatePercent = totalRequests ? (completedRequests.length / totalRequests) * 100 : 0;
   const cancellationRatePercent = totalRequests ? (db.purchaseRequests.filter((request) => request.status === "cancelled").length / totalRequests) * 100 : 0;
   const disputeRatePercent = totalRequests ? (db.disputes.length / totalRequests) * 100 : 0;
-  const averageTrustScore = db.trustSnapshots.length
-    ? db.trustSnapshots.reduce((sum, entry) => sum + entry.snapshot.trustScore, 0) / db.trustSnapshots.length
+  const averageTrustScore = trustSnapshots.length
+    ? trustSnapshots.reduce((sum, snapshot) => sum + snapshot.trustScore, 0) / trustSnapshots.length
     : 0;
 
   return {
@@ -17701,7 +17700,7 @@ export async function getOwnerBusinessDashboardForAdmin(dbInput?: AlphaExchangeD
           ? `${sellerName(highestTrustIncreaseEvent.sellerId)} (+${(highestTrustIncreaseEvent.newScore - highestTrustIncreaseEvent.oldScore).toFixed(1)})`
           : "No trust changes yet",
       averageResponseTimeMinutes: Number(
-        (db.trustSnapshots.length ? db.trustSnapshots.reduce((sum, entry) => sum + entry.snapshot.responseTimeMinutes, 0) / db.trustSnapshots.length : 0).toFixed(2),
+        responseFacts.responseTimeMinutes.toFixed(2),
       ),
       averageTradeCompletionTimeMinutes: Number(
         (tradeCompletionMinutes.length ? tradeCompletionMinutes.reduce((sum, value) => sum + value, 0) / tradeCompletionMinutes.length : 0).toFixed(2),
@@ -18591,13 +18590,31 @@ export async function forceCompleteTradeByAdmin(input: { requestId: string; reas
 }
 
 export async function purgeMarketplaceSmokeTestByAdmin(input: { listingId: string; actorUserId: string }) {
-  const initial = await readDb({ bypassCache: true });
-  const initialPurge = purgeMarketplaceSmokeTestSnapshot(initial, input.listingId);
+  let removedRequestIds: string[] = [];
+  let removedTradeIds: string[] = [];
+  const apply = async (snapshot: AlphaExchangeDb) => {
+    assertAccountAdministrationActor(snapshot, input.actorUserId, false);
+    const purge = purgeMarketplaceSmokeTestSnapshot(snapshot, input.listingId);
+    await recalculateTrustEngine(purge.snapshot, {
+      reason: "Smoke-test records purged", triggeredBy: input.actorUserId, suppressSideEffects: true,
+    });
+    await appendAuditLog(purge.snapshot, {
+      action: "listing_removed", actorUserId: input.actorUserId, listingId: input.listingId,
+      targetUserId: purge.sellerId, reason: "Guarded smoke-test cleanup",
+      details: "Synthetic listing and linked test records purged after safety checks.",
+      newValue: { removedRequestIds: purge.requestIds, removedTradeIds: purge.tradeIds },
+    });
+    removedRequestIds = purge.requestIds;
+    removedTradeIds = purge.tradeIds;
+    return purge.snapshot;
+  };
+  const candidate = await apply(await readDb({ bypassCache: true }));
 
-  await writeDb(initialPurge.snapshot, {
+  await writeDb(candidate, {
     selectedTables: SMOKE_TEST_PURGE_TABLES,
-    rebaseOnLatest: (latest) => purgeMarketplaceSmokeTestSnapshot(latest, input.listingId).snapshot,
+    rebaseOnLatest: apply,
     validateBeforeCommit: (candidate) => {
+      assertAccountAdministrationActor(candidate, input.actorUserId, false);
       if (candidate.marketplaceListings.some((listing) => listing.id === input.listingId)) {
         throw new Error("Smoke-test listing was not removed.");
       }
@@ -18608,27 +18625,9 @@ export async function purgeMarketplaceSmokeTestByAdmin(input: { listingId: strin
   });
 
   invalidateAlphaExchangeStoreCache();
-  const trustSnapshot = await readDb({ bypassCache: true });
-  await recalculateTrustEngine(trustSnapshot, {
-    reason: "Smoke-test records purged",
-    triggeredBy: input.actorUserId,
-    suppressSideEffects: true,
-  });
-  await writeDb(trustSnapshot, {
-    selectedTables: SMOKE_TEST_TRUST_RECALC_TABLES,
-    rebaseOnLatest: async (latest) => {
-      await recalculateTrustEngine(latest, {
-        reason: "Smoke-test records purged",
-        triggeredBy: input.actorUserId,
-        suppressSideEffects: true,
-      });
-      return latest;
-    },
-  });
-  invalidateAlphaExchangeStoreCache();
 
   publishRealtimeEvent({ type: "listing.removed", payload: { listingId: input.listingId } });
-  for (const requestId of initialPurge.requestIds) {
+  for (const requestId of removedRequestIds) {
     publishRealtimeEvent({
       type: "trade.status_changed",
       payload: { requestId, status: "cancelled", removed: true, publishedAtEpochMs: Date.now() },
@@ -18637,8 +18636,8 @@ export async function purgeMarketplaceSmokeTestByAdmin(input: { listingId: strin
 
   return {
     listingId: input.listingId,
-    removedRequestIds: initialPurge.requestIds,
-    removedTradeIds: initialPurge.tradeIds,
+    removedRequestIds,
+    removedTradeIds,
   };
 }
 

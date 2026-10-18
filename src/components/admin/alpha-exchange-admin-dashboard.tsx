@@ -1,4 +1,5 @@
 "use client";
+import { csvRow } from "@/lib/csv";
 import { OwnerAttentionQueue } from "@/components/admin/owner-attention-queue";
 
 import { currencyText, moneyText } from "@/components/ui/currency-text";
@@ -1580,7 +1581,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
   function exportCommissionsCsv() {
     const rows = commissionsRows.rows;
     const csvRows = [
-      ["Source", "Trade ID", "Buyer", "Seller", "Trade Value", "Commission", "Payment Status", "Reason", "Date"].join(","),
+      csvRow(["Source", "Trade ID", "Buyer", "Seller", "Trade Value", "Commission", "Payment Status", "Reason", "Date"]),
       ...rows.map((record) => {
         const request = record.purchaseRequestId ? requestsById.get(record.purchaseRequestId) : undefined;
         const buyerName = request?.buyerName ?? record.buyerId ?? "";
@@ -1590,8 +1591,8 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
           : "";
         const source = record.source === "tolerance_carry_forward" ? "Carried balance" : record.source === "admin_manual" ? "Admin-issued" : "Trade";
         const tradeValue = record.source === "admin_manual" || record.source === "tolerance_carry_forward" ? "" : record.grossAmount.toFixed(2);
-        const reason = `"${String(record.issueReason ?? "").replace(/"/g, '""')}"`;
-        return [source, tradeId, buyerName, sellerName, tradeValue, commissionAmountInput(record.commissionAmount), record.paymentStatus, reason, record.createdAt].join(",");
+        const reason = record.issueReason ?? "";
+        return csvRow([source, tradeId, buyerName, sellerName, tradeValue, commissionAmountInput(record.commissionAmount), record.paymentStatus, reason, record.createdAt]);
       }),
     ];
     const blob = new Blob([csvRows.join("\n")], { type: "text/csv;charset=utf-8;" });
@@ -1606,9 +1607,9 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
   function exportTradesCsv() {
     const rows = requestsRows.rows;
     const csvRows = [
-      ["Trade ID", "Request ID", "Buyer", "Seller", "USDT Amount", "Fiat Amount", "Currency", "Network", "Payment Method", "Bank", "Status", "Submitted", "Completed"].join(","),
+      csvRow(["Trade ID", "Request ID", "Buyer", "Seller", "USDT Amount", "Fiat Amount", "Currency", "Network", "Payment Method", "Bank", "Status", "Submitted", "Completed"]),
       ...rows.map((request) => {
-        return [
+        return csvRow([
           displayTradeId(request),
           displayRequestId(request),
           request.buyerName,
@@ -1617,12 +1618,12 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
           request.fiatAmount,
           request.currency,
           request.network,
-          `"${request.paymentMethod.replace(/"/g, '""')}"`,
-          `"${(request.bankName ?? "").replace(/"/g, '""')}"`,
+          request.paymentMethod,
+          request.bankName ?? "",
           request.status,
           request.createdAt,
           request.completedAt ?? "",
-        ].join(",");
+        ]);
       }),
     ];
     const blob = new Blob([csvRows.join("\n")], { type: "text/csv;charset=utf-8;" });
@@ -1875,11 +1876,11 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                           </CardHeader>
                           <CardContent className="grid gap-3 text-sm text-[#D1D5DB] md:grid-cols-2 xl:grid-cols-3">
                             <p>{t("Trade Volume:", "حجم التداول:")} <span className="text-white">{currencyText(formatUsdt(data.ownerBusiness.thisWeek.tradeVolumeUsdt))}</span></p>
-                            <p>{t("Revenue:", "الإيرادات:")} <span className="text-white">{currencyText(formatUsdt(data.ownerBusiness.thisWeek.revenue))}</span></p>
+                            <p>{t("Estimated Commission:", "العمولة التقديرية:")} <span className="text-white">{currencyText(formatUsdt(data.ownerBusiness.thisWeek.revenue))}</span></p>
                             <p>{t("Top Seller:", "أفضل بائع:")} <span className="text-white">{currencyText(data.ownerBusiness.thisWeek.topSeller)}</span></p>
                             <p>{t("Fastest Growing Seller:", "الأسرع نموًا:")} <span className="text-white">{currencyText(data.ownerBusiness.thisWeek.fastestGrowingSeller)}</span></p>
                             <p>{t("Highest Trust Score Increase:", "أكبر ارتفاع في الثقة:")} <span className="text-white">{currencyText(data.ownerBusiness.thisWeek.highestTrustScoreIncrease)}</span></p>
-                            <p>{t("Avg Response Time:", "متوسط وقت الرد:")} <span className="text-white">{data.ownerBusiness.thisWeek.averageResponseTimeMinutes.toFixed(2)} {t("min", "دقيقة")}</span></p>
+                            <p>{t("Recorded Response Time (all time):", "وقت الاستجابة المسجل (كل الفترات):")} <span className="text-white">{data.ownerBusiness.thisWeek.averageResponseTimeMinutes.toFixed(2)} {t("min", "دقيقة")}</span></p>
                             <p>{t("Avg Completion Time:", "متوسط وقت الإكمال:")} <span className="text-white">{data.ownerBusiness.thisWeek.averageTradeCompletionTimeMinutes.toFixed(2)} {t("min", "دقيقة")}</span></p>
                             <p>{t("Avg Buyer Rating:", "متوسط تقييم المشتري:")} <span className="text-white">{data.ownerBusiness.thisWeek.averageBuyerRating.toFixed(2)}</span></p>
                             <p>{t("Repeat Buyers:", "المشترون المتكررون:")} <span className="text-white">{currencyText(formatPercent(data.ownerBusiness.thisWeek.repeatBuyersPercent))}</span></p>
@@ -3745,9 +3746,9 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                             { label: t("Active Trades", "الصفقات النشطة"), value: (data.purchaseRequests ?? []).filter((r) => r.status !== "completed" && r.status !== "cancelled" && r.status !== "declined").length },
                             { label: t("Completed Trades", "الصفقات المكتملة"), value: (data.purchaseRequests ?? []).filter((r) => r.status === "completed").length },
                             { label: t("Open Listings", "العروض المفتوحة"), value: (data.listings ?? []).filter((l) => l.status === "active").length },
-                            { label: t("Revenue Today (est.)", "إيراد اليوم (تقديري)"), value: formatUsdt(data.ownerBusiness.today.estimatedCommission) },
-                            { label: t("Revenue This Week", "إيراد هذا الأسبوع"), value: formatUsdt(data.ownerBusiness.financialOverview.estimatedCommissionThisWeek) },
-                            { label: t("Revenue This Month", "إيراد هذا الشهر"), value: formatUsdt(data.ownerBusiness.financialOverview.estimatedCommissionThisMonth) },
+                            { label: t("Estimated Commission Today", "العمولة المقدرة لليوم"), value: formatUsdt(data.ownerBusiness.today.estimatedCommission) },
+                            { label: t("Estimated Commission This Week", "العمولة المقدرة لهذا الأسبوع"), value: formatUsdt(data.ownerBusiness.financialOverview.estimatedCommissionThisWeek) },
+                            { label: t("Estimated Commission This Month", "العمولة المقدرة لهذا الشهر"), value: formatUsdt(data.ownerBusiness.financialOverview.estimatedCommissionThisMonth) },
                             { label: t("Volume Today", "حجم اليوم"), value: formatUsdt(data.ownerBusiness.today.tradeVolumeUsdt) },
                             { label: t("Top Seller (Week)", "أفضل بائع (الأسبوع)"), value: data.ownerBusiness.thisWeek.topSeller || "—" },
                           ].map((stat) => (

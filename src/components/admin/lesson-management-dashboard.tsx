@@ -151,7 +151,6 @@ export function LessonManagementDashboard() {
   const [dragLessonId, setDragLessonId] = useState<string | null>(null);
   const [importContentLocale, setImportContentLocale] = useState<"en" | "ar">(isAr ? "ar" : "en");
   const autosaveRef = useRef<ReturnType<typeof createQueuedAutosave<Lesson>> | null>(null);
-  const pendingEditsRef = useRef(new Set<string>());
   const toastTimerRef = useRef<number | null>(null);
   const importInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -205,8 +204,7 @@ export function LessonManagementDashboard() {
         setSaveConflicts(current => { const next = { ...current }; delete next[lesson.id]; return next; });
       },
       onSaved: lesson => {
-        if (pendingEditsRef.current.has(lesson.id)) return;
-        setLessons(current => current.map(value => value.id === lesson.id ? lesson : value));
+        setLessons(current => current.map(value => value.id === lesson.id ? queue.getDraft(lesson.id) ?? lesson : value));
         const config = autosaveConfigRef.current;
         config.setToast(config.isAr ? "✓ تم الحفظ تلقائياً" : "✓ Saved");
         if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
@@ -217,19 +215,11 @@ export function LessonManagementDashboard() {
         if (error instanceof EditorSaveConflict) setSaveConflicts(current => ({ ...current, [error.currentLesson.id]: error.currentLesson }));
         config.setToast(config.isAr ? "تعذّر الحفظ. ما زالت تغييراتك هنا. أعد المحاولة." : error instanceof Error ? error.message : "Save failed. Your changes are still here; retry saving.");
       },
-      onState: state => { setSaving(state.saving); setDirty(state.dirty || pendingEditsRef.current.size > 0); setSaveFailed(state.failed); },
+      onState: state => { setSaving(state.saving); setDirty(state.dirty); setSaveFailed(state.failed); },
     });
     autosaveRef.current = queue;
     return () => { queue.dispose(); if (autosaveRef.current === queue) autosaveRef.current = null; };
   }, []);
-
-  useEffect(() => {
-    for (const id of pendingEditsRef.current) {
-      const lesson = lessons.find(value => value.id === id);
-      if (lesson) autosaveRef.current?.enqueue(lesson);
-      pendingEditsRef.current.delete(id);
-    }
-  }, [lessons]);
 
   const fetchBootstrap = useCallback(async () => {
     setLoading(true);
@@ -241,10 +231,7 @@ export function LessonManagementDashboard() {
     if (!response.ok) {
       throw new Error(adminError(isAr, "Failed to load admin data.", "تعذّر تحميل بيانات لوحة الإدارة.", payload.error));
     }
-    setLessons(current => {
-      const merged = autosaveRef.current?.merge(payload.lessons) ?? payload.lessons;
-      return merged.map(lesson => pendingEditsRef.current.has(lesson.id) ? current.find(value => value.id === lesson.id) ?? lesson : lesson);
-    });
+    setLessons(() => autosaveRef.current?.merge(payload.lessons) ?? payload.lessons);
     setMedia(payload.media);
     setVersions(payload.versions);
     setAnalytics(payload.analytics);
@@ -277,22 +264,14 @@ export function LessonManagementDashboard() {
   }, []);
 
   function patchSelectedLesson(patch: Partial<Lesson>) {
-    if (!selectedLessonId) return;
-    pendingEditsRef.current.add(selectedLessonId);
-    setLessons((current) =>
-      current.map((lesson) => {
-        if (lesson.id !== selectedLessonId) return lesson;
-        return {
-          ...lesson,
-          ...patch,
-          assets: {
-            ...lesson.assets,
-            ...(patch.assets || {}),
-          },
-        };
-      }),
-    );
-    setDirty(true);
+    if (!selectedLesson || !autosaveRef.current) return;
+    // Register the complete next draft in the queue in the input event itself.
+    // A deferred effect from an earlier save must not consume this edit marker
+    // while it still sees the previous render's draft/status.
+    const current = autosaveRef.current.getDraft(selectedLesson.id) ?? selectedLesson;
+    const next = { ...current, ...patch, assets: { ...current.assets, ...(patch.assets || {}) } };
+    autosaveRef.current.enqueue(next);
+    setLessons(values => values.map(value => value.id === next.id ? autosaveRef.current?.getDraft(next.id) ?? next : value));
   }
 
   async function createNewLesson() {
@@ -341,7 +320,6 @@ export function LessonManagementDashboard() {
       return;
     }
     autosaveRef.current?.remove(lessonId);
-    pendingEditsRef.current.delete(lessonId);
     setLessons((current) => current.filter((lesson) => lesson.id !== lessonId));
     if (selectedLessonId === lessonId) {
       setSelectedLessonId((current) => (current === lessonId ? null : current));
@@ -384,7 +362,6 @@ export function LessonManagementDashboard() {
     if (keepDraft) patchSelectedLesson({ updatedAt: saved.updatedAt });
     else {
       autosaveRef.current?.remove(saved.id);
-      pendingEditsRef.current.delete(saved.id);
       setLessons(current => current.map(lesson => lesson.id === saved.id ? saved : lesson));
     }
     setSaveConflicts(current => { const next = { ...current }; delete next[saved.id]; return next; });
@@ -650,7 +627,7 @@ export function LessonManagementDashboard() {
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div>
                       <CardTitle className="text-lg">{isAr ? "تفاصيل الدرس" : "Lesson Details"}</CardTitle>
-                      <CardDescription>{(selectedLesson && (autosaveRef.current?.hasDraft(selectedLesson.id) || pendingEditsRef.current.has(selectedLesson.id))) ? (isAr ? "توجد تغييرات غير محفوظة" : "Unsaved changes") : saving ? (isAr ? "جاري الحفظ..." : "Auto saving...") : isAr ? "✓ محفوظ" : "✓ Saved"}</CardDescription>
+                      <CardDescription>{(selectedLesson && autosaveRef.current?.hasDraft(selectedLesson.id)) ? (isAr ? "توجد تغييرات غير محفوظة" : "Unsaved changes") : saving ? (isAr ? "جاري الحفظ..." : "Auto saving...") : isAr ? "✓ محفوظ" : "✓ Saved"}</CardDescription>
                       {saveFailed && !saveConflicts[selectedLesson.id] ? <Button type="button" variant="outline" size="sm" disabled={saving} onClick={() => autosaveRef.current?.retry()}>{isAr ? "إعادة محاولة الحفظ" : "Retry saving"}</Button> : null}
                     </div>
                     <div className="flex flex-wrap gap-2">

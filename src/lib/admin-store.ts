@@ -1,3 +1,4 @@
+import { csvRow } from "@/lib/csv";
 import path from "path";
 import { randomUUID } from "crypto";
 import { isDeepStrictEqual } from "node:util";
@@ -511,7 +512,7 @@ export function toCsv(lessons: Lesson[]) {
     lesson.assets.pdfUrl,
   ]);
   return [header, ...rows]
-    .map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(","))
+    .map(csvRow)
     .join("\n");
 }
 

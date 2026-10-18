@@ -4,7 +4,6 @@ export const MARKETPLACE_SMOKE_TEST_MARKER = "AUTOMATED PRODUCTION SMOKE TEST â€
 
 const MAX_SMOKE_TEST_USDT = 10;
 const SAFE_PURGE_STATUSES = new Set(["pending", "accepted", "declined", "cancelled"]);
-const SMOKE_TEST_TRUST_REASONS = new Set(["Listing created", "Listing approved", "Trade lifecycle updated"]);
 
 type MarketplaceSmokeTestPurgePlan = {
   listing: MarketplaceListing;
@@ -12,8 +11,6 @@ type MarketplaceSmokeTestPurgePlan = {
   requestIds: Set<string>;
   tradeIds: Set<string>;
   referenceTokens: string[];
-  cleanupWindowStartMs: number;
-  cleanupWindowEndMs: number;
 };
 
 function toNumber(value: unknown) {
@@ -24,17 +21,12 @@ function displayToken(prefix: "LS" | "TR", value: number | undefined) {
   return value && Number.isFinite(value) ? `${prefix}-${Math.trunc(value).toString().padStart(6, "0")}` : null;
 }
 
-function withinCleanupWindow(value: string | undefined, plan: MarketplaceSmokeTestPurgePlan) {
-  if (!value) return false;
-  const timestamp = new Date(value).getTime();
-  return Number.isFinite(timestamp)
-    && timestamp >= plan.cleanupWindowStartMs
-    && timestamp <= plan.cleanupWindowEndMs;
-}
-
 function referencesSmokeTest(value: unknown, plan: MarketplaceSmokeTestPurgePlan) {
   const serialized = JSON.stringify(value);
-  return plan.referenceTokens.some((token) => serialized.includes(token));
+  return plan.referenceTokens.some((token) => {
+    const escaped = token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return new RegExp(`(?:^|[^A-Za-z0-9_-])${escaped}(?=$|[^A-Za-z0-9_-])`).test(serialized);
+  });
 }
 
 export function isMarketplaceSmokeTestListing(listing: Pick<MarketplaceListing, "sellerDescription" | "availableAmount">) {
@@ -105,12 +97,6 @@ export function buildMarketplaceSmokeTestPurgePlan(db: AlphaExchangeDb, listingI
     const token = displayToken("TR", request.displayNumber);
     return token ? [token] : [];
   });
-  const eventTimes = [listing.createdAt, listing.updatedAt, ...requests.flatMap((request) => [request.createdAt, request.updatedAt])]
-    .map((value) => new Date(value).getTime())
-    .filter(Number.isFinite);
-  const cleanupWindowStartMs = Math.min(...eventTimes);
-  const cleanupWindowEndMs = Math.max(...eventTimes) + 120_000;
-
   return {
     listing,
     requests,
@@ -122,16 +108,12 @@ export function buildMarketplaceSmokeTestPurgePlan(db: AlphaExchangeDb, listingI
       ...requestIds,
       ...tradeIds,
       ...tradeDisplayTokens,
-      MARKETPLACE_SMOKE_TEST_MARKER,
     ],
-    cleanupWindowStartMs,
-    cleanupWindowEndMs,
   };
 }
 
 export function purgeMarketplaceSmokeTestSnapshot(db: AlphaExchangeDb, listingId: string) {
   const plan = buildMarketplaceSmokeTestPurgePlan(db, listingId);
-  const sellerId = plan.listing.sellerId;
   const next = structuredClone(db);
 
   next.marketplaceListings = next.marketplaceListings.filter((listing) => listing.id !== plan.listing.id);
@@ -152,38 +134,21 @@ export function purgeMarketplaceSmokeTestSnapshot(db: AlphaExchangeDb, listingId
     if (notification.relatedListingId === plan.listing.id) return false;
     if (notification.relatedRequestId && plan.requestIds.has(notification.relatedRequestId)) return false;
     if (notification.relatedTradeId && (plan.tradeIds.has(notification.relatedTradeId) || plan.requestIds.has(notification.relatedTradeId))) return false;
-    const testTrustNotification = notification.userId === sellerId
-      && notification.category === "trust"
-      && withinCleanupWindow(notification.createdAt, plan)
-      && (notification.title === "Trust score increased" || notification.title === "Prestige rank updated");
-    return !testTrustNotification && !referencesSmokeTest(notification, plan);
+    return !referencesSmokeTest(notification, plan);
   });
   next.auditLogs = next.auditLogs.filter((entry) => {
     if (entry.listingId === plan.listing.id) return false;
     if (entry.purchaseRequestId && plan.requestIds.has(entry.purchaseRequestId)) return false;
-    const testTrustEntry = entry.action === "trust_score_updated"
-      && entry.targetUserId === sellerId
-      && withinCleanupWindow(entry.createdAt, plan)
-      && Array.from(SMOKE_TEST_TRUST_REASONS).some((reason) => entry.details?.includes(`(${reason})`));
-    return !testTrustEntry && !referencesSmokeTest(entry, plan);
+    return !referencesSmokeTest(entry, plan);
   });
-  next.activityLog = next.activityLog.filter((entry) => {
-    const testTrustEntry = entry.userId === sellerId
-      && entry.category === "trust"
-      && withinCleanupWindow(entry.createdAt, plan)
-      && (entry.title === "Trust score increased" || entry.title === "Prestige rank updated");
-    return !testTrustEntry && !referencesSmokeTest(entry, plan);
-  });
-  next.trustScoreHistory = next.trustScoreHistory.filter((entry) =>
-    !(entry.sellerId === sellerId
-      && SMOKE_TEST_TRUST_REASONS.has(entry.reason)
-      && withinCleanupWindow(entry.createdAt, plan)),
-  );
+  next.activityLog = next.activityLog.filter((entry) => !referencesSmokeTest(entry, plan));
+  // A seller, reason and timestamp do not prove which listing changed trust.
+  // Preserve unattributed history; the caller recomputes current trust atomically.
   next.smsDeliveries = (next.smsDeliveries ?? []).filter((delivery) => !referencesSmokeTest(delivery, plan));
 
   return {
     snapshot: next,
-    sellerId,
+    sellerId: plan.listing.sellerId,
     requestIds: [...plan.requestIds],
     tradeIds: [...plan.tradeIds],
   };
