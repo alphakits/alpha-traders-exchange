@@ -279,6 +279,55 @@ describe("AlphaExchangeAdminDashboard admin destinations", () => {
     expect(within(screen.getByRole("table")).getAllByRole("button")).toHaveLength(3);
   });
 
+  it.each([
+    ["en", "purchase-requests"], ["ar", "purchase-requests"],
+    ["en", "commissions"], ["ar", "commissions"],
+  ] as const)("exports every filtered %s %s result across pages in selected order", async (locale, section) => {
+    navigationState.search = `section=${section}`;
+    const t = (en: string, ar: string) => locale === "ar" ? ar : en;
+    const purchaseRequests = Array.from({ length: 12 }, (_, i) => ({
+      id: `request-export-${i}`, buyerId: `buyer-${i}`, buyerName: `${i === 10 ? "Excluded" : "Kept"} Buyer ${String(i + 1).padStart(2, "0")}`,
+      sellerId: "seller-1", listingId: listing.id, status: i === 11 ? "pending" : "review_open",
+      usdtAmount: 100, fiatAmount: 320, currency: "ILS", paymentMethod: "Bank Transfer", network: "TRC20",
+      timeline: [], createdAt: `2026-09-${String(i + 1).padStart(2, "0")}T00:00:00.000Z`, updatedAt: "2026-09-23T00:00:00.000Z",
+    }));
+    const commissionRecords = Array.from({ length: 11 }, (_, i) => ({
+      id: `commission-export-${i}`, source: "admin_manual", sellerId: "seller-1", issuedByUserId: "owner-1",
+      issueReason: `${i === 10 ? "Excluded" : "Kept"} reason ${String(i + 1).padStart(2, "0")}`,
+      rate: 0, grossAmount: 0, commissionAmount: i + 1, paymentStatus: "pending",
+      createdAt: `2026-09-${String(i + 1).padStart(2, "0")}T00:00:00.000Z`, updatedAt: "2026-09-23T00:00:00.000Z",
+    }));
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ ...adminPayload([listing], [], commissionRecords), purchaseRequests })));
+    const blobs: Blob[] = [];
+    vi.stubGlobal("URL", class extends URL {
+      static createObjectURL = vi.fn((blob: Blob) => { blobs.push(blob); return "blob:synthetic-export"; });
+      static revokeObjectURL = vi.fn();
+    });
+    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    try {
+      render(<AlphaExchangeAdminDashboard isOwner locale={locale}/>);
+      await screen.findByRole("heading", { name: section === "commissions" ? t("Commissions", "العمولات") : t("Purchase Requests", "طلبات الشراء والصفقات") });
+      fireEvent.change(screen.getByPlaceholderText(section === "commissions"
+        ? t("Search commission, trade, seller, reason...", "ابحث بالعمولة أو الصفقة أو البائع أو السبب...")
+        : t("Search buyer, seller, listing...", "ابحث بالمشتري أو البائع أو العرض...")), { target: { value: "Kept" } });
+      if (section === "purchase-requests") fireEvent.change(screen.getByRole("combobox", { name: t("Filter trades by status", "تصفية الصفقات حسب الحالة") }), { target: { value: "completed" } });
+      const sort = screen.getAllByRole("combobox").find(element => within(element).queryByRole("option", { name: t("Sort: Oldest", "الترتيب: الأقدم") }));
+      fireEvent.change(sort!, { target: { value: "oldest" } });
+      fireEvent.click(screen.getByRole("button", { name: t("Next", "التالي") }));
+      const exportButton = screen.getByRole("button", { name: section === "commissions" ? t("Export CSV", "تصدير CSV") : t("Export Trades", "تصدير الصفقات") });
+      fireEvent.click(exportButton);
+      const csv = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.onerror = reject; reader.readAsText(blobs[0]);
+      });
+      const lines = csv.split("\n");
+      expect(lines).toHaveLength(11);
+      expect(csv).not.toContain("Excluded");
+      expect(csv).not.toContain("Kept Buyer 12");
+      for (let i = 1; i <= 10; i++) expect(lines[i]).toContain(`Kept ${section === "commissions" ? "reason" : "Buyer"} ${String(i).padStart(2, "0")}`);
+      expect(vi.mocked(fetch).mock.calls.every(([, init]) => !init?.method || init.method === "GET")).toBe(true);
+    } finally { click.mockRestore(); }
+  });
+
   it.each(["en", "ar"] as const)("shows a clear empty active list (%s)", async (locale) => {
     navigationState.search = "section=purchase-requests&status=active";
     render(<AlphaExchangeAdminDashboard isOwner locale={locale} />);

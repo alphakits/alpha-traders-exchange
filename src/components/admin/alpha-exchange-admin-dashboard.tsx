@@ -333,6 +333,7 @@ function paginate<T>(items: T[], page: number) {
   const start = (safePage - 1) * pageSize;
   return {
     rows: items.slice(start, start + pageSize),
+    allRows: items,
     totalPages,
     safePage,
   };
@@ -1579,7 +1580,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
   }
 
   function exportCommissionsCsv() {
-    const rows = commissionsRows.rows;
+    const rows = commissionsRows.allRows;
     const csvRows = [
       csvRow(["Source", "Trade ID", "Buyer", "Seller", "Trade Value", "Commission", "Payment Status", "Reason", "Date"]),
       ...rows.map((record) => {
@@ -1605,7 +1606,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
   }
 
   function exportTradesCsv() {
-    const rows = requestsRows.rows;
+    const rows = requestsRows.allRows;
     const csvRows = [
       csvRow(["Trade ID", "Request ID", "Buyer", "Seller", "USDT Amount", "Fiat Amount", "Currency", "Network", "Payment Method", "Bank", "Status", "Submitted", "Completed"]),
       ...rows.map((request) => {
@@ -2897,7 +2898,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                             <CardTitle>{requestsStatus === "active" ? t("Active Trades", "الصفقات النشطة") : t("Purchase Requests", "طلبات الشراء والصفقات")}</CardTitle>
                             <CardDescription>{requestsStatus === "active" ? t("Accepted trades still in progress. Open a trade for details.", "الصفقات المقبولة التي ما زالت قيد التنفيذ. افتح الصفقة للتفاصيل.") : t("Monitor request flow and inspect request details.", "تابع الصفقات وافتح تفاصيل كل طلب.")}</CardDescription>
                           </div>
-                          <Button type="button" variant="secondary" onClick={exportTradesCsv}>
+                          <Button type="button" variant="secondary" onClick={exportTradesCsv} title={t("Export all matching trades across every page", "تصدير جميع الصفقات المطابقة عبر كل الصفحات")}>
                             {t("Export Trades", "تصدير الصفقات")}
                           </Button>
                         </div>
@@ -3004,7 +3005,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                             <CardTitle>{t("Commissions", "العمولات")}</CardTitle>
                             <CardDescription>{t("Track trade commissions and admin-issued seller commissions.", "تابع عمولات الصفقات والعمولات الصادرة عن الإدارة للبائعين.")}</CardDescription>
                           </div>
-                          <Button type="button" variant="secondary" onClick={exportCommissionsCsv}>
+                          <Button type="button" variant="secondary" onClick={exportCommissionsCsv} title={t("Export all matching commissions across every page", "تصدير جميع العمولات المطابقة عبر كل الصفحات")}>
                             {t("Export CSV", "تصدير CSV")}
                           </Button>
                         </div>
