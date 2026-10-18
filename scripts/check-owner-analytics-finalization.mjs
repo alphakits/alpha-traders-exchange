@@ -26,7 +26,7 @@ test("legacy dashboard cannot render duplicate or false-zero user traffic counte
 
 test("marketplace snapshot metrics and management controls remain present", () => {
   const dashboard = read("src/components/admin/alpha-exchange-admin-dashboard.tsx");
-  for (const text of ["Active Trades", "Completed Trades", "Open Listings", "Revenue Today (est.)", "TradeOwnerActions", "commissionRecords", "purchaseRequests"]) {
+  for (const text of ["Active Trades", "Completed Trades", "Open Listings", "Estimated Commission Today", "Estimated Commission This Week", "Estimated Commission This Month", "TradeOwnerActions", "commissionRecords", "purchaseRequests"]) {
     assert.ok(dashboard.includes(text), text);
   }
 });
