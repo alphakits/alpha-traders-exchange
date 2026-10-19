@@ -42,7 +42,7 @@ describe("app Remember me integration", () => {
     render(<LoginForm locale="en" />);
     await waitFor(() => expect(email().value).toBe(credentials.email));
     fireEvent.click(screen.getByRole("button", { name: "Login" }));
-    await waitFor(() => expect(mocks.request).toHaveBeenCalledWith("save", expect.objectContaining(credentials)));
+    await waitFor(() => expect(mocks.request).toHaveBeenCalledWith("save", expect.objectContaining(credentials), expect.any(AbortSignal)));
     expect(mocks.fetch).toHaveBeenCalledOnce();
     expect(mocks.replace).not.toHaveBeenCalled();
     expect((screen.getByRole("checkbox") as HTMLInputElement).disabled).toBe(true);
@@ -60,6 +60,20 @@ describe("app Remember me integration", () => {
     expect(mocks.request.mock.calls.map(([action]) => action)).toEqual(["load"]);
     expect(mocks.replace).not.toHaveBeenCalled();
   });
+  it("cancels a pending native save and does not navigate after the login screen closes", async () => {
+    const cancelled = vi.fn();
+    mocks.request.mockImplementation((action: string, _credentials: unknown, signal?: AbortSignal) => action === "load"
+      ? Promise.resolve({ ...ok, credentials }) : new Promise(resolve => {
+        signal?.addEventListener("abort", () => { cancelled(); resolve(null); }, { once: true });
+      }));
+    const view = render(<LoginForm locale="en" />);
+    await waitFor(() => expect(email().value).toBe(credentials.email));
+    fireEvent.click(screen.getByRole("button", { name: "Login" }));
+    await waitFor(() => expect(mocks.request.mock.calls.map(([action]) => action)).toEqual(["load", "save"]));
+    view.unmount();
+    await waitFor(() => expect(cancelled).toHaveBeenCalledOnce());
+    expect(mocks.replace).not.toHaveBeenCalled();
+  });
   it("remembers a fast login even when the initial native read has not finished", async () => {
     let finishLoad!: (value: RememberedLoginResponse) => void;
     mocks.request.mockImplementation((action: string) => action === "load"
@@ -71,7 +85,7 @@ describe("app Remember me integration", () => {
     await waitFor(() => expect(mocks.fetch).toHaveBeenCalledOnce());
     expect(mocks.replace).not.toHaveBeenCalled();
     await act(async () => finishLoad({ ...ok, credentials: null }));
-    expect(mocks.request).toHaveBeenCalledWith("save", credentials);
+    expect(mocks.request).toHaveBeenCalledWith("save", credentials, expect.any(AbortSignal));
     expect(mocks.replace).toHaveBeenCalledWith("/en/usdt-exchange");
   });
   it("forgets details immediately when unchecked and does not restore on the next login page", async () => {
@@ -79,7 +93,7 @@ describe("app Remember me integration", () => {
     const view = render(<LoginForm locale="en" />);
     await waitFor(() => expect(email().value).toBe(credentials.email));
     fireEvent.click(screen.getByRole("checkbox"));
-    await waitFor(() => expect(mocks.request).toHaveBeenCalledWith("clear"));
+    await waitFor(() => expect(mocks.request).toHaveBeenCalledWith("clear", undefined, expect.any(AbortSignal)));
     view.unmount();
     render(<LoginForm locale="en" />);
     expect((screen.getByRole("checkbox") as HTMLInputElement).checked).toBe(false);

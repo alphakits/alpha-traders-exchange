@@ -61,14 +61,28 @@ describe("BEP20 deposit discovery", () => {
     vi.stubGlobal("fetch", vi.fn(async () => json({ status: "0", result: "Paid plan required" })));
     await expect(scanBep20CommissionDeposits(1)).rejects.toThrow("bep20_index_plan_unsupported");
   });
-  it.each([
-    ["Free API access is not supported for this chain. Please upgrade your api plan", "bep20_index_plan_unsupported"],
-    ["Invalid API Key", "bep20_index_key_invalid"],
-    ["Max rate limit reached", "bep20_index_rate_limited"],
-    ["Unexpected provider body with sensitive detail", "bep20_index_unavailable"],
-  ])("classifies provider failures without reflecting response bodies: %s", async (message, label) => {
-    vi.stubGlobal("fetch", vi.fn(async () => json({ status: "0", result: message })));
-    await expect(scanBep20CommissionDeposits(1)).rejects.toThrow(new RegExp(`^${label}$`));
+  describe.each(["block lookup", "transfer lookup"])("%s diagnostics", (stage) => {
+    const progress = () => stage === "block lookup" ? { until: Date.now() } : undefined;
+    const fallback = stage === "block lookup" ? "bep20_index_block_unavailable" : "bep20_index_unavailable";
+    it.each([
+      ["Free API access is not supported for this chain. Please upgrade your api plan", "bep20_index_plan_unsupported"],
+      ["Invalid API Key", "bep20_index_key_invalid"],
+      ["Max rate limit reached", "bep20_index_rate_limited"],
+      ["Community Free API limit reached. Resets 2026-10-20 12:00:00 UTC. Please upgrade your api plan", "bep20_index_quota_exhausted"],
+      ["Query Timeout occured. Please select a smaller result dataset", "bep20_index_query_timeout"],
+      ["Unexpected provider body", undefined],
+    ])("keeps a safe failure reason without publishing credentials: %s", async (message, label) => {
+      vi.stubGlobal("fetch", vi.fn(async () => json({ status: "0", result: `${message}; apikey=index-key; private detail` })));
+      await expect(scanBep20CommissionDeposits(1, progress())).rejects.toThrow(new RegExp(`^${label ?? fallback}$`));
+      expect(fetch).toHaveBeenCalledTimes(1);
+    });
+    it.each([null, [], { status: "0", result: { secret: "index-key" } }, { status: "1", result: "invalid-block" }])(
+      "rejects malformed provider responses with the safe stage-specific reason: %j", async (payload) => {
+        vi.stubGlobal("fetch", vi.fn(async () => json(payload)));
+        await expect(scanBep20CommissionDeposits(1, progress())).rejects.toThrow(new RegExp(`^${fallback}$`));
+        expect(fetch).toHaveBeenCalledTimes(1);
+      },
+    );
   });
 });
 describe("Binance read-only internal deposit verification", () => {

@@ -78,6 +78,7 @@ export function LoginForm({
   const [isNativeApp, setIsNativeApp] = useState(false);
   const rememberedLoginSupported = useRef(false);
   const rememberedLoginReady = useRef<ReturnType<typeof requestAppRememberedLogin> | null>(null);
+  const rememberedLoginController = useRef<AbortController | null>(null);
   const editedCredentials = useRef(false);
   const [needsRememberedLoginUpdate, setNeedsRememberedLoginUpdate] = useState(false);
   const [statusMessage, setStatusMessage, statusMessageFeedbackKey] = useActionFeedbackState<string | null>(
@@ -117,10 +118,11 @@ export function LoginForm({
   useEffect(() => {
     if (!window.ReactNativeWebView?.postMessage) return;
     let cancelled = false;
-    const rememberedLoginController = new AbortController();
+    const controller = new AbortController();
+    rememberedLoginController.current = controller;
     let optedOut = false;
     try { optedOut = localStorage.getItem(REMEMBER_ME_PREFERENCE) === "false"; } catch { /* Optional preference storage. */ }
-    const ready = requestAppRememberedLogin(optedOut || passwordResetSuccess ? "clear" : "load", undefined, rememberedLoginController.signal);
+    const ready = requestAppRememberedLogin(optedOut || passwordResetSuccess ? "clear" : "load", undefined, controller.signal);
     rememberedLoginReady.current = ready;
     void ready.then(response => {
       if (cancelled) return;
@@ -133,7 +135,8 @@ export function LoginForm({
     });
     return () => {
       cancelled = true;
-      rememberedLoginController.abort();
+      controller.abort();
+      if (rememberedLoginController.current === controller) rememberedLoginController.current = null;
     };
   }, [passwordResetSuccess]);
   useEffect(() => {
@@ -146,6 +149,7 @@ export function LoginForm({
 
   async function handleLoginSubmit(event: FormEvent<HTMLFormElement>) {
     const clickStartedAt = Date.now();
+    const rememberedLoginSignal = rememberedLoginController.current?.signal;
     event.preventDefault();
     setStatusMessage(null);
     setErrorMessage(null);
@@ -212,9 +216,11 @@ export function LoginForm({
       // Fast autofill/submit can finish before the initial native capability
       // check. Let that bounded request settle before deciding whether to save.
       await rememberedLoginReady.current;
+      if (rememberedLoginSignal?.aborted) return;
       if (rememberedLoginSupported.current) {
-        await requestAppRememberedLogin(form.rememberMe ? "save" : "clear", { email: form.email, password: form.password });
+        await requestAppRememberedLogin(form.rememberMe ? "save" : "clear", { email: form.email, password: form.password }, rememberedLoginSignal);
       }
+      if (rememberedLoginSignal?.aborted) return;
 
       // The public entry defaults to English. Keep the language the learner
       // selected on the login page, including the destination after sign-in.
@@ -371,8 +377,9 @@ export function LoginForm({
                     setForm((prev) => ({ ...prev, rememberMe: checked }));
                     try { localStorage.setItem(REMEMBER_ME_PREFERENCE, String(checked)); } catch { /* Storage is optional. */ }
                     if (!checked && isNativeApp) {
-                      void requestAppRememberedLogin("clear").then(response => {
-                        if (response) { rememberedLoginSupported.current = true; setNeedsRememberedLoginUpdate(false); }
+                      const signal = rememberedLoginController.current?.signal;
+                      void requestAppRememberedLogin("clear", undefined, signal).then(response => {
+                        if (response && !signal?.aborted) { rememberedLoginSupported.current = true; setNeedsRememberedLoginUpdate(false); }
                       });
                     }
                   }} className="h-5 w-5 rounded border-white/30 bg-transparent accent-[#C9A227]" />

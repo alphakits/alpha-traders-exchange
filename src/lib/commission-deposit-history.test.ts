@@ -5,7 +5,7 @@ import type { Pool } from "pg";
 import { PGlite } from "@electric-sql/pglite";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { discoverCommissionHistory, postgresCommissionHistoryStore } from "./commission-deposit-history";
-import { scanTronCommissionDeposits, type CommissionDeposit, type DepositScanProgress } from "./commission-deposit-discovery";
+import { scanBep20CommissionDeposits, scanTronCommissionDeposits, type CommissionDeposit, type DepositScanProgress } from "./commission-deposit-discovery";
 import { CANONICAL_TRC20_COMMISSION_WALLET, OFFICIAL_TRON_USDT_CONTRACT } from "./commission-config";
 
 const migration = readFileSync(resolve("supabase/migrations/20261017212857_commission_deposit_scan_progress.sql"), "utf8");
@@ -15,9 +15,25 @@ const empty = async () => ({ configured: true, complete: true, pages: 1, deposit
 const receipt = (extra = {}): CommissionDeposit => ({ network: "TRC20", signature: "a".repeat(64), payer: "synthetic", amountMicros: 100_000_000, timestamp: 100_000, ...extra });
 const store = () => postgresCommissionHistoryStore(db as unknown as Pick<Pool, "query">);
 beforeEach(async () => { db = new PGlite(); await db.exec("CREATE SCHEMA alpha_exchange"); await db.exec(migration); });
-afterEach(async () => { vi.restoreAllMocks(); vi.unstubAllGlobals(); await db.close(); });
+afterEach(async () => { vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.unstubAllEnvs(); await db.close(); });
 
 describe("durable receiving history", () => {
+  it.each([false, true])("retains the safe BEP20 block failure while requiring complete fallback coverage: %s", async (fallbackComplete) => {
+    vi.stubEnv("ALPHA_EXCHANGE_ETHERSCAN_API_KEY", "index-key");
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ status: "0", message: "NOTOK",
+      result: "Free API access is not supported for this chain. Please upgrade your api plan. apikey=index-key" }))));
+    const historyStore = store();
+    const result = await discoverCommissionHistory({ scope: "checkout", since: 1, now: 200_000, networks: ["BEP20"], store: historyStore,
+      scanners: { TRC20: unavailable, BEP20: scanBep20CommissionDeposits, BINANCE_DEPOSITS: fallbackComplete ? empty : unavailable } });
+    expect(result.providers.BEP20).toMatchObject({ configured: true, complete: false, error: "bep20_index_plan_unsupported" });
+    expect(result.complete).toBe(fallbackComplete);
+    expect(result.deposits).toEqual([]);
+    const saved = await historyStore.load("checkout");
+    expect(saved?.state.providers.BEP20?.error).toBe("bep20_index_plan_unsupported");
+    expect(saved?.state.consumed).toBe(fallbackComplete);
+    expect(JSON.stringify({ result, saved })).not.toContain("index-key");
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
   it("resumes past five TRON pages after restart, catches up, and retains a competing later receipt", async () => {
     const requested: Array<{ fingerprint: string | null; until: string | null; since: number }> = [];
     vi.stubGlobal("fetch", vi.fn(async (input) => {
