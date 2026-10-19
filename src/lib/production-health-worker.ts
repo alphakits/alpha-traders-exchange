@@ -1,7 +1,7 @@
 import "server-only";
 
 import { spawn } from "node:child_process";
-import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -31,7 +31,13 @@ export type ProductionHealthSnapshot = {
   continuousSinceUtc: string | null;
   latest: ProductionHealthObservation | null;
   history: ProductionHealthObservation[];
+  historyPersistence: "disabled" | "healthy" | "unavailable";
 };
+
+export interface ProductionHealthHistoryStore {
+  load(): Promise<unknown[]>;
+  save(observation: ProductionHealthObservation): Promise<void>;
+}
 
 type Probe = (output: string, previous: string | undefined, signal: AbortSignal) => Promise<ProductionHealthObservation>;
 
@@ -132,10 +138,16 @@ export class ProductionHealthWorker {
   private previous: string | undefined;
   private history: ProductionHealthObservation[] = [];
   private continuousSinceUtc: string | null = null;
+  private readonly historyStore?: ProductionHealthHistoryStore;
+  private historyPersistence: ProductionHealthSnapshot["historyPersistence"];
 
-  constructor({ probe = runProductionHealthProbe, now = Date.now }: { probe?: Probe; now?: () => number } = {}) {
+  constructor({ probe = runProductionHealthProbe, now = Date.now, historyStore }: {
+    probe?: Probe; now?: () => number; historyStore?: ProductionHealthHistoryStore;
+  } = {}) {
     this.probe = probe;
     this.now = now;
+    this.historyStore = historyStore;
+    this.historyPersistence = historyStore ? "unavailable" : "disabled";
   }
 
   start(): Promise<void> {
@@ -152,6 +164,29 @@ export class ProductionHealthWorker {
       this.running = false;
       // Monitoring unavailability must not stop the Discord service.
       return;
+    }
+    if (this.historyStore) {
+      try {
+        const restored = (await this.historyStore.load()).map(readProductionHealthObservation);
+        if (restored.length > HISTORY_LIMIT || restored.some((item, index) =>
+          Date.parse(item.finishedUtc) > this.now() + 60_000
+          || (index > 0 && Date.parse(item.startedUtc) <= Date.parse(restored[index - 1].startedUtc)))) {
+          throw new Error("Invalid public production history");
+        }
+        for (const item of restored) this.remember(item);
+        const latest = this.history.at(-1);
+        if (latest) {
+          const previous = join(this.directory, "restored.json");
+          await writeFile(previous, JSON.stringify(latest), { mode: 0o600 });
+          this.previous = previous;
+        }
+        this.historyPersistence = "healthy";
+      } catch {
+        // Preserve fresh monitoring even if durable history is unavailable.
+        // Never manufacture continuity from a corrupt or inaccessible history.
+        this.history = []; this.continuousSinceUtc = null; this.previous = undefined;
+        this.historyPersistence = "unavailable";
+      }
     }
     if (this.running) this.scheduleProbe();
     else {
@@ -185,10 +220,12 @@ export class ProductionHealthWorker {
       source: "railway-worker",
       intervalSeconds: INTERVAL_MS / 1000,
       maximumGapSeconds: MAXIMUM_GAP_MS / 1000,
-      status: fresh && latest ? latest.status : "verification_limited",
+      status: fresh && latest && (this.historyPersistence !== "unavailable" || latest.status === "component_degraded")
+        ? latest.status : "verification_limited",
       continuousSinceUtc: fresh ? this.continuousSinceUtc : null,
       latest,
       history: [...this.history],
+      historyPersistence: this.historyPersistence,
     };
   }
 
@@ -232,6 +269,18 @@ export class ProductionHealthWorker {
       };
     }
     if (signal.aborted) return;
+    this.remember(observation);
+    if (this.historyStore) {
+      try {
+        await this.historyStore.save(observation);
+        this.historyPersistence = "healthy";
+      } catch {
+        this.historyPersistence = "unavailable";
+      }
+    }
+  }
+
+  private remember(observation: ProductionHealthObservation): void {
     const previous = this.history.at(-1);
     const gap = previous ? Date.parse(observation.startedUtc) - Date.parse(previous.finishedUtc) : Infinity;
     if (!observation.complete || observation.coverageGaps.length) this.continuousSinceUtc = null;

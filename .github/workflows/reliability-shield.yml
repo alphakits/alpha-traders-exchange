@@ -138,6 +138,9 @@ jobs:
       - name: Verify authenticated marketplace and Trade Room flows
         run: npm run test:e2e
 
+      - name: Repeat commission fee and carry-forward acceptance without retries
+        run: npm run test:e2e -- e2e/commission-carry-forward.spec.ts --retries=0 --repeat-each=3 --output=test-results/commission-repeat
+
       - name: Verify the bilingual trading journal and saved records
         run: |
           node scripts/build-journal-preview.mjs test-results/journal/Alpha-Traders-Trading-Journal.html

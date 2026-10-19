@@ -108,8 +108,20 @@ signed readiness and deployment liveness keep their original behavior.
 
 The scheduler allows only one probe at a time. Each subprocess has a four-minute
 deadline; timeout and shutdown stop the whole process group, including curl.
-Artifacts stay in a private temporary directory owned by that worker process.
-Restarting the worker resets the history and continuity claim. A failed/partial
+Full probe artifacts stay in a private temporary directory owned by that worker
+process. Allowlisted summaries are appended to the existing database's private
+`alpha_exchange.public_production_health_history` table. Apply migration
+`20261019042054_public_production_health_history.sql` before releasing this worker.
+The table retains one day; the public endpoint restores the latest 24 observations
+on restart. Older workers cannot overwrite newer observations. Browser database
+roles have no table access, and no response bodies or credentials are stored.
+
+`historyPersistence` is `healthy` after successful storage, `unavailable` after a
+read/write failure, or `disabled` when no store is configured. Storage failure
+keeps fresh probes running but makes the summary `verification_limited` until
+storage recovers. Restart continuity is recalculated from validated timestamps;
+stale, future, corrupt or out-of-order history cannot manufacture coverage.
+A failed/partial
 probe, a gap over 15 minutes or clock reversal resets `continuousSinceUtc`.
 Retained history bounds the advertised coverage window. Monitoring failures
 cannot fail Discord startup or trigger a deployment restart loop.

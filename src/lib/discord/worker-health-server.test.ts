@@ -59,6 +59,7 @@ describe("Discord worker health server", () => {
   it("serves cached public monitoring evidence without changing worker liveness or private readiness", async () => {
     const snapshot: ProductionHealthSnapshot = {
       schemaVersion: 1, source: "railway-worker", intervalSeconds: 300, maximumGapSeconds: 900,
+      historyPersistence: "healthy",
       status: "verification_limited", continuousSinceUtc: null, latest: null, history: [],
     };
     const getSnapshot = vi.fn(() => snapshot);

@@ -42,11 +42,11 @@ for (const locale of ["en", "ar"] as const) {
       await fee.locator("summary").click();
       await expect(fee).toContainText(locale === "en" ? "send 101" : "أرسل 101");
       await expect(fee).toContainText(locale === "en" ? "charges the fee separately" : "الرسوم بشكل منفصل");
-      await receiveHeading.evaluate(element => window.scrollTo(0, window.scrollY + element.getBoundingClientRect().top - 110));
-      const [cardBox, headingBox, feeBox] = await Promise.all([instructionCard.boundingBox(), receiveHeading.boundingBox(), fee.boundingBox()]);
-      expect(cardBox && headingBox && feeBox).toBeTruthy();
-      await page.screenshot({ path: testInfo.outputPath(`commission-before-${device}-${locale}.png`), animations: "disabled",
-        clip: { x: cardBox!.x, y: headingBox!.y - 8, width: cardBox!.width, height: feeBox!.y + feeBox!.height - headingBox!.y + 16 } });
+      await expect(fee).toHaveAttribute("open", "");
+      // Let Playwright scroll and capture one stable element. Concurrent layout
+      // measurements after a scroll stalled Chromium in the scheduled run.
+      await instructionCard.screenshot({ path: testInfo.outputPath(`commission-before-${device}-${locale}.png`),
+        animations: "disabled", timeout: 10_000 });
       stage = "received";
       await page.getByRole("button", { name: locale === "en" ? "Refresh payment status" : "تحديث حالة الدفع", exact: true }).click();
       await expect(page.getByRole("status").filter({ hasText: locale === "en" ? "Payment verified" : "تم تأكيد الدفع" })).toBeVisible();
