@@ -1,7 +1,7 @@
 // @vitest-environment node
 
 import { EventEmitter } from "node:events";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -42,6 +42,57 @@ afterEach(async () => {
 });
 
 describe("continuous public production health", () => {
+  it("restores earlier observations and incident context after a worker restart", async () => {
+    const retained = [report(epoch - 300_000)];
+    const historyStore = { load: async () => retained, save: vi.fn(async () => undefined) };
+    const probe = vi.fn(async (_output: string, previous: string | undefined) => {
+      expect(JSON.parse(await readFile(previous!, "utf8"))).toEqual(retained[0]);
+      return report();
+    });
+    const worker = new ProductionHealthWorker({ historyStore, probe, now: () => epoch });
+    workers.push(worker);
+    await worker.start();
+    await vi.waitFor(() => expect(historyStore.save).toHaveBeenCalledOnce());
+    expect(worker.getSnapshot()).toMatchObject({ historyPersistence: "healthy", status: "healthy",
+      continuousSinceUtc: retained[0].startedUtc, history: [retained[0], report()] });
+  });
+
+  it("retains old evidence but resets continuity when restart missed the freshness window", async () => {
+    const old = report(epoch - 900_001);
+    const historyStore = { load: async () => [old], save: vi.fn(async () => undefined) };
+    const worker = new ProductionHealthWorker({ historyStore, probe: async () => report(), now: () => epoch });
+    workers.push(worker);
+    await worker.start();
+    await vi.waitFor(() => expect(historyStore.save).toHaveBeenCalledOnce());
+    expect(worker.getSnapshot()).toMatchObject({ continuousSinceUtc: report().startedUtc, history: [old, report()] });
+  });
+
+  it("keeps probing through history read/write failure and recovers persistence on the next observation", async () => {
+    vi.useFakeTimers(); vi.setSystemTime(epoch);
+    const historyStore = { load: vi.fn().mockRejectedValue(new Error("private database detail")),
+      save: vi.fn().mockRejectedValueOnce(new Error("private write detail")).mockResolvedValue(undefined) };
+    const worker = new ProductionHealthWorker({ historyStore, probe: async () => report(Date.now()) });
+    workers.push(worker);
+    await worker.start(); await flush();
+    expect(worker.getSnapshot()).toMatchObject({ status: "verification_limited", historyPersistence: "unavailable" });
+    expect(worker.getSnapshot().latest?.complete).toBe(true);
+    expect(JSON.stringify(worker.getSnapshot())).not.toContain("private");
+    await vi.advanceTimersByTimeAsync(300_000);
+    expect(worker.getSnapshot()).toMatchObject({ status: "healthy", historyPersistence: "healthy" });
+    expect(historyStore.save).toHaveBeenCalledTimes(2);
+  });
+
+  it.each(["future", "out-of-order", "corrupt"])("does not restore %s evidence as continuous coverage", async kind => {
+    const saved = kind === "future" ? [report(epoch + 60_001)] : kind === "out-of-order"
+      ? [report(epoch - 1), report(epoch - 2)] : [{ ...report(), complete: false }];
+    const historyStore = { load: async () => saved, save: vi.fn(async () => undefined) };
+    const worker = new ProductionHealthWorker({ historyStore, probe: async () => report(), now: () => epoch });
+    workers.push(worker);
+    await worker.start(); await flush();
+    expect(worker.getSnapshot().history).toEqual([report()]);
+    expect(worker.getSnapshot().continuousSinceUtc).toBe(report().startedUtc);
+  });
+
   it("serves an allowlisted summary without response bodies or private diagnostics", () => {
     expect(readProductionHealthObservation({
       ...report(), observations: [{ body: "private" }], headers: { cookie: "private" }, token: "private",
