@@ -111,7 +111,7 @@ deadline; timeout and shutdown stop the whole process group, including curl.
 Full probe artifacts stay in a private temporary directory owned by that worker
 process. Allowlisted summaries are appended to the existing database's private
 `alpha_exchange.public_production_health_history` table. Apply migration
-`20261019041423_public_production_health_history.sql` before releasing this worker.
+`20261019042054_public_production_health_history.sql` before releasing this worker.
 The table retains one day; the public endpoint restores the latest 24 observations
 on restart. Older workers cannot overwrite newer observations. Browser database
 roles have no table access, and no response bodies or credentials are stored.

@@ -27,3 +27,7 @@ idempotent append, retention, denied browser-role reads, corrupt history,
 restart restoration, gaps, storage failures and recovery, and the commission
 component tests. Production/provider settlement and physical devices are
 separate acceptance boundaries; passing these checks does not certify them.
+
+Production migration applied as `20261019042054_public_production_health_history`;
+RLS is enabled and both anonymous and authenticated browser roles lack SELECT.
+The repository filename matches the actual deployed migration version.

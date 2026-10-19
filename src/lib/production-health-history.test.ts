@@ -16,7 +16,7 @@ const store = () => new PostgresProductionHealthHistory(db as unknown as Pick<Po
 beforeEach(async () => {
   db = new PGlite();
   await db.exec("CREATE SCHEMA alpha_exchange; CREATE ROLE anon; CREATE ROLE authenticated; CREATE ROLE service_role BYPASSRLS; GRANT USAGE ON SCHEMA alpha_exchange TO anon, authenticated;");
-  await db.exec(readFileSync("supabase/migrations/20261019041423_public_production_health_history.sql", "utf8"));
+  await db.exec(readFileSync("supabase/migrations/20261019042054_public_production_health_history.sql", "utf8"));
 });
 afterEach(async () => { await db.close(); });
 
