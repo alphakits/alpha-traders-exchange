@@ -46,7 +46,7 @@ type Queryable = Pool | PoolClient;
 // This index is the final object created by SCHEMA_SQL. Its presence proves
 // that the current runtime schema bootstrap completed successfully. When the
 // schema changes, append the new statements and advance this sentinel too.
-const CURRENT_SCHEMA_SENTINEL = "alpha_exchange.idx_alpha_exchange_commissions_unpaid_seller";
+const CURRENT_SCHEMA_SENTINEL = "alpha_exchange.idx_alpha_exchange_audit_logs_request_sort";
 
 type EvidenceWriteMap = Map<string, Buffer>;
 
@@ -487,6 +487,14 @@ const SCHEMA_SQL = [
   "create index if not exists idx_alpha_exchange_evidence_blobs_updated on alpha_exchange.evidence_blobs (updated_at desc)",
   "create index if not exists idx_alpha_exchange_commissions_seller_status on alpha_exchange.commissions (seller_id, payment_status, due_at)",
   "create index if not exists idx_alpha_exchange_commissions_unpaid_seller on alpha_exchange.commissions (seller_id) where payment_status <> 'paid'",
+  // Keep fresh databases aligned with the lifecycle read-index migration.
+  "create index if not exists idx_alpha_exchange_notifications_sort on alpha_exchange.notifications (sort_index)",
+  "create index if not exists idx_alpha_exchange_audit_logs_sort on alpha_exchange.audit_logs (sort_index)",
+  "create index if not exists idx_alpha_exchange_activity_logs_sort on alpha_exchange.activity_logs (sort_index)",
+  "create index if not exists idx_alpha_exchange_evidence_sort on alpha_exchange.evidence (sort_index)",
+  "create index if not exists idx_alpha_exchange_sms_deliveries_sort on alpha_exchange.sms_deliveries (sort_index)",
+  "create index if not exists idx_alpha_exchange_notifications_request_sort on alpha_exchange.notifications ((payload->>'relatedRequestId'), sort_index)",
+  "create index if not exists idx_alpha_exchange_audit_logs_request_sort on alpha_exchange.audit_logs (purchase_request_id, sort_index)",
 ];
 
 const DEFAULT_DB = alphaExchangeSeed as unknown as AlphaExchangeDb;

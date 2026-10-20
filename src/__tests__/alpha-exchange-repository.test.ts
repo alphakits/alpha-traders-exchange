@@ -224,7 +224,7 @@ describe("AlphaExchangeRepository", () => {
     expect(query).toHaveBeenNthCalledWith(
       1,
       "select to_regclass($1) is not null as ready",
-      ["alpha_exchange.idx_alpha_exchange_commissions_unpaid_seller"],
+      ["alpha_exchange.idx_alpha_exchange_audit_logs_request_sort"],
     );
     expect(query.mock.calls.some(([sql]) => String(sql).includes("create schema"))).toBe(false);
   });
@@ -271,6 +271,7 @@ describe("AlphaExchangeRepository", () => {
     expect(query.mock.calls.some(([sql]) => String(sql).includes("create table if not exists alpha_exchange.evidence_blobs"))).toBe(true);
     expect(query.mock.calls.some(([sql]) => String(sql).includes("idx_alpha_exchange_evidence_blobs_updated"))).toBe(true);
     expect(query.mock.calls.some(([sql]) => String(sql).includes("idx_alpha_exchange_commissions_unpaid_seller"))).toBe(true);
+    expect(query.mock.calls.some(([sql]) => String(sql).includes("idx_alpha_exchange_audit_logs_request_sort"))).toBe(true);
   });
 
   it("loads unpaid commission seller IDs with one targeted canonical query", async () => {
