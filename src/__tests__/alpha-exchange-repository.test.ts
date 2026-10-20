@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, rmSync, writeFileSync } from "fs";
 import path from "path";
 import type { Pool } from "pg";
 import type { AlphaExchangeDb } from "@/types/alpha-exchange";
+import { ALPHA_EXCHANGE_OWNER_EMAIL } from "@/lib/alpha-exchange-identity";
 
 const mockPool = { query: vi.fn(), connect: vi.fn(), on: vi.fn() } as unknown as Pool;
 
@@ -306,7 +307,7 @@ describe("AlphaExchangeRepository", () => {
       if (queryText.includes("to_regclass")) return Promise.resolve({ rows: [{ ready: true }] });
       if (queryText.includes("count(*)::text")) return Promise.resolve({ rows: [{ count: "1" }] });
       if (queryText.includes("with candidate_seller_ids as materialized")) {
-        expect(values).toEqual(["buyer-1"]);
+        expect(values).toEqual(["buyer-1", ALPHA_EXCHANGE_OWNER_EMAIL]);
         expect(queryText).toContain("where status in ('active', 'matched', 'in_trade')");
         expect(queryText).toContain("request.seller_id in (select seller_id from candidate_seller_ids)");
         expect(queryText).toContain("commission.seller_id in (select seller_id from candidate_seller_ids)");
@@ -438,7 +439,7 @@ describe("AlphaExchangeRepository", () => {
     expect(snapshot?.auditLogs[0]).toMatchObject({ id: "completed-audit" });
     expect(snapshot?.users).toContainEqual(expect.objectContaining({ id: "owner", role: "owner" }));
     expect(query).toHaveBeenCalledTimes(1);
-    expect(query).toHaveBeenCalledWith(expect.stringContaining("audit.purchase_request_id = request.id"), [["history-trade"], "history-trade", "owner", true]);
+    expect(query).toHaveBeenCalledWith(expect.stringContaining("audit.purchase_request_id = request.id"), [["history-trade"], "history-trade", "owner", true, ALPHA_EXCHANGE_OWNER_EMAIL]);
   });
 
   it.each([
@@ -658,19 +659,19 @@ describe("AlphaExchangeRepository", () => {
         return Promise.resolve({ rows: [{ version: "21", users: [account], seller_applications: [] }] });
       }
       if (queryText.includes("with visible_requests as materialized")) {
-        expect(values).toEqual(["buyer-1", false, null]);
+        expect(values).toEqual(["buyer-1", false, null, ALPHA_EXCHANGE_OWNER_EMAIL]);
         expect(queryText).toContain("from alpha_exchange.listings listing");
         expect(queryText).toContain("select buyer_id from visible_requests union select seller_id from visible_requests");
         return Promise.resolve({ rows: [{ version: "22", users: [account], listings: [listing], purchase_requests: [request], evidence: [] }] });
       }
       if (queryText.includes("with candidate_request as materialized")) {
-        expect(values).toEqual(["buyer-1", false, ["accepted", "payment_sent"], true, 1]);
+        expect(values).toEqual(["buyer-1", false, ["accepted", "payment_sent"], true, 1, ALPHA_EXCHANGE_OWNER_EMAIL]);
         expect(queryText).toContain("order by updated_at desc");
         expect(queryText).toContain("limit $5::integer");
         return Promise.resolve({ rows: [{ version: "22", users: [account], listings: [listing], purchase_requests: [request] }] });
       }
       if (queryText.includes("with recipient_notifications as materialized")) {
-        expect(values).toEqual(["buyer-1", false]);
+        expect(values).toEqual(["buyer-1", false, ALPHA_EXCHANGE_OWNER_EMAIL]);
         return Promise.resolve({
           rows: [{
             version: "23",
@@ -742,7 +743,7 @@ describe("AlphaExchangeRepository", () => {
         });
       }
       if (queryText.includes("from alpha_exchange.marketplace_enforcement_audit_log where seller_id = $1")) {
-        expect(values).toEqual(["seller-1"]);
+        expect(values).toEqual(["seller-1", ALPHA_EXCHANGE_OWNER_EMAIL]);
         return Promise.resolve({
           rows: [{
             version: "32",
