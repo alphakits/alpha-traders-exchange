@@ -33,3 +33,11 @@ The broad local unit run exceeded the command's six-minute budget and was stoppe
 Next work is to reduce the broad evidence snapshot read/merge/write path and its lock queue while proving all concurrent financial invariants. A passing CI retry alone does not resolve the reproduced timing failure.
 
 Final focused verification: 106 tests across repository, transaction and scoped-privacy suites passed. The 8 MiB batch boundary is covered by two 5 MiB buffers plus a null-content record.
+
+## First draft CI result
+
+CI1095 on fd9af822 completed with five successful and four failed jobs. The exact candidate passed all 36 database correctness checks, but one of the 240 measured business actions exceeded the unchanged target: median 352.559 ms, p95 808.735 ms, maximum 1,094.201 ms. This confirms that the final bounded implementation still needs latency work.
+
+The complete unit run passed 5,798 of 5,799 tests. Its sole failure was an older recovery test that expected the now-removed production fallback mirror. The follow-up corrects that assertion to require no snapshot or evidence mirror; the durable recovery, version and initialization-retry assertions remain intact. All 82 tests in the recovery, repository and scoped-privacy suites then passed, with changed-file lint and whitespace checks clean. The earlier 106-test result remains separate evidence.
+
+WebKit shard 4 reported an intermittent focus failure in the action transition matrix: the visible #action-required section was inactive. The runner classifies the case as flaky and correctly fails the job. It remains unresolved; no focus assertion, retry policy or release gate is weakened. Browser source was unchanged in this database draft.
