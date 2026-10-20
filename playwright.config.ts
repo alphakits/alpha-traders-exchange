@@ -19,7 +19,11 @@ export default defineConfig({
     headless: true,
   },
   webServer: {
-    command: `npm run clean && npm run build && npm run start -- -H 127.0.0.1 -p ${E2E_PORT}`,
+    // APIRequestContext pools HTTP connections while browser actions run.
+    // Keep the loopback server's idle sockets alive across those interactions;
+    // reducing exposure to idle-close races after CI1089's ECONNRESET failures.
+    // This does not extend request/test deadlines or retry financial actions.
+    command: `npm run clean && npm run build && npm run start -- -H 127.0.0.1 -p ${E2E_PORT} --keepAliveTimeout 65000`,
     url: E2E_BASE_URL,
     reuseExistingServer: false,
     timeout: 600_000,
