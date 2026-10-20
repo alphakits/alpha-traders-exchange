@@ -1,7 +1,6 @@
 import { test, expect, request as pwRequest, type APIRequestContext, type Page } from "@playwright/test";
 import { randomBytes, randomUUID, scrypt as scryptCb } from "node:crypto";
 import { promisify } from "node:util";
-import { resolveBuyerFixture, cleanupBuyerFixture, type BuyerFixture } from "./support/buyer-fixture";
 import { E2E_BASE_URL } from "./support/base-url";
 import { createE2eSellerApprovalVerification } from "./support/seller-verification";
 import type { MarketSnapshot } from "../src/types/market";
@@ -18,11 +17,15 @@ async function hashPassword(password: string) {
   return `${salt}:${derived.toString("hex")}`;
 }
 
-let buyer: BuyerFixture | undefined;
+// A whole-file diagnostic retry must not reuse the preceding worker's login
+// budget. Give this serial scenario its own ordinary, verified buyer, just as
+// its sellers and admin already have isolated identities.
+const buyerPassword = `Pv!${randomBytes(18).toString("base64url")}`;
 const sellerPassword = `Pv!${randomBytes(18).toString("base64url")}`;
 const formsPassword = `Pv!${randomBytes(18).toString("base64url")}`;
 const adminPassword = `Pv!${randomBytes(18).toString("base64url")}`;
 const ids = {
+  buyer: `pv-buyer-${randomUUID()}`,
   sellerOnline: `pv-online-${randomUUID()}`,
   sellerForms: `pv-forms-${randomUUID()}`,
   sellerRecent: `pv-recent-${randomUUID()}`,
@@ -38,6 +41,7 @@ const ids = {
   prActive: `pv-pr-active-${randomUUID()}`,
   prDone: `pv-pr-done-${randomUUID()}`,
 };
+const buyer = { email: `${ids.buyer}@example.test`, password: buyerPassword };
 const sellerEmail = `${ids.sellerOnline}@example.test`;
 const formsEmail = `${ids.sellerForms}@example.test`;
 const adminEmail = `${ids.admin}@example.test`;
@@ -91,12 +95,24 @@ function mkTrade(id: string, sellerId: string, listingId: string, status: string
 }
 
 async function provision(request: APIRequestContext) {
+  const buyerHash = await hashPassword(buyerPassword);
   const sellerHash = await hashPassword(sellerPassword);
   const formsHash = await hashPassword(formsPassword);
   const adminHash = await hashPassword(adminPassword);
   const db = (await (await request.get("/api/testing/alpha-exchange-state", { headers: H })).json()) as Record<string, unknown>;
   db.users = [
     ...(Array.isArray(db.users) ? db.users : []),
+    {
+      id: ids.buyer, fullName: "PV Buyer", email: buyer.email, passwordHash: buyerHash,
+      role: "buyer", roles: ["buyer"], sellerStatus: "buyer",
+      emailVerified: true, emailVerifiedAt: iso(0),
+      whatsappNumber: "+972500000097", verifiedPhone: "+972500000097", phoneVerifiedAt: iso(0),
+      buyerVerificationStatus: "verified", buyerFirstName: "PV", buyerLastName: "Buyer", buyerDisplayName: "PV Buyer",
+      onboardingSelection: "buyer", onboardingCompletedAt: iso(0),
+      preferredNetworks: [], languages: ["English"], profilePhotoUrl: "", bio: "",
+      onlineStatus: "online", availabilityStatus: "available", isFoundingSeller: false,
+      createdAt: iso(0), updatedAt: iso(0),
+    },
     mkUser(ids.sellerOnline, "PV Online", { onlineStatus: "online", lastActiveAt: iso(-30 * 1000), emailVerified: true, passwordHash: sellerHash }),
     mkUser(ids.sellerForms, "PV Forms", { onlineStatus: "online", lastActiveAt: iso(-30 * 1000), emailVerified: true, passwordHash: formsHash }),
     mkUser(ids.sellerRecent, "PV Recent", { onlineStatus: "offline", lastActiveAt: iso(-25 * 60 * 1000), emailVerified: true, passwordHash: sellerHash }),
@@ -129,22 +145,13 @@ async function cleanup(request: APIRequestContext) {
     : Array.isArray(v) ? v.some(refs)
     : v && typeof v === "object" ? Object.values(v as Record<string, unknown>).some(refs) : false;
   for (const [k, v] of Object.entries(db)) if (Array.isArray(v)) db[k] = v.filter((r) => !refs(r));
-  await request.put("/api/testing/alpha-exchange-state", { headers: H, data: db });
+  const response = await request.put("/api/testing/alpha-exchange-state", { headers: H, data: db });
+  expect(response.ok(), await response.text()).toBeTruthy();
 }
 
 async function login(ctx: APIRequestContext, email: string, password: string) {
-  let lastStatus: number | null = null;
-  let lastBody = "";
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    const r = await ctx.post("/api/auth/login", { headers: { "x-forwarded-for": "198.51.100.17" }, data: { email, password, rememberMe: true } });
-    if (r.ok()) return;
-    lastStatus = r.status();
-    lastBody = await r.text().catch(() => "");
-    if (attempt < 2) {
-      await new Promise((resolve) => setTimeout(resolve, 300));
-    }
-  }
-  throw new Error(`login ${email} failed (${lastStatus ?? "unknown"}): ${lastBody}`);
+  const response = await ctx.post("/api/auth/login", { headers: { "x-forwarded-for": "198.51.100.17" }, data: { email, password, rememberMe: true } });
+  expect(response.ok(), `login ${email} failed (${response.status()}): ${await response.text()}`).toBeTruthy();
 }
 async function gotoMarketplace(page: Page) {
   await page.goto("/en/usdt-exchange");
@@ -160,16 +167,12 @@ test.describe.configure({ mode: "serial" });
 
 test.beforeAll(async () => {
   const ctx = await pwRequest.newContext({ baseURL: E2E_BASE_URL });
-  await provision(ctx);
-  await ctx.dispose();
-  buyer = await resolveBuyerFixture((process.env.E2E_BUYER_EMAIL ?? "").toLowerCase(), process.env.E2E_BUYER_PASSWORD ?? "");
+  try { await provision(ctx); } finally { await ctx.dispose(); }
 });
 
 test.afterAll(async () => {
   const ctx = await pwRequest.newContext({ baseURL: E2E_BASE_URL });
-  await cleanup(ctx);
-  await ctx.dispose();
-  await cleanupBuyerFixture(buyer);
+  try { await cleanup(ctx); } finally { await ctx.dispose(); }
 });
 
 // ── MOBILE ──────────────────────────────────────────────────────────────────

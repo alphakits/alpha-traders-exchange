@@ -88,6 +88,7 @@ import { ADULT_CONFIRMATION_METHOD, hasAdultConfirmation, needsAdultConfirmation
 import { normalizeSellerLevel } from "@/types/alpha-exchange";
 import { accountRoleIdentity } from "@/lib/account-role-identity";
 import { publicAccountId, publicAccountName, accountNameForViewer, isPublicOwnerIdentity, ownerIdentityText, identityTextRedactor } from "@/lib/public-account-identity";
+import { getSnapshotIdentityUsers, preserveSnapshotIdentityDirectory, type SnapshotIdentity } from "@/lib/alpha-exchange-identity-directory";
 import { publicAccountUsername } from "@/lib/public-account-username";
 import { validateUploadContent } from "@/lib/file-content-validation";
 import { toAdminSellerSummary, toAdminUserSummary } from "@/lib/client-session-user";
@@ -772,10 +773,11 @@ function enrichNotification(db: AlphaExchangeDb, notification: AlphaExchangeNoti
         ? "Application update"
         : "Alpha Exchange update";
   const ownerRecipient = recipient;
-  const visibleText = isPublicOwnerIdentity(ownerRecipient) ? ownerIdentityText(db.users) : identityTextRedactor([
-    ...db.users,
-    ...(request ? [{ ...db.users.find(user => user.id === request.buyerId), id: request.buyerId, fullName: request.buyerName }] : []),
-    ...(listing ? [{ role: "approved_seller", ...db.users.find(user => user.id === listing.sellerId), id: listing.sellerId, fullName: listing.sellerDisplayName }] : []),
+  const identities = getSnapshotIdentityUsers(db);
+  const visibleText = isPublicOwnerIdentity(ownerRecipient) ? ownerIdentityText(identities) : identityTextRedactor([
+    ...identities,
+    ...(request ? [{ ...identities.find(user => user.id === request.buyerId), id: request.buyerId, fullName: request.buyerName }] : []),
+    ...(listing ? [{ role: "approved_seller", ...identities.find(user => user.id === listing.sellerId), id: listing.sellerId, fullName: listing.sellerDisplayName }] : []),
   ]);
   let title = visibleText(notification.title?.trim() || fallbackTitle);
   let message = visibleText(notification.message?.trim() || "Open notifications for the latest account update.");
@@ -1687,17 +1689,20 @@ function buildPrestigeFieldsForSnapshot(input: { volumeUsdt: number; rank: Selle
 }
 
 async function withLiveUserPresence(db: AlphaExchangeDb): Promise<AlphaExchangeDb> {
+  let updated: AlphaExchangeDb;
   try {
     const presence = await readUserPresence(db.users.map(user => user.id));
-    return { ...db, users: db.users.map(user => ({ ...user,
+    updated = { ...db, users: db.users.map(user => ({ ...user,
       onlineStatus: user.disabled ? "offline" : presence[user.id]?.onlineStatus ?? "offline",
       lastActiveAt: presence[user.id]?.lastActiveAt ?? undefined,
       lastSeenAt: presence[user.id]?.lastSeenAt ?? undefined,
     })) };
   } catch {
     // Presence outages cannot block trading or fabricate a green status.
-    return { ...db, users: db.users.map(user => ({ ...user, onlineStatus: "offline", lastActiveAt: undefined, lastSeenAt: undefined })) };
+    updated = { ...db, users: db.users.map(user => ({ ...user, onlineStatus: "offline", lastActiveAt: undefined, lastSeenAt: undefined })) };
   }
+  preserveSnapshotIdentityDirectory(db, updated);
+  return updated;
 }
 
 export async function getVisibleUserPresence(userIds: string[], viewer?: AlphaExchangeUser) {
@@ -1708,9 +1713,9 @@ export async function getVisibleUserPresence(userIds: string[], viewer?: AlphaEx
   return Object.fromEntries(users.map(user => [user.id, visibleUserPresence(user, presence[user.id], viewer)]));
 }
 
-function buildSellerPublicProfile(user: AlphaExchangeUser, viewer?: AlphaExchangeUser): SellerPublicProfile {
+function buildSellerPublicProfile(user: AlphaExchangeUser, viewer: AlphaExchangeUser | undefined, identities: readonly SnapshotIdentity[]): SellerPublicProfile {
   const ownerView = isPublicOwnerIdentity(viewer);
-  const visibleText = ownerView ? (value?: string) => value ?? "" : identityTextRedactor([user], true);
+  const visibleText = ownerView ? (value?: string) => value ?? "" : identityTextRedactor(identities, true);
   return {
     sellerId: user.id,
     sellerName: accountNameForViewer(user, viewer),
@@ -2179,7 +2184,8 @@ function enrichListingsWithSellerData(
   publicAvailability = false,
 ) {
   const viewer = db.users.find(user => user.id === viewerUserId);
-  const visibleText = isPublicOwnerIdentity(viewer) ? (value?: string) => value ?? "" : identityTextRedactor([...db.users, ...listings.map(listing => ({ role: "approved_seller", ...db.users.find(user => user.id === listing.sellerId), id: listing.sellerId, fullName: listing.sellerDisplayName }))], true);
+  const identities = getSnapshotIdentityUsers(db);
+  const visibleText = isPublicOwnerIdentity(viewer) ? (value?: string) => value ?? "" : identityTextRedactor([...identities, ...listings.map(listing => ({ role: "approved_seller", ...identities.find(user => user.id === listing.sellerId), id: listing.sellerId, fullName: listing.sellerDisplayName }))], true);
   const usersById = new Map(db.users.map((user) => [user.id, user]));
   return listings.map((listing) => {
     const seller = usersById.get(listing.sellerId);
@@ -2202,7 +2208,7 @@ function enrichListingsWithSellerData(
     return {
       ...publicListing,
       sellerDisplayName: accountNameForViewer(seller, viewer),
-      sellerProfile: buildSellerPublicProfile(seller, viewer),
+      sellerProfile: buildSellerPublicProfile(seller, viewer, identities),
       sellerReputation: publicSellerReputation(snapshots.get(seller.id) ?? computeSellerReputationSnapshot(db, seller.id)),
     };
   });
@@ -2390,7 +2396,7 @@ export async function getPremiumSellerProfile(input: {
     .slice(0, 12);
 
   const profile: SellerPublicProfile = {
-    ...buildSellerPublicProfile(seller, profileViewer),
+    ...buildSellerPublicProfile(seller, profileViewer, getSnapshotIdentityUsers(db)),
     ...(viewerIsOwner ? { contact: publicAccount.profile.contact } : {}),
     sellerName: publicAccount.profile.publicTradingName,
     publicTradingName: publicAccount.profile.publicTradingName,
@@ -3503,6 +3509,7 @@ function normalizeDb(db: AlphaExchangeDb): AlphaExchangeDb {
   }
 
   ensureDisplayNumbers(normalized);
+  preserveSnapshotIdentityDirectory(db, normalized);
   return normalized;
 }
 
@@ -5892,9 +5899,10 @@ function enrichRequestWithEvidence(db: AlphaExchangeDb, request: PurchaseRequest
   const buyer = db.users.find(user => user.id === request.buyerId);
   const viewer = db.users.find(user => user.id === viewerUserId);
   const ownerView = isPublicOwnerIdentity(viewer);
-  const identities = [...db.users, { ...buyer, id: request.buyerId, fullName: request.buyerName }];
-  const visibleText = ownerView ? ownerIdentityText(db.users) : identityTextRedactor(identities);
-  const authoredText = ownerView ? ownerIdentityText(db.users) : identityTextRedactor(identities, true);
+  const identityUsers = getSnapshotIdentityUsers(db);
+  const identities = [...identityUsers, { ...(identityUsers.find(user => user.id === request.buyerId) ?? buyer), id: request.buyerId, fullName: request.buyerName }];
+  const visibleText = ownerView ? ownerIdentityText(identityUsers) : identityTextRedactor(identities);
+  const authoredText = ownerView ? ownerIdentityText(identityUsers) : identityTextRedactor(identities, true);
   return {
     ...request,
     buyerName: accountNameForViewer(buyer ?? { id: request.buyerId, fullName: request.buyerName }, viewer),
@@ -11768,9 +11776,10 @@ export async function getTradeRoomData(input: {
   const payableSellerCommission = sellerPendingCommissions.find((record) => record.purchaseRequestId === request.id)
     ?? sellerPendingCommissions[0];
   const canViewSellerCommission = canViewPrivateContent || request.sellerId === input.actorUserId;
+  const identityUsers = getSnapshotIdentityUsers(db);
   const visibleMessageText = canViewPrivateContent
-    ? ownerIdentityText(db.users)
-    : identityTextRedactor([...db.users, { ...buyer, id: request.buyerId, fullName: request.buyerName }], true);
+    ? ownerIdentityText(identityUsers)
+    : identityTextRedactor([...identityUsers, { ...(identityUsers.find(user => user.id === request.buyerId) ?? buyer), id: request.buyerId, fullName: request.buyerName }], true);
   const identityActors = canViewPrivateContent ? new Set([
     request.buyerId, request.sellerId,
     ...messages.map(message => message.senderUserId),
@@ -17834,7 +17843,8 @@ export async function getNotificationsForUser(input: {
   const safeOffset = Math.max(0, Math.floor(input.offset ?? 0));
   const safeLimit = Math.max(1, Math.min(200, Math.floor(input.limit ?? 200)));
   const unreadCount = sortedNotifications.filter((item) => item.state === "unread").length;
-  const redactActivity = isPublicOwnerIdentity(db.users.find(user => user.id === input.userId)) ? ownerIdentityText(db.users) : identityTextRedactor(db.users);
+  const identityUsers = getSnapshotIdentityUsers(db);
+  const redactActivity = isPublicOwnerIdentity(db.users.find(user => user.id === input.userId)) ? ownerIdentityText(identityUsers) : identityTextRedactor(identityUsers);
   const activity = input.includeActivity === false ? [] : db.activityLog.filter((entry) => entry.userId === input.userId).slice(0, 120).map(entry => ({ ...entry, title: redactActivity(entry.title), details: redactActivity(entry.details) }));
   const clientNotifications = sortedNotifications
     .slice(safeOffset, safeOffset + safeLimit)

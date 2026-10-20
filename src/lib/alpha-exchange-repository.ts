@@ -11,6 +11,7 @@ import { isProductionSecurityRuntime, allowsRuntimeDiagnostics } from "@/lib/run
 import { logEvent } from "@/lib/structured-logging";
 import { isPublicOwnerIdentity } from "@/lib/public-account-identity";
 import { ALPHA_EXCHANGE_OWNER_EMAIL } from "@/lib/alpha-exchange-identity";
+import { compactSnapshotIdentities, setSnapshotIdentityDirectory, type SnapshotIdentity } from "@/lib/alpha-exchange-identity-directory";
 import { listingCommissionRequiredMessage } from "@/lib/listing-commission-policy";
 import type {
   AlphaExchangeDb,
@@ -46,7 +47,7 @@ type Queryable = Pool | PoolClient;
 // This index is the final object created by SCHEMA_SQL. Its presence proves
 // that the current runtime schema bootstrap completed successfully. When the
 // schema changes, append the new statements and advance this sentinel too.
-const CURRENT_SCHEMA_SENTINEL = "alpha_exchange.idx_alpha_exchange_commissions_unpaid_seller";
+const CURRENT_SCHEMA_SENTINEL = "alpha_exchange.idx_alpha_exchange_audit_logs_request_sort";
 
 type EvidenceWriteMap = Map<string, Buffer>;
 
@@ -487,6 +488,14 @@ const SCHEMA_SQL = [
   "create index if not exists idx_alpha_exchange_evidence_blobs_updated on alpha_exchange.evidence_blobs (updated_at desc)",
   "create index if not exists idx_alpha_exchange_commissions_seller_status on alpha_exchange.commissions (seller_id, payment_status, due_at)",
   "create index if not exists idx_alpha_exchange_commissions_unpaid_seller on alpha_exchange.commissions (seller_id) where payment_status <> 'paid'",
+  // Keep fresh databases aligned with the lifecycle read-index migration.
+  "create index if not exists idx_alpha_exchange_notifications_sort on alpha_exchange.notifications (sort_index)",
+  "create index if not exists idx_alpha_exchange_audit_logs_sort on alpha_exchange.audit_logs (sort_index)",
+  "create index if not exists idx_alpha_exchange_activity_logs_sort on alpha_exchange.activity_logs (sort_index)",
+  "create index if not exists idx_alpha_exchange_evidence_sort on alpha_exchange.evidence (sort_index)",
+  "create index if not exists idx_alpha_exchange_sms_deliveries_sort on alpha_exchange.sms_deliveries (sort_index)",
+  "create index if not exists idx_alpha_exchange_notifications_request_sort on alpha_exchange.notifications ((payload->>'relatedRequestId'), sort_index)",
+  "create index if not exists idx_alpha_exchange_audit_logs_request_sort on alpha_exchange.audit_logs (purchase_request_id, sort_index)",
 ];
 
 const DEFAULT_DB = alphaExchangeSeed as unknown as AlphaExchangeDb;
@@ -1373,7 +1382,24 @@ function getTable(name: string) {
 
 type AggregatedSnapshotRow = {
   version?: string | null;
+  identity_directory?: SnapshotIdentity[];
 } & Partial<Record<SnapshotTableName, unknown>>;
+
+// Read names needed by free-text redaction in the same statement as scoped
+// authority rows. Parameter positions are supplied only by the callers below.
+function canonicalIdentityDirectorySql(ownerParameter: number) {
+  return `coalesce((select json_agg(json_build_object(
+    'id', id, 'fullName', payload->>'fullName', 'buyerDisplayName', payload->>'buyerDisplayName',
+    'role', case when lower(btrim(coalesce(payload->>'email', ''))) = $${ownerParameter} then 'owner' else payload->>'role' end,
+    'roles', case when jsonb_typeof(payload->'roles') = 'array' then payload->'roles' else '[]'::jsonb end,
+    'disabled', payload->'disabled'
+  ) order by sort_index) from alpha_exchange.users), '[]'::json)`;
+}
+
+function withFallbackIdentityDirectory<T extends AlphaExchangeDb>(snapshot: T, source: AlphaExchangeDb): T {
+  setSnapshotIdentityDirectory(snapshot, compactSnapshotIdentities(source.users));
+  return snapshot;
+}
 
 /**
  * Reads every requested JSON payload collection in one PostgreSQL statement.
@@ -1421,13 +1447,15 @@ function snapshotFromAggregatedRow(
   row: AggregatedSnapshotRow | undefined,
   tableNames: readonly SnapshotTableName[],
 ) {
-  return snapshotFromTableRows(tableNames.map((tableName) => {
+  const snapshot = snapshotFromTableRows(tableNames.map((tableName) => {
     const payloads = row?.[tableName];
     return {
       tableName,
       rows: (Array.isArray(payloads) ? payloads : []).map((payload) => ({ payload })),
     };
   }));
+  if (row?.identity_directory) setSnapshotIdentityDirectory(snapshot, row.identity_directory);
+  return snapshot;
 }
 
 async function upsertUsersTable(tx: PoolClient, rows: AlphaExchangeUser[], rowSortIndexes?: ReadonlyMap<string, number>) {
@@ -2354,7 +2382,7 @@ export class AlphaExchangeRepository {
       } : {};
       const retryProjection = Boolean(requestId && nextStatus);
       const scopedRetryUsers = retryProjection && Boolean(actorUserId) && selectedNames.includes("users");
-      const scopedParticipantUsers = scopedRetryUsers && (nextStatus === "accepted" || nextStatus === "completed");
+      const scopedParticipantUsers = scopedRetryUsers && ["accepted", "payment_sent", "funds_received", "usdt_release_pending", "usdt_sent", "completed"].includes(nextStatus ?? "");
       // A terminal retry still goes through every store permission/credential
       // guard, but cannot write. Its response needs the canonical request,
       // identities, evidence and disputes, not unrelated financial/history rows.
@@ -2399,16 +2427,24 @@ export class AlphaExchangeRepository {
       });
       const scopedNames = selectedNames.filter(name => filters[name]);
       const boundsSql = scopedNames.length ? `, json_build_object(${scopedNames.map(name => `'${name}', (select json_build_object('minimum', min(sort_index), 'maximum', max(sort_index)) from alpha_exchange.${name})`).join(", ")}) as sort_bounds` : "";
-      // Acceptance and completion do not write accounts or calculate trust. Keep their caller,
+      // Progress transitions do not write accounts or calculate trust. Keep their caller,
       // every related counterparty and all canonical admin/owner recipients,
       // including the legacy owner-email rule. Other mutations retain the full
       // authority collection; a committed retry needs only its participants.
-      const parameters = retryProjection ? [requestId, nextStatus, ...(scopedRetryUsers ? [actorUserId] : []), ...(scopedParticipantUsers ? [ALPHA_EXCHANGE_OWNER_EMAIL] : [])] : scopedNames.some(name => filters[name]?.includes("$1")) ? [requestId] : undefined;
-      type ReadRow = { version: string; read_only_retry?: boolean; has_pending_trust?: boolean; sort_bounds?: Partial<Record<SnapshotTableName, LifecycleSortBounds>> } & Partial<Record<SnapshotTableName, IndexedPayload[]>>;
+      const parameters = retryProjection ? [requestId, nextStatus, ...(scopedRetryUsers ? [actorUserId, ALPHA_EXCHANGE_OWNER_EMAIL] : [])] : scopedNames.some(name => filters[name]?.includes("$1")) ? [requestId] : undefined;
+      type ReadRow = { version: string; read_only_retry?: boolean; has_pending_trust?: boolean; identity_directory?: SnapshotIdentity[]; sort_bounds?: Partial<Record<SnapshotTableName, LifecycleSortBounds>> } & Partial<Record<SnapshotTableName, IndexedPayload[]>>;
       const readSql = (onlyCommittedRetry = false) => {
         const selected = columns(onlyCommittedRetry);
+        // Retained messages may mention any member. Preserve the complete name
+        // directory in the same canonical read, without loading unrelated
+        // account credentials, verification/profile history or bank details.
+        // A changing action's optimistic probe skips this scan; its locked
+        // read below supplies it. Compact rows never become authority users.
+        const identities = canonicalIdentityDirectorySql(4);
+        const identityColumn = !scopedRetryUsers ? "" : `, ${onlyCommittedRetry || !scopedParticipantUsers
+          ? `case when (select read_only_retry from lifecycle_mode) then ${identities} else '[]'::json end` : identities} as identity_directory`;
         return `${retryModeSql}select
-          (select version::text from alpha_exchange.runtime_meta where singleton = true) as version${trustReconciliation ? ", (select has_pending_trust from lifecycle_mode) as has_pending_trust" : retryProjection ? ", (select read_only_retry from lifecycle_mode) as read_only_retry" : ""}${selected.length ? `,\n${selected.join(",\n")}` : ""}${onlyCommittedRetry ? "" : boundsSql}`;
+          (select version::text from alpha_exchange.runtime_meta where singleton = true) as version${trustReconciliation ? ", (select has_pending_trust from lifecycle_mode) as has_pending_trust" : retryProjection ? ", (select read_only_retry from lifecycle_mode) as read_only_retry" : ""}${selected.length ? `,\n${selected.join(",\n")}` : ""}${identityColumn}${onlyCommittedRetry ? "" : boundsSql}`;
       };
       let row: ReadRow | undefined;
       // A retry of committed state is one atomic read, still followed by every
@@ -2465,6 +2501,9 @@ export class AlphaExchangeRepository {
       const version = Number(row?.version ?? "0");
       const before = new Map(selectedNames.map(name => [name, row?.[name] ?? []]));
       const snapshot = attachVersion(snapshotFromTableRows(selectedNames.map(tableName => ({ tableName, rows: before.get(tableName)! }))), version);
+      if ((scopedParticipantUsers || row?.read_only_retry) && row?.identity_directory) {
+        setSnapshotIdentityDirectory(snapshot, row.identity_directory);
+      }
       // Business rules mutate the returned objects; retain an immutable basis
       // for row comparison without a second database read.
       // Read-only authority/evidence collections cannot be written by this
@@ -2663,7 +2702,7 @@ export class AlphaExchangeRepository {
       const relevantUserIds = new Set(candidateSellerIds);
       if (viewerId) relevantUserIds.add(viewerId);
       return {
-        snapshot: attachVersion({
+        snapshot: withFallbackIdentityDirectory(attachVersion({
           ...emptySnapshotCollections(),
           users: cloneSnapshot(source.users.filter((user) => relevantUserIds.has(user.id))),
           sellerApplications: cloneSnapshot(source.sellerApplications.filter((application) => relevantUserIds.has(application.userId))),
@@ -2673,7 +2712,7 @@ export class AlphaExchangeRepository {
           auditLogs: cloneSnapshot(source.auditLogs.filter((entry) => candidateSellerIds.has(entry.targetUserId ?? ""))),
           trustSnapshots: cloneSnapshot(source.trustSnapshots.filter((snapshot) => candidateSellerIds.has(snapshot.sellerId))),
           marketplaceEnforcementRecords: cloneSnapshot((source.marketplaceEnforcementRecords ?? []).filter((record) => candidateSellerIds.has(record.sellerId))),
-        }, getVersion(source)),
+        }, getVersion(source)), source),
         unpaidCommissionSellerIds: Array.from(new Set(
           source.commissionRecords
             .filter((record) => candidateSellerIds.has(record.sellerId) && record.paymentStatus !== "paid")
@@ -2690,6 +2729,7 @@ export class AlphaExchangeRepository {
        )
        select
          (select version::text from alpha_exchange.runtime_meta where singleton = true) as version,
+         ${canonicalIdentityDirectorySql(2)} as identity_directory,
          coalesce((
            select jsonb_agg(account.payload order by account.sort_index asc)
            from alpha_exchange.users account
@@ -2741,7 +2781,7 @@ export class AlphaExchangeRepository {
            from alpha_exchange.marketplace_enforcement_records enforcement
            where enforcement.seller_id in (select seller_id from candidate_seller_ids)
          ), '[]'::jsonb) as marketplace_enforcement_records`,
-      [viewerId],
+      [viewerId, ALPHA_EXCHANGE_OWNER_EMAIL],
     );
     const row = result.rows[0];
     const tableNames = [
@@ -2861,7 +2901,7 @@ export class AlphaExchangeRepository {
     const pool = this.pool;
     if (this.usesMemoryFallback || !pool) {
       const source = getLatestAvailableFallbackSnapshot();
-      return attachVersion({
+      return withFallbackIdentityDirectory(attachVersion({
         ...emptySnapshotCollections(),
         users: cloneSnapshot(source.users.filter((user) => user.id === sellerId)),
         sellerApplications: cloneSnapshot(source.sellerApplications.filter((application) => application.userId === sellerId)),
@@ -2872,12 +2912,13 @@ export class AlphaExchangeRepository {
         trustSnapshots: cloneSnapshot(source.trustSnapshots.filter((snapshot) => snapshot.sellerId === sellerId)),
         marketplaceEnforcementRecords: cloneSnapshot((source.marketplaceEnforcementRecords ?? []).filter((record) => record.sellerId === sellerId)),
         marketplaceEnforcementAuditLog: cloneSnapshot((source.marketplaceEnforcementAuditLog ?? []).filter((entry) => entry.sellerId === sellerId)),
-      }, getVersion(source));
+      }, getVersion(source)), source);
     }
 
     const result = await pool.query<AggregatedSnapshotRow>(
       `select
          (select version::text from alpha_exchange.runtime_meta where singleton = true) as version,
+         ${canonicalIdentityDirectorySql(2)} as identity_directory,
          coalesce((select jsonb_agg(payload order by sort_index asc) from alpha_exchange.users where id = $1), '[]'::jsonb) as users,
          coalesce((select jsonb_agg(payload order by sort_index asc) from alpha_exchange.seller_applications where user_id = $1), '[]'::jsonb) as seller_applications,
          coalesce((select jsonb_agg(payload order by sort_index asc) from alpha_exchange.listings where seller_id = $1), '[]'::jsonb) as listings,
@@ -2887,7 +2928,7 @@ export class AlphaExchangeRepository {
          coalesce((select jsonb_agg(payload order by sort_index asc) from alpha_exchange.trust_snapshots where seller_id = $1), '[]'::jsonb) as trust_snapshots,
          coalesce((select jsonb_agg(payload order by sort_index asc) from alpha_exchange.marketplace_enforcement_records where seller_id = $1), '[]'::jsonb) as marketplace_enforcement_records,
          coalesce((select jsonb_agg(payload order by sort_index asc) from alpha_exchange.marketplace_enforcement_audit_log where seller_id = $1), '[]'::jsonb) as marketplace_enforcement_audit_log`,
-      [sellerId],
+      [sellerId, ALPHA_EXCHANGE_OWNER_EMAIL],
     );
     const row = result.rows[0];
     const tableNames = [
@@ -2932,12 +2973,12 @@ export class AlphaExchangeRepository {
       const purchaseRequests = input.allMatching ? matches : matches.slice(0, 1);
       const participantIds = new Set([input.userId, ...purchaseRequests.flatMap(request => [request.buyerId, request.sellerId])]);
       const listingIds = new Set(purchaseRequests.map(request => request.listingId));
-      return attachVersion({
+      return withFallbackIdentityDirectory(attachVersion({
         ...emptySnapshotCollections(),
         users: cloneSnapshot(source.users.filter(user => participantIds.has(user.id))),
         marketplaceListings: cloneSnapshot(source.marketplaceListings.filter(listing => listingIds.has(listing.id))),
         purchaseRequests: cloneSnapshot(purchaseRequests),
-      }, getVersion(source));
+      }, getVersion(source)), source);
     }
 
     const result = await pool.query<AggregatedSnapshotRow>(
@@ -2954,6 +2995,7 @@ export class AlphaExchangeRepository {
        )
        select
          (select version::text from alpha_exchange.runtime_meta where singleton = true) as version,
+         case when exists (select 1 from candidate_request) then ${canonicalIdentityDirectorySql(6)} else '[]'::json end as identity_directory,
          coalesce((
            select jsonb_agg(users.payload order by users.sort_index asc)
            from alpha_exchange.users users
@@ -2965,7 +3007,7 @@ export class AlphaExchangeRepository {
            where listing.id in (select listing_id from candidate_request)
          ), '[]'::jsonb) as listings,
          coalesce((select jsonb_agg(payload order by sort_index asc) from candidate_request), '[]'::jsonb) as purchase_requests`,
-      [input.userId, input.includeAll, input.activeStatuses, input.includeBuyerPending, input.allMatching ? null : 1],
+      [input.userId, input.includeAll, input.activeStatuses, input.includeBuyerPending, input.allMatching ? null : 1, ALPHA_EXCHANGE_OWNER_EMAIL],
     );
     const row = result.rows[0];
     return attachVersion(
@@ -2987,13 +3029,13 @@ export class AlphaExchangeRepository {
       const requestIds = new Set(purchaseRequests.map((request) => request.id));
       const listingIds = new Set(purchaseRequests.map((request) => request.listingId));
       const participantIds = new Set([input.userId, ...purchaseRequests.flatMap(request => [request.buyerId, request.sellerId])]);
-      return attachVersion({
+      return withFallbackIdentityDirectory(attachVersion({
         ...emptySnapshotCollections(),
         users: cloneSnapshot(source.users.filter(user => participantIds.has(user.id))),
         marketplaceListings: cloneSnapshot(source.marketplaceListings.filter((listing) => listingIds.has(listing.id))),
         purchaseRequests: cloneSnapshot(purchaseRequests),
         tradeEvidenceFiles: cloneSnapshot(source.tradeEvidenceFiles.filter((file) => requestIds.has(file.purchaseRequestId))),
-      }, getVersion(source));
+      }, getVersion(source)), source);
     }
 
     const result = await pool.query<AggregatedSnapshotRow>(
@@ -3005,6 +3047,7 @@ export class AlphaExchangeRepository {
        )
        select
          (select version::text from alpha_exchange.runtime_meta where singleton = true) as version,
+         case when exists (select 1 from visible_requests) then ${canonicalIdentityDirectorySql(4)} else '[]'::json end as identity_directory,
          coalesce((
            select jsonb_agg(users.payload order by users.sort_index asc)
            from alpha_exchange.users users
@@ -3021,7 +3064,7 @@ export class AlphaExchangeRepository {
            from alpha_exchange.evidence evidence
            where evidence.purchase_request_id in (select id from visible_requests)
          ), '[]'::jsonb) as evidence`,
-      [input.userId, input.includeAll, input.requestId ?? null],
+      [input.userId, input.includeAll, input.requestId ?? null, ALPHA_EXCHANGE_OWNER_EMAIL],
     );
     const row = result.rows[0];
     return attachVersion(
@@ -3067,7 +3110,7 @@ export class AlphaExchangeRepository {
       source.users.forEach((user) => {
         if (legacyNotificationText.includes(user.id)) participantIds.add(user.id);
       });
-      return attachVersion({
+      return withFallbackIdentityDirectory(attachVersion({
         ...emptySnapshotCollections(),
         users: cloneSnapshot(source.users.filter((user) => participantIds.has(user.id))),
         sellerApplications: cloneSnapshot(source.sellerApplications.filter((application) => participantIds.has(application.userId))),
@@ -3084,7 +3127,7 @@ export class AlphaExchangeRepository {
           dispute.buyerId === input.userId || dispute.sellerId === input.userId || requestIds.has(dispute.purchaseRequestId)
         ))),
         trustSnapshots: cloneSnapshot(source.trustSnapshots.filter((entry) => participantIds.has(entry.sellerId))),
-      }, getVersion(source));
+      }, getVersion(source)), source);
     }
 
     const result = await queryReadWithRetry<AggregatedSnapshotRow>(
@@ -3123,6 +3166,7 @@ export class AlphaExchangeRepository {
        )
        select
          (select version::text from alpha_exchange.runtime_meta where singleton = true) as version,
+         ${canonicalIdentityDirectorySql(3)} as identity_directory,
          coalesce((
            select jsonb_agg(account.payload order by account.sort_index asc)
            from alpha_exchange.users account
@@ -3161,7 +3205,7 @@ export class AlphaExchangeRepository {
            from alpha_exchange.trust_snapshots snapshot
            where snapshot.seller_id in (select id from participant_ids)
          ), '[]'::jsonb) as trust_snapshots`,
-      [input.userId, input.includeActivity],
+      [input.userId, input.includeActivity, ALPHA_EXCHANGE_OWNER_EMAIL],
       "notification_snapshot",
     );
     const row = result.rows[0];
@@ -3251,6 +3295,7 @@ export class AlphaExchangeRepository {
       commission_payloads: CommissionRecord[] | null;
       evidence_payloads: TradeEvidenceFile[] | null;
       audit_payloads: AuditLogEntry[] | null;
+      identity_directory?: SnapshotIdentity[];
       version: string;
     };
 
@@ -3261,6 +3306,7 @@ export class AlphaExchangeRepository {
          viewer.payload as viewer_payload,
          buyer.payload as buyer_payload,
          seller.payload as seller_payload,
+         ${canonicalIdentityDirectorySql(5)} as identity_directory,
          coalesce((
            select jsonb_agg(dispute.payload order by dispute.sort_index asc)
              from alpha_exchange.disputes dispute
@@ -3291,12 +3337,13 @@ export class AlphaExchangeRepository {
        where request.id = any($1::text[])
        order by case when request.id = $2 then 0 else 1 end, request.updated_at desc
        limit 1`,
-      [candidates, candidates[0], viewerUserId ?? null, includeOwnerHistory],
+      [candidates, candidates[0], viewerUserId ?? null, includeOwnerHistory, ALPHA_EXCHANGE_OWNER_EMAIL],
     );
     const row = result.rows[0];
     if (!row?.request_payload) return null;
 
     const snapshot = emptySnapshotCollections();
+    if (row.identity_directory) setSnapshotIdentityDirectory(snapshot, row.identity_directory);
     snapshot.purchaseRequests = [row.request_payload];
     snapshot.marketplaceListings = row.listing_payload ? [row.listing_payload] : [];
     snapshot.users = [row.buyer_payload, row.seller_payload, row.viewer_payload]

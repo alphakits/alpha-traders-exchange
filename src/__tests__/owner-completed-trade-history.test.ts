@@ -5,7 +5,7 @@ vi.mock("@/lib/postgres-runtime", () => ({ getRuntimePostgresPool: () => null })
 vi.mock("@/lib/realtime", () => ({ publishRealtimeEvent: vi.fn() }));
 
 import { getAlphaExchangeRepository } from "@/lib/alpha-exchange-repository";
-import { downloadTradeEvidenceContent, getTradeEvidenceForRequest, getTradeRoomData, invalidateAlphaExchangeStoreCache } from "@/lib/alpha-exchange-store";
+import { downloadTradeEvidenceContent, getMyPurchaseRequests, getTradeEvidenceForRequest, getTradeRoomData, invalidateAlphaExchangeStoreCache } from "@/lib/alpha-exchange-store";
 import { publishRealtimeEvent } from "@/lib/realtime";
 import { publicAccountId } from "@/lib/public-account-identity";
 
@@ -115,6 +115,20 @@ describe("owner completed Trade Room history", () => {
     install(db);
     const room = await getTradeRoomData({ purchaseRequestId: REQUEST_ID, actorUserId: "owner", actorRole: "owner", ownerHistory: true });
     expect(room.messages.at(-1)?.message).toBe(`${publicAccountId({ id: "buyer" })} (Amir Hassan) paid ${publicAccountId({ id: "seller" })} (Maya Chen)`);
+  });
+
+  it("uses the canonical buyer identity for owner history when the saved name is stale", async () => {
+    const db = seed();
+    const buyerId = publicAccountId(db.users[1]);
+    db.purchaseRequests[0].buyerName = "Outdated Buyer";
+    db.purchaseRequests[0].timeline[0].message = `${buyerId} paid`;
+    db.purchaseRequests[0].messages![0].message = `${buyerId} confirmed payment`;
+
+    const [request] = await getMyPurchaseRequests("owner", "owner", db);
+
+    expect(request.timeline[0].message).toBe(`${buyerId} (Amir Hassan) paid`);
+    expect(request.messages?.[0].message).toBe(`${buyerId} (Amir Hassan) confirmed payment`);
+    expect(JSON.stringify(request)).not.toContain("Outdated Buyer");
   });
 
   it("retains the saved buyer name for the owner when an old buyer account is absent, while peers remain private", async () => {
