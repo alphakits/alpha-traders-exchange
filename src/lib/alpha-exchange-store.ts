@@ -1713,9 +1713,13 @@ export async function getVisibleUserPresence(userIds: string[], viewer?: AlphaEx
   return Object.fromEntries(users.map(user => [user.id, visibleUserPresence(user, presence[user.id], viewer)]));
 }
 
-function buildSellerPublicProfile(user: AlphaExchangeUser, viewer: AlphaExchangeUser | undefined, identities: readonly SnapshotIdentity[]): SellerPublicProfile {
+function buildSellerPublicProfile(
+  user: AlphaExchangeUser,
+  viewer: AlphaExchangeUser | undefined,
+  identities: readonly SnapshotIdentity[],
+  visibleText = isPublicOwnerIdentity(viewer) ? (value?: string) => value ?? "" : identityTextRedactor(identities, true),
+): SellerPublicProfile {
   const ownerView = isPublicOwnerIdentity(viewer);
-  const visibleText = ownerView ? (value?: string) => value ?? "" : identityTextRedactor(identities, true);
   return {
     sellerId: user.id,
     sellerName: accountNameForViewer(user, viewer),
@@ -2185,6 +2189,8 @@ function enrichListingsWithSellerData(
 ) {
   const viewer = db.users.find(user => user.id === viewerUserId);
   const identities = getSnapshotIdentityUsers(db);
+  // Reuse only within this response: account names and viewer authority may change.
+  const profileText = isPublicOwnerIdentity(viewer) ? (value?: string) => value ?? "" : identityTextRedactor(identities, true);
   const visibleText = isPublicOwnerIdentity(viewer) ? (value?: string) => value ?? "" : identityTextRedactor([...identities, ...listings.map(listing => ({ role: "approved_seller", ...identities.find(user => user.id === listing.sellerId), id: listing.sellerId, fullName: listing.sellerDisplayName }))], true);
   const usersById = new Map(db.users.map((user) => [user.id, user]));
   return listings.map((listing) => {
@@ -2208,7 +2214,7 @@ function enrichListingsWithSellerData(
     return {
       ...publicListing,
       sellerDisplayName: accountNameForViewer(seller, viewer),
-      sellerProfile: buildSellerPublicProfile(seller, viewer, identities),
+      sellerProfile: buildSellerPublicProfile(seller, viewer, identities, profileText),
       sellerReputation: publicSellerReputation(snapshots.get(seller.id) ?? computeSellerReputationSnapshot(db, seller.id)),
     };
   });
