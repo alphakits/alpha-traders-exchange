@@ -167,3 +167,40 @@ it("skips the complete identity directory for empty history and candidate respon
     expect(getSnapshotIdentityUsers(snapshot)).toEqual([]);
   }
 });
+
+it("isolates batched profile masking across owner views and in-place account renames", async () => {
+  const snapshot = structuredClone(fixture);
+  const owner = { ...snapshot.users[0], id: "owner-viewer", role: "owner" as const, fullName: "Platform Owner" };
+  snapshot.users.push(owner);
+  snapshot.marketplaceListings = [0, 1, 2].map(index => ({ ...listing, id: `listing-${index}` })) as AlphaExchangeDb["marketplaceListings"];
+  const presence = vi.spyOn(presenceModule, "readUserPresence").mockResolvedValue({});
+  try {
+    const first = await getMarketplaceListings("active", snapshot, "buyer");
+    expect(first).toHaveLength(3);
+    for (const result of first) {
+      expect(result.sellerProfile?.bio).toBe(`${publicAccountId(member)} trading partner`);
+      expect(result.notes).toBe(`${publicAccountId(member)} trading notes`);
+    }
+    const ownerResults = await getMarketplaceListings("active", snapshot, owner.id);
+    expect(ownerResults).toHaveLength(3);
+    for (const result of ownerResults) expect(result.sellerProfile?.bio).toBe("Maya Chen trading partner");
+
+    const renamed = snapshot.users.find(user => user.id === member.id)!;
+    renamed.fullName = "Leila Haddad";
+    renamed.buyerDisplayName = "Leila Desk";
+    snapshot.users.find(user => user.id === "seller")!.bio = "Leila Haddad trading partner";
+    snapshot.users.find(user => user.id === "seller")!.tradingExperience = "Leila Desk trading experience";
+    for (const entry of snapshot.marketplaceListings) {
+      entry.notes = "Leila Haddad trading notes";
+      entry.sellerDescription = "Leila Desk trading partner";
+    }
+    const next = await getMarketplaceListings("active", snapshot, "buyer");
+    expect(next).toHaveLength(3);
+    for (const result of next) {
+      expect(result.sellerProfile?.bio).toBe(`${publicAccountId(member)} trading partner`);
+      expect(result.sellerProfile?.tradingExperience).toBe(`${publicAccountId(member)} trading experience`);
+      expect(result.notes).toBe(`${publicAccountId(member)} trading notes`);
+    }
+    expect(JSON.stringify(next)).not.toMatch(/Maya Chen|Maya OTC|Leila Haddad|Leila Desk/);
+  } finally { presence.mockRestore(); }
+});
