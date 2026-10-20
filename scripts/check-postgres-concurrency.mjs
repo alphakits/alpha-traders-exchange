@@ -525,6 +525,35 @@ try {
   for (const paid of paidBefore) assert.deepEqual(carryAfter.commissionRecords.find(row => row.id === paid.id), paid);
   passed("Concurrent shortfall writes persist one balance and preserve settled commissions", { processes: 4, carriedUsdt: 2, obligations: 1, proof: "Synthetic settlement; PostgreSQL persistence only" });
   assert(peakActiveConnections >= 2, `No overlapping PostgreSQL activity observed: ${peakActiveConnections}`);
+  // A full snapshot writer must not reindex histories appended by scoped
+  // lifecycle transactions. PostgreSQL ctid proves retained rows were not
+  // physically rewritten, in addition to preserving payloads and order.
+  const historyRows = async () => {
+    const result = {};
+    for (const name of ["notifications", "audit_logs"]) {
+      result[name] = (await pool.query(`select id, sort_index, payload, ctid::text as tuple from alpha_exchange.${name} order by sort_index asc`)).rows;
+      assert(result[name].length > 0, `The ${name} history fixture must contain retained records`);
+    }
+    return result;
+  };
+  const retainedHistory = await historyRows();
+  requireOk(await workers[0].call("save-history"));
+  assert.deepEqual(await historyRows(), retainedHistory);
+  passed("Identical full snapshot saves preserve history tuples and order", { tables: 2, rewrittenRows: 0 });
+  requireOk(await workers[1].call("save-history", "prepend"));
+  const prependedHistory = await historyRows();
+  for (const name of ["notifications", "audit_logs"]) {
+    assert.equal(prependedHistory[name].length, retainedHistory[name].length + 1);
+    assert.deepEqual(prependedHistory[name].slice(1), retainedHistory[name]);
+    assert(prependedHistory[name][0].sort_index < retainedHistory[name][0].sort_index);
+  }
+  passed("Full snapshot history prepends retain every existing row without rewriting it", { tables: 2, appendedRows: 2, rewrittenRows: 0 });
+
+  const storedEvidence = (await pool.query("select id, content from alpha_exchange.evidence")).rows;
+  assert(storedEvidence.length > 0, "Binary evidence verification requires retained receipt fixtures");
+  for (const row of storedEvidence) assert.deepEqual(row.content, Buffer.from(png, "base64"), `Receipt bytes changed for ${row.id}`);
+  passed("Batched evidence writes preserve every retained receipt byte", { files: storedEvidence.length });
+
   passed("Observed simultaneous database activity across independent processes", { peakActiveConnections });
   await captureQueryMetrics("final");
   await writeFile(path.join(output, "query-timings.json"), JSON.stringify({ scope: "Incremental query aggregates captured before each controlled process stop; no SQL text or bound values", phases: queryMetrics }, null, 2));

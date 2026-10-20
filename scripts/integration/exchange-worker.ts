@@ -31,6 +31,15 @@ async function execute(operation: string, input: unknown) {
   if (operation === "cms-snapshot") return (await getAdminContentRepository()).loadSnapshot();
   if (operation === "auth-session") { await repository.upsertAuthSession(input as AuthSession); return { saved: true }; }
   if (operation === "snapshot") return repository.loadSnapshot();
+  if (operation === "save-history") {
+    const snapshot = await repository.loadSnapshot();
+    if (input === "prepend") {
+      snapshot.notifications.unshift({ ...snapshot.notifications[0], id: "audit-stable-history-notification" });
+      snapshot.auditLogs.unshift({ ...snapshot.auditLogs[0], id: "audit-stable-history-log" });
+    }
+    await repository.saveSnapshot(snapshot, { selectedTables: ["notifications", "audit_logs"] });
+    return { saved: true };
+  }
   if (operation === "adult-confirm") return confirmAdultEligibility(input as string, true);
   if (operation === "controlled-shortfall") {
     // Synthetic settled input tests storage atomicity only, never a live receipt.

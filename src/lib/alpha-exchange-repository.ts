@@ -1056,14 +1056,30 @@ WHERE alpha_exchange.audit_logs.action IS DISTINCT FROM excluded.action
     selectSql: "select payload from alpha_exchange.evidence order by sort_index asc",
     values: (db) => db.tradeEvidenceFiles,
     insert: async (tx, rows: TradeEvidenceFile[], context) => {
-      for (const [index, row] of rows.entries()) {
-        const content = context.evidenceOverrides?.get(row.id) ?? context.evidenceContentById.get(row.id) ?? null;
-        await tx.query(
-          `insert into alpha_exchange.evidence
-            (id, purchase_request_id, side, uploaded_by_user_id, mime_type, file_name, size_bytes, uploaded_at, sort_index, payload, content)
-           values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11)`,
-          [row.id, row.purchaseRequestId, row.side, row.uploadedByUserId, row.mimeType, row.fileName, row.sizeBytes, row.uploadedAt, index, json(row), content],
-        );
+      // Keep binary parameters bounded while avoiding one round trip per file.
+      // A single oversized legacy file is still written without truncation.
+      for (let offset = 0; offset < rows.length;) {
+        let end = offset;
+        let bytes = 0;
+        while (end < rows.length && end - offset < 64) {
+          const content = context.evidenceOverrides?.get(rows[end].id) ?? context.evidenceContentById.get(rows[end].id);
+          if (end > offset && bytes + (content?.length ?? 0) > 8 * 1024 * 1024) break;
+          bytes += content?.length ?? 0;
+          end += 1;
+        }
+        const batch = rows.slice(offset, end);
+        await bulkInsert(tx, `insert into alpha_exchange.evidence
+        (id, purchase_request_id, side, uploaded_by_user_id, mime_type, file_name, size_bytes, uploaded_at, sort_index, payload, content)
+        select id, purchase_request_id, side, uploaded_by_user_id, mime_type, file_name, size_bytes::int, uploaded_at::timestamptz, sort_index::int, payload::jsonb, content
+        from unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[],$7::text[],$8::text[],$9::text[],$10::text[],$11::bytea[])
+          as t(id,purchase_request_id,side,uploaded_by_user_id,mime_type,file_name,size_bytes,uploaded_at,sort_index,payload,content)`, [
+          batch.map(row => row.id), batch.map(row => row.purchaseRequestId), batch.map(row => row.side),
+          batch.map(row => row.uploadedByUserId), batch.map(row => row.mimeType), batch.map(row => row.fileName),
+          batch.map(row => String(row.sizeBytes)), batch.map(row => row.uploadedAt),
+          batch.map((row, index) => String(context.rowSortIndexes?.get(row.id) ?? offset + index)), batch.map(row => json(row)),
+          batch.map(row => context.evidenceOverrides?.get(row.id) ?? context.evidenceContentById.get(row.id) ?? null),
+        ]);
+        offset = end;
       }
     },
   },
@@ -1518,8 +1534,16 @@ async function replaceTableContents(tx: PoolClient, tableName: SnapshotTableName
   if (["purchase_requests", "notifications", "commissions", "audit_logs"].includes(tableName)) {
     const table = getTable(tableName);
     const rows = table.values(db) as Array<{ id: string }>;
+    // Full snapshot writers share these histories with scoped lifecycle
+    // writers. Preserve their existing order keys: resetting a prepended
+    // history to 0..N rewrites every retained row and generates needless WAL
+    // while other financial actions wait on the same transaction lock.
+    const historyRows = ["notifications", "audit_logs"].includes(tableName)
+      ? await tx.query<IndexedPayload>(`select payload, sort_index from alpha_exchange.${tableName} order by sort_index asc`)
+      : null;
+    const rowSortIndexes = historyRows ? lifecycleRowDelta(historyRows.rows, rows).positions : undefined;
     await tx.query(`delete from alpha_exchange.${tableName} where not (id = any($1::text[]))`, [rows.map(row => row.id)]);
-    await table.insert(tx, rows, { evidenceContentById: context?.evidenceContentById ?? new Map(), evidenceOverrides: context?.evidenceOverrides });
+    await table.insert(tx, rows, { evidenceContentById: context?.evidenceContentById ?? new Map(), evidenceOverrides: context?.evidenceOverrides, rowSortIndexes });
     return;
   }
   await tx.query(`delete from alpha_exchange.${tableName}`);
@@ -2094,6 +2118,9 @@ function getLatestAvailableFallbackSnapshot(): SnapshotWithVersion {
 }
 
 function syncFallbackAuthSessions(update: (sessions: AuthSession[]) => AuthSession[]) {
+  // Production sessions are authoritative in PostgreSQL; do not construct a
+  // full fallback snapshot solely to mirror one session change.
+  if (isProductionSecurityRuntime()) return;
   const snapshot = getLatestAvailableFallbackSnapshot();
   const next = attachVersion({
     ...snapshot,
@@ -2142,11 +2169,15 @@ function pruneOrphanAuthSessions<T extends AlphaExchangeDb>(snapshot: T): T {
 }
 
 function syncMemoryFallbackSnapshot(snapshot: AlphaExchangeDb, version = getVersion(snapshot)) {
+  // Production fails closed when durable persistence is unavailable and never
+  // reads this development fallback. Cloning all accounts, trades and history
+  // on every successful read/write only adds CPU, memory and event-loop delay.
+  if (isProductionSecurityRuntime()) return;
   ensureMemorySeed();
   const next = attachVersion(pruneOrphanAuthSessions(cloneSnapshot(snapshot)), version);
   globalThis.__alphaExchangeMemorySnapshot = next;
-  // A successful production database read may update the in-process mirror for
-  // cache coherence, but must not persist user/session data to /tmp.
+  // Local tests keep the in-process fallback without writing it to disk unless
+  // the persistence test explicitly opts in.
   if (!shouldPersistLocalFallbackSnapshot()) return;
   try {
     mkdirSync(FALLBACK_SNAPSHOT_DIR, { recursive: true });
