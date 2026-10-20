@@ -317,32 +317,31 @@ describe("AlphaExchangeRepository", () => {
     expect(globalThis.__alphaExchangeMemorySnapshot).toBe(oldFallback);
   });
 
-  it("bounds receipt batches while preserving overrides, retained bytes, nulls and global order", async () => {
+  it("bounds new receipt bytes without fetching retained binary content", async () => {
     vi.stubEnv("NODE_ENV", "production");
     vi.stubEnv("VERCEL", "1");
     const uploaded = Buffer.alloc(5 * 1024 * 1024, 1);
-    const retained = Buffer.alloc(5 * 1024 * 1024, 2);
-    const query = vi.fn(async (sql: string) => ({ rows: sql === "select id, content from alpha_exchange.evidence"
-      ? [{ id: "retained", content: retained }]
-      : [{ version: "0" }] }));
+    const uploadedAgain = Buffer.alloc(5 * 1024 * 1024, 2);
+    const query = vi.fn(async (sql: string) => ({ rows: sql.includes("version::text") ? [{ version: "0" }] : [] }));
     const repository = new AlphaExchangeRepository({ connect: vi.fn().mockResolvedValue({ query, release: vi.fn() }) } as unknown as Pool);
     vi.spyOn(repository, "ensureReady").mockResolvedValue(undefined);
     const snapshot = createEmptyDb();
-    snapshot.tradeEvidenceFiles = ["uploaded", "retained", "metadata-only"].map(id => ({
+    snapshot.tradeEvidenceFiles = ["uploaded", "uploaded-again", "retained", "metadata-only"].map(id => ({
       id, purchaseRequestId: "trade", side: "buyer", uploadedByUserId: "buyer", mimeType: "image/png",
       fileName: `${id}.png`, sizeBytes: id === "metadata-only" ? 0 : uploaded.length, uploadedAt: "2026-01-01T00:00:00Z",
     })) as AlphaExchangeDb["tradeEvidenceFiles"];
 
-    await repository.saveSnapshot(snapshot, { selectedTables: ["evidence"], evidenceOverrides: new Map([["uploaded", uploaded]]) });
+    await repository.saveSnapshot(snapshot, { selectedTables: ["evidence"], evidenceOverrides: new Map([["uploaded", uploaded], ["uploaded-again", uploadedAgain]]) });
 
     const writes = (query.mock.calls as unknown as Array<[string, unknown[][]]>).filter(([sql]) => sql.startsWith("insert into alpha_exchange.evidence"));
     expect(writes).toHaveLength(2);
-    expect(writes.map(([, columns]) => columns[0])).toEqual([["uploaded"], ["retained", "metadata-only"]]);
-    expect(writes.map(([, columns]) => columns[8])).toEqual([["0"], ["1", "2"]]);
+    expect(writes.map(([, columns]) => columns[0])).toEqual([["uploaded"], ["uploaded-again", "retained", "metadata-only"]]);
+    expect(writes.map(([, columns]) => columns[8])).toEqual([["0"], ["1", "2", "3"]]);
     expect(writes[0][1][10][0]).toBe(uploaded);
-    expect(writes[1][1][10]).toHaveLength(2);
-    expect(writes[1][1][10][0]).toBe(retained);
-    expect(writes[1][1][10][1]).toBeNull();
+    expect(writes[1][1][10][0]).toBe(uploadedAgain);
+    expect(writes[1][1][10].slice(1)).toEqual([null, null]);
+    expect(query.mock.calls.some(([sql]) => /select\s+id,\s*content\s+from/i.test(sql))).toBe(false);
+    expect(query).not.toHaveBeenCalledWith("delete from alpha_exchange.evidence");
     expect(query).toHaveBeenCalledWith("commit");
   });
 

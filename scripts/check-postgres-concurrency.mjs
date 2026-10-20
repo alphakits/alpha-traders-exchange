@@ -553,6 +553,38 @@ try {
   assert(storedEvidence.length > 0, "Binary evidence verification requires retained receipt fixtures");
   for (const row of storedEvidence) assert.deepEqual(row.content, Buffer.from(png, "base64"), `Receipt bytes changed for ${row.id}`);
   passed("Batched evidence writes preserve every retained receipt byte", { files: storedEvidence.length });
+  const receiptRows = async () => (await pool.query("select id, sort_index, payload, content, ctid::text as tuple from alpha_exchange.evidence order by sort_index asc")).rows;
+  const retainedReceipts = await receiptRows();
+  requireOk(await workers[0].call("save-evidence", "same"));
+  assert.deepEqual(await receiptRows(), retainedReceipts);
+  requireOk(await workers[1].call("save-evidence", "stale"));
+  assert.deepEqual(await receiptRows(), retainedReceipts);
+  passed("Current and stale receipt saves retain every existing tuple and byte", { files: retainedReceipts.length, rewrittenRows: 0 });
+  requireOk(await workers[0].call("save-evidence", "prepend"));
+  const prependedReceipts = await receiptRows();
+  assert.equal(prependedReceipts.length, retainedReceipts.length + 1);
+  assert.equal(prependedReceipts[0].content, null);
+  assert.deepEqual(prependedReceipts.slice(1), retainedReceipts);
+  passed("A metadata-only receipt prepend preserves existing receipt positions and bytes", { files: retainedReceipts.length, rewrittenRows: 0 });
+  requireOk(await workers[1].call("save-evidence", "metadata"));
+  const renamedReceipts = await receiptRows();
+  assert.equal(renamedReceipts[1].payload.fileName, "audit-retained-receipt.png");
+  assert.deepEqual(renamedReceipts[1].content, retainedReceipts[0].content);
+  assert.deepEqual(renamedReceipts.slice(2), prependedReceipts.slice(2));
+  requireOk(await workers[0].call("save-evidence", "override"));
+  const replacedReceipts = await receiptRows();
+  assert.deepEqual(replacedReceipts[1].content, Buffer.from([0, 1, 2, 3]));
+  assert.deepEqual(replacedReceipts.slice(2), renamedReceipts.slice(2));
+  passed("Receipt metadata edits preserve content and explicit binary overrides change only their target", { unchangedFiles: retainedReceipts.length - 1 });
+  requireOk(await workers[1].call("save-evidence", "remove"));
+  assert.deepEqual(await receiptRows(), replacedReceipts.slice(1));
+  passed("Explicit receipt removal retains all remaining rows and their binary content", { removed: 1, retained: retainedReceipts.length });
+  requireOk(await workers[0].call("save-evidence", "reorder"));
+  const reorderedReceipts = await receiptRows();
+  assert.deepEqual(reorderedReceipts.map(row => row.id), replacedReceipts.slice(1).reverse().map(row => row.id));
+  for (const row of reorderedReceipts) assert.deepEqual(row.content, replacedReceipts.find(before => before.id === row.id).content);
+  passed("Intentional receipt reordering preserves requested order and exact content", { files: retainedReceipts.length });
+
 
   passed("Observed simultaneous database activity across independent processes", { peakActiveConnections });
   await captureQueryMetrics("final");
