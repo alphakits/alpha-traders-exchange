@@ -1,6 +1,7 @@
 "use client";
 import { csvRow } from "@/lib/csv";
 import { OwnerAttentionQueue } from "@/components/admin/owner-attention-queue";
+import { TradeEvidenceViewer } from "@/components/sections/trade-room/trade-evidence-viewer";
 
 import { currencyText, moneyText } from "@/components/ui/currency-text";
 import { ActionFeedback, useActionFeedbackState } from "@/components/ui/action-feedback";
@@ -4389,14 +4390,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                 <p>
                   {t("Buyer Evidence:", "إثبات المشتري:")}{" "}
                   {selectedRequest.buyerEvidence ? (
-                    <a
-                      href={`/api/alpha-exchange/purchase-requests/${selectedRequest.id}/evidence/${selectedRequest.buyerEvidence.id}`}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-[#C9A227] underline-offset-2 hover:underline"
-                    >
-                      {currencyText(selectedRequest.buyerEvidence.fileName)}
-                    </a>
+                    <TradeEvidenceViewer key={selectedRequest.buyerEvidence.id} requestId={selectedRequest.id} evidence={selectedRequest.buyerEvidence} isAr={isArabic} />
                   ) : (
                     <span className="text-white">{t("Missing", "مفقود")}</span>
                   )}
@@ -4404,14 +4398,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                 <p>
                   {t("Seller Evidence:", "إثبات البائع:")}{" "}
                   {selectedRequest.sellerEvidence ? (
-                    <a
-                      href={`/api/alpha-exchange/purchase-requests/${selectedRequest.id}/evidence/${selectedRequest.sellerEvidence.id}`}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-[#C9A227] underline-offset-2 hover:underline"
-                    >
-                      {currencyText(selectedRequest.sellerEvidence.fileName)}
-                    </a>
+                    <TradeEvidenceViewer key={selectedRequest.sellerEvidence.id} requestId={selectedRequest.id} evidence={selectedRequest.sellerEvidence} isAr={isArabic} />
                   ) : (
                     <span className="text-white">{t("Missing", "مفقود")}</span>
                   )}

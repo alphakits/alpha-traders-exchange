@@ -11,7 +11,7 @@ import type { SupportedNetwork } from "@/types/alpha-exchange";
 import { sellerListingWorkspaceDestination } from "@/lib/action-destinations";
 import { normalizeListingPrice } from "@/lib/price-offer";
 import { canonicalizeNonNegativeTradeAmount, canonicalizeTradeAmount } from "@/lib/trade-amount";
-import { listingMaximumForAvailableAmount } from "@/lib/listing-trade-limits";
+import { listingMaximumAfterAmountEdit, listingMaximumForAvailableAmount } from "@/lib/listing-trade-limits";
 
 function toNumber(value: unknown) {
   return Number(String(value ?? "").replace(/[^\d.]/g, ""));
@@ -120,7 +120,10 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     const effectiveAvailableAmount = availableAmount ?? existingListing?.availableAmount;
     const effectiveMinimumTrade = minimumTrade ?? existingListing?.minimumTrade ?? "0";
     const effectiveMaximumTrade = maximumTrade ?? listingMaximumForAvailableAmount({
-      availableAmount: effectiveAvailableAmount, maximumTrade: existingListing?.maximumTrade,
+      availableAmount: effectiveAvailableAmount,
+      maximumTrade: listingMaximumAfterAmountEdit({
+        ...existingListing, maximumTrade: listingMaximumForAvailableAmount(existingListing ?? {}),
+      }, effectiveAvailableAmount ?? ""),
     });
 
     if (availableAmount !== undefined && !availableAmount) {

@@ -10,7 +10,7 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useRouter } from "expo-router";
+import { useIsFocused, useRouter } from "expo-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   calculateFiatAmount, calculateTradeBuyerFiatFee, calculateTradePaymentTotal, getCardlessWithdrawalBankOptions, isCardlessWithdrawalBank, parseCardlessWithdrawalDetails, validateCardlessIlsAmount, calculateCardlessUsdtAmount, getPurchaseMinimumTrade,
@@ -65,16 +65,18 @@ export function TradeFormScreen({
   mode: "buy" | "offer";
 }) {
   const router = useRouter();
+  const isFocused = useIsFocused();
   const queryClient = useQueryClient();
   const { user, requestWithSession } = useAuth();
   const { locale, isRTL, t } = useLocale();
   const usdIlsRate = useUsdDisplayRate();
   const market = useQuery({
-    enabled: Boolean(listingId && user),
+    enabled: Boolean(listingId && user && isFocused),
     queryKey: ["mobile-marketplace-listing", user?.id ?? "public", listingId, locale],
     queryFn: ({ signal }) => requestWithSession((tokens, requestLocale) =>
       getMobileMarketplaceListing(listingId, requestLocale, signal, tokens)),
     staleTime: 0,
+    refetchInterval: isFocused ? 15_000 : false,
   });
   const listing = market.data?.listings[0];
   const [amount, setAmount] = useState("");

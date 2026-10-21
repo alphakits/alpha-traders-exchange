@@ -1385,7 +1385,11 @@ export function UsdtExchangePage({
   const [purchaseSubmitted, setPurchaseSubmitted] = useState(false);
   const [isSubmittingPurchase, setIsSubmittingPurchase] = useState(false);
   const purchaseRequestInFlightRef = useRef(false);
-  const [selectedListing, setSelectedListing] = useState<MarketplaceListing | null>(null);
+  const [selectedListingSnapshot, setSelectedListing] = useState<MarketplaceListing | null>(null);
+  // Keep an already-open purchase dialog on the same live terms as the market card.
+  const selectedListing = selectedListingSnapshot
+    ? listings.find((listing) => listing.id === selectedListingSnapshot.id) ?? selectedListingSnapshot
+    : null;
   // URL updates happen synchronously, before React necessarily commits the
   // dialog state. A pending restoration effect must not overwrite a user's
   // freshly selected price-offer mode with the default listing-price mode.
@@ -2374,6 +2378,43 @@ export function UsdtExchangePage({
     };
   }, [isAr, tracedReadFetch]);
 
+  const hasSelectedListing = selectedListingSnapshot !== null;
+  useEffect(() => {
+    if (isLoadingListings || (isDashboardWorkspace && !hasSelectedListing)) return;
+    let disposed = false;
+    let controller: AbortController | null = null;
+    const refreshListings = async () => {
+      if (disposed || controller || document.visibilityState !== "visible") return;
+      controller = new AbortController();
+      const revision = sellerWorkspaceRevisionRef.current;
+      try {
+        const response = await tracedReadFetch("Marketplace terms refresh", "/api/alpha-exchange/listings", {
+          cache: "no-store", signal: controller.signal,
+        });
+        if (!response.ok) return;
+        const payload = await response.json() as { listings?: MarketplaceListing[] };
+        if (!disposed && revision === sellerWorkspaceRevisionRef.current && Array.isArray(payload.listings)) {
+          setListings(payload.listings);
+          listingsLoadedAtRef.current = Date.now();
+        }
+      } catch {
+        // Retain the last usable market on transient read failures. Mutations still validate durable state.
+      } finally { controller = null; }
+    };
+    const resume = () => { void refreshListings(); };
+    if (hasSelectedListing) resume();
+    const interval = window.setInterval(resume, 15_000);
+    window.addEventListener("focus", resume);
+    document.addEventListener("visibilitychange", resume);
+    return () => {
+      disposed = true;
+      controller?.abort();
+      window.clearInterval(interval);
+      window.removeEventListener("focus", resume);
+      document.removeEventListener("visibilitychange", resume);
+    };
+  }, [hasSelectedListing, isDashboardWorkspace, isLoadingListings, tracedReadFetch]);
+
   useEffect(() => {
     if (!sessionUser) return;
     if (!sellerFormTouchedRef.current) {
@@ -2568,16 +2609,17 @@ export function UsdtExchangePage({
     }
   }, [isAr, setStatusMessage]);
 
+  const selectedSellerId = selectedListing?.sellerId;
   useEffect(() => {
-    if (!selectedListing) return;
+    if (!selectedSellerId) return;
     const timerId = window.setTimeout(() => {
-      void fetchSellerProfileData(selectedListing.sellerId);
+      void fetchSellerProfileData(selectedSellerId);
     }, 250);
     return () => {
       window.clearTimeout(timerId);
       sellerProfileAbortControllerRef.current?.abort();
     };
-  }, [fetchSellerProfileData, selectedListing]);
+  }, [fetchSellerProfileData, selectedSellerId]);
 
   // Reveal the selected listing before the shared navigation helper focuses it.
   // Data refreshes must never replay an old scroll over the user's latest click.

@@ -1,5 +1,7 @@
 import { canonicalizeTradeAmount, isTradeAmountLessThan } from "@/lib/trade-amount";
 
+export { listingMaximumTracksAvailableAmount, listingMaximumAfterAmountEdit } from "@alpha-traders/contracts";
+
 /** Existing listings can retain their original limit after a partial sale. */
 export function listingMaximumForAvailableAmount(listing: {
   availableAmount?: string | null;

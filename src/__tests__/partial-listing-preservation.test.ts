@@ -300,6 +300,35 @@ describe("partial listing preservation", () => {
     invalidateAlphaExchangeStoreCache();
   });
 
+  it.each([
+    { previousMaximum: "500", explicitMaximum: undefined, expectedMaximum: "2000", purchaseAllowed: true },
+    { previousMaximum: "400", explicitMaximum: undefined, expectedMaximum: "400", purchaseAllowed: false },
+    { previousMaximum: "500", explicitMaximum: "500", expectedMaximum: "500", purchaseAllowed: false },
+  ])("keeps buyer limits consistent after replenishing 500 to 2000: %j", async ({ previousMaximum, explicitMaximum, expectedMaximum, purchaseAllowed }) => {
+    const listing = await createMarketplaceListing({
+      sellerId: SELLER_ID, sellerDisplayName: "Seller One", availableAmount: "500", price: "3.20",
+      currency: "ILS", network: "TRC20", paymentMethods: ["Bank Transfer"], bankName: "Bank Hapoalim",
+      minimumTrade: "200", maximumTrade: previousMaximum, responseTime: "5 min",
+      acceptedCommissionPolicy: true, actorUserId: SELLER_ID,
+    });
+    await approveListing(listing.id);
+    const edited = await updateMarketplaceListingForSeller({
+      listingId: listing.id, sellerId: SELLER_ID, actorUserId: SELLER_ID,
+      availableAmount: "2000", maximumTrade: explicitMaximum,
+    });
+    expect(edited).toMatchObject({ availableAmount: "2000", maximumTrade: expectedMaximum, minimumTrade: "200" });
+    invalidateAlphaExchangeStoreCache();
+    const saved = (globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb).marketplaceListings.find(item => item.id === listing.id);
+    expect(saved?.maximumTrade).toBe(expectedMaximum);
+    const purchase = createPurchaseRequest({
+      buyerId: BUYER_ONE_ID, listingId: listing.id, usdtAmount: "700", buyerName: "Buyer One",
+      buyerWhatsapp: "+972500000001", buyerNotes: "Replenished inventory", bankName: "Bank Hapoalim",
+      buyerReceivingWalletAddress: "TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE", actorUserId: BUYER_ONE_ID,
+    });
+    if (purchaseAllowed) await expect(purchase).resolves.toMatchObject({ request: { usdtAmount: "700" } });
+    else await expect(purchase).rejects.toThrow(`Maximum trade for this listing is ${expectedMaximum} USDT.`);
+  });
+
   it("assigns one canonical trade ID at request creation and keeps linked records aligned", async () => {
     const listing = await createMarketplaceListing({
       sellerId: SELLER_ID,

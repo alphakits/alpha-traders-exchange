@@ -90,7 +90,7 @@ describe("compact seller trade requests", () => {
     expect(screen.getAllByText("AT-000001", { exact: false })).toHaveLength(1);
     expect(Array.from(container.querySelectorAll("details")).every((section) => !section.open)).toBe(true);
     fireEvent.click(screen.getByText("Payment evidence", { selector: "summary" }));
-    expect(screen.getByRole("link", { name: evidence.fileName }).getAttribute("href")).toBe("/api/alpha-exchange/purchase-requests/trade-1/evidence/proof-1");
+    expect(screen.getByRole("button", { name: evidence.fileName }).getAttribute("aria-haspopup")).toBe("dialog");
   });
 
   it("opens the trade room directly while details are collapsed", () => {

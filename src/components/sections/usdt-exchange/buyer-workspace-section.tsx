@@ -1,6 +1,7 @@
 "use client";
 
 import { currencyText } from "@/components/ui/currency-text";
+import { TradeEvidenceViewer } from "@/components/sections/trade-room/trade-evidence-viewer";
 import { useEffect, type Dispatch, type ReactNode, type SetStateAction } from "react";
 import { HandCoins } from "lucide-react";
 import { Link } from "@/i18n/navigation";
@@ -344,9 +345,7 @@ export function BuyerWorkspaceSection(props: BuyerWorkspaceSectionProps) {
                                 <div>
                                   <p className="font-medium text-white">{isAr ? "إثبات المشتري" : "Buyer Evidence"}</p>
                                   {request.buyerEvidence ? (
-                                    <a href={`/api/alpha-exchange/purchase-requests/${request.id}/evidence/${request.buyerEvidence.id}`} target="_blank" rel="noreferrer" className="mt-1 inline-block text-[#C9A227] underline-offset-2 hover:underline">
-                                      {currencyText(request.buyerEvidence.fileName)}
-                                    </a>
+                                    <TradeEvidenceViewer key={request.buyerEvidence.id} requestId={request.id} evidence={request.buyerEvidence} isAr={isAr} />
                                   ) : (
                                     <p className="mt-1 text-[#9CA3AF]">{isAr ? "يجب رفع الإثبات قبل تحديد الدفعة كمُرسلة." : "Upload required before marking payment sent."}</p>
                                   )}
@@ -354,9 +353,7 @@ export function BuyerWorkspaceSection(props: BuyerWorkspaceSectionProps) {
                                 <div>
                                   <p className="font-medium text-white">{isAr ? "إثبات البائع" : "Seller Evidence"}</p>
                                   {request.sellerEvidence ? (
-                                    <a href={`/api/alpha-exchange/purchase-requests/${request.id}/evidence/${request.sellerEvidence.id}`} target="_blank" rel="noreferrer" className="mt-1 inline-block text-[#C9A227] underline-offset-2 hover:underline">
-                                      {currencyText(request.sellerEvidence.fileName)}
-                                    </a>
+                                    <TradeEvidenceViewer key={request.sellerEvidence.id} requestId={request.id} evidence={request.sellerEvidence} isAr={isAr} />
                                   ) : (
                                     <p className="mt-1 text-[#9CA3AF]">{isAr ? "بانتظار إثبات البائع." : "Waiting for seller evidence."}</p>
                                   )}

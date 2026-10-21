@@ -61,7 +61,7 @@ describe("owner trade history", () => {
     expect(within(chat).getAllByText("Seller · Seller B").length).toBeGreaterThan(0);
     expect(within(screen.getByRole("region", { name: "Full trade timeline (8)" })).getAllByRole("listitem")).toHaveLength(8);
     expect(screen.getByRole("link", { name: "chat-photo.jpg" }).getAttribute("href")).toBe(room.messages[1].imageUrl);
-    expect(screen.getByRole("link", { name: "original-receipt.pdf" }).getAttribute("href")).toBe("/api/alpha-exchange/purchase-requests/request-1/evidence/old-proof");
+    expect(screen.getByRole("button", { name: "original-receipt.pdf" }).getAttribute("aria-haspopup")).toBe("dialog");
     expect(screen.getByText("Reliable seller")).toBeTruthy();
     expect(screen.getByText("Prompt buyer")).toBeTruthy();
     expect(screen.getByText("Receipt review needed")).toBeTruthy();

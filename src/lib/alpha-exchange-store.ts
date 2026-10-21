@@ -12,7 +12,7 @@ import { normalizePrivateContact, requiresBuyerContact } from "@/lib/buyer-conta
 import { verifyBinanceInternalCommissionDeposit } from "@/lib/commission-deposit-discovery";
 import { listingCommissionRequiredMessage } from "@/lib/listing-commission-policy";
 import { cardlessCredentialPayloadHash, matchesCardlessCredentialPayloadHash, encryptCardlessCredential, decryptCardlessCredential } from "@/lib/cardless-credential-crypto";
-import { listingMaximumForAvailableAmount } from "@/lib/listing-trade-limits";
+import { listingMaximumAfterAmountEdit, listingMaximumForAvailableAmount } from "@/lib/listing-trade-limits";
 import { assertListingPriceAtCurrentReference } from "@/lib/listing-price-validation";
 import { hasIrreversibleRequestProgress, hasRevealedBankDetails } from "@/lib/trade-cancellation";
 import { areTradeAmountsLocked } from "@/lib/trade-amount-lock";
@@ -9615,7 +9615,10 @@ export async function updateMarketplaceListingForSeller(input: {
       : canonicalizeNonNegativeTradeAmount(current.minimumTrade);
     const canonicalMaximumTrade = input.maximumTrade !== undefined
       ? canonicalizeTradeAmount(input.maximumTrade)
-      : canonicalizeTradeAmount(listingMaximumForAvailableAmount({ availableAmount: canonicalAvailableAmount, maximumTrade: current.maximumTrade }));
+      : canonicalizeTradeAmount(listingMaximumForAvailableAmount({
+        availableAmount: canonicalAvailableAmount,
+        maximumTrade: listingMaximumAfterAmountEdit({ ...current, maximumTrade: listingMaximumForAvailableAmount(current) }, canonicalAvailableAmount ?? ""),
+      }));
     if (!canonicalAvailableAmount) throw new Error("Available amount must be a valid positive USDT amount with no more than six decimal places.");
     if (!canonicalMinimumTrade) throw new Error("Minimum trade must be a valid non-negative USDT amount with no more than six decimal places.");
     if (!canonicalMaximumTrade) throw new Error("Maximum trade must be a valid positive USDT amount with no more than six decimal places.");
