@@ -4,7 +4,7 @@ import { Alert, Pressable, StyleSheet, TextInput, View } from "react-native";
 import { Redirect, useLocalSearchParams, useRouter } from "expo-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { MobileSellerListingCreateRequest, MobileSellerListingUpdateRequest, MobileSupportedNetwork } from "@alpha-traders/contracts";
-import { sellerFeeResponsibilityNotice, isFxPairUsable, maximumIlsListingPrice } from "@alpha-traders/contracts";
+import { sellerFeeResponsibilityNotice, isFxPairUsable, maximumIlsListingPrice, listingMaximumTracksAvailableAmount } from "@alpha-traders/contracts";
 import { colors, radius, spacing, typography } from "@alpha-traders/design-tokens";
 import {
   createMobileSellerListing,
@@ -81,6 +81,7 @@ export default function NewSellerListingScreen() {
   const [priceEdited, setPriceEdited] = useState(false);
   const [minimumTrade, setMinimumTrade] = useState("");
   const [maximumTrade, setMaximumTrade] = useState("");
+  const [maximumTradeFollowsAmount, setMaximumTradeFollowsAmount] = useState(true);
   const [network, setNetwork] = useState<MobileSupportedNetwork>("TRC20");
   const [paymentMethods, setPaymentMethods] = useState<string[]>([]);
   const [banks, setBanks] = useState<string[]>([]);
@@ -116,6 +117,7 @@ export default function NewSellerListingScreen() {
     setPriceEdited(false);
     setMinimumTrade(formatFinancialNumber(listing.minimumTrade, { maximumFractionDigits: 6 }));
     setMaximumTrade(formatFinancialNumber(listing.maximumTrade, { maximumFractionDigits: 6 }));
+    setMaximumTradeFollowsAmount(listingMaximumTracksAvailableAmount(listing));
     setNetwork(listing.network);
     setPaymentMethods([...listing.paymentMethods]);
     setBanks(listing.bankName?.split(",").map((bank) => bank.trim()).filter(Boolean) ?? []);
@@ -161,6 +163,8 @@ export default function NewSellerListingScreen() {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["mobile-seller-listings"] }),
         queryClient.invalidateQueries({ queryKey: ["mobile-marketplace"] }),
+        queryClient.invalidateQueries({ queryKey: ["mobile-marketplace-listing"] }),
+        queryClient.invalidateQueries({ queryKey: ["mobile-seller-listing"] }),
       ]);
       Alert.alert(
         isEditing ? (isAr ? "تم تحديث العرض" : "Listing updated") : (isAr ? "تم إرسال العرض" : "Listing submitted"),
@@ -280,7 +284,7 @@ export default function NewSellerListingScreen() {
             onChangeText={(value) => {
               const next = cleanNumber(value);
               setAvailableAmount(next);
-              if (!maximumTrade || financialNumber(maximumTrade) > financialNumber(next)) setMaximumTrade(next);
+              if (maximumTradeFollowsAmount) setMaximumTrade(next);
               setError("");
             }}
             placeholder="1,000"
@@ -314,7 +318,12 @@ export default function NewSellerListingScreen() {
           </View>
           <View style={styles.flexField}>
             <Text style={[styles.label, isRTL && styles.rtlText]}>{isAr ? "أقصى صفقة *" : "Maximum trade *"}</Text>
-            <TextInput keyboardType="decimal-pad" onBlur={() => setMaximumTrade(formatFinancialNumber(maximumTrade, { maximumFractionDigits: 6 }))} onChangeText={(value) => { setMaximumTrade(cleanNumber(value)); setError(""); }} placeholder="1,000" placeholderTextColor={colors.textMuted} selectionColor={colors.gold} style={[styles.input, isRTL && styles.rtlInput]} value={maximumTrade} />
+            <TextInput keyboardType="decimal-pad" onBlur={() => setMaximumTrade(formatFinancialNumber(maximumTrade, { maximumFractionDigits: 6 }))} onChangeText={(value) => {
+              const maximumTrade = cleanNumber(value);
+              setMaximumTrade(maximumTrade);
+              setMaximumTradeFollowsAmount(listingMaximumTracksAvailableAmount({ availableAmount, maximumTrade }));
+              setError("");
+            }} placeholder="1,000" placeholderTextColor={colors.textMuted} selectionColor={colors.gold} style={[styles.input, isRTL && styles.rtlInput]} value={maximumTrade} />
           </View>
         </View>
         {requiresBankSelection ? (
