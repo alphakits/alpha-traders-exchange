@@ -56,10 +56,22 @@ for (const locale of ["en", "ar"] as const) {
       await expect(dialog.locator("#buyer-amount-help")).toContainText("2,000 USDT", { timeout: 20_000 });
       await expect(dialog.locator("#buyer-usdt-amount")).toHaveValue("700");
       await expect(dialog.locator("#buyer-usdt-amount")).not.toHaveAttribute("aria-invalid", "true");
-      const capped = await seller.request.patch(`/api/alpha-exchange/listings/${id}`, {
-        data: { availableAmount: "3000", maximumTrade: "600", changeReason: "Changed available balance", changeExplanation: "Synthetic explicit per-trade cap" },
-      });
+      await sellerPage.bringToFront();
+      await card.getByRole("button", { name: locale === "ar" ? "تعديل" : "Edit", exact: true }).click();
+      const capInput = card.getByPlaceholder(locale === "ar" ? "الحد الأقصى للصفقة" : "Maximum Trade");
+      const amountInput = card.getByPlaceholder(locale === "ar" ? "الكمية المتاحة" : "Available Amount");
+      await capInput.fill("600");
+      await amountInput.fill("");
+      await amountInput.pressSequentially("6000");
+      await expect(capInput).toHaveValue("600");
+      await card.getByLabel(locale === "ar" ? "سبب تغيير العرض" : "Reason for listing change").selectOption("Changed available balance");
+      await card.getByPlaceholder(locale === "ar" ? "اشرح هذا التغيير باختصار" : "Briefly explain this change").fill("Synthetic explicit per-trade cap");
+      const capSaved = sellerPage.waitForResponse(response => response.url().endsWith(`/api/alpha-exchange/listings/${id}`) && response.request().method() === "PATCH");
+      await card.getByRole("button", { name: locale === "ar" ? "حفظ" : "Save", exact: true }).click();
+      const capped = await capSaved;
       expect(capped.ok(), await capped.text()).toBe(true);
+      expect(await capped.json()).toMatchObject({ listing: { availableAmount: "6000", maximumTrade: "600" } });
+      await buyerPage.bringToFront();
       await buyerPage.evaluate(() => window.dispatchEvent(new Event("focus")));
       await expect(dialog.locator("#buyer-amount-help")).toContainText("600 USDT");
       await expect(dialog.locator("#buyer-usdt-amount")).toHaveAttribute("aria-invalid", "true");

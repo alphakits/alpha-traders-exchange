@@ -3,7 +3,7 @@
 
 import { brandText, currencyText } from "@/components/ui/currency-text";
 import { ActionFeedback } from "@/components/ui/action-feedback";
-import { listingMaximumAfterAmountEdit, listingMaximumForAvailableAmount } from "@/lib/listing-trade-limits";
+import { listingMaximumForAvailableAmount, listingMaximumTracksAvailableAmount } from "@/lib/listing-trade-limits";
 import { isListingCommissionRequiredMessage } from "@/lib/listing-commission-policy";
 
 import type { Dispatch, FormEvent, SetStateAction } from "react";
@@ -26,6 +26,7 @@ import type { SellerBankAccount } from "@/components/sections/usdt-exchange/usdt
 
 type ListingEditForm = {
   availableAmount: string;
+  maximumTradeFollowsAmount?: boolean;
   price: string;
   currency: string;
   network: SupportedNetwork;
@@ -338,6 +339,9 @@ export function SellerListingsWorkspacePortal(props: SellerListingsWorkspacePort
                             bankName: listing.bankName ?? "",
                             minimumTrade: listing.minimumTrade ?? "0",
                             maximumTrade: listingMaximumForAvailableAmount(listing),
+                            maximumTradeFollowsAmount: listingMaximumTracksAvailableAmount({
+                              availableAmount: listing.availableAmount, maximumTrade: listingMaximumForAvailableAmount(listing),
+                            }),
                             sellerDescription: listing.sellerDescription ?? "",
                             changeReason: "",
                             changeExplanation: "",
@@ -383,7 +387,12 @@ export function SellerListingsWorkspacePortal(props: SellerListingsWorkspacePort
                       <form className="mt-3 grid gap-2 md:grid-cols-4" onSubmit={handleSellerListingEditSubmit}>
                         <Input className="currency-money" inputMode="decimal" value={listingEditForm.availableAmount} onChange={(event) => {
                           const availableAmount = normalizeTradeAmountInput(event.target.value);
-                          setListingEditForm((prev) => ({ ...prev, availableAmount, maximumTrade: listingMaximumAfterAmountEdit(prev, availableAmount) }));
+                          setListingEditForm((prev) => {
+                            // Remember explicit intent through intermediate keystrokes such as 7 → 70 → 700 → 7000.
+                            const followsAmount = prev.maximumTradeFollowsAmount ?? listingMaximumTracksAvailableAmount(prev);
+                            return { ...prev, availableAmount, maximumTradeFollowsAmount: followsAmount,
+                              maximumTrade: followsAmount ? availableAmount : prev.maximumTrade };
+                          });
                         }} placeholder={isAr ? "الكمية المتاحة" : "Available Amount"} />
                         <div className="space-y-2">
                           <Input
@@ -416,7 +425,11 @@ export function SellerListingsWorkspacePortal(props: SellerListingsWorkspacePort
                           <option value="SOL">SOL</option>
                         </select>
                         <Input className="currency-money" inputMode="decimal" value={listingEditForm.minimumTrade} onChange={(event) => setListingEditForm((prev) => ({ ...prev, minimumTrade: normalizeTradeAmountInput(event.target.value) }))} placeholder={isAr ? "الحد الأدنى للصفقة" : "Minimum Trade"} />
-                        <Input className="currency-money" inputMode="decimal" value={listingEditForm.maximumTrade} onChange={(event) => setListingEditForm((prev) => ({ ...prev, maximumTrade: normalizeTradeAmountInput(event.target.value) }))} placeholder={isAr ? "الحد الأقصى للصفقة" : "Maximum Trade"} />
+                        <Input className="currency-money" inputMode="decimal" value={listingEditForm.maximumTrade} onChange={(event) => {
+                          const maximumTrade = normalizeTradeAmountInput(event.target.value);
+                          setListingEditForm((prev) => ({ ...prev, maximumTrade,
+                            maximumTradeFollowsAmount: listingMaximumTracksAvailableAmount({ availableAmount: prev.availableAmount, maximumTrade }) }));
+                        }} placeholder={isAr ? "الحد الأقصى للصفقة" : "Maximum Trade"} />
                         <div className="md:col-span-2 rounded-2xl border border-white/10 bg-black/20 p-3">
                           <p className="text-xs uppercase tracking-[0.12em] text-[#9CA3AF]">{isAr ? "طريقة الدفع" : "Payment Method"} *</p>
                           <div className="mt-2 grid gap-2 md:grid-cols-3">

@@ -52,7 +52,7 @@ describe("seller listing controls", () => {
     for (const value of ["", "2", "20", "200", "2000"]) fireEvent.change(amount, { target: { value } });
     expect(maximum.value).toBe("2000");
     fireEvent.change(maximum, { target: { value: "700" } });
-    for (const value of ["", "3", "3000"]) fireEvent.change(amount, { target: { value } });
+    for (const value of ["", "7", "70", "700", "7000"]) fireEvent.change(amount, { target: { value } });
     expect(maximum.value).toBe("700");
     expect((screen.getByPlaceholderText("Minimum Trade") as HTMLInputElement).value).toBe("200");
   });
