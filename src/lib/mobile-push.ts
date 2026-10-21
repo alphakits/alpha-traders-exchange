@@ -481,10 +481,20 @@ async function sendClaimedBatch(
 }
 
 const receiptReconciliations = new WeakMap<Pool, Promise<void>>();
+const emptyReceiptScans = new WeakMap<Pool, number>();
+// Receipt eligibility starts after 15 minutes. Reuse only a confirmed empty
+// scan for one second to avoid borrowing a connection for every publication.
+// Use a monotonic clock; failed or nonempty scans never suppress recovery.
+const EMPTY_RECEIPT_SCAN_REUSE_MS = 1_000;
 
 function reconcileExpoPushReceipts(pool: Pool): Promise<void> {
   const active = receiptReconciliations.get(pool);
   if (active) return active;
+  const emptyAt = emptyReceiptScans.get(pool);
+  if (emptyAt !== undefined && performance.now() - emptyAt < EMPTY_RECEIPT_SCAN_REUSE_MS) {
+    return Promise.resolve();
+  }
+  emptyReceiptScans.delete(pool);
   const task = reconcileExpoPushReceiptBatch(pool).finally(() => {
     if (receiptReconciliations.get(pool) === task) receiptReconciliations.delete(pool);
   });
@@ -503,7 +513,10 @@ async function reconcileExpoPushReceiptBatch(pool: Pool) {
      order by updated_at asc
      limit 100`,
   );
-  if (pending.rows.length === 0) return;
+  if (pending.rows.length === 0) {
+    emptyReceiptScans.set(pool, performance.now());
+    return;
+  }
   try {
     const response = await fetchExpoJson(EXPO_PUSH_RECEIPTS_URL, {
       ids: pending.rows.map((row) => row.ticket_id),
