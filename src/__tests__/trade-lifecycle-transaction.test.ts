@@ -32,6 +32,15 @@ function fixture(fail?: (sql: string) => Error | undefined) {
 }
 
 describe("canonical trade lifecycle transaction", () => {
+  it.each([false, true])("rejects receipt bytes without a declared matching evidence row (selected=%s)", async selected => {
+    const { repo, query, release } = fixture();
+    const tx = (await repo.beginTradeLifecycleTransaction(["purchase_requests", "evidence"]))!;
+    await expect(tx.commit(tx.snapshot, { selectedTables: selected ? ["evidence"] : ["purchase_requests"],
+      evidenceOverrides: new Map([["not-in-snapshot", Buffer.from("synthetic")]]) })).rejects.toThrow("declared evidence row");
+    expect(query.mock.calls.some(([sql]) => /^(insert|update|delete)\b/i.test(sql))).toBe(false);
+    expect(release).toHaveBeenCalledExactlyOnceWith(false);
+  });
+
   it("rechecks a duplicate after its request lock without joining the global mutation queue", async () => {
     const { repo, query, release } = fixture();
     const original = query.getMockImplementation()!;

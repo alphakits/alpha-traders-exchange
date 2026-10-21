@@ -4,7 +4,8 @@ import { PGlite } from "@electric-sql/pglite";
 import type { Pool } from "pg";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AlphaExchangeRepository } from "@/lib/alpha-exchange-repository";
-import { invalidateAlphaExchangeStoreCache, uploadTradeEvidence } from "@/lib/alpha-exchange-store";
+import { publishRealtimeEvent } from "@/lib/realtime";
+import { getTradeEvidenceForRequest, invalidateAlphaExchangeStoreCache, uploadTradeEvidence } from "@/lib/alpha-exchange-store";
 import type { AlphaExchangeDb } from "@/types/alpha-exchange";
 
 vi.mock("@/lib/postgres-runtime", () => ({ getRuntimePostgresPool: () => null }));
@@ -72,6 +73,83 @@ afterEach(async () => {
 });
 
 describe("atomic seller receipt SMS persistence", () => {
+  it("publishes receipt notifications only after the durable commit", async () => {
+    vi.mocked(publishRealtimeEvent).mockClear();
+    beforeQuery = sql => {
+      if (sql === "commit") expect(publishRealtimeEvent).not.toHaveBeenCalled();
+    };
+    await upload();
+    expect(vi.mocked(publishRealtimeEvent).mock.calls.some(([event]) => event.type === "notification.created")).toBe(true);
+  });
+
+  it("commits an explicit binary-only replacement and retains the other metadata", async () => {
+    await upload();
+    const tx = (await repository.beginTradeLifecycleTransaction(["evidence"], "receipt-trade"))!;
+    const id = tx.snapshot.tradeEvidenceFiles[0].id;
+    const before = (await database.query("select payload,sort_index from alpha_exchange.evidence where id=$1", [id])).rows;
+    const replacement = Buffer.from([0, 255, 12, 83]);
+    try {
+      await tx.commit(tx.snapshot, { selectedTables: ["evidence"], evidenceOverrides: new Map([[id, replacement]]) });
+    } finally { await tx.close(); }
+    expect((await database.query("select payload,sort_index from alpha_exchange.evidence where id=$1", [id])).rows).toEqual(before);
+    const bytes = (await database.query<{ content: Uint8Array }>("select content from alpha_exchange.evidence where id=$1", [id])).rows[0].content;
+    expect(Buffer.from(bytes)).toEqual(replacement);
+  });
+
+  it("uploads without loading unrelated account tables and keeps partial snapshots out of the full cache", async () => {
+    beforeQuery = sql => {
+      if (sql.includes("alpha_exchange.password_reset_tokens")) throw new Error("Receipt upload must not load unrelated account tables");
+    };
+    await expect(upload()).resolves.toMatchObject({ request: { status: "usdt_sent" } });
+    beforeQuery = undefined;
+    const fullRead = vi.spyOn(repository, "loadSnapshot");
+    await getTradeEvidenceForRequest({ purchaseRequestId: "receipt-trade", actorUserId: "buyer", actorRole: "buyer" });
+    expect(fullRead).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["buyer", "seller"] as const)("preserves unrelated activity and delivery tuples during a %s receipt commit", async side => {
+    const snapshot = await repository.loadSnapshot();
+    const now = new Date().toISOString();
+    snapshot.activityLog.unshift({ id: "retained-activity", userId: "buyer", category: "trade", title: "Retained history", details: "Synthetic history", createdAt: now });
+    snapshot.smsDeliveries = [{ id: "retained-sms", eventKey: "trade:unrelated:usdt-sent:buyer:buyer", eventType: "usdt_sent",
+      recipientUserId: "buyer", recipientPhone: "+15551234567", body: "Synthetic queued intent", status: "queued", retryCount: 0, createdAt: now, updatedAt: now }];
+    await repository.saveSnapshot(snapshot, { selectedTables: ["activity_logs", "sms_deliveries"] });
+    if (side === "buyer") await database.exec("update alpha_exchange.purchase_requests set status='accepted',payload=jsonb_set(payload,'{status}','\"accepted\"')");
+    const retainedRows = async () => (await database.query(`
+      select 'activity' as kind,ctid::text as tuple,sort_index,payload from alpha_exchange.activity_logs where id='retained-activity'
+      union all select 'sms',ctid::text,sort_index,payload from alpha_exchange.sms_deliveries where id='retained-sms'
+      order by kind`)).rows;
+    const before = await retainedRows();
+    await expect(upload(side)).resolves.toMatchObject({ request: { status: side === "buyer" ? "payment_sent" : "usdt_sent" } });
+    expect(await retainedRows()).toEqual(before);
+    expect((await database.query("select id from alpha_exchange.evidence")).rows).toHaveLength(1);
+  });
+
+  it("retains receipt bytes and tuples across current and stale saves, then changes only explicit content", async () => {
+    await upload();
+    const receipts = async () => (await database.query<{ id: string; content: Uint8Array; tuple: string }>(
+      "select id,content,ctid::text as tuple from alpha_exchange.evidence order by sort_index")).rows;
+    const before = await receipts();
+    const snapshot = await repository.loadSnapshot();
+    beforeQuery = sql => {
+      if (/select\s+id,\s*content\s+from/i.test(sql)) throw new Error("Retained receipt bytes must stay in PostgreSQL");
+    };
+    await repository.saveSnapshot(snapshot, { selectedTables: ["evidence"] });
+    expect(await receipts()).toEqual(before);
+    await database.exec("update alpha_exchange.runtime_meta set version=version+1");
+    await repository.saveSnapshot(snapshot, { selectedTables: ["evidence"] });
+    expect(await receipts()).toEqual(before);
+    snapshot.tradeEvidenceFiles[0].fileName = "renamed-receipt.png";
+    await repository.saveSnapshot(snapshot, { selectedTables: ["evidence"] });
+    expect(Buffer.from((await receipts())[0].content)).toEqual(png);
+    const replacement = Buffer.from([0, 1, 2, 255]);
+    await repository.saveSnapshot(snapshot, { selectedTables: ["evidence"],
+      evidenceOverrides: new Map([[before[0].id, replacement]]) });
+    expect(Buffer.from((await receipts())[0].content)).toEqual(replacement);
+    expect((await database.query("select event_key from alpha_exchange.sms_deliveries")).rows)
+      .toEqual([{ event_key: "trade:receipt-trade:usdt-sent:buyer:buyer" }]);
+  });
+
   it("keeps buyer payment evidence independent from an unavailable SMS write path", async () => {
     const now = new Date().toISOString();
     const other = { id: "other-sms", eventKey: "trade:other:usdt-sent:buyer:buyer", eventType: "usdt_sent",
@@ -106,8 +184,10 @@ describe("atomic seller receipt SMS persistence", () => {
   });
 
   it("rolls back receipt bytes and lifecycle changes if the SMS intent cannot persist, then retries safely", async () => {
+    vi.mocked(publishRealtimeEvent).mockClear();
     await database.exec("alter table alpha_exchange.sms_deliveries add constraint injected_outbox_failure check (false)");
     await expect(upload()).rejects.toThrow();
+    expect(publishRealtimeEvent).not.toHaveBeenCalled();
     expect(await status()).toBe("usdt_release_pending");
     for (const table of ["evidence", "sms_deliveries", "audit_logs", "activity_logs", "notifications"]) {
       expect((await database.query(`select count(*)::int as count from alpha_exchange.${table}`)).rows).toEqual([{ count: 0 }]);
