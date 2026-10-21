@@ -555,7 +555,7 @@ const SNAPSHOT_TABLE_NAMES = [
 export type SnapshotTableName = (typeof SNAPSHOT_TABLE_NAMES)[number];
 
 const TRADE_LIFECYCLE_WRITE_TABLES = new Set<SnapshotTableName>([
-  "purchase_requests", "listings", "notifications", "audit_logs", "commissions", "activity_logs", "sms_deliveries", "disputes",
+  "purchase_requests", "listings", "notifications", "audit_logs", "commissions", "activity_logs", "sms_deliveries", "disputes", "evidence",
 ]);
 const TRADE_TRUST_WRITE_TABLES = new Set<SnapshotTableName>([
   "users", "seller_profiles", "seller_settings", "purchase_requests", "notifications", "audit_logs", "activity_logs", "trust_snapshots", "trust_score_history",
@@ -566,6 +566,7 @@ export type TradeLifecycleTransaction = {
   commit: (snapshot: AlphaExchangeDb, options: {
     selectedTables: readonly SnapshotTableName[];
     validateBeforeCommit?: (snapshot: AlphaExchangeDb) => void;
+    evidenceOverrides?: EvidenceWriteMap;
   }) => Promise<void>;
   /** Required on every exit, including a denied action or idempotent retry. */
   close: () => Promise<void>;
@@ -2570,6 +2571,12 @@ export class AlphaExchangeRepository {
             if (writeTables.some(name => !allowedWrites.has(name) || !baseline.has(name))) {
               throw new Error("Undeclared or unsupported lifecycle write table.");
             }
+            if (options.evidenceOverrides?.size) {
+              const evidenceIds = new Set(next.tradeEvidenceFiles.map(file => file.id));
+              if (!writeTables.includes("evidence") || [...options.evidenceOverrides.keys()].some(id => !evidenceIds.has(id))) {
+                throw new Error("Receipt bytes require a declared evidence row.");
+              }
+            }
             options.validateBeforeCommit?.(next);
             let changed = false;
             for (const name of writeTables) {
@@ -2578,6 +2585,12 @@ export class AlphaExchangeRepository {
               const identityKey = name === "seller_profiles" || name === "seller_settings" ? "userId" : name === "trust_snapshots" ? "sellerId" : "id";
               const primaryKey = identityKey === "userId" ? "user_id" : identityKey === "sellerId" ? "seller_id" : "id";
               const delta = lifecycleRowDelta(baseline.get(name)!, table.values(next) as LifecycleRow[], bounds ? { ...bounds, append: name === "sms_deliveries" } : undefined, identityKey);
+              // Binary-only edits still need a write when their metadata is
+              // unchanged. Other retained receipt bytes remain in PostgreSQL.
+              if (name === "evidence" && options.evidenceOverrides?.size) {
+                const changedIds = new Set(delta.changed.map(item => item.id));
+                delta.changed.push(...next.tradeEvidenceFiles.filter(file => options.evidenceOverrides!.has(file.id) && !changedIds.has(file.id)));
+              }
               if (delta.deletedIds.length) {
                 if (name === "users") throw new Error("Trust reconciliation cannot delete accounts.");
                 await client.query(`delete from alpha_exchange.${name} where ${primaryKey} = any($1::text[])`, [delta.deletedIds]);
@@ -2592,7 +2605,7 @@ export class AlphaExchangeRepository {
                 if (replacedIds.length) await client.query(`delete from alpha_exchange.${name} where ${primaryKey} = any($1::text[])`, [replacedIds]);
               }
               if (name === "users") await upsertUsersTable(client, delta.changed as AlphaExchangeUser[], delta.positions);
-              else await table.insert(client, delta.changed, { evidenceContentById: new Map(), rowSortIndexes: delta.positions });
+              else await table.insert(client, delta.changed, { evidenceContentById: new Map(), evidenceOverrides: options.evidenceOverrides, rowSortIndexes: delta.positions });
               changed = true;
             }
             if (changed) await client.query("update alpha_exchange.runtime_meta set version = version + 1, updated_at = now() where singleton = true");

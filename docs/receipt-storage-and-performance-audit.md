@@ -76,3 +76,38 @@ passes 21/21, web/mobile type checks pass, and all 101 focused tests pass with
 the new dependencies. The existing dependency advisory gate passes with its
 17 explicitly reported guarded/moderate findings; this is not a clean npm
 audit. Full application CI and native store acceptance remain separate.
+
+## CI1113 and canonical receipt transactions
+
+CI1113 on 60521593 passed 5,833 unit tests in 551 files, the production build,
+Expo doctor (21/21), every browser suite, and all 41 database correctness
+checks. The strict performance gate still failed: status maximum 831.333 ms,
+receipt maximum 1388.133 ms, combined p95 998.761 ms. Thirteen of the 30
+receipts exceeded one second. This is retained evidence, not a passing release.
+
+The receipt path still used speculative full snapshots and a process write
+queue. Under contention it reread full snapshots after acquiring the financial
+lock and rewrote unrelated activity and delivery rows. The follow-up routes
+uploads through the existing canonical lifecycle transaction: read after
+acquiring the same financial lock, decide once, and persist only changed rows
+with stable positions. Receipt bytes, status, audit, notification and seller
+SMS intent remain atomic. Explicit binary-only changes are supported; bytes
+without a declared matching evidence row are rejected before any write.
+
+Receipt reads declare eleven tables and limit event/evidence history to the
+target trade. Required account, listing, request and commission dependencies
+remain canonical. This partial snapshot never populates the full store cache.
+Compatibility repositories retain stale-state validation and bounded retry.
+Neither the measured workload nor the 1000 ms gate changes.
+
+The audit also reproduced premature receipt notification publication: both
+commit-order and failed-SMS rollback checks failed before the repair. Receipt
+notifications now publish only after commit acknowledgement. Rejected attempts
+discard their publications. No external provider delivery is exercised.
+
+Before/after evidence: three read-scope/history regressions failed on 60521593
+while the six existing receipt checks passed. Both notification publication
+checks then failed before that repair. The complete follow-up passes 485 tests
+across ten affected suites, root TypeScript and changed-file lint. Full CI must
+measure the revised transaction path; no speed improvement is claimed from
+unit-test results alone.

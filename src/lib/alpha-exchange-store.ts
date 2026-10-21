@@ -4097,6 +4097,9 @@ const TRADE_COMPLETION_TRUST_TABLES = [...USER_PROFILE_TABLES, "purchase_request
 const TRADE_EVIDENCE_BASE_TABLES = ["purchase_requests", "audit_logs", "activity_logs", "evidence"] as const satisfies readonly SnapshotTableName[];
 const TRADE_EVIDENCE_PAYMENT_TABLES = ["purchase_requests", "listings", "notifications", "audit_logs", "activity_logs", "evidence"] as const satisfies readonly SnapshotTableName[];
 const TRADE_EVIDENCE_RELEASE_TABLES = [...TRADE_EVIDENCE_PAYMENT_TABLES, "sms_deliveries"] as const satisfies readonly SnapshotTableName[];
+const TRADE_EVIDENCE_READ_TABLES = [
+  ...TRADE_EVIDENCE_RELEASE_TABLES, "users", "seller_applications", "commissions", "disputes",
+] as const satisfies readonly SnapshotTableName[];
 const TRADE_REVIEW_TABLES = ["purchase_requests", "notifications", "audit_logs", "activity_logs"] as const satisfies readonly SnapshotTableName[];
 const TRADE_REVIEW_READ_TABLES = [
   ...TRADE_REVIEW_TABLES, "users", "seller_applications", "listings", "commissions", "trust_snapshots",
@@ -12799,16 +12802,33 @@ type UploadTradeEvidenceResult = {
 };
 
 export async function uploadTradeEvidence(input: UploadTradeEvidenceInput): Promise<UploadTradeEvidenceResult> {
-  return uploadTradeEvidenceAttempt(input, 0);
+  const startedAt = Date.now();
+  const repository = await getAlphaExchangeRepository();
+  // Receipts make the same financial transition as the guided status action.
+  // Decide from locked canonical state, then write only changed rows and the
+  // new bytes. A status-only retry projection cannot validate file identity.
+  const transaction = typeof repository.beginTradeLifecycleTransaction === "function"
+    ? await repository.beginTradeLifecycleTransaction(TRADE_EVIDENCE_READ_TABLES, input.purchaseRequestId)
+    : null;
+  if (!transaction) return uploadTradeEvidenceAttempt(input, 0);
+  const transactionReadMs = Date.now() - startedAt;
+  try {
+    const result = await uploadTradeEvidenceAttempt(input, 0, transaction);
+    return { ...result, metrics: { ...result.metrics, dbReadMs: result.metrics.dbReadMs + transactionReadMs, routeMs: Date.now() - startedAt } };
+  } finally {
+    await transaction.close();
+  }
 }
 
 async function uploadTradeEvidenceAttempt(
   input: UploadTradeEvidenceInput,
   concurrencyRetryCount: number,
+  transaction?: TradeLifecycleTransaction,
 ): Promise<UploadTradeEvidenceResult> {
   const startedAt = Date.now();
   const dbReadStartedAt = Date.now();
-  const db = await readDb({ bypassCache: true });
+  const db = transaction ? normalizeDb(transaction.snapshot) : (await readDbForCriticalTradeMutation(TRADE_EVIDENCE_READ_TABLES)).db;
+  ensureDisplayNumbers(db);
   const dbReadMs = Date.now() - dbReadStartedAt;
   const validationStartedAt = Date.now();
   const actorRole = resolveActorRole(db, input.actorUserId);
@@ -12943,6 +12963,7 @@ async function uploadTradeEvidenceAttempt(
   const isBankTransferTrade = isBankTransferPaymentMethod(requestPaymentMethod);
   const shouldAutoSubmitPayment = input.side === "buyer" && request.status === "accepted";
   const shouldAutoConfirmUsdtSent = input.side === "seller" && request.status === "usdt_release_pending";
+  const notificationPublications: DeferredNotificationPublication[] = [];
   const archivedActionReminders = shouldAutoSubmitPayment || shouldAutoConfirmUsdtSent
     ? archiveSatisfiedTradeActionReminders(db, request, updatedAt)
     : [];
@@ -13002,7 +13023,7 @@ async function uploadTradeEvidenceAttempt(
       message: "Buyer submitted payment. Seller should now confirm the money was received.",
       createdAt: updatedAt,
     });
-    pushNotification(db, {
+    const publication = pushNotification(db, {
       userId: request.sellerId,
       category: "trade",
       title: isAtmTrade ? "Withdrawal ready" : "Buyer marked payment sent",
@@ -13015,7 +13036,9 @@ async function uploadTradeEvidenceAttempt(
       relatedListingId: request.listingId,
       relatedHref: requestDetailsHref(request.id),
       whatsappEvent: "trade_update",
+      deferRealtime: true,
     });
+    if (publication) notificationPublications.push(publication);
   }
   if (shouldAutoConfirmUsdtSent) {
     nextRequest.status = "usdt_sent";
@@ -13034,7 +13057,7 @@ async function uploadTradeEvidenceAttempt(
       message: "Seller marked USDT as sent. The seller can now complete the trade without waiting for buyer confirmation.",
       createdAt: updatedAt,
     });
-    pushNotification(db, {
+    const publication = pushNotification(db, {
       userId: request.buyerId,
       category: "trade",
       title: "Seller marked USDT sent",
@@ -13043,7 +13066,9 @@ async function uploadTradeEvidenceAttempt(
       relatedListingId: request.listingId,
       relatedHref: requestDetailsHref(request.id),
       whatsappEvent: "trade_update",
+      deferRealtime: true,
     });
+    if (publication) notificationPublications.push(publication);
     queueSmsDelivery(db, {
       eventType: "usdt_sent",
       eventKey: `trade:${request.id}:usdt-sent:buyer:${request.buyerId}`,
@@ -13062,7 +13087,7 @@ async function uploadTradeEvidenceAttempt(
       "usdt_sent",
     ]).has(nextRequest.status)
   ) {
-    pushNotification(db, {
+    const publication = pushNotification(db, {
       userId: input.side === "buyer" ? request.sellerId : request.buyerId,
       category: "trade",
       title: "Trade evidence updated",
@@ -13072,7 +13097,9 @@ async function uploadTradeEvidenceAttempt(
       relatedListingId: request.listingId,
       relatedHref: requestDetailsHref(request.id),
       whatsappEvent: "trade_update",
+      deferRealtime: true,
     });
+    if (publication) notificationPublications.push(publication);
   }
   db.purchaseRequests[requestIndex] = nextRequest;
   synchronizeListingTradeLock(db, evidenceListing);
@@ -13093,8 +13120,17 @@ async function uploadTradeEvidenceAttempt(
   });
   const storageStartedAt = Date.now();
   const dbWriteStartedAt = Date.now();
+  const persist = async (snapshot: AlphaExchangeDb, options: NonNullable<Parameters<typeof writeDb>[1]>) => {
+    if (!transaction) return writeDb(snapshot, { ...options, cacheResult: false });
+    const normalized = normalizeDb(snapshot);
+    ensureDisplayNumbers(normalized);
+    await transaction.commit(normalized, { selectedTables: options.selectedTables!, evidenceOverrides: options.evidenceOverrides });
+    Object.assign(snapshot, normalized);
+    dbCache = null;
+    dbReadInFlight = null;
+  };
   try {
-    await writeDb(db, {
+    await persist(db, {
       evidenceOverrides: new Map([[evidenceId, raw]]),
       selectedTables: shouldAutoConfirmUsdtSent
         ? TRADE_EVIDENCE_RELEASE_TABLES
@@ -13127,10 +13163,10 @@ async function uploadTradeEvidenceAttempt(
       },
     });
   } catch (error) {
-    if (error instanceof ConcurrentTradeMutationError && concurrencyRetryCount < 2) {
+    if (!transaction && error instanceof ConcurrentTradeMutationError && concurrencyRetryCount < 2) {
       return uploadTradeEvidenceAttempt(input, concurrencyRetryCount + 1);
     }
-    if (error instanceof ConcurrentTradeMutationError) {
+    if (!transaction && error instanceof ConcurrentTradeMutationError) {
       throw new TradeBlockedError(
         "concurrent-evidence-change",
         "This trade changed while your evidence was being saved. Refresh the Trade Room and try again.",
@@ -13142,6 +13178,7 @@ async function uploadTradeEvidenceAttempt(
   }
   const dbWriteMs = Date.now() - dbWriteStartedAt;
   const storageMs = Date.now() - storageStartedAt;
+  for (const publication of notificationPublications) publishNotificationPublication(publication);
   publishArchivedTradeActionReminders(archivedActionReminders);
   publishRealtimeEvent({
     type: "trade.status_changed",
