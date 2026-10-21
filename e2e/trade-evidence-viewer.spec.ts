@@ -24,6 +24,7 @@ test.afterEach(async ({ request }) => {
   const db = await readFixture(request);
   db.purchaseRequests = db.purchaseRequests.filter(trade => !trade.id.startsWith(prefix));
   db.tradeEvidenceFiles = db.tradeEvidenceFiles.filter(file => !file.purchaseRequestId.startsWith(prefix));
+  db.marketplaceListings = db.marketplaceListings.filter(listing => !listing.id.startsWith(prefix));
   await writeFixture(request, db);
 });
 
@@ -37,8 +38,17 @@ for (const role of ["BUYER", "SELLER", "OWNER"] as const) {
       const seller = db.users.find(user => user.email === process.env.E2E_SELLER_EMAIL)!;
       const now = new Date().toISOString();
       const requestId = `${prefix}${role.toLowerCase()}-${locale}`;
+      // Lifecycle scenarios deliberately rotate the shared seller identity and remove its listings.
+      // Own this fixture so the complete suite has the same prerequisites as an isolated viewer run.
+      const listingId = `${requestId}-listing`;
+      db.marketplaceListings.push({ id: listingId, sellerId: seller.id, sellerDisplayName: "Synthetic receipt seller",
+        photos: [], originalAmount: "1500", availableAmount: "1500", price: "3.20", currency: "ILS", network: "TRC20",
+        paymentMethod: "Bank Transfer", paymentMethods: ["Bank Transfer"], bankName: "Bank Hapoalim",
+        minimumTrade: "100", maximumTrade: "1500", sellerDescription: "Synthetic private receipt fixture",
+        responseTime: "5 min", status: "active", approvalStatus: "approved",
+        expiresAt: new Date(Date.now() + 72 * 60 * 60_000).toISOString(), createdAt: now, updatedAt: now });
       const trade = { id: requestId, tradeId: `${requestId}-trade`, displayNumber: 9920,
-        listingId: "e2e-global-seller-listing", sellerId: seller.id, buyerId: buyer.id, buyerName: "Synthetic buyer",
+        listingId, sellerId: seller.id, buyerId: buyer.id, buyerName: "Synthetic buyer",
         usdtAmount: "100", pricePerUsdt: "3.20", fiatAmount: "323.20", currency: "ILS", network: "TRC20",
         paymentMethod: "Bank Transfer", status: "accepted", timeline: [], acceptedAt: now, createdAt: now, updatedAt: now,
       } as PurchaseRequest;
