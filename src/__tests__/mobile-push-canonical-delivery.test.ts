@@ -10,6 +10,7 @@ describe("canonical push delivery under publication bursts", () => {
   let db: PGlite;
   let receiptGate: Promise<void> | undefined;
   let receiptFailure: Error | undefined;
+  let clock = 0;
   const queries: string[] = [];
   const notification: AlphaExchangeNotification = { id: "notice", userId: "buyer", category: "trade",
     title: "Trade completed", message: "PRIVATE_BANK_DETAIL", isRead: false,
@@ -34,8 +35,10 @@ describe("canonical push delivery under publication bursts", () => {
     } };
     await deliverMobilePushNotification(notification);
   });
-  afterAll(async () => { vi.unstubAllGlobals(); await db.close(); });
+  afterAll(async () => { vi.restoreAllMocks(); vi.unstubAllGlobals(); await db.close(); });
   beforeEach(async () => {
+    clock += 2_000;
+    vi.spyOn(performance, "now").mockImplementation(() => clock);
     receiptGate = undefined;
     receiptFailure = undefined;
     await db.exec(`delete from alpha_exchange.mobile_push_deliveries; delete from alpha_exchange.mobile_push_subscriptions;
@@ -72,7 +75,7 @@ describe("canonical push delivery under publication bursts", () => {
     }
     expect(fetch).not.toHaveBeenCalled();
   });
-  it("shares one receipt scan during a 20-publication burst and allows the next scan afterwards", async () => {
+  it("shares an empty receipt result across overlapping and sequential publications for one second", async () => {
     let release!: () => void;
     receiptGate = new Promise<void>(resolve => { release = resolve; });
     const burst = Promise.all(Array.from({ length: 20 }, () => deliverMobilePushNotification(notification)));
@@ -81,6 +84,11 @@ describe("canonical push delivery under publication bursts", () => {
     release(); await burst; receiptGate = undefined;
     expect(queries.filter(q => /^\s*select /i.test(q))).toHaveLength(21);
     expect(fetch).not.toHaveBeenCalled();
+    for (let i = 0; i < 20; i++) await deliverMobilePushNotification(notification);
+    clock += 999;
+    await deliverMobilePushNotification(notification);
+    expect(queries.filter(q => q.includes("select notification_id, subscription_id, ticket_id"))).toHaveLength(1);
+    clock += 1;
     await deliverMobilePushNotification(notification);
     expect(queries.filter(q => q.includes("select notification_id, subscription_id, ticket_id"))).toHaveLength(2);
   });
@@ -89,5 +97,25 @@ describe("canonical push delivery under publication bursts", () => {
     await expect(deliverMobilePushNotification(notification)).rejects.toThrow("synthetic database interruption");
     await expect(deliverMobilePushNotification(notification)).resolves.toBeUndefined();
     expect(queries.filter(q => q.includes("select notification_id, subscription_id, ticket_id"))).toHaveLength(2);
+  });
+
+  it("recovers newly eligible receipts after the empty-result window and retries missing provider receipts immediately", async () => {
+    await deliverMobilePushNotification(notification);
+    await subscribe("receipt-only", "1 hour", false);
+    await db.exec(`insert into alpha_exchange.mobile_push_deliveries
+      (notification_id,subscription_id,status,ticket_id,updated_at)
+      values ('old-notice','receipt-only','sent','old-ticket',now()-interval '16 minutes')`);
+    vi.mocked(fetch).mockResolvedValueOnce(Response.json({ data: {} }));
+    vi.mocked(fetch).mockResolvedValueOnce(Response.json({ data: { "old-ticket": { status: "ok" } } }));
+    clock += 999;
+    await deliverMobilePushNotification(notification);
+    expect(fetch).not.toHaveBeenCalled();
+    clock += 1;
+    await deliverMobilePushNotification(notification);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect((await db.query("select status from alpha_exchange.mobile_push_deliveries")).rows).toEqual([{ status: "sent" }]);
+    await deliverMobilePushNotification(notification);
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect((await db.query("select status from alpha_exchange.mobile_push_deliveries")).rows).toEqual([{ status: "delivered" }]);
   });
 });
