@@ -4096,6 +4096,7 @@ const TRADE_COMPLETION_CORE_TABLES = ["purchase_requests", "listings", "notifica
 const TRADE_COMPLETION_TRUST_TABLES = [...USER_PROFILE_TABLES, "purchase_requests", "notifications", "audit_logs", "activity_logs", "trust_snapshots", "trust_score_history"] as const satisfies readonly SnapshotTableName[];
 const TRADE_EVIDENCE_BASE_TABLES = ["purchase_requests", "audit_logs", "activity_logs", "evidence"] as const satisfies readonly SnapshotTableName[];
 const TRADE_EVIDENCE_PAYMENT_TABLES = ["purchase_requests", "listings", "notifications", "audit_logs", "activity_logs", "evidence"] as const satisfies readonly SnapshotTableName[];
+const TRADE_EVIDENCE_RELEASE_TABLES = [...TRADE_EVIDENCE_PAYMENT_TABLES, "sms_deliveries"] as const satisfies readonly SnapshotTableName[];
 const TRADE_REVIEW_TABLES = ["purchase_requests", "notifications", "audit_logs", "activity_logs"] as const satisfies readonly SnapshotTableName[];
 const TRADE_REVIEW_READ_TABLES = [
   ...TRADE_REVIEW_TABLES, "users", "seller_applications", "listings", "commissions", "trust_snapshots",
@@ -13095,7 +13096,9 @@ async function uploadTradeEvidenceAttempt(
   try {
     await writeDb(db, {
       evidenceOverrides: new Map([[evidenceId, raw]]),
-      selectedTables: shouldAutoSubmitPayment || shouldAutoConfirmUsdtSent ? TRADE_EVIDENCE_PAYMENT_TABLES : TRADE_EVIDENCE_BASE_TABLES,
+      selectedTables: shouldAutoConfirmUsdtSent
+        ? TRADE_EVIDENCE_RELEASE_TABLES
+        : shouldAutoSubmitPayment ? TRADE_EVIDENCE_PAYMENT_TABLES : TRADE_EVIDENCE_BASE_TABLES,
       validateLatestBeforeCommit: (canonicalSnapshot) => {
         const canonicalRequest = canonicalSnapshot.purchaseRequests.find((candidate) => candidate.id === request.id);
         const canonicalEvidence = canonicalSnapshot.tradeEvidenceFiles.find(
