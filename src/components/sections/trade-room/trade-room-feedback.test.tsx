@@ -7,6 +7,7 @@ vi.mock("@/i18n/navigation", () => ({ Link: () => null, useRouter: () => ({ push
 vi.mock("@/components/account/user-safety-actions", () => ({ UserSafetyActions: () => null }));
 import { TradeRoomPage } from "./trade-room-page";
 import { readTradeRoomCache, writeTradeRoomCache } from "@/lib/trade-room-client";
+import { cancelPageSectionNavigation, revealPageSection } from "@/lib/page-section-navigation";
 import type { PurchaseRequest } from "@/types/alpha-exchange";
 
 function room(paymentMethod: string, status: PurchaseRequest["status"]) {
@@ -50,7 +51,56 @@ beforeEach(() => {
   Element.prototype.scrollIntoView = vi.fn();
   Element.prototype.scrollTo = vi.fn();
 });
-afterEach(() => { cleanup(); vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+afterEach(() => { cleanup(); cancelPageSectionNavigation(); vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+
+it.each([
+  ["upload-payment-receipt", "accepted", buyer],
+  ["upload-seller-evidence", "usdt_release_pending", seller],
+] as const)("keeps the current action focused when shared navigation restores a legacy %s link", async (action, status, actor) => {
+  vi.useFakeTimers();
+  navigation.search = new URLSearchParams(`action=${action}`);
+  window.history.replaceState(null, "", `/en/trade-room/feedback-request?action=${action}#evidence`);
+  vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(Response.json(room("Bank Transfer", status)))));
+  await act(async () => { render(<TradeRoomPage locale="en" requestId="feedback-request" actor={actor} />); });
+  // The shared hash restorer can run before the room's queued focus frame.
+  act(() => { revealPageSection("evidence"); });
+  await act(async () => { await vi.advanceTimersByTimeAsync(1_100); });
+  expect(document.activeElement?.id).toBe("action-required");
+});
+
+it("waits for the canonical room when a hash restorer starts before the room mounts", async () => {
+  vi.useFakeTimers();
+  navigation.search = new URLSearchParams("action=upload-payment-receipt");
+  window.history.replaceState(null, "", "/en/trade-room/feedback-request?action=upload-payment-receipt#evidence");
+  revealPageSection("evidence");
+  writeTradeRoomCache("feedback-request", buyer.id, room("Bank Transfer", "pending"));
+  const response = deferredResponse();
+  vi.stubGlobal("fetch", vi.fn(() => response.promise));
+  await act(async () => { render(<TradeRoomPage locale="en" requestId="feedback-request" actor={buyer} />); });
+  await act(async () => { await vi.advanceTimersByTimeAsync(300); });
+  expect(document.activeElement).toBe(document.body);
+  await act(async () => response.resolve(Response.json(room("Bank Transfer", "accepted"))));
+  await act(async () => { await vi.advanceTimersByTimeAsync(1_100); });
+  expect(document.activeElement?.id).toBe("action-required");
+});
+
+it("honors repeated explicit chat navigation and yields to newer typing", async () => {
+  vi.useFakeTimers();
+  vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(Response.json(room("Bank Transfer", "accepted")))));
+  await act(async () => { render(<TradeRoomPage locale="en" requestId="feedback-request" actor={buyer} />); });
+  await act(async () => { await vi.advanceTimersByTimeAsync(32); });
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    act(() => { document.getElementById("action-required")!.focus(); revealPageSection("chat"); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(32); });
+    expect(document.activeElement?.id).toBe("chat");
+  }
+  act(() => { revealPageSection("action-required"); });
+  const draft = screen.getByPlaceholderText("Type a message...");
+  act(() => { draft.focus(); fireEvent.change(draft, { target: { value: "Keep my draft" } }); });
+  await act(async () => { await vi.advanceTimersByTimeAsync(1_100); });
+  expect(document.activeElement).toBe(draft);
+  expect((draft as HTMLTextAreaElement).value).toBe("Keep my draft");
+});
 
 it.each([
   ["en", "listing_price", "Bank Leumi"],

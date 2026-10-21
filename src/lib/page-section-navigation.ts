@@ -41,6 +41,7 @@ export function revealPageSection(sectionId: string) {
   const route = `${window.location.pathname}${window.location.search}`;
   const invocationTarget = document.activeElement;
   let trackedTarget: HTMLElement | null = null;
+  let announcedTarget: HTMLElement | null = null;
   let lastTop: number | undefined;
   let lastHeight: number | undefined;
   let frame: number | undefined;
@@ -78,6 +79,12 @@ export function revealPageSection(sectionId: string) {
     if (`${window.location.pathname}${window.location.search}` !== route) return stop();
     const target = document.getElementById(sectionId);
     if (!target) return;
+    // A deferred page may mount after the initial request was announced. Give
+    // its controller ownership before the generic restorer moves or focuses it.
+    if (announcedTarget !== target) {
+      announcedTarget = target;
+      if (!window.dispatchEvent(new CustomEvent(PAGE_SECTION_NAVIGATION_EVENT, { detail: sectionId, cancelable: true }))) return stop();
+    }
     // A target can itself be a disclosure, or sit inside several closed ones.
     for (let parent: HTMLElement | null = target; parent; parent = parent.parentElement) {
       if (parent instanceof HTMLDetailsElement && !parent.open) parent.open = true;
@@ -127,7 +134,10 @@ export function revealPageSection(sectionId: string) {
   }
   timers.push(window.setTimeout(stop, 10_000));
   // Tabbed sections need to mount their content before they can be focused.
-  window.dispatchEvent(new CustomEvent(PAGE_SECTION_NAVIGATION_EVENT, { detail: sectionId }));
+  if (!window.dispatchEvent(new CustomEvent(PAGE_SECTION_NAVIGATION_EVENT, { detail: sectionId, cancelable: true }))) {
+    stop();
+    return stop;
+  }
   reveal();
   scheduleReveal();
   return stop;
