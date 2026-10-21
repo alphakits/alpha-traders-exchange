@@ -12,6 +12,7 @@ import Image from "next/image";
 import { useSearchParams } from "next/navigation";
 import { Link, useRouter } from "@/i18n/navigation";
 import { navigateOrRevealResult } from "@/lib/client-success-navigation";
+import { PAGE_SECTION_NAVIGATION_EVENT } from "@/lib/page-section-navigation";
 import { publishTradeHeaderActivity, toTradeHeaderActivity } from "@/lib/trade-header-activity";
 import { commissionPaymentDestination } from "@/lib/commission-payment-destination";
 import { TradeTermsPanel } from "./trade-terms-panel";
@@ -1359,6 +1360,7 @@ function TradeRoomPageSession({
   const searchParams = useSearchParams();
   const [room, setRoom] = useState<TradeRoomData | null>(null);
   const [hasCanonicalRoom, setHasCanonicalRoom] = useState(false);
+  const [sectionNavigation, setSectionNavigation] = useState<{ id: TradeRoomDeepLinkTarget; href: string; revision: number } | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [statusFeedback, setStatusFeedback, statusMessageFeedbackKey] = useActionFeedbackState<{ message: string; stage: PurchaseRequest["status"] } | null>(null);
@@ -1623,19 +1625,32 @@ function TradeRoomPageSession({
   const deepLinkRequestStatus = room?.request.status ?? null;
 
   useLayoutEffect(() => {
+    const navigate = (event: Event) => {
+      if (!(event instanceof CustomEvent) || !["action-required", "status-banner", "evidence", "chat"].includes(event.detail)) return;
+      // The room resolves legacy action links against its canonical stage.
+      // Shared hash restoration must not compete with that focus decision.
+      event.preventDefault();
+      setSectionNavigation(previous => ({ id: event.detail as TradeRoomDeepLinkTarget, href: window.location.href, revision: (previous?.revision ?? 0) + 1 }));
+    };
+    window.addEventListener(PAGE_SECTION_NAVIGATION_EVENT, navigate);
+    return () => window.removeEventListener(PAGE_SECTION_NAVIGATION_EVENT, navigate);
+  }, []);
+
+  useLayoutEffect(() => {
     // Keep the current control stable while its request is pending. On commit,
     // reveal either the result beside the next action or the new server stage.
     // A cached stage is a first paint, not a live transition. Honor the entry
     // link against the canonical snapshot before recording guided state.
     if (!hasCanonicalRoom || isLoading || actionBusy || reviewBusy || evidenceBusy || !deepLinkRequestId || !deepLinkRequestStatus) return;
     const action = searchParams.get("action")?.trim() || null;
-    const hash = window.location.hash;
+    const requestedSection = sectionNavigation?.href === window.location.href ? sectionNavigation : null;
+    const hash = requestedSection ? `#${requestedSection.id}` : window.location.hash;
     const currentState = `${deepLinkRequestId}:${deepLinkRequestStatus}`;
     const feedbackKey = `${statusMessageFeedbackKey}:${actionErrorFeedbackKey}`;
     const hasNewFeedback = Boolean(actionError || (statusMessage && !reviewCommentError))
       && lastGuidedFeedbackRef.current !== feedbackKey;
     const target = resolveTradeRoomGuidanceTarget({ priorState: lastGuidedTradeStateRef.current, currentState, status: deepLinkRequestStatus, action, hash });
-    const marker = `${currentState}:${action ?? ""}:${hash ?? ""}`;
+    const marker = `${currentState}:${action ?? ""}:${hash ?? ""}:${requestedSection?.revision ?? 0}`;
     if (!hasNewFeedback && lastDeepLinkHandledRef.current === marker) return;
     const resolvedRef = hasNewFeedback ? actionFeedbackRef.current
       : target === "status-banner" ? statusBannerRef.current
@@ -1675,7 +1690,7 @@ function TradeRoomPageSession({
     document.addEventListener("visibilitychange", reveal);
     for (const event of userInteractionEvents) window.addEventListener(event, yieldToUser, true);
     return stop;
-  }, [actionBusy, actionError, actionErrorFeedbackKey, deepLinkRequestId, deepLinkRequestStatus, evidenceBusy, hasCanonicalRoom, isLoading, reviewBusy, reviewCommentError, searchParams, statusMessage, statusMessageFeedbackKey]);
+  }, [actionBusy, actionError, actionErrorFeedbackKey, deepLinkRequestId, deepLinkRequestStatus, evidenceBusy, hasCanonicalRoom, isLoading, reviewBusy, reviewCommentError, searchParams, sectionNavigation, statusMessage, statusMessageFeedbackKey]);
 
   useEffect(() => {
     if (!room?.request || actionBusy || evidenceBusy) return;

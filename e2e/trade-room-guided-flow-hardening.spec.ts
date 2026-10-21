@@ -888,6 +888,45 @@ test("action transition matrix: destination query/hash + focused section + CTA a
   await api.dispose();
 });
 
+for (const locale of ["en", "ar"] as const) {
+  test(`legacy receipt notification history restores the current buyer and seller action (${locale})`, async ({ page }) => {
+    test.setTimeout(120_000);
+    const api = await pwRequest.newContext({ baseURL: E2E_BASE_URL });
+    try {
+      await login(page.request, buyerEmail, buyerPassword);
+      const requestId = await createTradeRequest(page.request, "270");
+      for (const actor of ["buyer", "seller"] as const) {
+        await page.goto("about:blank");
+        const db = await readDb(api);
+        const requests = db.purchaseRequests as Record<string, unknown>[];
+        const purchase = requests.find(row => row.id === requestId)!;
+        Object.assign(purchase, {
+          paymentMethod: "Bank Transfer", status: actor === "buyer" ? "accepted" : "funds_received",
+          buyerEvidence: undefined, sellerEvidence: undefined, updatedAt: iso(),
+        });
+        await writeDb(api, db);
+        await logout(page.request);
+        await login(page.request, actor === "buyer" ? buyerEmail : sellerEmail, actor === "buyer" ? buyerPassword : sellerPassword);
+        await page.setViewportSize(locale === "en" ? { width: 390, height: 844 } : { width: 844, height: 390 });
+        const action = actor === "buyer" ? "upload-payment-receipt" : "upload-seller-evidence";
+        await page.goto(`/${locale}/trade-room/${requestId}?action=${action}#evidence`);
+        const currentAction = page.locator("#action-required");
+        await expect(currentAction.locator('input[type="file"]')).toHaveCount(1);
+        await expect(currentAction.getByTestId("trade-primary-action").getByRole("button").first()).toBeEnabled();
+        // Exercise the actual history event after the room has mounted. Older
+        // notification links still use #evidence for the current upload action.
+        await page.evaluate(() => window.history.pushState({}, "", "#chat"));
+        await page.goBack();
+        await expect(page).toHaveURL(/#evidence$/);
+        await expect(currentAction).toBeFocused();
+        await expect(currentAction.getByTestId("trade-primary-action")).toBeInViewport();
+      }
+    } finally {
+      await api.dispose();
+    }
+  });
+}
+
 test("mobile targeted notification open keeps correct section and CTA without overflow", async ({ page }) => {
   test.setTimeout(180_000);
   const api = await pwRequest.newContext({ baseURL: E2E_BASE_URL });
