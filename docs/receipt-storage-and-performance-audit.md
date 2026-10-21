@@ -58,3 +58,21 @@ prepends, metadata edits, explicit replacement, deletion and reordering.
 CI must verify these checks and the expanded 270-action gate on this source.
 Previous timing results are diagnostic evidence, not proof this candidate
 has solved the strict latency requirement.
+
+## CI1112 and Expo patch follow-up
+
+CI1112 on ee540407 passed all 41 database correctness checks, including all
+eight new retention checks, and the recovery/restoration checks. The expanded
+gate correctly failed: status maximum 1032.221 ms, receipt maximum 1250.408 ms,
+270-action p95 985.573 ms. Receipt storage work is verified; strict latency
+acceptance remains unresolved. This run is retained, not retried or waived.
+
+The Expo doctor failure from CI1111 is addressed by updating root/mobile Expo
+to ~57.0.31 and mobile Expo Router to ~57.0.29, with the generated integrity-
+locked dependency tree. Official SDK57 changelogs dated 21 October list no
+user-facing change for Expo itself and navigation fixes for Expo Router.
+No package is excluded from validation. After a fresh npm ci, Expo doctor
+passes 21/21, web/mobile type checks pass, and all 101 focused tests pass with
+the new dependencies. The existing dependency advisory gate passes with its
+17 explicitly reported guarded/moderate findings; this is not a clean npm
+audit. Full application CI and native store acceptance remain separate.
