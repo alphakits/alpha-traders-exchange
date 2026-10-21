@@ -901,7 +901,7 @@ for (const locale of ["en", "ar"] as const) {
         const requests = db.purchaseRequests as Record<string, unknown>[];
         const purchase = requests.find(row => row.id === requestId)!;
         Object.assign(purchase, {
-          paymentMethod: "Bank Transfer", status: actor === "buyer" ? "accepted" : "funds_received",
+          paymentMethod: "Bank Transfer", status: actor === "buyer" ? "accepted" : "usdt_release_pending",
           buyerEvidence: undefined, sellerEvidence: undefined, updatedAt: iso(),
         });
         await writeDb(api, db);

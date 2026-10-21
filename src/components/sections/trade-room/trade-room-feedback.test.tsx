@@ -55,7 +55,7 @@ afterEach(() => { cleanup(); cancelPageSectionNavigation(); vi.useRealTimers(); 
 
 it.each([
   ["upload-payment-receipt", "accepted", buyer],
-  ["upload-seller-evidence", "funds_received", seller],
+  ["upload-seller-evidence", "usdt_release_pending", seller],
 ] as const)("keeps the current action focused when shared navigation restores a legacy %s link", async (action, status, actor) => {
   vi.useFakeTimers();
   navigation.search = new URLSearchParams(`action=${action}`);
