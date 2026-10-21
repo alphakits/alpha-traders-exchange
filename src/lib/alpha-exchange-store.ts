@@ -4096,6 +4096,10 @@ const TRADE_COMPLETION_CORE_TABLES = ["purchase_requests", "listings", "notifica
 const TRADE_COMPLETION_TRUST_TABLES = [...USER_PROFILE_TABLES, "purchase_requests", "notifications", "audit_logs", "activity_logs", "trust_snapshots", "trust_score_history"] as const satisfies readonly SnapshotTableName[];
 const TRADE_EVIDENCE_BASE_TABLES = ["purchase_requests", "audit_logs", "activity_logs", "evidence"] as const satisfies readonly SnapshotTableName[];
 const TRADE_EVIDENCE_PAYMENT_TABLES = ["purchase_requests", "listings", "notifications", "audit_logs", "activity_logs", "evidence"] as const satisfies readonly SnapshotTableName[];
+const TRADE_EVIDENCE_RELEASE_TABLES = [...TRADE_EVIDENCE_PAYMENT_TABLES, "sms_deliveries"] as const satisfies readonly SnapshotTableName[];
+const TRADE_EVIDENCE_READ_TABLES = [
+  ...TRADE_EVIDENCE_RELEASE_TABLES, "users", "seller_applications", "commissions", "disputes",
+] as const satisfies readonly SnapshotTableName[];
 const TRADE_REVIEW_TABLES = ["purchase_requests", "notifications", "audit_logs", "activity_logs"] as const satisfies readonly SnapshotTableName[];
 const TRADE_REVIEW_READ_TABLES = [
   ...TRADE_REVIEW_TABLES, "users", "seller_applications", "listings", "commissions", "trust_snapshots",
@@ -12804,7 +12808,7 @@ async function uploadTradeEvidenceAttempt(
 ): Promise<UploadTradeEvidenceResult> {
   const startedAt = Date.now();
   const dbReadStartedAt = Date.now();
-  const db = await readDb({ bypassCache: true });
+  const { db } = await readDbForCriticalTradeMutation(TRADE_EVIDENCE_READ_TABLES);
   const dbReadMs = Date.now() - dbReadStartedAt;
   const validationStartedAt = Date.now();
   const actorRole = resolveActorRole(db, input.actorUserId);
@@ -13092,7 +13096,12 @@ async function uploadTradeEvidenceAttempt(
   try {
     await writeDb(db, {
       evidenceOverrides: new Map([[evidenceId, raw]]),
-      selectedTables: shouldAutoSubmitPayment || shouldAutoConfirmUsdtSent ? TRADE_EVIDENCE_PAYMENT_TABLES : TRADE_EVIDENCE_BASE_TABLES,
+      selectedTables: shouldAutoConfirmUsdtSent
+        ? TRADE_EVIDENCE_RELEASE_TABLES
+        : shouldAutoSubmitPayment ? TRADE_EVIDENCE_PAYMENT_TABLES : TRADE_EVIDENCE_BASE_TABLES,
+      // The canonical read intentionally omits unrelated tables. Never serve
+      // this partial snapshot as the process-wide complete exchange cache.
+      cacheResult: false,
       validateLatestBeforeCommit: (canonicalSnapshot) => {
         const canonicalRequest = canonicalSnapshot.purchaseRequests.find((candidate) => candidate.id === request.id);
         const canonicalEvidence = canonicalSnapshot.tradeEvidenceFiles.find(

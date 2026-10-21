@@ -58,3 +58,24 @@ Five new checks run after the unchanged timed sample. They verify current and st
 These two runs used separate fresh fixture databases on the same disposable four-vCPU / 8-GiB Ubuntu environment, Node 24.21.0 and PostgreSQL 17.10 built from the official source archive. fsync, synchronous_commit and full_page_writes stayed enabled. The initial default PostgreSQL 18.6 installation failed the unchanged PostgreSQL 17 catalog comparison before timing began; that environment failure was retained and the engine version corrected. No assertions or workload were weakened. The result demonstrates removed binary transfer and unchanged-row writes, not an overall action-latency speedup: this candidate's measured business-action maximum was slightly higher than its baseline.
 
 The original WebKit focus failure also remains open. Three isolated diagnostic runs of the unmodified application passed the seven-state matrix (21 state checks, zero retries), without reproducing the failure or establishing its cause. Diagnostic browser instrumentation is not included in this change.
+
+## Scoped receipt reads and durable SMS intent
+
+CI1097 on 0f08af2f subsequently passed all nine jobs, including release acceptance: 5,799 unit tests across 546 files, lint, type checks, production build, all 41 database checks, and the 240-action timing gate. Its action maximum was 837.052 ms. The WebKit action matrix passed, but the earlier intermittent focus failure remains unexplained. Twelve of its 30 separate receipt calls still exceeded one second (maximum 1,344.359 ms).
+
+The next follow-up narrows the receipt's initial canonical read from 26 snapshot tables to 11 dependencies. It preserves users and seller applications for canonical roles, listings and requests for lifecycle validation, notification and evidence history, SMS deduplication, and commission/dispute display references. The existing stale-snapshot merge, financial lock and concurrency retries are unchanged. A partial result is never installed as the complete process cache.
+
+The same review found a durable-delivery defect: seller receipt uploads queued a buyer SMS intent in memory but omitted `sms_deliveries` from the selected transaction tables. Seller release evidence now commits that intent atomically with the receipt and lifecycle transition. Buyer payment uploads retain their existing write-table scope. No external SMS was sent during verification.
+
+Five PostgreSQL-backed tests cover byte-exact receipt storage, durable SMS intent, exact retry idempotence, full rollback on an injected outbox constraint failure, independence from an unavailable unrelated table, partial-cache isolation, rejection of a competing lifecycle change, and preservation of another writer's queued SMS. On unchanged application code, the first four tests reproduced three failures; the concurrent lifecycle rejection already passed.
+
+The broader focused run initially had 96 passes and four privacy-test failures. The four failures also reproduced on unchanged 0f08af2f: the fixed 20 October fixture had expired after the wall clock passed 24 hours. The privacy suite now freezes only JavaScript Date at the fixture timestamp and restores real time afterward. All 17 privacy assertions remain unchanged and pass.
+
+| Same-environment source | Correctness | Median action ms | p95 ms | Maximum action ms | Actions >= 1,000 ms | Receipt maximum ms | Receipts >= 1,000 ms |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Published 0f08af2f | 41/41 | 246.876 | 630.707 | 723.469 | 0/240 | 1,193.620 | 6/30 |
+| Scoped receipt read | 41/41 | 231.714 | 570.487 | 646.764 | 0/240 | 1,101.873 | 5/30 |
+
+Both runs used fresh fixture databases on the same disposable four-vCPU / 8-GiB Ubuntu sandbox, Node 24.21.0 and PostgreSQL 17.10, with fsync, synchronous_commit and full_page_writes enabled. The unchanged 240-action workload and 1,000 ms threshold were retained. These samples show lower timings in this pair, not a general speedup guarantee; the receipt subsecond goal remains unresolved. New persistence tests use isolated PGlite with production fail-closed behavior and mocked external delivery.
+
+Final focused verification covers 101 unique tests across eight suites: the original seven non-privacy suites passed 83 tests (including the first four new persistence tests), the repaired privacy suite passed 17 tests, and the final five-test persistence suite passed. TypeScript, changed-file lint and whitespace checks passed. The strict performance script passed both recorded 240-action result files. Full CI for the newly published follow-up is tracked separately; the completed CI1097 belongs to its parent 0f08af2f.

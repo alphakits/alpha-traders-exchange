@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { PGlite } from "@electric-sql/pglite";
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Pool } from "pg";
 import type { AlphaExchangeDb } from "@/types/alpha-exchange";
 import * as repositoryModule from "@/lib/alpha-exchange-repository";
@@ -62,8 +62,14 @@ beforeAll(async () => {
   await db.query("insert into alpha_exchange.notifications values ('buyer',1,$1)", [notification]);
   await db.query("insert into alpha_exchange.activity_logs values ('buyer',1,$1)", [activity]);
 });
+// The fixed privacy fixtures must not expire as the wall clock advances.
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date(now));
+});
 afterAll(async () => { await db.close(); });
 afterEach(() => {
+  vi.useRealTimers();
   vi.mocked(repositoryModule.getAlphaExchangeRepository).mockRestore?.();
   globalThis.__alphaExchangeMemorySnapshot = undefined as never;
   invalidateAlphaExchangeStoreCache();
