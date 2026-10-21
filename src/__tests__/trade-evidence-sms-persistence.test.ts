@@ -72,6 +72,31 @@ afterEach(async () => {
 });
 
 describe("atomic seller receipt SMS persistence", () => {
+  it("retains receipt bytes and tuples across current and stale saves, then changes only explicit content", async () => {
+    await upload();
+    const receipts = async () => (await database.query<{ id: string; content: Uint8Array; tuple: string }>(
+      "select id,content,ctid::text as tuple from alpha_exchange.evidence order by sort_index")).rows;
+    const before = await receipts();
+    const snapshot = await repository.loadSnapshot();
+    beforeQuery = sql => {
+      if (/select\s+id,\s*content\s+from/i.test(sql)) throw new Error("Retained receipt bytes must stay in PostgreSQL");
+    };
+    await repository.saveSnapshot(snapshot, { selectedTables: ["evidence"] });
+    expect(await receipts()).toEqual(before);
+    await database.exec("update alpha_exchange.runtime_meta set version=version+1");
+    await repository.saveSnapshot(snapshot, { selectedTables: ["evidence"] });
+    expect(await receipts()).toEqual(before);
+    snapshot.tradeEvidenceFiles[0].fileName = "renamed-receipt.png";
+    await repository.saveSnapshot(snapshot, { selectedTables: ["evidence"] });
+    expect(Buffer.from((await receipts())[0].content)).toEqual(png);
+    const replacement = Buffer.from([0, 1, 2, 255]);
+    await repository.saveSnapshot(snapshot, { selectedTables: ["evidence"],
+      evidenceOverrides: new Map([[before[0].id, replacement]]) });
+    expect(Buffer.from((await receipts())[0].content)).toEqual(replacement);
+    expect((await database.query("select event_key from alpha_exchange.sms_deliveries")).rows)
+      .toEqual([{ event_key: "trade:receipt-trade:usdt-sent:buyer:buyer" }]);
+  });
+
   it("keeps buyer payment evidence independent from an unavailable SMS write path", async () => {
     const now = new Date().toISOString();
     const other = { id: "other-sms", eventKey: "trade:other:usdt-sent:buyer:buyer", eventType: "usdt_sent",

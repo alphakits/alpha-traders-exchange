@@ -31,6 +31,27 @@ async function execute(operation: string, input: unknown) {
   if (operation === "cms-snapshot") return (await getAdminContentRepository()).loadSnapshot();
   if (operation === "auth-session") { await repository.upsertAuthSession(input as AuthSession); return { saved: true }; }
   if (operation === "snapshot") return repository.loadSnapshot();
+  if (operation === "save-history") {
+    const snapshot = await repository.loadSnapshot();
+    if (input === "prepend") {
+      snapshot.notifications.unshift({ ...snapshot.notifications[0], id: "audit-stable-history-notification" });
+      snapshot.auditLogs.unshift({ ...snapshot.auditLogs[0], id: "audit-stable-history-log" });
+    }
+    await repository.saveSnapshot(snapshot, { selectedTables: ["notifications", "audit_logs"] });
+    return { saved: true };
+  }
+  if (operation === "save-evidence") {
+    const snapshot = await repository.loadSnapshot();
+    const overrides = new Map<string, Buffer>();
+    if (input === "stale") await getRuntimePostgresPool().query("update alpha_exchange.runtime_meta set version = version + 1 where singleton = true");
+    if (input === "prepend") snapshot.tradeEvidenceFiles.unshift({ ...snapshot.tradeEvidenceFiles[0], id: "audit-metadata-only-evidence" });
+    if (input === "metadata") snapshot.tradeEvidenceFiles[1].fileName = "audit-retained-receipt.png";
+    if (input === "override") overrides.set(snapshot.tradeEvidenceFiles[1].id, Buffer.from([0, 1, 2, 3]));
+    if (input === "remove") snapshot.tradeEvidenceFiles = snapshot.tradeEvidenceFiles.filter(row => row.id !== "audit-metadata-only-evidence");
+    if (input === "reorder") snapshot.tradeEvidenceFiles.reverse();
+    await repository.saveSnapshot(snapshot, { selectedTables: ["evidence"], evidenceOverrides: overrides });
+    return { saved: true };
+  }
   if (operation === "adult-confirm") return confirmAdultEligibility(input as string, true);
   if (operation === "controlled-shortfall") {
     // Synthetic settled input tests storage atomicity only, never a live receipt.

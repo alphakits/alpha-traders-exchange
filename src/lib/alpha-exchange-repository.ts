@@ -1056,14 +1056,51 @@ WHERE alpha_exchange.audit_logs.action IS DISTINCT FROM excluded.action
     selectSql: "select payload from alpha_exchange.evidence order by sort_index asc",
     values: (db) => db.tradeEvidenceFiles,
     insert: async (tx, rows: TradeEvidenceFile[], context) => {
-      for (const [index, row] of rows.entries()) {
-        const content = context.evidenceOverrides?.get(row.id) ?? context.evidenceContentById.get(row.id) ?? null;
-        await tx.query(
-          `insert into alpha_exchange.evidence
-            (id, purchase_request_id, side, uploaded_by_user_id, mime_type, file_name, size_bytes, uploaded_at, sort_index, payload, content)
-           values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11)`,
-          [row.id, row.purchaseRequestId, row.side, row.uploadedByUserId, row.mimeType, row.fileName, row.sizeBytes, row.uploadedAt, index, json(row), content],
-        );
+      // Keep binary parameters bounded while avoiding one round trip per file.
+      // A single oversized legacy file is still written without truncation.
+      for (let offset = 0; offset < rows.length;) {
+        let end = offset;
+        let bytes = 0;
+        while (end < rows.length && end - offset < 64) {
+          const content = context.evidenceOverrides?.get(rows[end].id) ?? context.evidenceContentById.get(rows[end].id);
+          if (end > offset && bytes + (content?.length ?? 0) > 8 * 1024 * 1024) break;
+          bytes += content?.length ?? 0;
+          end += 1;
+        }
+        const batch = rows.slice(offset, end);
+        await bulkInsert(tx, `insert into alpha_exchange.evidence
+        (id, purchase_request_id, side, uploaded_by_user_id, mime_type, file_name, size_bytes, uploaded_at, sort_index, payload, content)
+        select id, purchase_request_id, side, uploaded_by_user_id, mime_type, file_name, size_bytes::int, uploaded_at::timestamptz, sort_index::int, payload::jsonb, content
+        from unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[],$7::text[],$8::text[],$9::text[],$10::text[],$11::bytea[])
+          as t(id,purchase_request_id,side,uploaded_by_user_id,mime_type,file_name,size_bytes,uploaded_at,sort_index,payload,content)
+        on conflict (id) do update set
+          purchase_request_id = excluded.purchase_request_id,
+          side = excluded.side,
+          uploaded_by_user_id = excluded.uploaded_by_user_id,
+          mime_type = excluded.mime_type,
+          file_name = excluded.file_name,
+          size_bytes = excluded.size_bytes,
+          uploaded_at = excluded.uploaded_at,
+          sort_index = excluded.sort_index,
+          payload = excluded.payload,
+          content = coalesce(excluded.content, alpha_exchange.evidence.content)
+        where alpha_exchange.evidence.purchase_request_id is distinct from excluded.purchase_request_id
+           or alpha_exchange.evidence.side is distinct from excluded.side
+           or alpha_exchange.evidence.uploaded_by_user_id is distinct from excluded.uploaded_by_user_id
+           or alpha_exchange.evidence.mime_type is distinct from excluded.mime_type
+           or alpha_exchange.evidence.file_name is distinct from excluded.file_name
+           or alpha_exchange.evidence.size_bytes is distinct from excluded.size_bytes
+           or alpha_exchange.evidence.uploaded_at is distinct from excluded.uploaded_at
+           or alpha_exchange.evidence.sort_index is distinct from excluded.sort_index
+           or alpha_exchange.evidence.payload is distinct from excluded.payload
+           or (excluded.content is not null and alpha_exchange.evidence.content is distinct from excluded.content)`, [
+          batch.map(row => row.id), batch.map(row => row.purchaseRequestId), batch.map(row => row.side),
+          batch.map(row => row.uploadedByUserId), batch.map(row => row.mimeType), batch.map(row => row.fileName),
+          batch.map(row => String(row.sizeBytes)), batch.map(row => row.uploadedAt),
+          batch.map((row, index) => String(context.rowSortIndexes?.get(row.id) ?? offset + index)), batch.map(row => json(row)),
+          batch.map(row => context.evidenceOverrides?.get(row.id) ?? context.evidenceContentById.get(row.id) ?? null),
+        ]);
+        offset = end;
       }
     },
   },
@@ -1515,11 +1552,20 @@ async function replaceTableContents(tx: PoolClient, tableName: SnapshotTableName
   }
   // Preserve stable row identities and dependent records. A full snapshot may
   // remove missing IDs, but must not transiently delete rows it is keeping.
-  if (["purchase_requests", "notifications", "commissions", "audit_logs"].includes(tableName)) {
+  if (["purchase_requests", "notifications", "commissions", "audit_logs", "evidence"].includes(tableName)) {
     const table = getTable(tableName);
     const rows = table.values(db) as Array<{ id: string }>;
+    // Full snapshot writers share these histories with scoped lifecycle
+    // writers. Preserve their existing order keys: resetting a prepended
+    // history to 0..N rewrites every retained row and generates needless WAL
+    // while other financial actions wait on the same transaction lock.
+    // Evidence uses the same stable positions and retains binary content in SQL.
+    const historyRows = ["notifications", "audit_logs", "evidence"].includes(tableName)
+      ? await tx.query<IndexedPayload>(`select payload, sort_index from alpha_exchange.${tableName} order by sort_index asc`)
+      : null;
+    const rowSortIndexes = historyRows ? lifecycleRowDelta(historyRows.rows, rows).positions : undefined;
     await tx.query(`delete from alpha_exchange.${tableName} where not (id = any($1::text[]))`, [rows.map(row => row.id)]);
-    await table.insert(tx, rows, { evidenceContentById: context?.evidenceContentById ?? new Map(), evidenceOverrides: context?.evidenceOverrides });
+    await table.insert(tx, rows, { evidenceContentById: context?.evidenceContentById ?? new Map(), evidenceOverrides: context?.evidenceOverrides, rowSortIndexes });
     return;
   }
   await tx.query(`delete from alpha_exchange.${tableName}`);
@@ -3890,15 +3936,8 @@ export class AlphaExchangeRepository {
               : mergeSnapshotWithLatest(latestSnapshot, incomingSnapshot);
             const mergedVersion = getVersion(mergedSnapshot);
             const nextVersion = currentVersion + 1;
-            const evidenceContentById = new Map<string, Buffer | null>();
-            if (selectedTableSet.has("evidence")) {
-              const evidenceRows = await queryWithLogging(client, "select id, content from alpha_exchange.evidence") as { rows?: Array<{ id: string; content: Buffer | null }> };
-              logProfile("load_evidence_rows_merge");
-              perf?.step("load_evidence_merge");
-              for (const row of evidenceRows.rows ?? []) {
-                evidenceContentById.set(row.id, row.content);
-              }
-            }
+            // Existing receipt bytes stay in PostgreSQL. Only explicit binary
+            // overrides cross the connection; metadata-only upserts retain them.
             // When sessions are being written, use the sessions from the current full DB read
             // (latestSnapshot) rather than the potentially-stale sessions in the incoming db.
             // This prevents the deferred trust write from overwriting sessions created after
@@ -3923,7 +3962,7 @@ export class AlphaExchangeRepository {
             }
             for (const tableName of selectedTables) {
               await replaceTableContents(client, tableName, persistedSnapshot, {
-                evidenceContentById,
+                evidenceContentById: new Map(),
                 evidenceOverrides: options?.evidenceOverrides,
               });
               perf?.step(`replace_${tableName}`);
@@ -3952,16 +3991,6 @@ export class AlphaExchangeRepository {
             return;
           }
 
-          const evidenceContentById = new Map<string, Buffer | null>();
-          if (selectedTableSet.has("evidence")) {
-            const evidenceRows = await client.query<{ id: string; content: Buffer | null }>("select id, content from alpha_exchange.evidence");
-            logProfile("load_evidence_rows");
-            perf?.step("load_evidence");
-            for (const row of evidenceRows?.rows ?? []) {
-              evidenceContentById.set(row.id, row.content);
-            }
-          }
-
           // Snapshot writes should not evict active auth sessions managed by dedicated session methods.
           let persistedSnapshot: AlphaExchangeDb = pruneOrphanAuthSessions(db);
           if (selectedTableSet.has("sessions")) {
@@ -3977,7 +4006,7 @@ export class AlphaExchangeRepository {
           options?.validateBeforeCommit?.(persistedSnapshot);
           for (const tableName of selectedTables) {
             await replaceTableContents(client, tableName, persistedSnapshot, {
-              evidenceContentById,
+              evidenceContentById: new Map(),
               evidenceOverrides: options?.evidenceOverrides,
             });
             perf?.step(`replace_${tableName}`);
