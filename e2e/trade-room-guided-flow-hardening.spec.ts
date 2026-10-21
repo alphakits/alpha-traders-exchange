@@ -911,15 +911,19 @@ for (const locale of ["en", "ar"] as const) {
         const action = actor === "buyer" ? "upload-payment-receipt" : "upload-seller-evidence";
         await page.goto(`/${locale}/trade-room/${requestId}?action=${action}#evidence`);
         const currentAction = page.locator("#action-required");
-        await expect(currentAction.locator('input[type="file"]')).toHaveCount(1);
-        await expect(currentAction.getByTestId("trade-primary-action").getByRole("button").first()).toBeEnabled();
+        const label = actor === "buyer"
+          ? locale === "ar" ? "رفع إيصال الدفع" : "Upload Payment Receipt"
+          : locale === "ar" ? "تأكيد إرسال USDT" : "Mark USDT Sent";
+        const primaryAction = currentAction.getByTestId("trade-primary-action").getByRole("button", { name: label, exact: true });
+        await expect(primaryAction).toBeEnabled();
+        if (actor === "buyer") await expect(currentAction.locator('input[type="file"]')).toHaveCount(1);
         // Exercise the actual history event after the room has mounted. Older
-        // notification links still use #evidence for the current upload action.
+        // notification links still use #evidence for the current participant action.
         await page.evaluate(() => window.history.pushState({}, "", "#chat"));
         await page.goBack();
         await expect(page).toHaveURL(/#evidence$/);
         await expect(currentAction).toBeFocused();
-        await expect(currentAction.getByTestId("trade-primary-action")).toBeInViewport();
+        await expect(primaryAction).toBeInViewport();
       }
     } finally {
       await api.dispose();

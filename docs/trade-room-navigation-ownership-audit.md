@@ -2,7 +2,7 @@
 
 The site-wide hash restorer and the participant Trade Room both tried to focus
 incoming notification sections. Legacy receipt links use `#evidence`, while the
-current upload control belongs to `#action-required`. The generic restorer could
+current participant action belongs to `#action-required`. The generic restorer could
 focus receipt history first, cancel the room's pending frame, and keep restoring
 the obsolete destination.
 
@@ -25,7 +25,14 @@ automatic focus. Listener, observer and timer cleanup is retained.
 - Four focused unit suites pass all 193 checks after the patch, including
   delayed canonical loading, repeated explicit chat navigation and preserving
   newer typing. TypeScript and application-file lint pass.
-- Browser and release-gate outcomes are recorded in the PR and saved audit.
+- Six focused production-build browser tests pass in Chromium and WebKit with
+  retries disabled: 14 transition-state checks and eight buyer/seller history
+  restorations across English/Arabic portrait and landscape viewports.
+- Full release-gate outcomes are recorded in the PR and saved audit.
+- The seller fixture uses `usdt_release_pending` and expects the configured
+  default action, "Mark USDT Sent". An obsolete upload notification must reach
+  today's action even when a seller receipt is not required. The buyer fixture
+  requires its payment-receipt control. The focus assertions remain unchanged.
 
 ## Scope
 
