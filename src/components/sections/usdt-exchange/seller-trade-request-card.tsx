@@ -7,6 +7,7 @@ import { currencyText } from "@/components/ui/currency-text";
 import { HelpDetails } from "@/components/ui/help-details";
 import { Textarea } from "@/components/ui/textarea";
 import { TradeTermsPanel } from "@/components/sections/trade-room/trade-terms-panel";
+import { TradeEvidenceViewer } from "@/components/sections/trade-room/trade-evidence-viewer";
 import { isCardlessAtmPaymentMethod, isCashTradePaymentMethod, normalizeMarketplacePaymentMethod } from "@/lib/marketplace-payment-methods";
 import { getIsraeliBankDisplayName } from "@/lib/israeli-banks";
 import type { PurchaseRequest } from "@/types/alpha-exchange";
@@ -179,8 +180,8 @@ export function SellerTradeRequestCard({ request, workspace }: {
                   const evidence = side === "buyer" ? request.buyerEvidence : request.sellerEvidence;
                   return <div key={side} className="min-w-0">
                     <p className="font-medium text-white">{side === "buyer" ? (isAr ? "إثبات المشتري" : "Buyer evidence") : (isAr ? "إثبات البائع" : "Seller evidence")}</p>
-                    {evidence ? <a href={`/api/alpha-exchange/purchase-requests/${request.id}/evidence/${evidence.id}`} target="_blank" rel="noreferrer"
-                      className="inline-flex min-h-11 max-w-full items-center break-all text-[#C9A227] underline underline-offset-2">{currencyText(evidence.fileName)}</a>
+                    {evidence ? <TradeEvidenceViewer key={evidence.id} requestId={request.id} evidence={evidence} isAr={isAr}
+                      className="inline-flex min-h-11 max-w-full items-center break-all text-start text-[#C9A227] underline underline-offset-2" />
                       : <p className="mt-1 text-[#9CA3AF]">{isAr ? "لا يوجد إثبات مرفق." : "No evidence attached."}</p>}
                   </div>;
                 })}

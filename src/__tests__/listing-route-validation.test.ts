@@ -108,6 +108,21 @@ describe("alpha-exchange listing route validation", () => {
     expect(mocks.updateMarketplaceListingForSeller).not.toHaveBeenCalled();
   });
 
+  it("validates an omitted full-balance maximum against the replenished amount", async () => {
+    mocks.getMarketplaceListingById.mockResolvedValue({
+      id: "listing-1", price: "1", currency: "USD", availableAmount: "500", minimumTrade: "200", maximumTrade: "500",
+      paymentMethod: "Face-to-Face (Meet in Person)",
+    });
+    const response = await PATCH(new NextRequest("http://localhost/api/alpha-exchange/listings/listing-1", {
+      method: "PATCH", body: JSON.stringify({ availableAmount: "2000", minimumTrade: "700",
+        changeReason: "Changed available balance", changeExplanation: "Replenishing inventory" }),
+    }), { params: Promise.resolve({ listingId: "listing-1" }) });
+    expect(response.status).toBe(200);
+    expect(mocks.updateMarketplaceListingForSeller).toHaveBeenCalledWith(expect.objectContaining({
+      availableAmount: "2000", minimumTrade: "700", maximumTrade: undefined,
+    }));
+  });
+
   it("pauses legacy partially sold listings without waiting for market quotes or revalidating bank details", async () => {
     mocks.getMarketplaceListingById.mockResolvedValue({
       id: "listing-1", availableAmount: "33709.67742", maximumTrade: "35000",

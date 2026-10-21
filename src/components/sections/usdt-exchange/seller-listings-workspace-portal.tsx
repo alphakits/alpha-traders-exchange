@@ -3,7 +3,7 @@
 
 import { brandText, currencyText } from "@/components/ui/currency-text";
 import { ActionFeedback } from "@/components/ui/action-feedback";
-import { listingMaximumForAvailableAmount } from "@/lib/listing-trade-limits";
+import { listingMaximumAfterAmountEdit, listingMaximumForAvailableAmount } from "@/lib/listing-trade-limits";
 import { isListingCommissionRequiredMessage } from "@/lib/listing-commission-policy";
 
 import type { Dispatch, FormEvent, SetStateAction } from "react";
@@ -381,7 +381,10 @@ export function SellerListingsWorkspacePortal(props: SellerListingsWorkspacePort
                     </div>
                     {editingListingId === listing.id ? (
                       <form className="mt-3 grid gap-2 md:grid-cols-4" onSubmit={handleSellerListingEditSubmit}>
-                        <Input className="currency-money" inputMode="decimal" value={listingEditForm.availableAmount} onChange={(event) => setListingEditForm((prev) => ({ ...prev, availableAmount: normalizeTradeAmountInput(event.target.value) }))} placeholder={isAr ? "الكمية المتاحة" : "Available Amount"} />
+                        <Input className="currency-money" inputMode="decimal" value={listingEditForm.availableAmount} onChange={(event) => {
+                          const availableAmount = normalizeTradeAmountInput(event.target.value);
+                          setListingEditForm((prev) => ({ ...prev, availableAmount, maximumTrade: listingMaximumAfterAmountEdit(prev, availableAmount) }));
+                        }} placeholder={isAr ? "الكمية المتاحة" : "Available Amount"} />
                         <div className="space-y-2">
                           <Input
                             value={listingEditForm.price}

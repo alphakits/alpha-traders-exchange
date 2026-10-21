@@ -19,6 +19,7 @@ import { TradeChatMessageLabel, TradeChatMessageStatus } from "./trade-chat-mess
 import { tradeChatPublicId } from "@/lib/trade-chat-presentation";
 import { useTradeChatReadReceipts, type TradeChatReceipt } from "./use-trade-chat-read-receipts";
 import { OwnerTradeHistoryPage } from "./owner-trade-history";
+import { TradeEvidenceViewer } from "./trade-evidence-viewer";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -3580,9 +3581,7 @@ function TradeRoomPageSession({
                 <div className="rounded-xl border border-white/10 bg-black/25 p-3">
                   <p className="font-medium text-white">{isAr ? "إيصال دفع المشتري" : "Buyer Payment Receipt"}</p>
                   {canShowBuyerReceipt ? (
-                    <a href={`/api/alpha-exchange/purchase-requests/${request.id}/evidence/${request.buyerEvidence!.id}`} target="_blank" rel="noreferrer" className="mt-2 inline-block text-[#C9A227] hover:underline">
-                      {currencyText(request.buyerEvidence!.fileName)}
-                    </a>
+                    <TradeEvidenceViewer key={request.buyerEvidence!.id} requestId={request.id} evidence={request.buyerEvidence!} isAr={isAr} />
                   ) : (
                     <p className="mt-2 text-[#9CA3AF]">
                       {isSeller && request.status === "accepted"
@@ -3594,9 +3593,7 @@ function TradeRoomPageSession({
                 <div className="rounded-xl border border-white/10 bg-black/25 p-3">
                   <p className="font-medium text-white">{isAr ? "إثبات البائع" : "Seller Release Proof"}</p>
                   {request.sellerEvidence ? (
-                    <a href={`/api/alpha-exchange/purchase-requests/${request.id}/evidence/${request.sellerEvidence.id}`} target="_blank" rel="noreferrer" className="mt-2 inline-block text-[#C9A227] hover:underline">
-                      {currencyText(request.sellerEvidence.fileName)}
-                    </a>
+                    <TradeEvidenceViewer key={request.sellerEvidence.id} requestId={request.id} evidence={request.sellerEvidence} isAr={isAr} />
                   ) : (
                     <p className="mt-2 text-[#9CA3AF]">
                       {currencyText(sellerEvidenceUploadOpen

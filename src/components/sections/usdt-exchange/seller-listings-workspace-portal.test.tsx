@@ -2,6 +2,7 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SellerListingsWorkspacePortal, type SellerListingsWorkspacePortalProps } from "./seller-listings-workspace-portal";
 import type { MarketplaceListing } from "@/types/alpha-exchange";
+import { useState } from "react";
 
 vi.mock("./discord-share-action", () => ({ DiscordShareAction: () => null }));
 afterEach(() => { cleanup(); document.body.replaceChildren(); vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers(); });
@@ -34,6 +35,27 @@ function createProps(isMobileViewport: boolean): SellerListingsWorkspacePortalPr
 }
 
 describe("seller listing controls", () => {
+  it.each([true, false])("updates the full-balance maximum through cleared and typed quantity edits (mobile=%s)", (mobile) => {
+    const props = createProps(mobile);
+    function Editor() {
+      const [form, setForm] = useState({ availableAmount: "500", maximumTrade: "500", minimumTrade: "200",
+        price: "3.20", currency: "ILS", network: "TRC20" as const, paymentMethods: ["Face-to-Face (Meet in Person)"],
+        bankAccountId: "", bankName: "", sellerDescription: "", changeReason: "", changeExplanation: "" });
+      return <SellerListingsWorkspacePortal {...props} editingListingId={listing.id} listingEditForm={form}
+        setListingEditForm={setForm as SellerListingsWorkspacePortalProps["setListingEditForm"]}
+        listingEditSelectedMethods={["Face-to-Face (Meet in Person)"]} listingEditSelectedBanks={[]}
+        normalizeDecimalInput={String} paymentMethodEmoji={() => ""} />;
+    }
+    render(<Editor />);
+    const amount = screen.getByPlaceholderText("Available Amount");
+    const maximum = screen.getByPlaceholderText("Maximum Trade") as HTMLInputElement;
+    for (const value of ["", "2", "20", "200", "2000"]) fireEvent.change(amount, { target: { value } });
+    expect(maximum.value).toBe("2000");
+    fireEvent.change(maximum, { target: { value: "700" } });
+    for (const value of ["", "3", "3000"]) fireEvent.change(amount, { target: { value } });
+    expect(maximum.value).toBe("700");
+    expect((screen.getByPlaceholderText("Minimum Trade") as HTMLInputElement).value).toBe("200");
+  });
   it.each([true, false])("opens management and prepares valid partial-sale edit limits (mobile=%s)", (mobile) => {
     const props = createProps(mobile);
     render(<SellerListingsWorkspacePortal {...props} />);

@@ -5,6 +5,7 @@ import { FileClock, MessageCircle, ShieldCheck } from "lucide-react";
 import { localizeCardlessWithdrawalMessage } from "@alpha-traders/contracts";
 import { Button } from "@/components/ui/button";
 import { TradeOwnerActions } from "@/components/admin/trade-owner-actions";
+import { TradeEvidenceViewer } from "./trade-evidence-viewer";
 import { currencyText } from "@/components/ui/currency-text";
 import { formatTradeId } from "@/lib/format-id";
 import { sendOwnerTradeChat } from "@/lib/owner-trade-chat-send";
@@ -253,7 +254,7 @@ export function OwnerTradeHistory({ locale, room, onUpdated }: { locale: "ar" | 
       <h2 id="history-evidence-heading" className="font-semibold">{t("Evidence & reviews", "الإثباتات والتقييمات")}</h2>
       {evidence.length ? <ul className="mt-3 space-y-2">{evidence.map((file) => <li key={file.id} className="text-sm">
         <p className="text-[#9CA3AF]">{file.side === "buyer" ? t("Buyer evidence", "إثبات المشتري") : t("Seller evidence", "إثبات البائع")} · {date(file.uploadedAt)}{file.status === "replaced" ? ` · ${t("Replaced", "تم الاستبدال")}` : ""}</p>
-        <a href={`/api/alpha-exchange/purchase-requests/${encodeURIComponent(request.id)}/evidence/${encodeURIComponent(file.id)}`} target="_blank" rel="noreferrer" className="inline-flex min-h-11 items-center break-all text-[#FDE68A] underline underline-offset-4">{currencyText(file.fileName)}</a>
+        <TradeEvidenceViewer requestId={request.id} evidence={file} isAr={locale === "ar"} className="inline-flex min-h-11 items-center break-all text-start text-[#FDE68A] underline underline-offset-4" />
       </li>)}</ul> : <p className="mt-3 text-sm text-[#9CA3AF]">{t("No payment evidence is attached to this trade.", "لا توجد إثباتات دفع مرفقة بهذه الصفقة.")}</p>}
       <div className="mt-4 grid gap-3 sm:grid-cols-2">{reviews.map(({ label, review }) => <div key={label} className="rounded-xl border border-white/10 p-3 text-sm">
         <h3 className="font-medium">{label}</h3>
