@@ -41,9 +41,10 @@ Explicit deletion, metadata edits, content replacement and requested
 reordering keep their semantics. Financial locking, durability, permissions,
 commission rules and fallback behavior are unchanged.
 
-This is a selected extraction from the still-unmerged PR417 work. It excludes
-that draft's fallback changes and scoped initial receipt reads and preserves
-all subsequent seller-limit, modal, navigation and SMS repairs.
+The initial storage repair was selectively extracted from the still-unmerged
+PR417 work. The follow-ups below independently verify the canonical receipt
+transaction and production fallback changes while preserving all subsequent
+seller-limit, modal, navigation and SMS repairs.
 
 Local checks: baseline batch regression failed (four individual inserts
 instead of two bounded batches; 57 other repository checks passed). After
@@ -111,3 +112,26 @@ checks then failed before that repair. The complete follow-up passes 485 tests
 across ten affected suites, root TypeScript and changed-file lint. Full CI must
 measure the revised transaction path; no speed improvement is claimed from
 unit-test results alone.
+
+## CI1114 and production fallback retention
+
+CI1114 on bb9a42d2 passes 5,840 unit tests in 551 files, the production build,
+Expo doctor (21/21), all 41 database correctness checks, eight history recovery
+checks and three restoration checks. All 30 receipt uploads are below one
+second (maximum 713.870 ms). The expanded gate still fails: six concurrent
+acceptance actions exceed the strict limit, with status maximum 1071.799 ms.
+These original failures remain release blockers.
+
+Successful production snapshot reads, writes and session mutations also
+constructed an unused full exchange fallback. Production reads already fail
+closed when durable storage is unavailable and cannot consume this copy.
+Skip this mirroring before loading, cloning or seeding fallback state. Local
+repositories and explicit loopback test runtimes retain their existing
+fallback behavior. Durable writes, session revocation and recovery remain
+authoritative. This reduces avoidable CPU and memory use; it does not by
+itself establish that the acceptance latency failure is resolved.
+
+Four baseline checks fail before the change (durable reads, commits, session
+mutations and recovery retaining fallback copies); a pre-existing-copy
+fail-closed check passes. After the change, all 109 checks across five
+repository, session-security, transaction and receipt-persistence suites pass.

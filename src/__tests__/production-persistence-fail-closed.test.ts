@@ -62,6 +62,8 @@ describe("production Alpha Exchange persistence", () => {
       __runtimeVersion: 7,
     });
     expect(query.mock.calls.filter(([sql]) => String(sql).includes("to_regclass"))).toHaveLength(2);
-    expect(globalThis.__alphaExchangeMemorySnapshot).toBeDefined();
+    // Recovery returns durable data without retaining a production fallback copy.
+    expect(globalThis.__alphaExchangeMemorySnapshot).toBeUndefined();
+    expect(globalThis.__alphaExchangeMemoryEvidenceContent).toBeUndefined();
   });
 });

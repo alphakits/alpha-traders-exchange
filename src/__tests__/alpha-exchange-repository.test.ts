@@ -249,6 +249,74 @@ describe("AlphaExchangeRepository", () => {
     expect(query.mock.calls.some(([sql]) => String(sql).includes("count(*)::text"))).toBe(false);
   });
 
+  it("returns durable production data without retaining a full fallback mirror", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("VERCEL", "1");
+    const user = { id: "durable-user", email: "durable@example.test", role: "buyer" };
+    const session = { token: "durable-session", userId: user.id, createdAt: "2026-01-01T00:00:00Z", expiresAt: "2030-01-01T00:00:00Z" };
+    const query = vi.fn().mockResolvedValue({ rows: [{ version: "7", users: [user], sessions: [session] }] });
+    const repository = new AlphaExchangeRepository({ query } as unknown as Pool);
+    vi.spyOn(repository, "ensureReady").mockResolvedValue(undefined);
+
+    const snapshot = await repository.loadSnapshot();
+
+    expect(snapshot.users).toEqual([user]);
+    expect(snapshot.authSessions).toEqual([session]);
+    expect(snapshot).toHaveProperty("__runtimeVersion", 7);
+    expect(globalThis.__alphaExchangeMemorySnapshot).toBeUndefined();
+    expect(globalThis.__alphaExchangeMemoryEvidenceContent).toBeUndefined();
+  });
+
+  it("commits a production snapshot without constructing a fallback mirror", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("VERCEL", "1");
+    const query = vi.fn().mockResolvedValue({ rows: [{ version: "0" }] });
+    const release = vi.fn();
+    const repository = new AlphaExchangeRepository({ connect: vi.fn().mockResolvedValue({ query, release }) } as unknown as Pool);
+    vi.spyOn(repository, "ensureReady").mockResolvedValue(undefined);
+    const snapshot = createEmptyDb();
+
+    await repository.saveSnapshot(snapshot, { selectedTables: ["purchase_requests"] });
+
+    expect(query).toHaveBeenCalledWith("commit");
+    expect(release).toHaveBeenCalledTimes(1);
+    expect(snapshot).toHaveProperty("__runtimeVersion", 1);
+    expect(globalThis.__alphaExchangeMemorySnapshot).toBeUndefined();
+  });
+
+  it("writes and revokes production sessions without loading a fallback snapshot", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("VERCEL", "1");
+    const query = vi.fn().mockResolvedValue({ rows: [], rowCount: 1 });
+    const repository = new AlphaExchangeRepository({ query } as unknown as Pool);
+    vi.spyOn(repository, "ensureReady").mockResolvedValue(undefined);
+    const session = { token: "durable-session", userId: "durable-user", createdAt: "2026-01-01T00:00:00Z", expiresAt: "2030-01-01T00:00:00Z" };
+
+    await repository.upsertAuthSession(session);
+    expect(query).toHaveBeenCalledWith(expect.stringContaining("INSERT INTO alpha_exchange.sessions"), [session.userId, session.token, session.expiresAt, session.createdAt, JSON.stringify(session)]);
+    await repository.deleteAuthSession(session.token);
+    expect(await repository.deleteOwnedAuthSession(session.userId, session.token)).toBe(true);
+    await repository.deleteAuthSessionsForUser(session.userId);
+
+    expect(query).toHaveBeenCalledTimes(4);
+    expect(globalThis.__alphaExchangeMemorySnapshot).toBeUndefined();
+    expect(globalThis.__alphaExchangeMemoryEvidenceContent).toBeUndefined();
+  });
+
+  it("fails closed in production even if an old fallback snapshot exists", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("VERCEL", "1");
+    const oldFallback = createEmptyDb();
+    globalThis.__alphaExchangeMemorySnapshot = oldFallback;
+    const query = vi.fn().mockRejectedValue(new Error("Controlled durable storage failure"));
+    const repository = new AlphaExchangeRepository({ query } as unknown as Pool);
+    vi.spyOn(repository, "ensureReady").mockResolvedValue(undefined);
+
+    await expect(repository.loadSnapshot()).rejects.toThrow("Durable Alpha Exchange persistence is unavailable.");
+    await expect(repository.loadAuthenticatedSessionSnapshot("stale-session")).rejects.toThrow("Durable session storage is unavailable.");
+    expect(globalThis.__alphaExchangeMemorySnapshot).toBe(oldFallback);
+  });
+
   it("bounds new receipt bytes without fetching retained binary content", async () => {
     vi.stubEnv("NODE_ENV", "production");
     vi.stubEnv("VERCEL", "1");

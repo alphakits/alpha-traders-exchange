@@ -2141,6 +2141,9 @@ function getLatestAvailableFallbackSnapshot(): SnapshotWithVersion {
 }
 
 function syncFallbackAuthSessions(update: (sessions: AuthSession[]) => AuthSession[]) {
+  // Production session reads always use durable storage and fail closed.
+  // Do not load or clone the full exchange just to maintain an unused mirror.
+  if (isProductionSecurityRuntime()) return;
   const snapshot = getLatestAvailableFallbackSnapshot();
   const next = attachVersion({
     ...snapshot,
@@ -2189,11 +2192,14 @@ function pruneOrphanAuthSessions<T extends AlphaExchangeDb>(snapshot: T): T {
 }
 
 function syncMemoryFallbackSnapshot(snapshot: AlphaExchangeDb, version = getVersion(snapshot)) {
+  // Production cannot consume this fallback; cloning every collection after
+  // durable reads and writes only adds CPU, memory and sensitive-data retention.
+  if (isProductionSecurityRuntime()) return;
   ensureMemorySeed();
   const next = attachVersion(pruneOrphanAuthSessions(cloneSnapshot(snapshot)), version);
   globalThis.__alphaExchangeMemorySnapshot = next;
-  // A successful production database read may update the in-process mirror for
-  // cache coherence, but must not persist user/session data to /tmp.
+  // Tests keep their in-process fallback without disk I/O unless they opt in
+  // to verifying persistence across processes.
   if (!shouldPersistLocalFallbackSnapshot()) return;
   try {
     mkdirSync(FALLBACK_SNAPSHOT_DIR, { recursive: true });
