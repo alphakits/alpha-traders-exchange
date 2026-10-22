@@ -692,7 +692,34 @@ function resolveNotificationSellerContext(db: AlphaExchangeDb, notification: Alp
   };
 }
 
-function enrichNotification(db: AlphaExchangeDb, notification: AlphaExchangeNotification, cachedLookup?: Record<string, string>): AlphaExchangeNotification {
+function createNotificationTextFormatter(db: AlphaExchangeDb) {
+  const identities = getSnapshotIdentityUsers(db);
+  let ownerText: ReturnType<typeof ownerIdentityText> | undefined;
+  const memberText = new Map<PurchaseRequest | undefined, Map<MarketplaceListing | undefined, ReturnType<typeof identityTextRedactor>>>();
+  return (recipient: AlphaExchangeUser | undefined, request: PurchaseRequest | undefined, listing: MarketplaceListing | undefined) => {
+    if (isPublicOwnerIdentity(recipient)) return ownerText ??= ownerIdentityText(identities);
+    let listingText = memberText.get(request);
+    if (!listingText) {
+      listingText = new Map();
+      memberText.set(request, listingText);
+    }
+    let redact = listingText.get(listing);
+    if (!redact) {
+      // Historical names belong to their exact trade/listing context. Reuse
+      // matchers only within this response; another request may see new names
+      // or different canonical owner privileges.
+      redact = identityTextRedactor([
+        ...identities,
+        ...(request ? [{ ...identities.find(user => user.id === request.buyerId), id: request.buyerId, fullName: request.buyerName }] : []),
+        ...(listing ? [{ role: "approved_seller", ...identities.find(user => user.id === listing.sellerId), id: listing.sellerId, fullName: listing.sellerDisplayName }] : []),
+      ]);
+      listingText.set(listing, redact);
+    }
+    return redact;
+  };
+}
+
+function enrichNotification(db: AlphaExchangeDb, notification: AlphaExchangeNotification, cachedLookup?: Record<string, string>, cachedTextFormatter?: ReturnType<typeof createNotificationTextFormatter>): AlphaExchangeNotification {
   const publicHref = (value?: string) => {
     const href = sanitizeInternalNotificationHref(value);
     const profileRoute = href?.match(/^(\/(?:en|ar))?\/(exchange\/seller|u)\/([^/?#]+)/);
@@ -773,12 +800,7 @@ function enrichNotification(db: AlphaExchangeDb, notification: AlphaExchangeNoti
         ? "Application update"
         : "Alpha Exchange update";
   const ownerRecipient = recipient;
-  const identities = getSnapshotIdentityUsers(db);
-  const visibleText = isPublicOwnerIdentity(ownerRecipient) ? ownerIdentityText(identities) : identityTextRedactor([
-    ...identities,
-    ...(request ? [{ ...identities.find(user => user.id === request.buyerId), id: request.buyerId, fullName: request.buyerName }] : []),
-    ...(listing ? [{ role: "approved_seller", ...identities.find(user => user.id === listing.sellerId), id: listing.sellerId, fullName: listing.sellerDisplayName }] : []),
-  ]);
+  const visibleText = (cachedTextFormatter ?? createNotificationTextFormatter(db))(recipient, request, listing);
   let title = visibleText(notification.title?.trim() || fallbackTitle);
   let message = visibleText(notification.message?.trim() || "Open notifications for the latest account update.");
   const localizedCopy = {
@@ -17847,6 +17869,7 @@ export async function getNotificationsForUser(input: {
 }) {
   const db = await readDbForNotificationUser(input.userId, input.includeActivity !== false);
   const recipientNotifications = db.notifications.filter((notification) => notification.userId === input.userId);
+  const textFormatter = createNotificationTextFormatter(db);
 
   // Build the display-number lookup ONCE for the entire function so that every
   // enrichNotification call below shares it rather than rebuilding it per call.
@@ -17866,7 +17889,7 @@ export async function getNotificationsForUser(input: {
   // Pre-filter by userId before enriching to avoid O(all_notifications × lookup_size) work.
   const notifications = db.notifications
     .filter((notification) => notification.userId === input.userId && notification.whatsappChannelOnly !== true)
-    .map((notification) => enrichNotification(db, notification, sharedDisplayLookup))
+    .map((notification) => enrichNotification(db, notification, sharedDisplayLookup, textFormatter))
     .filter((notification) => {
       if (category && notification.category !== category) return false;
       if (centerCategory && notification.centerCategory !== centerCategory) return false;
