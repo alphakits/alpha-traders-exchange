@@ -50,3 +50,10 @@ Pre-release verification in an isolated checkout:
 The notification optimization removes unnecessary reads of unrelated store collections. It does not establish a new production latency measurement or close D105.
 
 Hosted CI1117 passed all 5,863 unit tests but correctly blocked release on two root TypeScript errors in the new fixture: assigning a `never`-cast global before accessing its fields narrowed those accesses to `never`. The fixture now prepares its typed seed before assigning the compatibility global. The complete root `tsc --noEmit` check and all 19 focused mutation tests pass afterward. No application behavior, assertions, timeouts, or release gates changed; the failed run remains retained.
+
+
+## Native offer boundary correction
+
+The native buyer form duplicated an obsolete rule that rejected offers at or above the listing price, while the shared contract and server permit the inclusive ILS price range of listing price ±0.35 (with a 0.01 minimum). It now uses `validatePriceOffer` from the existing shared contracts package. Currency restrictions and all amount, wallet, payment and lifecycle guards remain in place.
+
+The new native form regression failed before the repair for an equal-price offer and the upper boundary. After the repair, all seven boundary cases pass: lower, equal and upper prices; one cent outside either boundary; and the minimum-price floor. The existing refresh and seller-limit suites also pass (13 checks across three suites total). Complete root and mobile TypeScript checks and changed-file ESLint pass. This verifies source behavior; native store distribution and physical-device acceptance remain separate.

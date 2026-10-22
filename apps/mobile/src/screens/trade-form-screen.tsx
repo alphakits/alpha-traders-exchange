@@ -1,4 +1,4 @@
-import { getPriceOfferBounds } from "@alpha-traders/contracts";
+import { getPriceOfferBounds, validatePriceOffer } from "@alpha-traders/contracts";
 import { BrandedText as Text } from "../components/branded-text";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -173,9 +173,8 @@ export function TradeFormScreen({
     if (isCardless && (!isCardlessWithdrawalBank(withdrawalBank) || !parseCardlessWithdrawalDetails({ withdrawalCode, verificationKind, verificationValue }).ok
       || !validateCardlessIlsAmount(cashAmount, calculateTradePaymentTotal(String(value), mode === "offer" ? canonicalOfferPrice : canonicalListingPrice(listing.price), true) ?? ""))) return false;
     if (mode === "offer") {
-      const offerCents = Math.round(numericValue(canonicalOfferPrice) * 100);
-      const priceCents = Math.round(numericValue(canonicalListingPrice(listing.price)) * 100);
-      if (listing.currency !== "ILS" || offerCents <= 0 || offerCents >= priceCents || offerCents < priceCents - 35) return false;
+      if (listing.currency !== "ILS"
+        || !validatePriceOffer(canonicalListingPrice(listing.price), canonicalOfferPrice).ok) return false;
     }
     return true;
   }, [buyerTotal, withdrawalBank, cashAmount, withdrawalCode, verificationKind, verificationValue, isCardless, amount, canonicalOfferPrice, isFaceToFace, listing, mode, paymentMethod, safetyAcknowledged, user, walletValidationError]);
