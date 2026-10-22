@@ -48,3 +48,5 @@ Pre-release verification in an isolated checkout:
 - ESLint passed for the changed source and unit test. The existing nine-job Reliability Shield remains the release gate; these focused checks alone are not production certification.
 
 The notification optimization removes unnecessary reads of unrelated store collections. It does not establish a new production latency measurement or close D105.
+
+Hosted CI1117 passed all 5,863 unit tests but correctly blocked release on two root TypeScript errors in the new fixture: assigning a `never`-cast global before accessing its fields narrowed those accesses to `never`. The fixture now prepares its typed seed before assigning the compatibility global. The complete root `tsc --noEmit` check and all 19 focused mutation tests pass afterward. No application behavior, assertions, timeouts, or release gates changed; the failed run remains retained.

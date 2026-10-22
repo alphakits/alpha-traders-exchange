@@ -126,9 +126,10 @@ const operations = [
 
 describe("notification mutation scope and durable publication", () => {
   beforeEach(() => {
-    globalThis.__alphaExchangeMemorySnapshot = seedDb() as never;
-    globalThis.__alphaExchangeMemorySnapshot!.notifications[1].state = "read";
-    globalThis.__alphaExchangeMemorySnapshot!.notifications[1].isRead = true;
+    const seed = seedDb();
+    seed.notifications[1].state = "read";
+    seed.notifications[1].isRead = true;
+    globalThis.__alphaExchangeMemorySnapshot = seed as never;
     globalThis.__alphaExchangeMemoryEvidenceContent = new Map() as never;
     globalThis.__alphaExchangeRepositoryPromise = undefined as never;
     invalidateAlphaExchangeStoreCache();
