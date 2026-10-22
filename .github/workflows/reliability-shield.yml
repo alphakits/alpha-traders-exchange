@@ -253,6 +253,11 @@ jobs:
     name: WebKit critical flows (${{ matrix.shard }}/4)
     runs-on: ubuntu-latest
     timeout-minutes: 35
+    # Keep the browser and OS dependencies pinned together; repeated Ubuntu
+    # mirror stalls must not consume the browser regression job's time budget.
+    container:
+      image: mcr.microsoft.com/playwright:v1.61.1-noble@sha256:5b8f294aff9041b7191c34a4bab3ac270157a28774d4b0660e9743297b697e48
+      options: --user 1001
     strategy:
       fail-fast: false
       matrix:
@@ -269,8 +274,19 @@ jobs:
           cache: npm
       - name: Install locked dependencies
         run: npm ci
-      - name: Install WebKit runtime
-        run: npx playwright install --with-deps webkit
+      - name: Verify pinned WebKit runtime
+        run: |
+          node <<'NODE'
+          const assert = require('node:assert/strict');
+          assert.equal(require('playwright/package.json').version, '1.61.1',
+            'Update the pinned Playwright image together with the package lock.');
+          const { webkit } = require('playwright');
+          (async () => {
+            const browser = await webkit.launch();
+            console.log(`Pinned WebKit runtime ready: ${browser.version()}`);
+            await browser.close();
+          })().catch((error) => { console.error(error); process.exitCode = 1; });
+          NODE
       - name: Verify seller keyboard navigation before the full WebKit group
         if: matrix.shard == 3
         env:
