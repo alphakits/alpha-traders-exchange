@@ -33,12 +33,14 @@ describe("canonical push delivery under publication bursts", () => {
       const result = await db.query(sql, args);
       return { ...result, rowCount: result.affectedRows ?? result.rows.length };
     } };
+    // Warm-up writes the receipt cache timestamp too. Keep it on the same
+    // monotonic clock as each case instead of switching backwards afterward.
+    vi.spyOn(performance, "now").mockImplementation(() => clock);
     await deliverMobilePushNotification(notification);
   });
   afterAll(async () => { vi.restoreAllMocks(); vi.unstubAllGlobals(); await db.close(); });
   beforeEach(async () => {
     clock += 2_000;
-    vi.spyOn(performance, "now").mockImplementation(() => clock);
     receiptGate = undefined;
     receiptFailure = undefined;
     await db.exec(`delete from alpha_exchange.mobile_push_deliveries; delete from alpha_exchange.mobile_push_subscriptions;

@@ -1,6 +1,8 @@
 import { useState } from "react";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { renderToString } from "react-dom/server";
+import { hydrateRoot } from "react-dom/client";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { GroupedDecimalInput } from "./grouped-decimal-input";
 import { normalizeLocalizedDecimalInput } from "@/lib/trade-amount";
 
@@ -20,6 +22,35 @@ function edit(value: string, position = value.length, inputType = "insertText") 
 }
 
 describe("grouped decimal editing", () => {
+  it("waits for its editing handler before accepting the first server-rendered amount", async () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    container.innerHTML = renderToString(<Harness />);
+    const input = container.querySelector("input")!;
+    // An editable server-rendered field can accept digits before React owns
+    // them, then erase those digits when the next field causes a render.
+    let root: ReturnType<typeof hydrateRoot> | undefined;
+    try {
+      expect(input.disabled).toBe(true);
+      await act(async () => { root = hydrateRoot(container, <Harness />); });
+      expect(input.disabled).toBe(false);
+      fireEvent.input(input, { target: { value: "1000", selectionStart: 4, selectionEnd: 4 } });
+      expect(input.value).toBe("1,000");
+      expect(container.querySelector("output")?.textContent).toBe("1000");
+      await act(async () => { root!.render(<Harness />); });
+      expect(input.value).toBe("1,000");
+      expect(container.querySelector("output")?.textContent).toBe("1000");
+    } finally {
+      if (root) await act(async () => { root!.unmount(); });
+      container.remove();
+    }
+  });
+
+  it("keeps an explicitly disabled amount locked after hydration", async () => {
+    render(<GroupedDecimalInput aria-label="Locked amount" value="1000" onValueChange={vi.fn()} disabled />);
+    expect((screen.getByRole("textbox") as HTMLInputElement).disabled).toBe(true);
+  });
+
   it("groups each keystroke across 999, 1,000 and 10,000 without turning a comma into a decimal", () => {
     render(<Harness initial="999" />);
     expect(edit("9999").value).toBe("9,999");

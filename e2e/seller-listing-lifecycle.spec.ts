@@ -606,11 +606,15 @@ test("bank-transfer listing requires selected seller bank account and preserves 
   await seller.page.goto("/en/usdt-exchange");
   const sellerMain = seller.page.getByRole("main");
   await expect(sellerMain.locator("#create-listing")).toBeVisible({ timeout: 60_000 });
+  await expect(seller.page.locator("#buyer-private-phone")).toHaveCount(0);
 
   await sellerMain.locator("#create-available").fill("1000");
+  await expect(sellerMain.locator("#create-available")).toHaveValue("1,000");
   await sellerMain.locator("#create-price").fill("3.20");
   await sellerMain.locator("#create-min-trade").fill("50");
   await sellerMain.locator("#create-max-trade").fill("1000");
+  await expect(sellerMain.locator("#create-available")).toHaveValue("1,000");
+  await expect(sellerMain.locator("#create-max-trade")).toHaveValue("1,000");
   await seller.page.getByRole("button", { name: "Continue to payment" }).click();
   await seller.page.getByRole("button", { name: /Bank Hapoalim/i }).click();
   const commissionCheckbox = seller.page.getByRole("checkbox", { name: /I agree to pay both shares \(2%\)/i });
@@ -623,15 +627,20 @@ test("bank-transfer listing requires selected seller bank account and preserves 
   await expect(seller.page.locator("#seller-bank-accounts")).toBeVisible({ timeout: 20_000 });
   await seller.page.goBack();
   await expect(sellerMain.locator("#create-listing")).toBeVisible({ timeout: 60_000 });
+  await expect(seller.page.locator("#buyer-private-phone")).toHaveCount(0);
 
   const oneBank = await ensureSellerBankAccounts(seller.page.request, 1);
   expect(oneBank).toHaveLength(1);
   await seller.page.reload();
   await expect(sellerMain.locator("#create-listing")).toBeVisible({ timeout: 60_000 });
+  await expect(seller.page.locator("#buyer-private-phone")).toHaveCount(0);
   await sellerMain.locator("#create-available").fill("1000");
+  await expect(sellerMain.locator("#create-available")).toHaveValue("1,000");
   await sellerMain.locator("#create-price").fill("3.20");
   await sellerMain.locator("#create-min-trade").fill("50");
   await sellerMain.locator("#create-max-trade").fill("1000");
+  await expect(sellerMain.locator("#create-available")).toHaveValue("1,000");
+  await expect(sellerMain.locator("#create-max-trade")).toHaveValue("1,000");
   await seller.page.getByRole("button", { name: "Continue to payment" }).click();
   await seller.page.getByRole("button", { name: /Bank Hapoalim/i }).click();
   const selectedSingleAccountId = await chooseCreatePayoutBankAccountByLast4(seller.page, oneBank[0].accountLast4);
@@ -663,6 +672,7 @@ test("bank-transfer listing requires selected seller bank account and preserves 
 
   await seller.page.reload();
   await expect(sellerMain.locator("#create-listing")).toBeVisible({ timeout: 60_000 });
+  await expect(seller.page.locator("#buyer-private-phone")).toHaveCount(0);
   await sellerMain.locator("#create-available").fill("500");
   await sellerMain.locator("#create-price").fill("3.18");
   await sellerMain.locator("#create-min-trade").fill("50");

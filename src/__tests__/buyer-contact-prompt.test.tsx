@@ -41,6 +41,29 @@ describe("required private buyer contact", () => {
     expect(container.querySelector("dialog")?.open).toBe(false);
   });
 
+  it.each(["en", "ar"] as const)("never focuses a closed contact prompt while a completed seller edits in %s", locale => {
+    mocks.user = { id: "seller", role: "approved_seller", roles: ["approved_seller"], whatsappNumber: "+972501234567" };
+    const editor = document.createElement("input");
+    editor.setAttribute("aria-label", "Listing amount");
+    document.body.append(editor);
+    editor.focus();
+    const focus = vi.spyOn(HTMLInputElement.prototype, "focus");
+    try {
+      const view = render(<BuyerContactPrompt locale={locale} />);
+      expect(focus).not.toHaveBeenCalled();
+      expect(document.activeElement).toBe(editor);
+      expect(view.container.querySelector("dialog input")).toBeNull();
+      // A refreshed canonical session must not mount an unnecessary form.
+      mocks.user = { ...mocks.user };
+      view.rerender(<BuyerContactPrompt locale={locale} />);
+      expect(document.activeElement).toBe(editor);
+      expect(focus).not.toHaveBeenCalled();
+    } finally {
+      focus.mockRestore();
+      editor.remove();
+    }
+  });
+
   it("keeps the prompt open for invalid input and failed saves", async () => {
     render(<BuyerContactPrompt locale="en" />);
     const phone = screen.getByLabelText("Phone or WhatsApp number (required)");
