@@ -84,3 +84,58 @@ for (const locale of ["en", "ar"] as const) {
     }
   });
 }
+
+for (const locale of ["en", "ar"] as const) {
+  test(`${locale} open purchase dialog retains drafts on read failures and closes when the listing disappears`, async ({ page, request }) => {
+    test.setTimeout(90_000);
+    const db = await state(request);
+    const id = `e2e-unavailable-listing-${locale}`;
+    const source = db.marketplaceListings.find(item => item.id === "e2e-global-seller-listing")!;
+    db.marketplaceListings.push({ ...source, id, displayNumber: 9982, originalAmount: "1000", availableAmount: "1000",
+      minimumTrade: "200", maximumTrade: "1000", currency: "USD", price: "1", paymentMethod: "Face-to-Face (Meet in Person)",
+      paymentMethods: ["Face-to-Face (Meet in Person)"], bankAccountId: undefined, bankName: undefined });
+    expect((await request.put("/api/testing/alpha-exchange-state", { headers, data: db })).ok()).toBe(true);
+    let purchasePosts = 0;
+    page.on("request", outgoing => {
+      if (new URL(outgoing.url()).pathname === "/api/alpha-exchange/purchase-requests" && outgoing.method() === "POST") purchasePosts += 1;
+    });
+    const listingRoute = "**/api/alpha-exchange/listings";
+    try {
+      await login(page.request, "BUYER");
+      await page.goto(`/${locale}/usdt-exchange?listing=${id}`);
+      const dialog = page.getByRole("dialog", { name: locale === "ar" ? "شراء USDT" : "Buy USDT", exact: true });
+      await expect(dialog).toBeVisible();
+      await dialog.locator("#buyer-usdt-amount").fill("700");
+      await page.route(listingRoute, route => route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: "Synthetic temporary outage" }) }));
+      const failedRefresh = page.waitForResponse(response => new URL(response.url()).pathname === "/api/alpha-exchange/listings" && response.status() === 503);
+      await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+      await failedRefresh;
+      await expect(dialog).toBeVisible();
+      await expect(dialog.locator("#buyer-usdt-amount")).toHaveValue("700");
+
+      // A malformed success is not authoritative evidence of an empty marketplace.
+      await page.unroute(listingRoute);
+      await page.route(listingRoute, route => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({}) }));
+      const malformedRefresh = page.waitForResponse(response => new URL(response.url()).pathname === "/api/alpha-exchange/listings" && response.status() === 200);
+      await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+      await malformedRefresh;
+      await expect(dialog).toBeVisible();
+      await expect(dialog.locator("#buyer-usdt-amount")).toHaveValue("700");
+
+      const latest = await state(request);
+      latest.marketplaceListings = latest.marketplaceListings.filter(item => item.id !== id);
+      expect((await request.put("/api/testing/alpha-exchange-state", { headers, data: latest })).ok()).toBe(true);
+      await page.unroute(listingRoute);
+      await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+      await expect(dialog).toHaveCount(0, { timeout: 20_000 });
+      await expect(page.getByText(locale === "ar" ? "هذا العرض لم يعد متاحًا." : "This listing is no longer available.", { exact: true })).toBeVisible();
+      await expect(page).not.toHaveURL(/[?&]listing=/);
+      expect(purchasePosts).toBe(0);
+    } finally {
+      if (!page.isClosed()) await page.unroute(listingRoute);
+      const latest = await state(request);
+      latest.marketplaceListings = latest.marketplaceListings.filter(item => item.id !== id);
+      expect((await request.put("/api/testing/alpha-exchange-state", { headers, data: latest })).ok()).toBe(true);
+    }
+  });
+}
