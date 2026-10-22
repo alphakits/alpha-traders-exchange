@@ -65,6 +65,62 @@ export function assessDependencyAudit(report, { backportsVerified = false } = {}
   return { blockers: [...blockers], guarded: [...guarded], moderate, totals };
 }
 
+// npm's default request timeout exceeds the entire release budget. Bound each
+// request and each fresh process so a stalled registry connection can recover.
+// Retrying never changes the report/allowlist policy and never uses an old report.
+const auditBudgetMs = 90_000;
+const auditAttemptMs = 30_000;
+const maxAuditAttempts = 3;
+const transientNetworkCodes = new Set(["ETIMEDOUT", "ECONNRESET", "EAI_AGAIN", "ECONNREFUSED", "ENETUNREACH", "EHOSTUNREACH"]);
+
+function transientAuditFailure(report) {
+  // npm audit drops some transport error codes, but retains its timeout message.
+  // Never classify a partial/complete advisory report as a transport-only error.
+  if (!isObject(report) || !isObject(report.error) ||
+      "auditReportVersion" in report || "vulnerabilities" in report || "metadata" in report) return null;
+  const code = report.error.code ?? report.code;
+  if (transientNetworkCodes.has(code)) return code;
+  if ([429, 502, 503, 504].includes(report.statusCode)) return `HTTP_${report.statusCode}`;
+  if (typeof report.message === "string" && /^network timeout at: https?:\/\/\S+$/.test(report.message)) return "REQUEST_TIMEOUT";
+  return null;
+}
+
+function readFreshDependencyAudit() {
+  const deadline = performance.now() + auditBudgetMs;
+  let lastReason = "DEADLINE_EXCEEDED";
+  for (let attempt = 1; attempt <= maxAuditAttempts; attempt++) {
+    const remainingMs = Math.floor(deadline - performance.now());
+    if (remainingMs <= 0) break;
+    const result = spawnSync(process.platform === "win32" ? "npm.cmd" : "npm",
+      ["audit", "--omit=dev", "--json", "--fetch-timeout=10000", "--fetch-retries=0"], {
+        encoding: "utf8", timeout: Math.min(auditAttemptMs, remainingMs),
+        killSignal: "SIGKILL", maxBuffer: 8 * 1024 * 1024,
+      });
+    if (result.error) {
+      if (result.error.code !== "ETIMEDOUT" || result.stdout?.trim()) {
+        throw new Error("Fresh dependency audit process failed; release remains blocked.");
+      }
+      lastReason = "PROCESS_TIMEOUT";
+    } else {
+      if (![0, 1].includes(result.status)) {
+        throw new Error("Fresh dependency audit unavailable; release remains blocked.");
+      }
+      let report;
+      try { report = JSON.parse(result.stdout); }
+      catch { throw new Error("Fresh dependency audit returned malformed JSON; release remains blocked."); }
+      const transient = result.status === 1 ? transientAuditFailure(report) : null;
+      if (!transient) return report;
+      lastReason = transient;
+    }
+    if (attempt < maxAuditAttempts && performance.now() < deadline) {
+      // Only fixed classifications are logged: npm diagnostics can contain URLs,
+      // registry credentials or response bodies.
+      console.warn(`Fresh dependency audit attempt ${attempt}/${maxAuditAttempts} failed (${lastReason}); retrying within the 90s budget.`);
+    }
+  }
+  throw new Error(`Fresh dependency audit unavailable (${lastReason}); release remains blocked.`);
+}
+
 export function runDependencyAudit() {
   // A known advisory is accepted only after every installed copy passes the
   // reviewed source hashes, versions and patch-integrity checks.
@@ -72,15 +128,7 @@ export function runDependencyAudit() {
     const check = spawnSync(process.execPath, [script, "--check"], { stdio: "inherit", timeout: 30_000 });
     if (check.error || check.status !== 0) throw new Error(`Security backport integrity failed: ${script}`);
   }
-  const result = spawnSync(process.platform === "win32" ? "npm.cmd" : "npm", ["audit", "--omit=dev", "--json"], {
-    encoding: "utf8", timeout: 90_000, maxBuffer: 8 * 1024 * 1024,
-  });
-  if (result.error || ![0, 1].includes(result.status)) {
-    throw new Error("Fresh dependency audit unavailable; release remains blocked.");
-  }
-  let report;
-  try { report = JSON.parse(result.stdout); }
-  catch { throw new Error("Fresh dependency audit returned malformed JSON; release remains blocked."); }
+  const report = readFreshDependencyAudit();
   const assessment = assessDependencyAudit(report, { backportsVerified: true });
   console.log(JSON.stringify(assessment, null, 2));
   if (assessment.blockers.length) throw new Error("Unreviewed moderate/high/critical dependency advisories block release.");
