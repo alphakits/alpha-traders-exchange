@@ -17908,7 +17908,7 @@ export async function getNotificationsForUser(input: {
 }
 
 export async function markNotificationReadState(input: { userId: string; notificationId: string; isRead: boolean }) {
-  const db = await readDb();
+  const { db } = await readDbForCriticalTradeMutation(NOTIFICATION_READ_TABLES);
   const state: NotificationState = input.isRead ? "read" : "unread";
   const updatedAt = nowIso();
   let committedNotification: AlphaExchangeNotification | null = null;
@@ -17928,6 +17928,8 @@ export async function markNotificationReadState(input: { userId: string; notific
   applyReadStateToCanonicalSnapshot(db);
   await writeDb(db, {
     selectedTables: NOTIFICATION_ONLY_TABLES,
+    rebaseTables: NOTIFICATION_READ_TABLES,
+    cacheResult: false,
     rebaseOnLatest: applyReadStateToCanonicalSnapshot,
   });
   if (!committedNotification) throw new Error("Notification update failed.");
@@ -17936,7 +17938,7 @@ export async function markNotificationReadState(input: { userId: string; notific
 }
 
 export async function updateNotificationState(input: { userId: string; notificationId: string; state: NotificationState }) {
-  const db = await readDb();
+  const { db } = await readDbForCriticalTradeMutation(NOTIFICATION_READ_TABLES);
   const now = nowIso();
   let committedNotification: AlphaExchangeNotification | null = null;
   const applyStateToCanonicalSnapshot = (snapshot: AlphaExchangeDb) => {
@@ -17956,6 +17958,8 @@ export async function updateNotificationState(input: { userId: string; notificat
   applyStateToCanonicalSnapshot(db);
   await writeDb(db, {
     selectedTables: NOTIFICATION_ONLY_TABLES,
+    rebaseTables: NOTIFICATION_READ_TABLES,
+    cacheResult: false,
     rebaseOnLatest: applyStateToCanonicalSnapshot,
   });
   if (!committedNotification) throw new Error("Notification update failed.");
@@ -17964,7 +17968,7 @@ export async function updateNotificationState(input: { userId: string; notificat
 }
 
 export async function markAllNotificationsRead(userId: string) {
-  const db = await readDb();
+  const { db } = await readDbForCriticalTradeMutation(NOTIFICATION_READ_TABLES);
   const now = nowIso();
   let committedNotifications: AlphaExchangeNotification[] = [];
   const applyMarkAllToCanonicalSnapshot = (snapshot: AlphaExchangeDb) => {
@@ -17988,6 +17992,8 @@ export async function markAllNotificationsRead(userId: string) {
   if (!committedNotifications.length) return;
   await writeDb(db, {
     selectedTables: NOTIFICATION_ONLY_TABLES,
+    rebaseTables: NOTIFICATION_READ_TABLES,
+    cacheResult: false,
     rebaseOnLatest: applyMarkAllToCanonicalSnapshot,
   });
   for (const notification of committedNotifications) {
@@ -17996,7 +18002,7 @@ export async function markAllNotificationsRead(userId: string) {
 }
 
 export async function archiveReadNotifications(userId: string) {
-  const db = await readDb();
+  const { db } = await readDbForCriticalTradeMutation(NOTIFICATION_READ_TABLES);
   const now = nowIso();
   let committedNotifications: AlphaExchangeNotification[] = [];
   const applyArchiveToCanonicalSnapshot = (snapshot: AlphaExchangeDb) => {
@@ -18013,6 +18019,8 @@ export async function archiveReadNotifications(userId: string) {
   if (!committedNotifications.length) return;
   await writeDb(db, {
     selectedTables: NOTIFICATION_ONLY_TABLES,
+    rebaseTables: NOTIFICATION_READ_TABLES,
+    cacheResult: false,
     rebaseOnLatest: applyArchiveToCanonicalSnapshot,
   });
   for (const notification of committedNotifications) {
@@ -18021,7 +18029,7 @@ export async function archiveReadNotifications(userId: string) {
 }
 
 export async function deleteNotification(input: { userId: string; notificationId: string }) {
-  const db = await readDb();
+  const { db } = await readDbForCriticalTradeMutation(NOTIFICATION_READ_TABLES);
   const applyDeleteToCanonicalSnapshot = (snapshot: AlphaExchangeDb) => {
     const exists = snapshot.notifications.some((item) => item.id === input.notificationId && item.userId === input.userId);
     if (!exists) throw new Error("Notification not found.");
@@ -18031,6 +18039,8 @@ export async function deleteNotification(input: { userId: string; notificationId
   applyDeleteToCanonicalSnapshot(db);
   await writeDb(db, {
     selectedTables: NOTIFICATION_ONLY_TABLES,
+    rebaseTables: NOTIFICATION_READ_TABLES,
+    cacheResult: false,
     rebaseOnLatest: applyDeleteToCanonicalSnapshot,
   });
   publishRealtimeEvent({

@@ -2396,6 +2396,15 @@ export function UsdtExchangePage({
         if (!disposed && revision === sellerWorkspaceRevisionRef.current && Array.isArray(payload.listings)) {
           setListings(payload.listings);
           listingsLoadedAtRef.current = Date.now();
+          // A confirmed removal must not revive the dialog's old terms through
+          // its snapshot fallback. Failed or malformed reads never reach here.
+          // Read the latest intent so a late response cannot close a newer choice.
+          const selectedId = selectedListingIntentRef.current;
+          if (selectedId && !purchaseRequestInFlightRef.current
+            && !payload.listings.some((listing) => listing.id === selectedId)) {
+            closeListingModal();
+            setStatusMessage(isAr ? "هذا العرض لم يعد متاحًا." : "This listing is no longer available.");
+          }
         }
       } catch {
         // Retain the last usable market on transient read failures. Mutations still validate durable state.
@@ -2413,7 +2422,7 @@ export function UsdtExchangePage({
       window.removeEventListener("focus", resume);
       document.removeEventListener("visibilitychange", resume);
     };
-  }, [hasSelectedListing, isDashboardWorkspace, isLoadingListings, tracedReadFetch]);
+  }, [closeListingModal, hasSelectedListing, isAr, isDashboardWorkspace, isLoadingListings, setStatusMessage, tracedReadFetch]);
 
   useEffect(() => {
     if (!sessionUser) return;
