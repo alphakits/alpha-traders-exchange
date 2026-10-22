@@ -7601,6 +7601,13 @@ export async function revokeAccountSession(userId: string, sessionId: string, cu
   return { revokedId: sessionId, currentSessionRevoked: session.token === hashToken(currentToken) };
 }
 
+function hasUsableAuthSessionExpiry(session: AuthSession) {
+  // Retained JSON is not guaranteed to satisfy the TypeScript shape. Invalid
+  // dates must fail closed, and a session expires at its deadline, not after it.
+  const deadline = typeof session.expiresAt === "string" ? Date.parse(session.expiresAt) : NaN;
+  return Number.isFinite(deadline) && deadline > Date.now();
+}
+
 export async function getSessionByToken(token: string) {
   const hashed = hashToken(token);
   const repository = await getAlphaExchangeRepository();
@@ -7608,7 +7615,7 @@ export async function getSessionByToken(token: string) {
   if (!session) {
     return null;
   }
-  if (new Date(session.expiresAt) < new Date()) {
+  if (!hasUsableAuthSessionExpiry(session)) {
     await repository.deleteAuthSession(hashed);
     const cachedSessions = dbCache?.value.authSessions ?? [];
     syncCachedAuthSessions(cachedSessions.filter((item) => item.token !== hashed));
@@ -7636,7 +7643,7 @@ export async function getAuthenticatedUserBySessionToken(
   ensureDisplayNumbers(db);
   const session = db.authSessions.find((candidate) => candidate.token === hashed);
   if (!session) return null;
-  if (new Date(session.expiresAt) < new Date()) {
+  if (!hasUsableAuthSessionExpiry(session)) {
     await repository.deleteAuthSession(hashed);
     const cachedSessions = dbCache?.value.authSessions ?? [];
     syncCachedAuthSessions(cachedSessions.filter((item) => item.token !== hashed));
