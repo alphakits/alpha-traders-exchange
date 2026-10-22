@@ -119,7 +119,9 @@ function BuyerContactContent({ locale, session }: { locale: "en" | "ar"; session
     <dialog ref={dialog} aria-labelledby="buyer-contact-title" aria-describedby="buyer-contact-description" dir={isAr ? "rtl" : "ltr"}
       onCancel={event => event.preventDefault()}
       className="fixed inset-0 m-auto max-h-[90dvh] w-[calc(100%_-_2rem)] max-w-md overflow-y-auto rounded-3xl border border-[#C9A227]/30 bg-[#101116] p-6 text-white shadow-2xl backdrop:bg-black/80 backdrop:backdrop-blur-sm">
-      <BuyerContactForm locale={locale} phone={phone} setPhone={setPhone} saving={saving} error={error} onSubmit={submit} onSignOut={signOut} />
+      {/* A closed dialog must not mount an autofocus field during session
+          hydration or refresh while the user is editing the workspace. */}
+      {required ? <BuyerContactForm locale={locale} phone={phone} setPhone={setPhone} saving={saving} error={error} onSubmit={submit} onSignOut={signOut} /> : null}
     </dialog>
   );
 }
