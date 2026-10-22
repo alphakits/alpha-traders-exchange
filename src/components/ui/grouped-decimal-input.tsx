@@ -1,6 +1,6 @@
 "use client";
 
-import { useLayoutEffect, useReducer, useRef, type InputHTMLAttributes } from "react";
+import { useLayoutEffect, useReducer, useRef, useSyncExternalStore, type InputHTMLAttributes } from "react";
 import { Input } from "@/components/ui/input";
 import { normalizeTradeAmountInput } from "@/lib/trade-amount";
 
@@ -31,7 +31,14 @@ type Props = Omit<InputHTMLAttributes<HTMLInputElement>, "value" | "defaultValue
   normalize?: (value: string) => string;
 };
 
+const subscribeToClientReadiness = () => () => {};
+const clientIsReady = () => true;
+const serverIsReady = () => false;
+
 export function GroupedDecimalInput({ value, onValueChange, normalize = normalizeTradeAmountInput, ...props }: Props) {
+  // Server HTML is visible before React installs this controlled input's
+  // handler. An early edit would otherwise be discarded by the next render.
+  const clientReady = useSyncExternalStore(subscribeToClientReadiness, clientIsReady, serverIsReady);
   const input = useRef<HTMLInputElement>(null);
   const selection = useRef<{ start: number; end: number } | null>(null);
   const [, refreshSelection] = useReducer((revision: number) => revision + 1, 0);
@@ -51,6 +58,7 @@ export function GroupedDecimalInput({ value, onValueChange, normalize = normaliz
     inputMode="decimal"
     dir="ltr"
     value={displayed}
+    disabled={props.disabled || !clientReady}
     onChange={(event) => {
       let edited = event.currentTarget.value;
       let start = event.currentTarget.selectionStart ?? edited.length;
