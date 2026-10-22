@@ -5,36 +5,55 @@ import providedLessons from "../src/data/lessons-provided.json";
 
 for (const locale of ["en", "ar"] as const) {
   const isAr = locale === "ar";
-  test(`price alerts persist for the owning buyer without placing a trade (${locale})`, async ({ page }) => {
-    const login = await page.request.post("/api/auth/login", { headers: { "x-forwarded-for": "198.51.100.231" }, data: { email: process.env.E2E_BUYER_EMAIL!, password: process.env.E2E_BUYER_PASSWORD!, rememberMe: true } });
-    expect(login.ok()).toBeTruthy();
-    await page.setViewportSize({ width: isAr ? 390 : 1280, height: 900 });
-    await page.goto(`/${locale}/usdt-exchange`);
-    const panel = page.getByRole("region", { name: isAr ? "تنبيه سعر USDT" : "USDT price alert" });
-    const save = panel.getByRole("button", { name: isAr ? "حفظ التنبيه" : "Save alert" });
-    await expect(save).toBeHidden();
-    await panel.locator("summary").click();
-    await expect(save).toBeEnabled();
-    await panel.getByLabel(isAr ? "أعلى سعر (₪ / USDT)" : "Maximum price (₪ / USDT)").fill("3.65");
-    await panel.getByLabel(isAr ? "أقل كمية USDT (اختياري)" : "Minimum USDT (optional)").fill("150");
-    await panel.getByLabel(isAr ? "تفعيل تنبيه السعر لحسابي" : "Enable price alerts for my account").check();
-    await save.click();
-    await expect(panel.getByRole("status")).toHaveText(isAr ? "تم حفظ إعدادات التنبيه." : "Alert preferences saved.");
-    const response = await page.request.get("/api/alpha-exchange/price-alerts");
-    expect(response.headers()["cache-control"]).toContain("private");
-    const payload = await response.json();
-    expect(Object.keys(payload).sort()).toEqual(["ownerId", "preference"]);
-    expect(payload.preference).toMatchObject({ enabled: true, maxPrice: "3.65", minUsdt: "150" });
-    const forged = await page.request.patch("/api/alpha-exchange/price-alerts", { headers: { origin: E2E_BASE_URL }, data: { ...payload.preference, userId: "another-buyer" } });
-    expect(forged.status()).toBe(400);
-    await page.reload();
-    await expect(save).toBeHidden();
-    await panel.locator("summary").click();
-    await expect(panel.getByLabel(isAr ? "أعلى سعر (₪ / USDT)" : "Maximum price (₪ / USDT)")).toHaveValue("3.65");
-    await expect(page.locator("body")).toBeVisible();
-    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBeTruthy();
-    await panel.screenshot({ path: `test-results/workspace-additions-${locale}-price-alert.png` });
-    await page.request.patch("/api/alpha-exchange/price-alerts", { headers: { origin: E2E_BASE_URL }, data: { enabled: false, maxPrice: "", minUsdt: "", paymentMethod: "all" } });
+  test.describe(`price-alert account cleanup (${locale})`, () => {
+    test.afterEach(async ({ page }, testInfo) => {
+      try {
+        if (testInfo.status === "passed") {
+          const panel = page.getByRole("region", { name: isAr ? "تنبيه سعر USDT" : "USDT price alert" });
+          await panel.screenshot({ path: `test-results/workspace-additions-${locale}-price-alert.png` });
+        }
+      } finally {
+        // Artifact capture and fixture restoration have the runner's teardown
+        // budget. Keep the unchanged 30-second deadline for the buyer journey.
+        // Always restore the preference, including after a failed assertion.
+        const reset = await page.request.patch("/api/alpha-exchange/price-alerts", {
+          headers: { origin: E2E_BASE_URL },
+          data: { enabled: false, maxPrice: "", minUsdt: "", paymentMethod: "all" },
+          timeout: 5_000,
+        });
+        expect(reset.ok()).toBeTruthy();
+        expect((await reset.json()).preference).toMatchObject({ enabled: false, maxPrice: "", minUsdt: "", paymentMethod: "all" });
+      }
+    });
+    test(`price alerts persist for the owning buyer without placing a trade (${locale})`, async ({ page }) => {
+      const login = await page.request.post("/api/auth/login", { headers: { "x-forwarded-for": "198.51.100.231" }, data: { email: process.env.E2E_BUYER_EMAIL!, password: process.env.E2E_BUYER_PASSWORD!, rememberMe: true } });
+      expect(login.ok()).toBeTruthy();
+      await page.setViewportSize({ width: isAr ? 390 : 1280, height: 900 });
+      await page.goto(`/${locale}/usdt-exchange`);
+      const panel = page.getByRole("region", { name: isAr ? "تنبيه سعر USDT" : "USDT price alert" });
+      const save = panel.getByRole("button", { name: isAr ? "حفظ التنبيه" : "Save alert" });
+      await expect(save).toBeHidden();
+      await panel.locator("summary").click();
+      await expect(save).toBeEnabled();
+      await panel.getByLabel(isAr ? "أعلى سعر (₪ / USDT)" : "Maximum price (₪ / USDT)").fill("3.65");
+      await panel.getByLabel(isAr ? "أقل كمية USDT (اختياري)" : "Minimum USDT (optional)").fill("150");
+      await panel.getByLabel(isAr ? "تفعيل تنبيه السعر لحسابي" : "Enable price alerts for my account").check();
+      await save.click();
+      await expect(panel.getByRole("status")).toHaveText(isAr ? "تم حفظ إعدادات التنبيه." : "Alert preferences saved.");
+      const response = await page.request.get("/api/alpha-exchange/price-alerts");
+      expect(response.headers()["cache-control"]).toContain("private");
+      const payload = await response.json();
+      expect(Object.keys(payload).sort()).toEqual(["ownerId", "preference"]);
+      expect(payload.preference).toMatchObject({ enabled: true, maxPrice: "3.65", minUsdt: "150" });
+      const forged = await page.request.patch("/api/alpha-exchange/price-alerts", { headers: { origin: E2E_BASE_URL }, data: { ...payload.preference, userId: "another-buyer" } });
+      expect(forged.status()).toBe(400);
+      await page.reload();
+      await expect(save).toBeHidden();
+      await panel.locator("summary").click();
+      await expect(panel.getByLabel(isAr ? "أعلى سعر (₪ / USDT)" : "Maximum price (₪ / USDT)")).toHaveValue("3.65");
+      await expect(page.locator("body")).toBeVisible();
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBeTruthy();
+    });
   });
 
   test(`owner priorities link directly to private session settings (${locale})`, async ({ page }) => {
