@@ -24,6 +24,12 @@ class EditorSaveConflict extends Error {
   constructor(readonly currentLesson: Lesson) { super("This lesson changed in another tab. Choose which version to keep."); }
 }
 
+function newestLessonVersion(current: Lesson, acknowledged?: Lesson) {
+  // API versions are canonical ISO timestamps; a refresh can be newer than
+  // this editor's last acknowledged save.
+  return acknowledged && (acknowledged.updatedAt ?? "") >= (current.updatedAt ?? "") ? acknowledged : current;
+}
+
 const pageSize = 10;
 
 function mapCategoryToCourse(category: LessonCategory, courses: BootstrapPayload["courses"]) {
@@ -200,11 +206,11 @@ export function LessonManagementDashboard() {
       },
       rebase: (pending, saved) => ({ ...pending, updatedAt: saved.updatedAt }),
       onAcknowledged: lesson => {
-        setLessons(current => current.map(value => value.id === lesson.id ? { ...value, updatedAt: lesson.updatedAt } : value));
+        setLessons(current => current.map(value => value.id === lesson.id ? { ...value, updatedAt: newestLessonVersion(value, lesson).updatedAt } : value));
         setSaveConflicts(current => { const next = { ...current }; delete next[lesson.id]; return next; });
       },
       onSaved: lesson => {
-        setLessons(current => current.map(value => value.id === lesson.id ? queue.getDraft(lesson.id) ?? lesson : value));
+        setLessons(current => current.map(value => value.id === lesson.id ? queue.getDraft(lesson.id) ?? newestLessonVersion(value, queue.getAcknowledged(lesson.id) ?? lesson) : value));
         const config = autosaveConfigRef.current;
         config.setToast(config.isAr ? "✓ تم الحفظ تلقائياً" : "✓ Saved");
         if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
@@ -263,15 +269,22 @@ export function LessonManagementDashboard() {
     importInputRef.current.setAttribute("directory", "");
   }, []);
 
+  function getCurrentSelectedLesson() {
+    if (!selectedLesson) return null;
+    const queue = autosaveRef.current;
+    return queue?.getDraft(selectedLesson.id)
+      ?? newestLessonVersion(selectedLesson, queue?.getAcknowledged(selectedLesson.id));
+  }
+
   function patchSelectedLesson(patch: Partial<Lesson>) {
-    if (!selectedLesson || !autosaveRef.current) return;
+    const current = getCurrentSelectedLesson();
+    if (!current || !autosaveRef.current) return;
     // Register the complete next draft in the queue in the input event itself.
     // A deferred effect from an earlier save must not consume this edit marker
     // while it still sees the previous render's draft/status.
-    const current = autosaveRef.current.getDraft(selectedLesson.id) ?? selectedLesson;
     const next = { ...current, ...patch, assets: { ...current.assets, ...(patch.assets || {}) } };
     autosaveRef.current.enqueue(next);
-    setLessons(values => values.map(value => value.id === next.id ? autosaveRef.current?.getDraft(next.id) ?? next : value));
+    setLessons(values => values.map(value => value.id === next.id ? autosaveRef.current?.getDraft(next.id) ?? newestLessonVersion(value, autosaveRef.current?.getAcknowledged(next.id) ?? next) : value));
   }
 
   async function createNewLesson() {
@@ -342,9 +355,10 @@ export function LessonManagementDashboard() {
   }
 
   function setPublishState(status: LessonStatus) {
-    if (!selectedLesson) return;
+    const current = getCurrentSelectedLesson();
+    if (!current) return;
     if (status === "published") {
-      const validationError = lessonPublishReadinessError(selectedLesson, isAr);
+      const validationError = lessonPublishReadinessError(current, isAr);
       if (validationError) {
         setToast(validationError);
         return;
