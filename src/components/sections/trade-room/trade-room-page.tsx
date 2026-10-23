@@ -3286,7 +3286,9 @@ function TradeRoomPageSession({
                 </div>
               ) : null}
               <div className="flex flex-wrap gap-2">
-                <Button type="button" variant="secondary" onClick={() => router.push("/usdt-exchange")}>
+                <Button type="button" variant="secondary" onClick={() => router.push(isActorBuyer || isSeller
+                  ? "/trades"
+                  : `/admin/alpha-exchange?section=purchase-requests&requestId=${encodeURIComponent(request.id)}&details=1`)}>
                   {isAr ? "عرض سجل الصفقات" : "View Trade History"}
                 </Button>
               </div>
