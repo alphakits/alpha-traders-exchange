@@ -107,6 +107,39 @@ describe("atomic seller receipt SMS persistence", () => {
     expect(fullRead).toHaveBeenCalledTimes(1);
   });
 
+  it.each(["buyer", "seller"] as const)("%s receipt upload excludes unrelated account/history payloads and preserves their stored rows", async side => {
+    const snapshot = await repository.loadSnapshot();
+    snapshot.purchaseRequests[0].displayNumber = 1;
+    for (const source of snapshot.users.slice()) {
+      snapshot.users.push({ ...source, id: `outsider-${source.id}`, email: `outsider-${source.id}@example.test`,
+        fullName: `Private outside ${source.id}`, passwordHash: "unrelated-private-password" });
+    }
+    snapshot.marketplaceListings.push({ ...snapshot.marketplaceListings[0], id: "outside-listing", sellerId: "outsider-seller", activeTradeRequestId: "outside-trade",
+      displayNumber: 2, photos: [], paymentMethods: ["Bank Transfer"], minimumTrade: "0", maximumTrade: "500", notes: "", sellerDescription: "",
+      expiresAt: new Date(Date.parse(snapshot.marketplaceListings[0].createdAt) + 86_400_000).toISOString() });
+    snapshot.purchaseRequests.push({ ...snapshot.purchaseRequests[0], id: "outside-trade", tradeId: "TR-OUTSIDE", displayNumber: 2,
+      listingId: "outside-listing", sellerId: "outsider-seller", buyerId: "outsider-buyer" });
+    await repository.saveSnapshot(snapshot, { selectedTables: ["users", "listings", "purchase_requests"] });
+    if (side === "buyer") await database.exec("update alpha_exchange.purchase_requests set status='accepted',payload=jsonb_set(payload,'{status}','\"accepted\"') where id='receipt-trade'");
+    const outsideRows = async () => (await database.query(`
+      select 'user' as kind,id,ctid::text as tuple,payload from alpha_exchange.users where id like 'outsider-%'
+      union all select 'listing',id,ctid::text,payload from alpha_exchange.listings where id='outside-listing'
+      union all select 'trade',id,ctid::text,payload from alpha_exchange.purchase_requests where id='outside-trade'
+      order by kind,id`)).rows;
+    const before = await outsideRows();
+    const begin = repository.beginTradeLifecycleTransaction.bind(repository);
+    const scopes: Array<{ users: string[]; requests: string[] }> = [];
+    vi.spyOn(repository, "beginTradeLifecycleTransaction").mockImplementation(async (...args) => {
+      const transaction = await begin(...args);
+      if (transaction) scopes.push({ users: transaction.snapshot.users.map(user => user.id), requests: transaction.snapshot.purchaseRequests.map(request => request.id) });
+      return transaction;
+    });
+    await expect(upload(side)).resolves.toMatchObject({ request: { status: side === "buyer" ? "payment_sent" : "usdt_sent" } });
+    expect(scopes).toEqual([{ users: ["buyer", "seller"], requests: ["receipt-trade"] }]);
+    expect(await outsideRows()).toEqual(before);
+    expect((await database.query("select id from alpha_exchange.evidence")).rows).toHaveLength(1);
+  });
+
   it.each(["buyer", "seller"] as const)("preserves unrelated activity and delivery tuples during a %s receipt commit", async side => {
     const snapshot = await repository.loadSnapshot();
     const now = new Date().toISOString();
