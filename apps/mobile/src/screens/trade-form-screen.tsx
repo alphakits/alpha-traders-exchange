@@ -93,8 +93,17 @@ export function TradeFormScreen({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const formScope = `${user?.id ?? "anonymous"}:${listingId}:${mode}`;
-  const activeFormScopeRef = useRef(formScope);
-  activeFormScopeRef.current = formScope;
+  // Each visit owns its pending work, even when the user returns to the same
+  // listing. A response or queued press from an older visit must stay there.
+  const activeFormScopeRef = useRef({ key: formScope });
+  if (activeFormScopeRef.current.key !== formScope) activeFormScopeRef.current = { key: formScope };
+  const renderedFormScope = activeFormScopeRef.current;
+  const submissionScopeRef = useRef<typeof renderedFormScope | null>(null);
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
 
   useEffect(() => {
     if (!user) {
@@ -128,6 +137,7 @@ export function TradeFormScreen({
   }, [listing, mode, usdIlsRate]);
 
   const isCardless = paymentMethod === "Cardless ATM Withdrawal";
+  const paymentMethodAvailable = Boolean(listing?.paymentMethods.includes(paymentMethod));
   const chosenNetwork = receivingNetwork ?? listing?.network ?? "TRC20";
   const isFaceToFace = paymentMethod === "Face-to-Face (Meet in Person)";
   const canonicalOfferPrice = listing
@@ -162,7 +172,7 @@ export function TradeFormScreen({
     ? `${isCardless ? "" : formatWholeUsdtNumber(listing.minimumTrade) + "–"}${formatWholeUsdtNumber(listing.maximumTrade)} USDT`
     : "";
   const formIsValid = useMemo(() => {
-    if (!listing || listing.seller.isCurrentUser || !user || !paymentMethod || walletValidationError) return false;
+    if (!listing || listing.seller.isCurrentUser || !user || !paymentMethodAvailable || walletValidationError) return false;
     const value = numericValue(amount);
     const minimum = getPurchaseMinimumTrade(listing.minimumTrade, isCardless);
     const available = numericValue(listing.availableAmount);
@@ -177,7 +187,7 @@ export function TradeFormScreen({
         || !validatePriceOffer(canonicalListingPrice(listing.price), canonicalOfferPrice).ok) return false;
     }
     return true;
-  }, [buyerTotal, withdrawalBank, cashAmount, withdrawalCode, verificationKind, verificationValue, isCardless, amount, canonicalOfferPrice, isFaceToFace, listing, mode, paymentMethod, safetyAcknowledged, user, walletValidationError]);
+  }, [buyerTotal, withdrawalBank, cashAmount, withdrawalCode, verificationKind, verificationValue, isCardless, amount, canonicalOfferPrice, isFaceToFace, listing, mode, paymentMethodAvailable, safetyAcknowledged, user, walletValidationError]);
 
   const goBack = useCallback(() => {
     if (router.canGoBack()) router.back();
@@ -185,11 +195,14 @@ export function TradeFormScreen({
   }, [router]);
 
   async function submit() {
+    const operationScope = renderedFormScope;
+    if (!mountedRef.current || activeFormScopeRef.current !== operationScope || submissionScopeRef.current === operationScope) return;
     if (!user || !listing || !formIsValid) {
       setError(t("invalidTradeForm"));
       return;
     }
-    const operationScope = activeFormScopeRef.current;
+    // State disables the next render; the ref also blocks already queued taps.
+    submissionScopeRef.current = operationScope;
     const submittingUserId = user.id;
     setError(null);
     setIsSubmitting(true);
@@ -207,7 +220,7 @@ export function TradeFormScreen({
           : undefined,
         safetyAcknowledged,
       }));
-      if (activeFormScopeRef.current !== operationScope) return;
+      if (!mountedRef.current || activeFormScopeRef.current !== operationScope) return;
       const tradeQueryKey = ["mobile-trade", submittingUserId, response.trade.id, locale] as const;
       const initialDetail: MobileTradeDetailResponse = {
         requestId: response.requestId,
@@ -249,11 +262,12 @@ export function TradeFormScreen({
       void queryClient.invalidateQueries({ queryKey: ["mobile-trades"] });
       router.replace({ pathname: "/trade/[requestId]", params: { requestId: response.trade.id } });
     } catch (caught) {
-      if (activeFormScopeRef.current === operationScope) {
+      if (mountedRef.current && activeFormScopeRef.current === operationScope) {
         setError(caught instanceof MobileApiError ? formatFinancialText(caught.message, usdIlsRate) : t("genericError"));
       }
     } finally {
-      if (activeFormScopeRef.current === operationScope) setIsSubmitting(false);
+      if (submissionScopeRef.current === operationScope) submissionScopeRef.current = null;
+      if (mountedRef.current && activeFormScopeRef.current === operationScope) setIsSubmitting(false);
     }
   }
 
@@ -371,6 +385,11 @@ export function TradeFormScreen({
                 </Pressable>
               ))}
             </View>
+            {paymentMethod && !paymentMethodAvailable ? (
+              <Text accessibilityRole="alert" style={[styles.error, isRTL && styles.rtlText]}>
+                {isRTL ? "غيّر البائع طرق الدفع المتاحة. اختر طريقة متاحة للمتابعة." : "The seller changed the available payment methods. Select an available method to continue."}
+              </Text>
+            ) : null}
           </View>
 
           <View style={styles.field}>
