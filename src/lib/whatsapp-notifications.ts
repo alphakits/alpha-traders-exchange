@@ -1374,8 +1374,9 @@ export async function applyWhatsAppWebhookStatuses(
   statuses: readonly WhatsAppDeliveryStatusUpdate[],
 ) {
   if (statuses.length === 0) return 0;
-  const pool = getRuntimePostgresPool();
-  if (!pool) return 0;
+  // An actionable callback must not receive a success acknowledgement when
+  // its durable update could not run. The route reports a retryable failure.
+  const pool = requireWhatsAppPool();
   await ensureWhatsAppSchema(pool);
   let updatedCount = 0;
   for (const update of statuses) {
@@ -1418,11 +1419,12 @@ export async function revokeWhatsAppConsentByPhone(input: {
   messageId: string;
   occurredAt?: string;
 }) {
-  const fingerprint = phoneFingerprint(input.phone);
+  const phone = normalizeWhatsAppE164(input.phone);
   const messageId = input.messageId.trim();
-  if (!fingerprint || !messageId) return 0;
-  const pool = getRuntimePostgresPool();
-  if (!pool) return 0;
+  if (!phone || !messageId) return 0;
+  const fingerprint = phoneFingerprint(phone);
+  if (!fingerprint) throw new Error("WhatsApp phone fingerprint configuration is unavailable.");
+  const pool = requireWhatsAppPool();
   await ensureWhatsAppSchema(pool);
   const client = await pool.connect();
   let destroy = false;
