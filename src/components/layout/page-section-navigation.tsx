@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
-import { cancelPageSectionNavigation, pageSectionId, revealPageSection } from "@/lib/page-section-navigation";
+import { cancelPageSectionNavigation, consumePageSectionNavigationRequest, isPageSectionNavigationFocus, pageSectionId, preparePageSectionNavigation, revealPageSection } from "@/lib/page-section-navigation";
 
 /** Native hash scrolling runs before streamed and dynamically imported panels mount. */
 export function PageSectionNavigation() {
@@ -13,7 +13,10 @@ export function PageSectionNavigation() {
   useEffect(() => {
     let frame: number | undefined;
     const interactionEvents = ["pointerdown", "keydown", "wheel", "touchmove", "focusin"] as const;
-    const cancelInitialRestore = () => {
+    const cancelInitialRestore = (event?: Event) => {
+      // A router may refocus the initiating header or focus the requested
+      // section before this frame. Neither cancels that explicit request.
+      if (event?.type === "focusin" && isPageSectionNavigationFocus(event.target)) return;
       if (frame !== undefined) window.cancelAnimationFrame(frame);
       frame = undefined;
       for (const event of interactionEvents) document.removeEventListener(event, cancelInitialRestore, true);
@@ -29,6 +32,11 @@ export function PageSectionNavigation() {
     // Actual hash/history changes still cancel an obsolete pending section.
     frame = window.requestAnimationFrame(() => {
       cancelInitialRestore();
+      const requestedSection = consumePageSectionNavigationRequest();
+      if (requestedSection) {
+        revealPageSection(requestedSection);
+        return;
+      }
       // Hydration can finish after the user has already focused a tab or field.
       // Initial URL restoration must yield; explicit links/history still work.
       const active = document.activeElement;
@@ -42,7 +50,9 @@ export function PageSectionNavigation() {
       cancelInitialRestore();
       window.removeEventListener("hashchange", revealHash);
       window.removeEventListener("popstate", revealHash);
-      cancelPageSectionNavigation();
+      // The shared controller owns its route, interruption listeners and
+      // bounded lifetime. A streamed remount or a delayed pathname update
+      // must not cancel an explicit request it already consumed.
     };
   }, [pathname, search]);
 
@@ -52,8 +62,11 @@ export function PageSectionNavigation() {
       const link = event.target instanceof Element ? event.target.closest<HTMLAnchorElement>("a[href]") : null;
       if (!link || link.hasAttribute("download") || (link.target && link.target !== "_self")) return;
       const url = new URL(link.href, window.location.href);
-      if (url.origin !== window.location.origin || url.pathname !== window.location.pathname
-        || url.search !== window.location.search || !url.hash) return;
+      if (url.origin !== window.location.origin || !url.hash) return;
+      if (url.pathname !== window.location.pathname || url.search !== window.location.search) {
+        preparePageSectionNavigation(url.href);
+        return;
+      }
       // Next Link uses pushState for same-page links, which emits no hashchange.
       // Its normal navigation still owns the URL, history, and access checks.
       const id = pageSectionId(url.hash);

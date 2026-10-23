@@ -2,7 +2,7 @@
 
 import { useCallback } from "react";
 import { usePathname, useRouter } from "@/i18n/navigation";
-import { revealPageSection } from "@/lib/page-section-navigation";
+import { navigateToPageSection, revealPageSection } from "@/lib/page-section-navigation";
 
 type CreateListingQuickLinkProps = {
   className: string;
@@ -20,7 +20,7 @@ export function CreateListingQuickLink({ className, label }: CreateListingQuickL
       revealPageSection("create-listing");
       return;
     }
-    router.push("/usdt-exchange#create-listing");
+    navigateToPageSection(router, "/usdt-exchange#create-listing");
   }, [pathname, router]);
 
   return (

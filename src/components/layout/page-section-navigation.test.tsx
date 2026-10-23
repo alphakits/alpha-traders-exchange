@@ -31,6 +31,7 @@ beforeEach(() => {
   });
 });
 afterEach(() => {
+  document.dispatchEvent(new Event("pointerdown", { bubbles: true }));
   cleanup();
   cancelPageSectionNavigation();
   document.body.innerHTML = "";
@@ -65,6 +66,242 @@ describe("first-click section navigation", () => {
     render(<CreateListingQuickLink label="Create Listing" className="" />);
     fireEvent.click(screen.getByRole("button", { name: /Create Listing/ }));
     expect(push).toHaveBeenCalledExactlyOnceWith("/usdt-exchange#create-listing");
+  });
+
+  it.each(["en", "ar"])("honors the focused header action across a route transition and delayed form mount (%s)", async (locale) => {
+    pathname = `/${locale}/trades`;
+    window.history.replaceState({}, "", pathname);
+    const ui = <><PageSectionNavigation /><CreateListingQuickLink label="Create Listing" className="" /></>;
+    const view = render(ui);
+    await settle();
+    const button = screen.getByRole("button", { name: /Create Listing/ });
+    button.focus();
+    fireEvent.click(button);
+    expect(push).toHaveBeenCalledExactlyOnceWith("/usdt-exchange#create-listing");
+    pathname = `/${locale}/usdt-exchange`;
+    window.history.pushState({}, "", `${pathname}#create-listing`);
+    view.rerender(<><PageSectionNavigation /><CreateListingQuickLink label="Create Listing" className="" /></>);
+    await settle();
+    const form = section("create-listing");
+    await settle();
+    expect(document.activeElement).toBe(form);
+    expect(form.scrollIntoView).toHaveBeenCalledWith({ behavior: "instant", block: "start" });
+  });
+
+  it.each(["pointerdown", "keydown", "wheel", "touchmove", "focusin"])("cancels a route request when a newer %s takes control", async (event) => {
+    pathname = "/en/trades";
+    window.history.replaceState({}, "", pathname);
+    const ui = () => <><PageSectionNavigation /><CreateListingQuickLink label="Create Listing" className="" /><input aria-label="Newer input" /></>;
+    const view = render(ui());
+    await settle();
+    const button = screen.getByRole("button", { name: /Create Listing/ });
+    button.focus();
+    fireEvent.click(button);
+    if (event === "focusin") screen.getByRole("textbox", { name: "Newer input" }).focus();
+    else document.dispatchEvent(new Event(event, { bubbles: true }));
+    pathname = "/en/usdt-exchange";
+    window.history.pushState({}, "", `${pathname}#create-listing`);
+    view.rerender(ui());
+    const form = section("create-listing");
+    await settle();
+    expect(document.activeElement).not.toBe(form);
+    expect(form.scrollIntoView).not.toHaveBeenCalled();
+  });
+
+  it.each(["en", "ar"])("keeps an explicit request when the initiating header regains focus before restoration (%s)", async (locale) => {
+    pathname = `/${locale}/trades`;
+    window.history.replaceState({}, "", pathname);
+    const ui = () => <><PageSectionNavigation /><CreateListingQuickLink label="Create Listing" className="" /></>;
+    const view = render(ui());
+    await settle();
+    const button = screen.getByRole("button", { name: /Create Listing/ });
+    button.focus();
+    fireEvent.click(button);
+    pathname = `/${locale}/usdt-exchange`;
+    window.history.pushState({}, "", `${pathname}#create-listing`);
+    view.rerender(ui());
+    button.blur();
+    button.focus();
+    await settle();
+    const form = section("create-listing");
+    await settle();
+    expect(document.activeElement).toBe(form);
+  });
+
+  it.each(["before effect", "before frame"])("keeps the requested section stable when router focus arrives %s", async (timing) => {
+    pathname = "/en/trades";
+    window.history.replaceState({}, "", pathname);
+    const ui = () => <><PageSectionNavigation /><CreateListingQuickLink label="Create Listing" className="" /></>;
+    const view = render(ui());
+    await settle();
+    const button = screen.getByRole("button", { name: /Create Listing/ });
+    button.focus();
+    fireEvent.click(button);
+    pathname = "/en/usdt-exchange";
+    window.history.pushState({}, "", `${pathname}#create-listing`);
+    const initialForm = section("create-listing");
+    initialForm.tabIndex = -1;
+    if (timing === "before effect") initialForm.focus();
+    view.rerender(ui());
+    if (timing === "before frame") initialForm.focus();
+    await settle();
+    initialForm.remove();
+    const hydratedForm = section("create-listing");
+    await settle();
+    expect(document.activeElement).toBe(hydratedForm);
+  });
+
+  it("yields to a focused input inside the destination instead of treating it as router section focus", async () => {
+    pathname = "/en/trades";
+    window.history.replaceState({}, "", pathname);
+    const ui = () => <><PageSectionNavigation /><CreateListingQuickLink label="Create Listing" className="" /></>;
+    const view = render(ui());
+    await settle();
+    const button = screen.getByRole("button", { name: /Create Listing/ });
+    button.focus();
+    fireEvent.click(button);
+    pathname = "/en/usdt-exchange";
+    window.history.pushState({}, "", `${pathname}#create-listing`);
+    const form = section("create-listing");
+    const input = document.createElement("input");
+    form.append(input);
+    view.rerender(ui());
+    input.focus();
+    await settle();
+    expect(document.activeElement).toBe(input);
+    expect(form.scrollIntoView).not.toHaveBeenCalled();
+  });
+
+  it("keeps a consumed request when the pathname hook catches up after a streamed restorer mounts", async () => {
+    pathname = "/ar/trades";
+    window.history.replaceState({}, "", pathname);
+    const ui = (navigation: boolean) => <><CreateListingQuickLink label="Create Listing" className="" />{navigation && <PageSectionNavigation />}</>;
+    const view = render(ui(false));
+    const button = screen.getByRole("button", { name: /Create Listing/ });
+    button.focus();
+    fireEvent.click(button);
+    window.history.pushState({}, "", "/ar/usdt-exchange#create-listing");
+    // The address and explicit request are ready before the router hook's
+    // suspended subtree catches up. Start restoring the still-unmounted form.
+    view.rerender(ui(true));
+    await settle();
+    pathname = "/ar/usdt-exchange";
+    view.rerender(ui(true));
+    await settle();
+    const form = section("create-listing");
+    await settle();
+    expect(document.activeElement).toBe(form);
+  });
+
+  it("keeps the current explicit request through a same-route restorer remount", async () => {
+    pathname = "/en/trades";
+    window.history.replaceState({}, "", pathname);
+    const ui = (navigation: boolean) => <><CreateListingQuickLink label="Create Listing" className="" />{navigation && <PageSectionNavigation />}</>;
+    const view = render(ui(true));
+    await settle();
+    const button = screen.getByRole("button", { name: /Create Listing/ });
+    button.focus();
+    fireEvent.click(button);
+    pathname = "/en/usdt-exchange";
+    window.history.pushState({}, "", `${pathname}#create-listing`);
+    view.rerender(ui(true));
+    await settle();
+    view.rerender(ui(false));
+    view.rerender(ui(true));
+    await settle();
+    const form = section("create-listing");
+    await settle();
+    expect(document.activeElement).toBe(form);
+  });
+
+  it("does not carry an active controller into a different page after effect cleanup", async () => {
+    const view = render(<PageSectionNavigation />);
+    await settle();
+    revealPageSection("create-listing");
+    pathname = "/en/profile";
+    window.history.pushState({}, "", pathname);
+    view.rerender(<PageSectionNavigation />);
+    const unrelatedForm = section("create-listing");
+    await settle();
+    expect(document.activeElement).not.toBe(unrelatedForm);
+    expect(unrelatedForm.scrollIntoView).not.toHaveBeenCalled();
+  });
+
+  it.each(["/ar/usdt-exchange#create-listing", "/en/usdt-exchange?mode=sell#create-listing", "/en/usdt-exchange#my-listings-section"])("does not carry a header request to an unrequested destination: %s", async (destination) => {
+    pathname = "/en/trades";
+    window.history.replaceState({}, "", pathname);
+    const ui = () => <><PageSectionNavigation /><CreateListingQuickLink label="Create Listing" className="" /></>;
+    const view = render(ui());
+    await settle();
+    const button = screen.getByRole("button", { name: /Create Listing/ });
+    button.focus();
+    fireEvent.click(button);
+    window.history.pushState({}, "", destination);
+    pathname = window.location.pathname;
+    view.rerender(ui());
+    const form = section("create-listing");
+    section("my-listings-section");
+    await settle();
+    expect(document.activeElement).toBe(button);
+    expect(form.scrollIntoView).not.toHaveBeenCalled();
+  });
+
+  it.each(["popstate", "hashchange"])("cancels an uncommitted route request when browser history changes (%s)", async (event) => {
+    pathname = "/en/trades";
+    window.history.replaceState({}, "", pathname);
+    const ui = () => <><PageSectionNavigation /><CreateListingQuickLink label="Create Listing" className="" /></>;
+    const view = render(ui());
+    await settle();
+    const button = screen.getByRole("button", { name: /Create Listing/ });
+    button.focus();
+    fireEvent.click(button);
+    window.dispatchEvent(new Event(event));
+    pathname = "/en/usdt-exchange";
+    window.history.pushState({}, "", `${pathname}#create-listing`);
+    view.rerender(ui());
+    const form = section("create-listing");
+    await settle();
+    expect(document.activeElement).toBe(button);
+    expect(form.scrollIntoView).not.toHaveBeenCalled();
+  });
+
+  it("expires an uncommitted route request without stealing later focus", async () => {
+    pathname = "/en/trades";
+    window.history.replaceState({}, "", pathname);
+    const ui = () => <><PageSectionNavigation /><CreateListingQuickLink label="Create Listing" className="" /></>;
+    const view = render(ui());
+    await settle();
+    const button = screen.getByRole("button", { name: /Create Listing/ });
+    button.focus();
+    fireEvent.click(button);
+    await act(async () => { await vi.advanceTimersByTimeAsync(10_001); });
+    pathname = "/en/usdt-exchange";
+    window.history.pushState({}, "", `${pathname}#create-listing`);
+    view.rerender(ui());
+    const form = section("create-listing");
+    await settle();
+    expect(document.activeElement).toBe(button);
+    expect(form.scrollIntoView).not.toHaveBeenCalled();
+  });
+
+  it("honors an explicit cross-page link while preserving its source focus", async () => {
+    pathname = "/en/trades";
+    window.history.replaceState({}, "", pathname);
+    const view = render(<PageSectionNavigation />);
+    await settle();
+    const link = document.createElement("a");
+    link.href = "/en/usdt-exchange#create-listing";
+    link.textContent = "Create listing";
+    link.addEventListener("click", event => event.preventDefault());
+    document.body.append(link);
+    link.focus();
+    fireEvent.click(link);
+    pathname = "/en/usdt-exchange";
+    window.history.pushState({}, "", `${pathname}#create-listing`);
+    view.rerender(<PageSectionNavigation />);
+    const form = section("create-listing");
+    await settle();
+    expect(document.activeElement).toBe(form);
   });
 
   it("restores an incoming section after streamed content mounts", async () => {

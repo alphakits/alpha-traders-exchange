@@ -1,4 +1,10 @@
 let cancelPendingNavigation: (() => void) | undefined;
+let pendingRouteRequest: {
+  target: URL;
+  sourceRoute: string;
+  initiator: Element | null;
+  cancel: () => void;
+} | undefined;
 export const PAGE_SECTION_NAVIGATION_EVENT = "alpha:page-section";
 
 export function cancelPageSectionNavigation() {
@@ -19,12 +25,81 @@ export function pageSectionFromEvent(event?: Event) {
     ? event.detail : pageSectionId(window.location.hash);
 }
 
-/** Next's imperative same-page navigation does not emit a native hashchange. */
-export function navigateToPageSection(router: { push: (href: string) => void }, destination: string) {
-  router.push(destination);
+/** Router focus on the initiating control or requested section is still this request. */
+export function isPageSectionNavigationFocus(target: EventTarget | null) {
+  const request = pendingRouteRequest;
+  if (!request || typeof window === "undefined") return false;
+  if (target === request.initiator || target === document.body || target === document.documentElement) return true;
+  return target instanceof Element
+    && `${request.target.pathname}${request.target.search}` === `${window.location.pathname}${window.location.search}`
+    && pageSectionId(request.target.hash) === pageSectionId(window.location.hash)
+    && target === document.getElementById(pageSectionId(request.target.hash));
+}
+
+/** Carry an explicit section request across a client-side route transition. */
+export function preparePageSectionNavigation(destination: string) {
+  pendingRouteRequest?.cancel();
   if (typeof window === "undefined") return;
   const target = new URL(destination, window.location.href);
   const current = new URL(window.location.href);
+  if (target.origin !== current.origin || !pageSectionId(target.hash)) return;
+  // The localized router accepts unprefixed paths. Bind the request to the
+  // current locale now, so it cannot activate on a later locale transition.
+  const locale = current.pathname.match(/^\/(en|ar)(?:\/|$)/)?.[1];
+  if (locale && !/^\/(en|ar)(?:\/|$)/.test(target.pathname)) {
+    target.pathname = `/${locale}${target.pathname}`;
+  }
+  const sourceRoute = `${current.pathname}${current.search}`;
+  if (`${target.pathname}${target.search}` === sourceRoute) return;
+  const initiator = document.activeElement;
+  const interactionEvents = ["pointerdown", "keydown", "wheel", "touchmove"] as const;
+  const historyEvents = ["popstate", "hashchange"] as const;
+  const cancel = () => {
+    window.clearTimeout(timer);
+    for (const event of interactionEvents) document.removeEventListener(event, cancel, true);
+    document.removeEventListener("focusin", onFocus, true);
+    for (const event of historyEvents) window.removeEventListener(event, cancel);
+    if (pendingRouteRequest?.cancel === cancel) pendingRouteRequest = undefined;
+  };
+  const onFocus = (event: FocusEvent) => {
+    if (!isPageSectionNavigationFocus(event.target)) cancel();
+  };
+  const timer = window.setTimeout(cancel, 10_000);
+  pendingRouteRequest = { target, sourceRoute, initiator, cancel };
+  for (const event of interactionEvents) document.addEventListener(event, cancel, { capture: true, passive: true });
+  document.addEventListener("focusin", onFocus, { capture: true, passive: true });
+  for (const event of historyEvents) window.addEventListener(event, cancel);
+}
+
+/** Consume only the requested route, while its initiating control still owns focus. */
+export function consumePageSectionNavigationRequest() {
+  const request = pendingRouteRequest;
+  if (!request || typeof window === "undefined") return "";
+  const route = `${window.location.pathname}${window.location.search}`;
+  if (`${request.target.pathname}${request.target.search}` !== route
+    || pageSectionId(request.target.hash) !== pageSectionId(window.location.hash)) {
+    if (route !== request.sourceRoute) request.cancel();
+    return "";
+  }
+  const active = document.activeElement;
+  const ownsFocus = isPageSectionNavigationFocus(active);
+  request.cancel();
+  if (active?.isConnected && !ownsFocus) return "";
+  return pageSectionId(request.target.hash);
+}
+
+/** Next's imperative same-page navigation does not emit a native hashchange. */
+export function navigateToPageSection(router: { push: (href: string) => void }, destination: string) {
+  if (typeof window === "undefined") { router.push(destination); return; }
+  const target = new URL(destination, window.location.href);
+  const current = new URL(window.location.href);
+  preparePageSectionNavigation(destination);
+  try {
+    router.push(destination);
+  } catch (error) {
+    pendingRouteRequest?.cancel();
+    throw error;
+  }
   const locale = (path: string) => path.match(/^\/(en|ar)(?:\/|$)/)?.[1];
   const path = (value: string) => value.replace(/^\/(en|ar)(?=\/|$)/, "") || "/";
   if (target.origin !== current.origin || path(target.pathname) !== path(current.pathname)
