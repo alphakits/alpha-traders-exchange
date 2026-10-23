@@ -6,18 +6,26 @@ intentionally fail-closed: deploying the code or adding credentials cannot
 send a message unless the relevant send switch, policy acknowledgement,
 approval reference, and approved-template gate are all enabled.
 
-## Current staged SMS baseline
+## Current SMS and email policy
 
-SMS phone-code delivery is configured separately through Twilio. Keep the
-mandatory phone requirement off until a real SMS/code-confirmation test passes;
-see `sms-phone-verification.md`. Email verification alone will not satisfy that
-phone requirement. WhatsApp delivery remains disabled until its own sender,
-credentials, template approvals, and account enrolment are complete.
+SMS verification and transactional email remain the active channels. WhatsApp
+verification is unavailable, and WhatsApp notification enrolment and delivery
+remain disabled. The preparation notes below do not authorize activation.
 
-Twilio trade-notification SMS is independent from verification-code SMS. Keep
-`ALPHA_EXCHANGE_TWILIO_SEND_ENABLED=false` while testing the separately enabled
-`ALPHA_EXCHANGE_TWILIO_OTP_SEND_ENABLED` gate. Preserve the production credentials
-needed for the verification test.
+Production phone verification is mandatory for buyers and sellers, subject to
+the exact existing-account exceptions documented in
+[`sms-phone-verification.md`](sms-phone-verification.md). The production
+requirement cannot be disabled with the `ENABLED`, `REQUIRED`, or skip flags.
+Email verification alone does not satisfy the phone requirement.
+
+Keep `ALPHA_EXCHANGE_PHONE_VERIFICATION_PROVIDER=twilio` for SMS. The OTP send
+gate is true when either `ALPHA_EXCHANGE_TWILIO_OTP_SEND_ENABLED` or
+`ALPHA_EXCHANGE_TWILIO_SEND_ENABLED` is true; the latter also enables trade SMS.
+The dedicated OTP switch permits verification without enabling trade SMS.
+Preserve the production SMS and email configuration during WhatsApp work.
+
+Real carrier receipt and code confirmation remain separate acceptance checks.
+Configuration readiness and automated tests do not establish delivery.
 
 ## Policy gate
 
@@ -68,19 +76,16 @@ its display name is Alpha Traders. Preserve the current app/account while
 checking an eligible Coexistence onboarding route. Do not delete the existing
 WhatsApp account or migrate its number as part of unattended configuration.
 
-## Authentication template to submit
+## WhatsApp authentication is unavailable
 
-Create `alpha_phone_verification` as an **AUTHENTICATION** template in both
-`en_US` and `ar`. Use Meta's OTP **Copy Code** button, enable the security
-recommendation, and set the code expiry to 10 minutes. The application supplies
-only the six-digit code as the body and copy-button parameter; it never puts the
-code in application logs or API responses.
-
-This template is used only after an authenticated user explicitly requests
-phone verification. It has its own activation switch so an internal OTP test
-does not enable request or Trade Room notifications. Set
-`ALPHA_EXCHANGE_WHATSAPP_AUTH_TEMPLATE_APPROVED=true` only after both language
-versions show as approved in WhatsApp Manager.
+The current phone-verification service reports `whatsapp: false` and rejects
+WhatsApp code requests before contacting a provider, including older-client
+requests. Setting the legacy provider to `whatsapp`, approving an authentication
+template, or enabling a WhatsApp authentication flag cannot activate it.
+Keep those flags disabled and the SMS provider unchanged. Any future WhatsApp
+verification release requires an explicit product decision, an implementation
+change, and separate acceptance; it is not part of this runbook's activation
+procedure.
 
 ## Meta configuration
 
@@ -96,32 +101,26 @@ versions show as approved in WhatsApp Manager.
 5. Keep the Graph API version pinned and update it deliberately before Meta's
    version retirement date.
 
-Required variables are documented in `.env.example`. The safe activation
-order after written approval is:
+Required variables are documented in `.env.example`. The following is a future
+Utility-notification procedure only, after written approval and explicit owner
+authorization to enable that channel. Keep the current disabled state until
+then:
 
 1. Apply
    `supabase/optional-migrations/20260912023000_alpha_exchange_whatsapp_notifications.sql`
-   to the production database before deploying or enabling either feature
-   switch. The application does not create these tables at runtime.
+   to the production database before enabling Utility notifications. The
+   application does not create these tables at runtime.
 2. Add all `META_WHATSAPP_*` credentials and the approval reference.
 3. Set `ALPHA_EXCHANGE_WHATSAPP_POLICY_APPROVED=true`.
 4. Verify the webhook challenge and delivery-receipt callbacks.
-5. Confirm both `alpha_phone_verification` language versions are approved, then
-   set `ALPHA_EXCHANGE_WHATSAPP_AUTH_TEMPLATE_APPROVED=true`,
-   `ALPHA_EXCHANGE_WHATSAPP_AUTH_SEND_ENABLED=true`, and
-   `ALPHA_EXCHANGE_PHONE_VERIFICATION_PROVIDER=whatsapp`. Only after those
-   checks pass and phone verification is deliberately approved for release,
-   set `ALPHA_EXCHANGE_PHONE_VERIFICATION_ENABLED=true`. Leave
-   `ALPHA_EXCHANGE_TWILIO_SEND_ENABLED=false`.
-6. Deploy and have one internal account explicitly request a code. Confirm it
-   arrives once through WhatsApp, expires after 10 minutes, and verifies the
-   same phone. A timeout is not retried automatically; request a new code under
-   the normal rate limit instead.
-7. Set `ALPHA_EXCHANGE_WHATSAPP_CONSENT_UI_ENABLED=true`, deploy, enrol the
-   internal verified account, and confirm the stored consent proof.
-8. Set `ALPHA_EXCHANGE_WHATSAPP_SEND_ENABLED=true` and deploy.
-9. Run one request-status test, one Trade Room message test, one receipt test,
-   and one `STOP` revocation test before broader enrolment.
+5. Preserve SMS verification and email. Confirm that the selected Utility
+   templates are approved in both supported languages.
+6. Set `ALPHA_EXCHANGE_WHATSAPP_CONSENT_UI_ENABLED=true`, deploy, and have the
+   authorized internal recipient enrol their SMS-verified account. Confirm the
+   stored consent proof.
+7. Set `ALPHA_EXCHANGE_WHATSAPP_SEND_ENABLED=true` and deploy.
+8. Run authorized request-status, Trade Room message, receipt, and `STOP`
+   revocation tests before broader enrolment.
 
 Retries and post-commit recovery run independently every five minutes through
 `/api/cron/whatsapp-delivery`; they do not depend on trade maintenance or
@@ -146,12 +145,22 @@ reminder jobs succeeding first.
 
 ## Emergency stop and rollback
 
-Set `ALPHA_EXCHANGE_WHATSAPP_SEND_ENABLED=false` and redeploy to stop Utility
-notifications while leaving audit and consent records intact. Set
-`ALPHA_EXCHANGE_PHONE_VERIFICATION_ENABLED=false` to restore email-only account
-verification, and set `ALPHA_EXCHANGE_WHATSAPP_AUTH_SEND_ENABLED=false` to stop
-WhatsApp phone-code delivery independently. Keep
-`ALPHA_EXCHANGE_TWILIO_SEND_ENABLED=false` to block all Twilio sends even if
-credentials still exist. If the consent experience must also be hidden, set
-`ALPHA_EXCHANGE_WHATSAPP_CONSENT_UI_ENABLED=false`. Rotate the access token and
-webhook token after any suspected credential exposure.
+For a WhatsApp-only stop, set `ALPHA_EXCHANGE_WHATSAPP_SEND_ENABLED=false` and
+`ALPHA_EXCHANGE_WHATSAPP_CONSENT_UI_ENABLED=false`, and redeploy. Keep legacy
+WhatsApp authentication flags disabled. Preserve audit/consent records, SMS
+verification configuration, and email delivery.
+
+For a separately authorized SMS outage response, both
+`ALPHA_EXCHANGE_TWILIO_SEND_ENABLED=false` and
+`ALPHA_EXCHANGE_TWILIO_OTP_SEND_ENABLED=false` are necessary to stop all SMS
+sends. Either true value permits OTP sending. Pausing SMS sends does not remove
+the production phone requirement: unverified exchange access remains blocked.
+Do not describe any feature-flag change as restoring email-only access.
+
+Rotate an affected access or webhook token after suspected credential exposure.
+
+## Source references
+
+- `src/lib/phone-verification.ts`: production account enforcement and exceptions.
+- `src/lib/phone-verification-delivery.ts`: SMS provider and unavailable WhatsApp.
+- `src/lib/notification-platform.ts`: separate trade-SMS gate and combined OTP gate.
