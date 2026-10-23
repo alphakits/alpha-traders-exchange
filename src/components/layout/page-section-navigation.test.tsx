@@ -127,6 +127,25 @@ describe("first-click section navigation", () => {
     expect(form.scrollIntoView).not.toHaveBeenCalled();
   });
 
+  it.each(["popstate", "hashchange"])("cancels an uncommitted route request when browser history changes (%s)", async (event) => {
+    pathname = "/en/trades";
+    window.history.replaceState({}, "", pathname);
+    const ui = () => <><PageSectionNavigation /><CreateListingQuickLink label="Create Listing" className="" /></>;
+    const view = render(ui());
+    await settle();
+    const button = screen.getByRole("button", { name: /Create Listing/ });
+    button.focus();
+    fireEvent.click(button);
+    window.dispatchEvent(new Event(event));
+    pathname = "/en/usdt-exchange";
+    window.history.pushState({}, "", `${pathname}#create-listing`);
+    view.rerender(ui());
+    const form = section("create-listing");
+    await settle();
+    expect(document.activeElement).toBe(button);
+    expect(form.scrollIntoView).not.toHaveBeenCalled();
+  });
+
   it("expires an uncommitted route request without stealing later focus", async () => {
     pathname = "/en/trades";
     window.history.replaceState({}, "", pathname);

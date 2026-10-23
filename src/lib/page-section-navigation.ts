@@ -42,10 +42,12 @@ export function preparePageSectionNavigation(destination: string) {
   if (`${target.pathname}${target.search}` === sourceRoute) return;
   const initiator = document.activeElement;
   const interactionEvents = ["pointerdown", "keydown", "wheel", "touchmove"] as const;
+  const historyEvents = ["popstate", "hashchange"] as const;
   const cancel = () => {
     window.clearTimeout(timer);
     for (const event of interactionEvents) document.removeEventListener(event, cancel, true);
     document.removeEventListener("focusin", onFocus, true);
+    for (const event of historyEvents) window.removeEventListener(event, cancel);
     if (pendingRouteRequest?.cancel === cancel) pendingRouteRequest = undefined;
   };
   const onFocus = (event: FocusEvent) => {
@@ -55,6 +57,7 @@ export function preparePageSectionNavigation(destination: string) {
   pendingRouteRequest = { target, sourceRoute, initiator, cancel };
   for (const event of interactionEvents) document.addEventListener(event, cancel, { capture: true, passive: true });
   document.addEventListener("focusin", onFocus, { capture: true, passive: true });
+  for (const event of historyEvents) window.addEventListener(event, cancel);
 }
 
 /** Consume only the requested route, while its initiating control still owns focus. */
