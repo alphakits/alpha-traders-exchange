@@ -138,6 +138,9 @@ export async function POST(request: NextRequest) {
     if (body?.feePolicyVersion !== "buyer_seller_1pct_v1") return denied("Refresh and review the 1% buyer fee before confirming your trade.", 409, "FEE_POLICY_REVIEW_REQUIRED");
 
     const created = await createPurchaseRequest({
+      usdtDemandId: typeof body.usdtDemandId === "string" ? body.usdtDemandId : undefined,
+      usdtDemandOfferId: typeof body.usdtDemandOfferId === "string" ? body.usdtDemandOfferId : undefined,
+      usdtDemandRevision: typeof body.usdtDemandRevision === "number" ? body.usdtDemandRevision : undefined,
       feePolicyVersion: "buyer_seller_1pct_v1",
       buyerId: user.id,
       listingId,
@@ -158,7 +161,7 @@ export async function POST(request: NextRequest) {
     });
     const { request: purchase, metrics } = created;
     const responsePurchase = sanitizePurchaseRequestForActor(purchase, user.id, user.role);
-    after(async () => {
+    if (!created.replayed) after(async () => {
       try {
         const deliverTradeEmails = await prepareTradeEventEmails({ event: "new_buy_request", request: purchase });
         await deliverTradeEmails();

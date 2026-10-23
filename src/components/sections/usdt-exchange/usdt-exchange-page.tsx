@@ -1342,10 +1342,12 @@ export function UsdtExchangePage({
   locale,
   initialSessionUser,
   workspaceMode,
+  usdtRequestsEnabled = false,
 }: {
   locale: Locale;
   initialSessionUser?: SessionUser | null;
   workspaceMode?: WorkspaceMode;
+  usdtRequestsEnabled?: boolean;
 }) {
   const isAr = locale === "ar";
   const isDashboardWorkspace = workspaceMode !== undefined;
@@ -1354,6 +1356,8 @@ export function UsdtExchangePage({
   const isDesktopWorkspace = workspaceViewport === true;
   const router = useRouter();
   const searchParams = useSearchParams();
+  const demandListingIntent = usdtRequestsEnabled ? searchParams?.get("demand") : null;
+  const demandPrefilled = useRef<string | null>(null);
   const commissionPaymentIntent = searchParams?.get("commission") ?? null;
   const commissionPaymentIntentId = searchParams?.get("commissionId")?.trim() ?? "";
   const canonicalSession = useOptionalCanonicalSession();
@@ -1503,6 +1507,21 @@ export function UsdtExchangePage({
     maximumTrade: "",
     sellerDescription: "",
   });
+  const demandPrefillActorId = sessionUser?.id;
+  useEffect(() => {
+    if (!demandListingIntent || !demandPrefillActorId || demandPrefilled.current === `${demandPrefillActorId}:${demandListingIntent}`) return;
+    const controller = new AbortController();
+    void fetch(`/api/alpha-exchange/usdt-requests/${encodeURIComponent(demandListingIntent)}`, { cache: "no-store", signal: controller.signal })
+      .then(async response => { if (!response.ok) return; const payload = await response.json();
+        const request = payload.requests?.[0];
+        if (!request || request.isMine || payload.actorId !== demandPrefillActorId || request.state !== "open" || !payload.canRespond || controller.signal.aborted) return;
+        demandPrefilled.current = `${demandPrefillActorId}:${demandListingIntent}`;
+        setListingCreateForm(previous => ({ ...previous, availableAmount: request.amount, maximumTrade: request.amount,
+          minimumTrade: "0", price: request.price, currency: "ILS", network: request.network, paymentMethods: [request.paymentMethod] }));
+        revealPageSection("create-listing");
+      }).catch(() => undefined);
+    return () => controller.abort();
+  }, [demandListingIntent, demandPrefillActorId]);
   const [sellerBankAccounts, setSellerBankAccounts] = useState<SellerBankAccount[]>([]);
   const [sellerBankAccountsLoading, setSellerBankAccountsLoading] = useState(false);
   const [selectedPurchasePaymentMethod, setSelectedPurchasePaymentMethod] = useState<string>("Bank Transfer");
@@ -5390,6 +5409,12 @@ export function UsdtExchangePage({
               </div>
         </MarketplaceToolPanel>
 
+        {usdtRequestsEnabled && sessionUser && (hasBuyerRole || isSellerWorkspaceUser) ? <div className="mb-4 rounded-2xl border border-amber-300/30 bg-amber-300/5 p-5">
+          <Link href={demandListingIntent ? `/usdt-exchange/requests/${encodeURIComponent(demandListingIntent)}` : "/usdt-exchange/requests"} className="inline-flex min-h-12 items-center rounded-xl bg-amber-300 px-5 py-3 font-semibold text-black">
+            {demandListingIntent ? (isAr ? "العودة إلى طلب USDT" : "Return to the USDT request") : (isAr ? "اطلب USDT" : "Request USDT")}
+          </Link>
+          <p className="mt-2 text-sm text-gray-300">{demandListingIntent ? (isAr ? "عد إلى الطلب بعد موافقة المالك على عرضك." : "Return to the request after your listing receives owner approval.") : (isAr ? "انشر المبلغ المطلوب وراجع ردود البائعين المعتمدين." : "Post the amount you need and review responses from approved sellers.")}</p>
+        </div> : null}
         {sessionUser && hasBuyerRole ? <MarketplacePriceAlertPanel key={sessionUser.id} userId={sessionUser.id} isAr={isAr} /> : null}
         <div id="buyer-marketplace-listings" tabIndex={desktopBuyerNavigation ? -1 : undefined} className={cn("mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-2 min-[1440px]:grid-cols-3", desktopBuyerNavigation && "scroll-mt-24")}>
           {isLoadingListings

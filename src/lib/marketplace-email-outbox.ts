@@ -88,7 +88,7 @@ async function ensureSchema(pool: Pool) {
 }
 
 type Job = {
-  id: string; event: string; recipient_email: string; request_body: string;
+  id: string; event: string; recipient_id: string; recipient_email: string; request_body: string;
   idempotency_key: string; attempts: number; lease_token: string;
 };
 
@@ -171,6 +171,13 @@ async function attempt(pool: Pool, job: Job, send: MarketplaceEmailTransport) {
   if (!eligibility.rows[0]?.eligible) {
     await finish(pool, job, "suppressed", "recipient_no_longer_eligible");
     return "suppressed" as const;
+  }
+  if (job.event === "usdt_demand_published" || job.event === "usdt_demand_response") {
+    const { canDeliverDemandEmail } = await import("./usdt-demand-email");
+    if (!await canDeliverDemandEmail(job.recipient_id, job.recipient_email, job.idempotency_key, job.event)) {
+      await finish(pool, job, "suppressed", "demand_no_longer_eligible");
+      return "suppressed" as const;
+    }
   }
   const result = await send({ event: job.event, recipientEmail: job.recipient_email,
     body: job.request_body, idempotencyKey: job.idempotency_key });

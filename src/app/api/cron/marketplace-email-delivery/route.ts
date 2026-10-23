@@ -1,3 +1,4 @@
+import { queueDemandEmails } from "@/lib/usdt-demand-email";
 import { timingSafeEqual } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { logEvent } from "@/lib/structured-logging";
@@ -34,6 +35,7 @@ export async function GET(request: NextRequest) {
   }
 
   try {
+    await queueDemandEmails();
     const result = await deliverMarketplaceEmailQueue();
     logEvent("info", {
       event: "marketplace_email_delivery_cron",

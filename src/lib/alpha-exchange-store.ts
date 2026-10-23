@@ -1,3 +1,5 @@
+import { assertDemandActor, assertDemandEnabled, commitDemandMatch, isDemandReservedTrade, validateDemandMatch } from "@/lib/usdt-demand-policy";
+import { getMarketSnapshot as getDemandMarket } from "@/lib/market-service";
 import { materializeCommissionShortfalls } from "./commission-shortfall-ledger";
 import { calculateTradeTermsQuote } from "@alpha-traders/contracts";
 import { requireManualCommissionOperationId } from "@/lib/manual-commission-operation";
@@ -1384,22 +1386,8 @@ function isSellerUnavailableForNewBuyers(availabilityStatus: SellerAvailabilityS
   return availabilityStatus === "vacation";
 }
 
-function isRequestStatusLockingListing(status: PurchaseRequestStatus) {
-  return status === "accepted"
-    || status === "payment_sent"
-    || status === "funds_received"
-    || status === "usdt_release_pending"
-    || status === "usdt_sent";
-}
-
 function getSellerOpenTradeCount(db: AlphaExchangeDb, sellerId: string) {
-  return db.purchaseRequests.filter((request) => request.sellerId === sellerId && (
-    request.status === "accepted"
-    || request.status === "payment_sent"
-    || request.status === "funds_received"
-    || request.status === "usdt_release_pending"
-    || request.status === "usdt_sent"
-  )).length;
+  return db.purchaseRequests.filter(request => request.sellerId === sellerId && isDemandReservedTrade(request)).length;
 }
 
 const MAX_SELLER_ACTIVE_TRADES = 3;
@@ -1408,7 +1396,7 @@ const MAX_SELLER_ACTIVE_TRADES = 3;
 function listingUnreservedAmount(db: AlphaExchangeDb, listing: MarketplaceListing, excludingRequestId?: string) {
   let remaining = listing.availableAmount;
   for (const request of db.purchaseRequests) {
-    if (request.listingId === listing.id && request.id !== excludingRequestId && isRequestStatusLockingListing(request.status)) {
+    if (request.listingId === listing.id && request.id !== excludingRequestId && isDemandReservedTrade(request)) {
       remaining = subtractTradeAmounts(remaining, request.usdtAmount) ?? "0";
     }
   }
@@ -1417,7 +1405,7 @@ function listingUnreservedAmount(db: AlphaExchangeDb, listing: MarketplaceListin
 
 function assertSellerTradeCapacity(db: AlphaExchangeDb, listing: MarketplaceListing, amount: string, requestId?: string) {
   const activeCount = db.purchaseRequests.filter(request => request.sellerId === listing.sellerId
-    && request.id !== requestId && isRequestStatusLockingListing(request.status)).length;
+    && request.id !== requestId && isDemandReservedTrade(request)).length;
   if (activeCount >= MAX_SELLER_ACTIVE_TRADES) throw new TradeBlockedError("SELLER_TRADE_LIMIT", "This seller has 3 active trades. Wait for a trade to finish.", requestId);
   if (isTradeAmountLessThan(listingUnreservedAmount(db, listing, requestId), amount) !== false) {
     throw new TradeBlockedError("listing-amount-unavailable", "This amount is reserved by other active trades. Choose an available amount.", requestId);
@@ -1428,10 +1416,10 @@ function assertSellerTradeCapacity(db: AlphaExchangeDb, listing: MarketplaceList
 function synchronizeListingTradeLock(db: AlphaExchangeDb, listing: MarketplaceListing | undefined) {
   if (!listing) return;
   const active = db.purchaseRequests.filter(request => request.listingId === listing.id
-    && request.sellerId === listing.sellerId && isRequestStatusLockingListing(request.status));
+    && request.sellerId === listing.sellerId && isDemandReservedTrade(request));
   if (active.length) {
     listing.activeTradeRequestId = active[0].id;
-    listing.status = active.some(request => request.status !== "accepted") ? "in_trade" : "matched";
+    listing.status = active.some(request => request.status !== "accepted" && request.status !== "pending") ? "in_trade" : "matched";
     listing.lockedAt ??= active[0].updatedAt;
   }
 }
@@ -5832,7 +5820,7 @@ async function applyMarketplaceReliabilityRules(db: AlphaExchangeDb) {
       ? db.purchaseRequests.find((request) => request.id === listing.activeTradeRequestId)
       : undefined;
     if (linkedRequest && linkedRequest.listingId === listing.id && linkedRequest.sellerId === listing.sellerId
-      && isRequestStatusLockingListing(linkedRequest.status)) continue;
+      && isDemandReservedTrade(linkedRequest)) continue;
 
     changed = true;
     const now = nowIso();
@@ -10579,7 +10567,7 @@ export async function updateTradeTerms(input: {
       const counter = input.action === "counter_offer";
       if (request.status !== "pending" || (counter && request.priceMode !== "buyer_offer")) throw new TradeBlockedError("trade-terms-invalid", "Trade terms cannot be changed at this stage.", input.requestId);
 
-      if (!counter && request.status !== "pending" && !isRequestStatusLockingListing(request.status)) throw new TradeBlockedError("trade-terms-invalid", "This trade no longer owns the listing.", input.requestId);
+      if (!counter && request.status !== "pending" && !isDemandReservedTrade(request)) throw new TradeBlockedError("trade-terms-invalid", "This trade no longer owns the listing.", input.requestId);
       if (counter && isFaceToFacePaymentMethod(request.paymentMethod) && !request.sellerSafetyAcknowledged && input.safetyAcknowledged !== true) throw new TradeBlockedError("trade-terms-invalid", "Read and accept the Face-to-Face safety guidelines first.", input.requestId);
       const raw = canonicalizeTradeAmount(input.value) || "";
       if (!(counter ? /^\d{1,7}(?:\.\d{1,2})?$/ : /^\d{1,9}(?:\.\d{1,6})?$/).test(raw) || Number(raw) <= 0) throw new TradeBlockedError("trade-terms-invalid", "Enter a valid positive amount.", input.requestId);
@@ -10610,7 +10598,7 @@ export async function updateTradeTerms(input: {
       if (input.action === "accept_amount") {
         if (request.commissionCalculationVersion === COMMISSION_CALCULATION_VERSION) assertPayableTradeCommission(proposal.usdtAmount);
         if (proposal.kind !== "amount_correction") throw new TradeBlockedError("trade-terms-invalid", "Use the counter-offer acceptance action.", input.requestId);
-        if ((request.status !== "pending" && !isRequestStatusLockingListing(request.status)) || Number(proposal.usdtAmount) > Number(listingUnreservedAmount(snapshot, listing, request.id)) || Number(proposal.usdtAmount) < getPurchaseMinimumTrade(listing.minimumTrade, isCardlessAtmPaymentMethod(request.paymentMethod)) || Number(proposal.usdtAmount) > Number(listing.maximumTrade || listing.availableAmount)) throw new TradeBlockedError("trade-terms-invalid", "The proposed amount is no longer available.", input.requestId);
+        if ((request.status !== "pending" && !isDemandReservedTrade(request)) || Number(proposal.usdtAmount) > Number(listingUnreservedAmount(snapshot, listing, request.id)) || Number(proposal.usdtAmount) < getPurchaseMinimumTrade(listing.minimumTrade, isCardlessAtmPaymentMethod(request.paymentMethod)) || Number(proposal.usdtAmount) > Number(listing.maximumTrade || listing.availableAmount)) throw new TradeBlockedError("trade-terms-invalid", "The proposed amount is no longer available.", input.requestId);
         if (isCardlessAtmPaymentMethod(request.paymentMethod) && Number(request.fiatAmount) !== Number(proposal.fiatAmount)) {
           // Prepared credentials are still private before acceptance. They
           // cannot be reused for a different cash amount; request a fresh code.
@@ -10657,7 +10645,18 @@ export async function recalculateCardlessTradeAmount(input: { requestId: string;
     action: "propose_ils_amount", value: input.ilsAmount || request.fiatAmount, expectedUpdatedAt: request.updatedAt });
 }
 
+/** The new demand flow reuses the existing financial and feedback eligibility rules. */
+export function assertBuyerEligibleForDemand(db: AlphaExchangeDb, userId: string) {
+  assertDemandActor(db.users.find(u => u.id === userId));
+  if (db.purchaseRequests.some(t => t.buyerId === userId && isDemandReservedTrade(t))) throw new TradeBlockedError("ACTIVE_TRADE_EXISTS", "Complete or cancel your current trade first.");
+  if (getBuyerPendingFeedbackTrade(db, userId)) throw new TradeBlockedError("PENDING_BUYER_FEEDBACK", "Complete your previous trade feedback first.");
+  if (getSellerPurchaseCommissionBlock(db, userId)) throw new TradeBlockedError("SELLER_COMMISSION_DUE", "Pay your pending seller commission before requesting a purchase.");
+}
+
 export async function createPurchaseRequest(input: {
+  usdtDemandId?: string;
+  usdtDemandOfferId?: string;
+  usdtDemandRevision?: number;
   feePolicyVersion?: "buyer_seller_1pct_v1";
   buyerId: string;
   listingId: string;
@@ -10682,7 +10681,20 @@ export async function createPurchaseRequest(input: {
 }) {
   const startedAt = Date.now();
   const dbReadStartedAt = Date.now();
-  const { db, fromFullCache } = await readDbForCriticalTradeMutation(PURCHASE_REQUEST_FAST_READ_TABLES);
+  const demandMode = Boolean(input.usdtDemandId || input.usdtDemandOfferId || input.usdtDemandRevision);
+  if (demandMode) assertDemandEnabled();
+  const { db, fromFullCache } = await readDbForCriticalTradeMutation(demandMode ? [...PURCHASE_REQUEST_FAST_READ_TABLES, "usdt_demands"] : PURCHASE_REQUEST_FAST_READ_TABLES);
+  const demandInput = demandMode ? { buyerId: input.buyerId, demandId: input.usdtDemandId ?? "", offerId: input.usdtDemandOfferId ?? "",
+    revision: input.usdtDemandRevision ?? 0, listingId: input.listingId, amount: input.usdtAmount,
+    network: input.receivingNetwork, paymentMethod: input.paymentMethod } : null;
+  const demandMarket = demandMode ? await getDemandMarket() : null;
+  if (demandInput) {
+    if (input.actorUserId !== input.buyerId) throw new Error("Buyer identity mismatch.");
+    assertDemandActor(db.users.find(u => u.id === input.buyerId));
+    const previous = db.purchaseRequests.find(t => t.usdtDemandOfferId === input.usdtDemandOfferId && t.usdtDemandId === input.usdtDemandId && t.buyerId === input.buyerId);
+    if (previous) return { request: previous, replayed: true, metrics: { totalMs: Date.now() - startedAt, readDbMs: 0, validationMs: 0, businessMs: 0, writeDbMs: 0, sseMs: 0, trustMs: 0 } };
+  }
+  const demandMatch = demandInput && demandMarket ? validateDemandMatch(db, demandInput, demandMarket) : null;
   const priorSmsCount = db.smsDeliveries?.length ?? 0;
   const dbReadMs = Date.now() - dbReadStartedAt;
   const contactBuyer = db.users.find(user => user.id === input.buyerId);
@@ -10704,7 +10716,7 @@ export async function createPurchaseRequest(input: {
   }
   const activeBuyerTrade = db.purchaseRequests.find(
     (r) => r.buyerId === input.buyerId
-      && isActiveTradeStatus(r.status)
+      && (isActiveTradeStatus(r.status) || (r.status === "pending" && Boolean(r.usdtDemandId)))
       && (!r.buyerConfirmationArchivedAt || isCashTradePaymentMethod(r.paymentMethod)),
   );
   if (activeBuyerTrade) {
@@ -10836,7 +10848,7 @@ export async function createPurchaseRequest(input: {
   if (requestedAmount > maximumTrade) throw new Error(`Maximum trade for this listing is ${listing.maximumTrade} USDT.`);
   const priceBounds = getPriceOfferBounds(listing.price);
   if (!priceBounds) throw new Error("Listing price is invalid.");
-  const isPriceOffer = input.priceMode === "buyer_offer";
+  const isPriceOffer = !demandMode && input.priceMode === "buyer_offer";
   if (isPriceOffer && listing.currency.trim().toUpperCase() !== "ILS") {
     throw new TradeBlockedError(
       "PRICE_OFFERS_ILS_ONLY",
@@ -10854,7 +10866,7 @@ export async function createPurchaseRequest(input: {
       listingPrice: priceOffer.listingPrice ?? priceBounds.listingPrice,
     });
   }
-  const pricePerUsdt = priceOffer?.ok ? priceOffer.offeredPrice : priceBounds.listingPrice;
+  const pricePerUsdt = demandMatch?.offer.price ?? (priceOffer?.ok ? priceOffer.offeredPrice : priceBounds.listingPrice);
   const validationMs = Date.now() - validationStartedAt;
   const businessStartedAt = Date.now();
   const sellerId = listing.sellerId;
@@ -10895,6 +10907,8 @@ export async function createPurchaseRequest(input: {
   }
   const tradeId = `trade-${randomUUID()}`;
   const request: PurchaseRequest = {
+    usdtDemandId: demandMatch?.demand.id,
+    usdtDemandOfferId: demandMatch?.offer.id,
     feePolicyVersion: input.feePolicyVersion,
     commissionCalculationVersion: COMMISSION_CALCULATION_VERSION,
     id: `purchase-${randomUUID()}`,
@@ -11014,7 +11028,7 @@ export async function createPurchaseRequest(input: {
   const businessMs = Date.now() - businessStartedAt;
   const writeStartedAt = Date.now();
   await writeDb(db, {
-    selectedTables: PURCHASE_REQUEST_CREATE_TABLES,
+    selectedTables: demandMode ? [...PURCHASE_REQUEST_CREATE_TABLES, "usdt_demands", "listings"] : PURCHASE_REQUEST_CREATE_TABLES,
     cacheResult: fromFullCache,
     // `validateBeforeCommit` runs after the repository's stale-snapshot merge.
     // User and enforcement collections historically prefer the incoming
@@ -11022,6 +11036,7 @@ export async function createPurchaseRequest(input: {
     // well. A disable, suspension, block, or bank-account edit that wins the
     // lock must prevent this stale request and all of its side effects.
     validateLatestBeforeCommit: (snapshot) => {
+      if (demandInput && demandMarket) validateDemandMatch(snapshot, demandInput, demandMarket);
       const canonicalListing = snapshot.marketplaceListings.find((candidate) => candidate.id === input.listingId);
       const canonicalSeller = snapshot.users.find((candidate) => candidate.id === sellerId);
       const canonicalBuyer = snapshot.users.find((candidate) => candidate.id === input.buyerId);
@@ -11064,6 +11079,7 @@ export async function createPurchaseRequest(input: {
     // invariant while the repository's cross-instance advisory lock is held
     // so only one active trade can ever be persisted for a buyer.
     validateBeforeCommit: (snapshot) => {
+      if (demandInput && demandMarket) commitDemandMatch(snapshot, demandInput, demandMarket, request);
       const canonicalListing = snapshot.marketplaceListings.find((candidate) => candidate.id === input.listingId);
       const listingTermsChanged = !canonicalListing
         || canonicalListing.updatedAt !== listing.updatedAt
@@ -11095,8 +11111,8 @@ export async function createPurchaseRequest(input: {
           { guard: "canonical-listing-open-at-commit", listingId: input.listingId },
         );
       }
-      assertSellerTradeCapacity(snapshot, canonicalListing, requestedUsdtAmount);
-      const canonicalAvailableAmount = toNumber(listingUnreservedAmount(snapshot, canonicalListing));
+      assertSellerTradeCapacity(snapshot, canonicalListing, requestedUsdtAmount, request.id);
+      const canonicalAvailableAmount = toNumber(listingUnreservedAmount(snapshot, canonicalListing, request.id));
       const canonicalMinimumTrade = getPurchaseMinimumTrade(canonicalListing.minimumTrade, isCardlessAtmPaymentMethod(primaryPaymentMethod));
       const canonicalMaximumTrade = toNumber(canonicalListing.maximumTrade) || canonicalAvailableAmount;
       if (
@@ -11147,7 +11163,7 @@ export async function createPurchaseRequest(input: {
       const concurrentActiveTrade = snapshot.purchaseRequests.find(
         (candidate) => candidate.id !== request.id
           && candidate.buyerId === input.buyerId
-          && isActiveTradeStatus(candidate.status)
+          && (isActiveTradeStatus(candidate.status) || (candidate.status === "pending" && Boolean(candidate.usdtDemandId)))
           && (!candidate.buyerConfirmationArchivedAt || isCashTradePaymentMethod(candidate.paymentMethod)),
       );
       if (concurrentActiveTrade) {
@@ -11211,6 +11227,10 @@ export async function createPurchaseRequest(input: {
           },
         );
       }
+      // A matched demand reserves inventory while its trade is still pending.
+      // Persist the listing lock in the same commit, after checking the original
+      // listing version, so seller edits cannot remove that reserved inventory.
+      if (demandMode) synchronizeListingTradeLock(snapshot, canonicalListing);
     },
   });
   const writeMs = Date.now() - writeStartedAt;
@@ -11222,6 +11242,7 @@ export async function createPurchaseRequest(input: {
   });
   const sseMs = Date.now() - sseStartedAt;
   return {
+    replayed: false,
     request,
     metrics: {
       totalMs: Date.now() - startedAt,
@@ -14315,7 +14336,7 @@ async function updatePurchaseRequestStatusAttempt(
     const otherActiveBuyerTrade = db.purchaseRequests.find((candidate) => (
       candidate.id !== request.id
       && candidate.buyerId === request.buyerId
-      && isActiveTradeStatus(candidate.status)
+      && (isActiveTradeStatus(candidate.status) || (candidate.status === "pending" && Boolean(candidate.usdtDemandId)))
       && (!candidate.buyerConfirmationArchivedAt || isCashTradePaymentMethod(candidate.paymentMethod))
     ));
     if (otherActiveBuyerTrade) {
@@ -14476,6 +14497,9 @@ async function updatePurchaseRequestStatusAttempt(
     queueSmsDelivery(db, { eventType: "trade_accepted", eventKey: `trade:${request.id}:accepted:buyer:${request.buyerId}`, recipientUserId: request.buyerId, destinationPath: requestDetailsHref(request.id) });
   } else if (input.nextStatus === "declined") {
     next.status = "declined";
+    if (listing && listing.activeTradeRequestId === request.id) {
+      await unlockListingAfterCancelledTrade(db, listing, input.actorUserId, request, "Seller declined the trade.");
+    }
     const isPriceOffer = next.priceMode === "buyer_offer";
     appendTradeTimelineEntry(next, {
       type: isPriceOffer ? "price_offer_declined" : "request_declined",
@@ -15148,7 +15172,7 @@ async function updatePurchaseRequestStatusAttempt(
           const canonicalOtherActiveBuyerTrade = canonicalSnapshot.purchaseRequests.find((candidate) => (
             candidate.id !== request.id
             && candidate.buyerId === request.buyerId
-            && isActiveTradeStatus(candidate.status)
+            && (isActiveTradeStatus(candidate.status) || (candidate.status === "pending" && Boolean(candidate.usdtDemandId)))
             && (!candidate.buyerConfirmationArchivedAt || isCashTradePaymentMethod(candidate.paymentMethod))
           ));
           if (

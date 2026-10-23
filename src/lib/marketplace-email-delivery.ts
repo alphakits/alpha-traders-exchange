@@ -14,6 +14,8 @@ import {
 } from "@/lib/brand";
 
 export type MarketplaceEmailEvent =
+  | "usdt_demand_published"
+  | "usdt_demand_response"
   | "economic_news_released"
   | "new_buy_request"
   | "trade_accepted"

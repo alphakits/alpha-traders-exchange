@@ -1,3 +1,5 @@
+import { USDT_DEMAND_SCHEMA_SQL } from "@/lib/usdt-demand-schema";
+import type { UsdtDemand } from "@/types/usdt-demand";
 import { Pool, type PoolClient, type QueryResult, type QueryResultRow } from "pg";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "fs";
 import path from "path";
@@ -47,7 +49,7 @@ type Queryable = Pool | PoolClient;
 // This index is the final object created by SCHEMA_SQL. Its presence proves
 // that the current runtime schema bootstrap completed successfully. When the
 // schema changes, append the new statements and advance this sentinel too.
-const CURRENT_SCHEMA_SENTINEL = "alpha_exchange.idx_alpha_exchange_audit_logs_request_sort";
+const CURRENT_SCHEMA_SENTINEL = "alpha_exchange.idx_usdt_demands_owner";
 
 type EvidenceWriteMap = Map<string, Buffer>;
 
@@ -496,6 +498,7 @@ const SCHEMA_SQL = [
   "create index if not exists idx_alpha_exchange_sms_deliveries_sort on alpha_exchange.sms_deliveries (sort_index)",
   "create index if not exists idx_alpha_exchange_notifications_request_sort on alpha_exchange.notifications ((payload->>'relatedRequestId'), sort_index)",
   "create index if not exists idx_alpha_exchange_audit_logs_request_sort on alpha_exchange.audit_logs (purchase_request_id, sort_index)",
+  ...USDT_DEMAND_SCHEMA_SQL,
 ];
 
 const DEFAULT_DB = alphaExchangeSeed as unknown as AlphaExchangeDb;
@@ -530,6 +533,7 @@ const SNAPSHOT_TABLE_NAMES = [
   "listings",
   "trades",
   "purchase_requests",
+  "usdt_demands",
   "notifications",
   "commissions",
   "audit_logs",
@@ -555,7 +559,7 @@ const SNAPSHOT_TABLE_NAMES = [
 export type SnapshotTableName = (typeof SNAPSHOT_TABLE_NAMES)[number];
 
 const TRADE_LIFECYCLE_WRITE_TABLES = new Set<SnapshotTableName>([
-  "purchase_requests", "listings", "notifications", "audit_logs", "commissions", "activity_logs", "sms_deliveries", "disputes", "evidence",
+  "usdt_demands", "purchase_requests", "listings", "notifications", "audit_logs", "commissions", "activity_logs", "sms_deliveries", "disputes", "evidence",
 ]);
 const TRADE_TRUST_WRITE_TABLES = new Set<SnapshotTableName>([
   "users", "seller_profiles", "seller_settings", "purchase_requests", "notifications", "audit_logs", "activity_logs", "trust_snapshots", "trust_score_history",
@@ -936,6 +940,24 @@ WHERE alpha_exchange.purchase_requests.trade_id IS DISTINCT FROM excluded.trade_
         rows.map((row, i) => String(context.rowSortIndexes?.get(row.id) ?? i)),
         rows.map(r => json(r)),
       ]);
+    },
+  },
+  {
+    name: "usdt_demands",
+    selectSql: "select payload from alpha_exchange.usdt_demands order by sort_index asc",
+    values: (db) => db.usdtDemands ?? [],
+    insert: async (tx, rows: UsdtDemand[], context) => {
+      // Updates which close old requests precede inserts, preserving the one-open index.
+      for (const row of [...rows].sort((a, b) => Number(a.state === "open") - Number(b.state === "open"))) {
+        await tx.query(`INSERT INTO alpha_exchange.usdt_demands
+          (id, requester_id, operation_id, state, revision, purchase_request_id, expires_at, updated_at, sort_index, payload)
+          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb)
+          ON CONFLICT (id) DO UPDATE SET state=excluded.state, revision=excluded.revision,
+            purchase_request_id=excluded.purchase_request_id, expires_at=excluded.expires_at,
+            updated_at=excluded.updated_at, sort_index=excluded.sort_index, payload=excluded.payload`,
+          [row.id, row.requesterId, row.operationId, row.state, row.revision, row.purchaseRequestId ?? null,
+            row.expiresAt, row.updatedAt, context.rowSortIndexes?.get(row.id) ?? rows.indexOf(row), json(row)]);
+      }
     },
   },
   {
@@ -1613,6 +1635,7 @@ function emptySnapshotCollections(): AlphaExchangeDb {
     sellerApplications: [],
     marketplaceListings: [],
     purchaseRequests: [],
+    usdtDemands: [],
     commissionRecords: [],
     auditLogs: [],
     authSessions: [],
@@ -1654,6 +1677,9 @@ function snapshotFromTableRows(
         break;
       case "purchase_requests":
         snapshot.purchaseRequests = fromPayloadRows(rows as Array<{ payload: PurchaseRequest }>);
+        break;
+      case "usdt_demands":
+        snapshot.usdtDemands = fromPayloadRows(rows as Array<{ payload: UsdtDemand }>);
         break;
       case "commissions":
         snapshot.commissionRecords = fromPayloadRows(rows as Array<{ payload: CommissionRecord }>);
@@ -2060,6 +2086,7 @@ function mergeSnapshotWithLatest(latest: AlphaExchangeDb, incoming: AlphaExchang
     sellerApplications: getCollection(incoming.sellerApplications, latest.sellerApplications),
     marketplaceListings: mergedMarketplaceListings,
     purchaseRequests: mergedPurchaseRequests,
+    usdtDemands: mergeTimestampedRecords(latest.usdtDemands ?? [], incoming.usdtDemands ?? []),
     commissionRecords: mergedCommissionRecords,
     auditLogs: mergedAuditLogs,
     authSessions: pruneOrphanAuthSessions(latest).authSessions,
