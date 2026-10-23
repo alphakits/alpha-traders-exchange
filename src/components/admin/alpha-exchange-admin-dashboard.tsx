@@ -2966,7 +2966,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                       </p>
                                     </td>
                                     <td className="px-4 py-3 font-mono font-medium whitespace-nowrap text-[#D1D5DB]">{currencyText(displayListingId(listing, request.listingId))}</td>
-                                    <td className="px-4 py-3 text-[#D1D5DB]">{currencyText(request.bankName ?? listing?.bankName ?? "—")}</td>
+                                    <td className="px-4 py-3 text-[#D1D5DB]">{currencyText(request.bankName ?? t("Not recorded", "غير مسجّل"))}</td>
                                     <td className="px-4 py-3">
                                       <span className="rounded-full border border-white/20 bg-white/5 px-2.5 py-1 text-xs text-white/80">{currencyText(statusLabel(request.status))}</span>
                                     </td>

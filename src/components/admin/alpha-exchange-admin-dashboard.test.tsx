@@ -305,6 +305,29 @@ describe("AlphaExchangeAdminDashboard admin destinations", () => {
   });
 
   it.each([
+    ["en", undefined], ["ar", undefined],
+    ["en", null], ["ar", null],
+    ["en", "Recorded Trade Bank"], ["ar", "Recorded Trade Bank"],
+  ] as const)("shows only the historical trade bank in the owner table (%s, %s)", async (locale, bankName) => {
+    navigationState.search = "section=purchase-requests";
+    const purchaseRequests = [{
+      id: "request-bank-history", buyerId: "buyer-1", buyerName: "Historical Buyer", sellerId: "seller-1", listingId: listing.id,
+      bankName, status: "review_open", usdtAmount: "100", fiatAmount: "320", currency: "ILS", paymentMethod: "Bank Transfer", network: "TRC20",
+      timeline: [], createdAt: "2026-09-23T00:00:00.000Z", updatedAt: "2026-09-23T00:00:00.000Z",
+    }];
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({
+      ...adminPayload(), listings: [{ ...listing, bankName: "Changed Current Listing Bank" }], purchaseRequests,
+    })));
+    render(<AlphaExchangeAdminDashboard isOwner locale={locale} />);
+    await screen.findByRole("heading", { name: locale === "ar" ? "طلبات الشراء والصفقات" : "Purchase Requests" });
+    const row = within(screen.getByRole("table")).getAllByRole("row")[1]!;
+    const bankCell = within(row).getAllByRole("cell")[5]!;
+    expect(bankCell.textContent).toBe(bankName ?? (locale === "ar" ? "غير مسجّل" : "Not recorded"));
+    expect(row.textContent).not.toContain("Changed Current Listing Bank");
+    expect(vi.mocked(fetch).mock.calls.every(([, init]) => !init?.method || init.method === "GET")).toBe(true);
+  });
+
+  it.each([
     ["en", "purchase-requests"], ["ar", "purchase-requests"],
     ["en", "commissions"], ["ar", "commissions"],
   ] as const)("exports every filtered %s %s result across pages in selected order", async (locale, section) => {
