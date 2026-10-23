@@ -34,6 +34,37 @@ test.afterAll(async () => {
 });
 
 test.describe("Navigation hardening", () => {
+  for (const locale of ["en", "ar"]) {
+    for (const role of ["SELLER", "OWNER"]) {
+      for (const input of ["pointer", "keyboard"]) {
+        test(`${locale} ${role.toLowerCase()} header create listing reaches the form from My Trades with one ${input} action`, async ({ page, baseURL }) => {
+          expect(new URL(baseURL!).hostname).toBe("localhost");
+          const email = (process.env[`E2E_${role}_EMAIL`] ?? "").toLowerCase();
+          const password = process.env[`E2E_${role}_PASSWORD`] ?? "";
+          expect(email).toMatch(/@example\.test$/);
+          expect(password).toBeTruthy();
+          await login(page.request, email, password);
+          await page.goto(`/${locale}/trades`);
+          await expect(page.getByRole("main").getByRole("heading", { level: 1 })).toBeVisible();
+          const action = page.getByRole("banner").getByRole("button", { name: /^➕/ });
+          if (input === "keyboard") {
+            await action.focus();
+            await expect(action).toBeFocused();
+            await page.keyboard.press("Enter");
+          } else {
+            await action.click();
+          }
+          await expect(page).toHaveURL(new RegExp(`/${locale}/usdt-exchange#create-listing$`));
+          const form = page.locator("#create-listing");
+          await expect(form).toBeFocused();
+          await expect(form).toBeInViewport();
+          // Inspecting navigation must never submit a listing or change a trade.
+          await expect(form.getByRole("textbox").first()).toHaveValue("");
+        });
+      }
+    }
+  }
+
   test("buyer workspace replaces Quick Actions and routes cards to canonical destinations", async ({ page }) => {
     test.skip(!buyerFixture, "Buyer fixture not available");
 

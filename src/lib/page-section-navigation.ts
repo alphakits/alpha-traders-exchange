@@ -1,4 +1,10 @@
 let cancelPendingNavigation: (() => void) | undefined;
+let pendingRouteRequest: {
+  target: URL;
+  sourceRoute: string;
+  initiator: Element | null;
+  cancel: () => void;
+} | undefined;
 export const PAGE_SECTION_NAVIGATION_EVENT = "alpha:page-section";
 
 export function cancelPageSectionNavigation() {
@@ -19,12 +25,67 @@ export function pageSectionFromEvent(event?: Event) {
     ? event.detail : pageSectionId(window.location.hash);
 }
 
-/** Next's imperative same-page navigation does not emit a native hashchange. */
-export function navigateToPageSection(router: { push: (href: string) => void }, destination: string) {
-  router.push(destination);
+/** Carry an explicit section request across a client-side route transition. */
+export function preparePageSectionNavigation(destination: string) {
+  pendingRouteRequest?.cancel();
   if (typeof window === "undefined") return;
   const target = new URL(destination, window.location.href);
   const current = new URL(window.location.href);
+  if (target.origin !== current.origin || !pageSectionId(target.hash)) return;
+  // The localized router accepts unprefixed paths. Bind the request to the
+  // current locale now, so it cannot activate on a later locale transition.
+  const locale = current.pathname.match(/^\/(en|ar)(?:\/|$)/)?.[1];
+  if (locale && !/^\/(en|ar)(?:\/|$)/.test(target.pathname)) {
+    target.pathname = `/${locale}${target.pathname}`;
+  }
+  const sourceRoute = `${current.pathname}${current.search}`;
+  if (`${target.pathname}${target.search}` === sourceRoute) return;
+  const initiator = document.activeElement;
+  const interactionEvents = ["pointerdown", "keydown", "wheel", "touchmove"] as const;
+  const cancel = () => {
+    window.clearTimeout(timer);
+    for (const event of interactionEvents) document.removeEventListener(event, cancel, true);
+    document.removeEventListener("focusin", onFocus, true);
+    if (pendingRouteRequest?.cancel === cancel) pendingRouteRequest = undefined;
+  };
+  const onFocus = (event: FocusEvent) => {
+    if (event.target !== initiator && event.target !== document.body && event.target !== document.documentElement) cancel();
+  };
+  const timer = window.setTimeout(cancel, 10_000);
+  pendingRouteRequest = { target, sourceRoute, initiator, cancel };
+  for (const event of interactionEvents) document.addEventListener(event, cancel, { capture: true, passive: true });
+  document.addEventListener("focusin", onFocus, { capture: true, passive: true });
+}
+
+/** Consume only the requested route, while its initiating control still owns focus. */
+export function consumePageSectionNavigationRequest() {
+  const request = pendingRouteRequest;
+  if (!request || typeof window === "undefined") return "";
+  const route = `${window.location.pathname}${window.location.search}`;
+  if (`${request.target.pathname}${request.target.search}` !== route
+    || pageSectionId(request.target.hash) !== pageSectionId(window.location.hash)) {
+    if (route !== request.sourceRoute) request.cancel();
+    return "";
+  }
+  request.cancel();
+  const active = document.activeElement;
+  if (active && active !== document.body && active !== document.documentElement
+    && active !== request.initiator && active.isConnected) return "";
+  return pageSectionId(request.target.hash);
+}
+
+/** Next's imperative same-page navigation does not emit a native hashchange. */
+export function navigateToPageSection(router: { push: (href: string) => void }, destination: string) {
+  if (typeof window === "undefined") { router.push(destination); return; }
+  const target = new URL(destination, window.location.href);
+  const current = new URL(window.location.href);
+  preparePageSectionNavigation(destination);
+  try {
+    router.push(destination);
+  } catch (error) {
+    pendingRouteRequest?.cancel();
+    throw error;
+  }
   const locale = (path: string) => path.match(/^\/(en|ar)(?:\/|$)/)?.[1];
   const path = (value: string) => value.replace(/^\/(en|ar)(?=\/|$)/, "") || "/";
   if (target.origin !== current.origin || path(target.pathname) !== path(current.pathname)
