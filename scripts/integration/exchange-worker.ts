@@ -5,6 +5,7 @@ import { getAuditQueryTimings, getAuditRuntimeDiagnostics, getRuntimePostgresPoo
 import { addSellerBankAccount, beginBuyerVerification, broadcastNotificationByAdmin, changeUserRoleByAdmin, consumeEmailVerificationToken, consumePasswordResetToken, createEmailVerificationTokenForUser, createPasswordResetToken, deleteSellerBankAccount, disableUserAccountByAdmin, getTradeRoomData, invalidateAlphaExchangeStoreCache, issueSellerCommissionByAdmin, reconcilePendingTradeTrust, recordBuyerVerificationAttempt, setSellerVacationModeByAdmin, updatePurchaseRequestStatus, updateSellerBankAccount, updateSellerProfileStateByAdmin, updateTradeTerms, updateUserPassword, uploadTradeEvidence } from "@/lib/alpha-exchange-store";
 import type { AlphaExchangeDb, AuthSession } from "@/types/alpha-exchange";
 import { confirmAdultEligibility } from "@/lib/alpha-exchange-store";
+import { updateUserPreferredLocale } from "@/lib/alpha-exchange-store";
 import { recordCommissionShortfall, materializeCommissionShortfalls } from "@/lib/commission-shortfall-ledger";
 
 // External delivery is deliberately outside this database test. The child
@@ -81,6 +82,10 @@ async function execute(operation: string, input: unknown) {
     const action = input as { userId: string; passwordHash: string };
     await updateUserPassword(action.userId, action.passwordHash);
     return { updated: true };
+  }
+  if (operation === "auth-locale") {
+    const user = await updateUserPreferredLocale(input as Parameters<typeof updateUserPreferredLocale>[0]);
+    return { id: user.id, preferredLocale: user.preferredLocale };
   }
   if (operation === "auth-email-issue") return createEmailVerificationTokenForUser(input as string);
   if (operation === "auth-email-consume") return consumeEmailVerificationToken(input as string);
