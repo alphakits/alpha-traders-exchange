@@ -304,12 +304,12 @@
       "scheduledAt": "2026-10-22T12:30:00Z",
       "timing": "exact",
       "kind": "release",
-      "actual": null,
+      "actual": "194K",
       "previous": "199K",
-      "revised": null,
+      "revised": "200K",
       "reference": "Week ending 17 Oct 2026",
-      "publishedAt": null,
-      "sourceUrl": "https://www.dol.gov/index.php/newsroom/releases/opa/opa20200701"
+      "publishedAt": "2026-10-22T12:30:00Z",
+      "sourceUrl": "https://www.dol.gov/ui/data.pdf"
     },
     {
       "id": "official-census-core-durable-goods-mom-20261027",
@@ -455,7 +455,7 @@
       "timing": "exact",
       "kind": "release",
       "actual": null,
-      "previous": null,
+      "previous": "194K",
       "revised": null,
       "reference": "Week ending 24 Oct 2026",
       "publishedAt": null,
@@ -642,5 +642,5 @@
       "sourceUrl": "https://www.bls.gov/schedule/2026/11_sched.htm"
     }
   ],
-  "resultsVerifiedAt": "2026-10-18T16:24:38Z"
+  "resultsVerifiedAt": "2026-10-22T13:00:03Z"
 }
