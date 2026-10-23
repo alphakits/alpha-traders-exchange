@@ -169,7 +169,9 @@ try {
   const localeSession = { userId: authAccounts[0], token: "synthetic-locale-session", createdAt: now,
     expiresAt: new Date(Date.now() + 86_400_000).toISOString() };
   requireOk(await workers[0].call("auth-session", localeSession));
-  const concurrentLocaleSession = { ...localeSession, token: "synthetic-concurrent-locale-session" };
+  // Session creation intentionally replaces the same account's previous
+  // session. Use another account to test preservation without violating that policy.
+  const concurrentLocaleSession = { ...localeSession, userId: authAccounts[1], token: "synthetic-concurrent-locale-session" };
   (await batch([
     { operation: "auth-locale", input: { userId: authAccounts[0], preferredLocale: "ar" } },
     { operation: "auth-locale", input: { userId: authAccounts[1], preferredLocale: "en" } },

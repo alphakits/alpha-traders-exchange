@@ -14,7 +14,8 @@ Two regressions reproduce failure when unrelated full-snapshot reads are
 unavailable, for English and Arabic. Additional tests cover concurrent password
 and preference changes, preserved sessions, account removal, failed commits, and
 unchanged timestamps. The isolated PostgreSQL harness also runs simultaneous
-locale, password and session writes across four processes.
+locale, password and session writes across four processes. The existing and new
+sessions belong to separate accounts, respecting the single-session policy.
 
 Local verification: 60 focused tests pass across seven files, with TypeScript
 and targeted lint passing. The new database scenario must pass the existing CI
