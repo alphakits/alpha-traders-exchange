@@ -108,6 +108,70 @@ describe("first-click section navigation", () => {
     expect(form.scrollIntoView).not.toHaveBeenCalled();
   });
 
+  it.each(["en", "ar"])("keeps an explicit request when the initiating header regains focus before restoration (%s)", async (locale) => {
+    pathname = `/${locale}/trades`;
+    window.history.replaceState({}, "", pathname);
+    const ui = () => <><PageSectionNavigation /><CreateListingQuickLink label="Create Listing" className="" /></>;
+    const view = render(ui());
+    await settle();
+    const button = screen.getByRole("button", { name: /Create Listing/ });
+    button.focus();
+    fireEvent.click(button);
+    pathname = `/${locale}/usdt-exchange`;
+    window.history.pushState({}, "", `${pathname}#create-listing`);
+    view.rerender(ui());
+    button.blur();
+    button.focus();
+    await settle();
+    const form = section("create-listing");
+    await settle();
+    expect(document.activeElement).toBe(form);
+  });
+
+  it.each(["before effect", "before frame"])("keeps the requested section stable when router focus arrives %s", async (timing) => {
+    pathname = "/en/trades";
+    window.history.replaceState({}, "", pathname);
+    const ui = () => <><PageSectionNavigation /><CreateListingQuickLink label="Create Listing" className="" /></>;
+    const view = render(ui());
+    await settle();
+    const button = screen.getByRole("button", { name: /Create Listing/ });
+    button.focus();
+    fireEvent.click(button);
+    pathname = "/en/usdt-exchange";
+    window.history.pushState({}, "", `${pathname}#create-listing`);
+    const initialForm = section("create-listing");
+    initialForm.tabIndex = -1;
+    if (timing === "before effect") initialForm.focus();
+    view.rerender(ui());
+    if (timing === "before frame") initialForm.focus();
+    await settle();
+    initialForm.remove();
+    const hydratedForm = section("create-listing");
+    await settle();
+    expect(document.activeElement).toBe(hydratedForm);
+  });
+
+  it("yields to a focused input inside the destination instead of treating it as router section focus", async () => {
+    pathname = "/en/trades";
+    window.history.replaceState({}, "", pathname);
+    const ui = () => <><PageSectionNavigation /><CreateListingQuickLink label="Create Listing" className="" /></>;
+    const view = render(ui());
+    await settle();
+    const button = screen.getByRole("button", { name: /Create Listing/ });
+    button.focus();
+    fireEvent.click(button);
+    pathname = "/en/usdt-exchange";
+    window.history.pushState({}, "", `${pathname}#create-listing`);
+    const form = section("create-listing");
+    const input = document.createElement("input");
+    form.append(input);
+    view.rerender(ui());
+    input.focus();
+    await settle();
+    expect(document.activeElement).toBe(input);
+    expect(form.scrollIntoView).not.toHaveBeenCalled();
+  });
+
   it.each(["/ar/usdt-exchange#create-listing", "/en/usdt-exchange?mode=sell#create-listing", "/en/usdt-exchange#my-listings-section"])("does not carry a header request to an unrequested destination: %s", async (destination) => {
     pathname = "/en/trades";
     window.history.replaceState({}, "", pathname);

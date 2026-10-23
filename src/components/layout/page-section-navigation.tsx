@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
-import { cancelPageSectionNavigation, consumePageSectionNavigationRequest, pageSectionId, preparePageSectionNavigation, revealPageSection } from "@/lib/page-section-navigation";
+import { cancelPageSectionNavigation, consumePageSectionNavigationRequest, isPageSectionNavigationFocus, pageSectionId, preparePageSectionNavigation, revealPageSection } from "@/lib/page-section-navigation";
 
 /** Native hash scrolling runs before streamed and dynamically imported panels mount. */
 export function PageSectionNavigation() {
@@ -13,7 +13,10 @@ export function PageSectionNavigation() {
   useEffect(() => {
     let frame: number | undefined;
     const interactionEvents = ["pointerdown", "keydown", "wheel", "touchmove", "focusin"] as const;
-    const cancelInitialRestore = () => {
+    const cancelInitialRestore = (event?: Event) => {
+      // A router may refocus the initiating header or focus the requested
+      // section before this frame. Neither cancels that explicit request.
+      if (event?.type === "focusin" && isPageSectionNavigationFocus(event.target)) return;
       if (frame !== undefined) window.cancelAnimationFrame(frame);
       frame = undefined;
       for (const event of interactionEvents) document.removeEventListener(event, cancelInitialRestore, true);

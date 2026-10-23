@@ -25,6 +25,17 @@ export function pageSectionFromEvent(event?: Event) {
     ? event.detail : pageSectionId(window.location.hash);
 }
 
+/** Router focus on the initiating control or requested section is still this request. */
+export function isPageSectionNavigationFocus(target: EventTarget | null) {
+  const request = pendingRouteRequest;
+  if (!request || typeof window === "undefined") return false;
+  if (target === request.initiator || target === document.body || target === document.documentElement) return true;
+  return target instanceof Element
+    && `${request.target.pathname}${request.target.search}` === `${window.location.pathname}${window.location.search}`
+    && pageSectionId(request.target.hash) === pageSectionId(window.location.hash)
+    && target === document.getElementById(pageSectionId(request.target.hash));
+}
+
 /** Carry an explicit section request across a client-side route transition. */
 export function preparePageSectionNavigation(destination: string) {
   pendingRouteRequest?.cancel();
@@ -51,7 +62,7 @@ export function preparePageSectionNavigation(destination: string) {
     if (pendingRouteRequest?.cancel === cancel) pendingRouteRequest = undefined;
   };
   const onFocus = (event: FocusEvent) => {
-    if (event.target !== initiator && event.target !== document.body && event.target !== document.documentElement) cancel();
+    if (!isPageSectionNavigationFocus(event.target)) cancel();
   };
   const timer = window.setTimeout(cancel, 10_000);
   pendingRouteRequest = { target, sourceRoute, initiator, cancel };
@@ -70,10 +81,10 @@ export function consumePageSectionNavigationRequest() {
     if (route !== request.sourceRoute) request.cancel();
     return "";
   }
-  request.cancel();
   const active = document.activeElement;
-  if (active && active !== document.body && active !== document.documentElement
-    && active !== request.initiator && active.isConnected) return "";
+  const ownsFocus = isPageSectionNavigationFocus(active);
+  request.cancel();
+  if (active?.isConnected && !ownsFocus) return "";
   return pageSectionId(request.target.hash);
 }
 

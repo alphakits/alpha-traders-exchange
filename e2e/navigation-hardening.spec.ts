@@ -37,29 +37,56 @@ test.describe("Navigation hardening", () => {
   for (const locale of ["en", "ar"]) {
     for (const role of ["SELLER", "OWNER"]) {
       for (const input of ["pointer", "keyboard"]) {
-        test(`${locale} ${role.toLowerCase()} header create listing reaches the form from My Trades with one ${input} action`, async ({ page, baseURL }) => {
+        test(`${locale} ${role.toLowerCase()} header create listing reaches the form from My Trades with one ${input} action`, async ({ page, baseURL }, testInfo) => {
           expect(new URL(baseURL!).hostname).toBe("localhost");
           const email = (process.env[`E2E_${role}_EMAIL`] ?? "").toLowerCase();
           const password = process.env[`E2E_${role}_PASSWORD`] ?? "";
           expect(email).toMatch(/@example\.test$/);
           expect(password).toBeTruthy();
-          await login(page.request, email, password);
-          await page.goto(`/${locale}/trades`);
-          await expect(page.getByRole("main").getByRole("heading", { level: 1 })).toBeVisible();
-          const action = page.getByRole("banner").getByRole("button", { name: /^➕/ });
-          if (input === "keyboard") {
-            await action.focus();
-            await expect(action).toBeFocused();
-            await page.keyboard.press("Enter");
-          } else {
-            await action.click();
+          await page.addInitScript(() => {
+            const events: Array<Record<string, unknown>> = [];
+            (window as Window & { __sectionNavigationEvents?: typeof events }).__sectionNavigationEvents = events;
+            const describe = (target: EventTarget | null) => target instanceof HTMLElement
+              ? { tag: target.tagName, id: target.id } : null;
+            const record = (event: Event) => {
+              if (events.length >= 100) return;
+              events.push({ type: event.type, time: performance.now(), path: location.pathname, hash: location.hash,
+                target: describe(event.target), active: describe(document.activeElement),
+                key: event instanceof KeyboardEvent ? event.key : undefined,
+                section: event instanceof CustomEvent ? event.detail : undefined,
+                formMounted: Boolean(document.getElementById("create-listing")) });
+            };
+            for (const name of ["focusin", "focusout", "keydown", "keyup", "click", "pointerdown", "wheel", "touchmove"]) {
+              document.addEventListener(name, record, true);
+            }
+            window.addEventListener("alpha:page-section", record);
+          });
+          try {
+            await login(page.request, email, password);
+            await page.goto(`/${locale}/trades`);
+            await expect(page.getByRole("main").getByRole("heading", { level: 1 })).toBeVisible();
+            const action = page.getByRole("banner").getByRole("button", { name: /^➕/ });
+            if (input === "keyboard") {
+              await action.focus();
+              await expect(action).toBeFocused();
+              await page.keyboard.press("Enter");
+            } else {
+              await action.click();
+            }
+            await expect(page).toHaveURL(new RegExp(`/${locale}/usdt-exchange#create-listing$`));
+            const form = page.locator("#create-listing");
+            await expect(form).toBeFocused();
+            await expect(form).toBeInViewport();
+            // Inspecting navigation must never submit a listing or change a trade.
+            await expect(form.getByRole("textbox").first()).toHaveValue("");
+          } finally {
+            const diagnostics = await page.evaluate(() => ({
+              events: (window as Window & { __sectionNavigationEvents?: Array<Record<string, unknown>> }).__sectionNavigationEvents,
+              active: document.activeElement instanceof HTMLElement ? { tag: document.activeElement.tagName, id: document.activeElement.id } : null,
+              formTop: document.getElementById("create-listing")?.getBoundingClientRect().top,
+            })).catch(() => ({ unavailable: true }));
+            await testInfo.attach("section-navigation-events", { body: JSON.stringify(diagnostics, null, 2), contentType: "application/json" });
           }
-          await expect(page).toHaveURL(new RegExp(`/${locale}/usdt-exchange#create-listing$`));
-          const form = page.locator("#create-listing");
-          await expect(form).toBeFocused();
-          await expect(form).toBeInViewport();
-          // Inspecting navigation must never submit a listing or change a trade.
-          await expect(form.getByRole("textbox").first()).toHaveValue("");
         });
       }
     }

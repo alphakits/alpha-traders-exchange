@@ -20,3 +20,13 @@ The section controller now retains a short-lived explicit request before a route
 - Eight loopback-only browser cases cover seller/owner, English/Arabic, and pointer/keyboard activation from My Trades. They assert destination URL, focused form, viewport position, and an empty amount field. Candidate Chromium/WebKit and all required release checks remain necessary before deployment.
 
 No retry, flaky-test policy, financial invariant, durability setting, or latency threshold changes are included.
+
+## CI1144 focus race follow-up
+
+The first full candidate run on `a0834442` failed its strict flaky-test gate: the Arabic owner keyboard case failed to focus the form on its first attempt and passed its configured retry. Seven other new cross-page cases passed on their first attempts. The failed trace and artifact `12475004855` are retained; a retry success is not acceptance.
+
+Four additional deterministic component cases exposed two gaps in the pending focus request: refocusing its initiating header could cancel the restoration frame, and router focus on the exact destination could cancel stabilization before hydration replaced that element. All four fail against `a0834442`. The request now recognizes those two focus owners while preserving cancellation for a different control, including an input inside the destination. Initial page-hydration focus remains protected. This reproduces specific lifecycle gaps; the original trace alone does not prove which focus event caused its failure.
+
+All 50 component cases pass locally after the repair. The eight browser cases now retain bounded event diagnostics, and the WebKit release job repeats them three times with zero retries before its full group. The complete revised candidate and merged-source gates remain required.
+
+The same CI1144 database attempt also failed its unchanged one-second timing threshold (14 of 270 actions, maximum 1,121.253 ms), while correctness and recovery passed. Its original evidence remains retained; no database code, durability setting, or performance threshold was changed.

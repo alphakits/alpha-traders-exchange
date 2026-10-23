@@ -298,6 +298,11 @@ jobs:
         env:
           PLAYWRIGHT_JSON_OUTPUT_FILE: test-results/webkit-navigation-preflight.json
         run: node ./node_modules/playwright/cli.js test --config=playwright.webkit.config.ts e2e/navigation-hardening.spec.ts --grep="seller refresh keeps the approved workspace stable" --max-failures=1 --reporter=list,json
+      - name: Verify cross-page listing navigation without retries
+        if: matrix.shard == 3
+        env:
+          PLAYWRIGHT_JSON_OUTPUT_FILE: test-results/webkit-cross-page-navigation.json
+        run: node ./node_modules/playwright/cli.js test --config=playwright.webkit.config.ts e2e/navigation-hardening.spec.ts --grep="header create listing reaches the form from My Trades" --repeat-each=3 --retries=0 --max-failures=1 --reporter=list,json
       - name: Preserve focused WebKit navigation evidence
         if: always() && matrix.shard == 3
         uses: actions/upload-artifact@v4
