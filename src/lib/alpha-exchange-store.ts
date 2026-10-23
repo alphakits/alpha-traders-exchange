@@ -7154,7 +7154,9 @@ export async function updateUserPreferredLocale(input: {
   userId: string;
   preferredLocale: PreferredLocale;
 }): Promise<AlphaExchangeUser> {
-  const db = await readDb({ bypassCache: true });
+  // Locale changes need account normalization, not unrelated trade history.
+  // Always read canonical accounts and keep the same dependencies on rebase.
+  const { db } = await readDbForCriticalTradeMutation(AUTH_USER_READ_TABLES);
   const committed: { user?: AlphaExchangeUser } = {};
   const applyPreferredLocale = (snapshot: AlphaExchangeDb) => {
     const index = snapshot.users.findIndex((user) => user.id === input.userId);
@@ -7176,7 +7178,9 @@ export async function updateUserPreferredLocale(input: {
   applyPreferredLocale(db);
   await writeDb(db, {
     selectedTables: ["users"],
+    rebaseTables: AUTH_USER_READ_TABLES,
     rebaseOnLatest: applyPreferredLocale,
+    cacheResult: false,
   });
   if (!committed.user) throw new Error("User not found.");
   return committed.user;

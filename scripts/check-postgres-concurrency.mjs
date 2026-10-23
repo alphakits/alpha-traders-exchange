@@ -166,6 +166,24 @@ try {
   const authSnapshot = requireOk(await workers[0].call("snapshot"));
   authAccounts.forEach((userId, index) => assert.equal(authSnapshot.users.find(user => user.id === userId).passwordHash, `synthetic-updated-hash-${index}`));
   passed("Concurrent password updates preserve both accounts", { accounts: 2 });
+  const localeSession = { userId: authAccounts[0], token: "synthetic-locale-session", createdAt: now,
+    expiresAt: new Date(Date.now() + 86_400_000).toISOString() };
+  requireOk(await workers[0].call("auth-session", localeSession));
+  const concurrentLocaleSession = { ...localeSession, token: "synthetic-concurrent-locale-session" };
+  (await batch([
+    { operation: "auth-locale", input: { userId: authAccounts[0], preferredLocale: "ar" } },
+    { operation: "auth-locale", input: { userId: authAccounts[1], preferredLocale: "en" } },
+    { operation: "auth-password", input: { userId: authAccounts[0], passwordHash: "synthetic-locale-password" } },
+    { operation: "auth-session", input: concurrentLocaleSession },
+  ])).forEach(requireOk);
+  const localeSnapshot = requireOk(await workers[0].call("snapshot"));
+  assert.equal(localeSnapshot.users.find(user => user.id === authAccounts[0]).preferredLocale, "ar");
+  assert.equal(localeSnapshot.users.find(user => user.id === authAccounts[1]).preferredLocale, "en");
+  assert.equal(localeSnapshot.users.find(user => user.id === authAccounts[0]).passwordHash, "synthetic-locale-password");
+  for (const session of [localeSession, concurrentLocaleSession]) {
+    assert.deepEqual(localeSnapshot.authSessions.find(candidate => candidate.token === session.token), session);
+  }
+  passed("Concurrent locale updates preserve password changes and existing/new sessions", { independentProcesses: 4, accounts: 2, sessions: 2 });
   const bankInput = { sellerId: "audit-seller-0", actorUserId: "audit-seller-0", accountHolderName: "Synthetic Seller",
     bankName: "Synthetic Bank", branchNumber: "123", accountNumber: "1234567890" };
   const bankChanges = await batch([
