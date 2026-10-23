@@ -535,6 +535,23 @@ it("places required buyer feedback before completion details", async () => {
   expect(submit.compareDocumentPosition(details) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 });
 
+describe.each(["en", "ar"] as const)("completed-trade history navigation (%s)", (locale) => {
+  it.each([
+    [buyer, "/trades"],
+    [seller, "/trades"],
+    [{ ...seller, role: "owner" as const }, "/trades"],
+    [{ id: "oversight-owner", fullName: "Owner", role: "owner" as const }, "/admin/alpha-exchange?section=purchase-requests&requestId=feedback-request&details=1"],
+  ] as const)("opens the history for %j without mutating the trade", async (actor, destination) => {
+    const current = room("Face-to-Face (Meet in Person)", "completed");
+    const fetchMock = vi.fn<typeof fetch>(() => Promise.resolve(Response.json(current)));
+    vi.stubGlobal("fetch", fetchMock);
+    render(<TradeRoomPage locale={locale} requestId="feedback-request" actor={actor} />);
+    fireEvent.click(await screen.findByRole("button", { name: locale === "ar" ? "عرض سجل الصفقات" : "View Trade History" }));
+    expect(navigation.push).toHaveBeenCalledExactlyOnceWith(destination);
+    expect(fetchMock.mock.calls.every(([, init]) => !init?.method || init.method === "GET")).toBe(true);
+  });
+});
+
 it.each(["en", "ar"] as const)("puts pending terms decisions first in %s", async (locale) => {
   const base = room("Cardless ATM Withdrawal", "accepted");
   const current = { ...base, request: { ...base.request, termsProposal: { id: "terms-1", kind: "counter_offer", status: "pending", usdtAmount: "100", fiatAmount: "310", pricePerUsdt: "3.10", createdAt: base.request.updatedAt } } };
