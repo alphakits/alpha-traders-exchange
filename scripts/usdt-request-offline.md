@@ -16,8 +16,8 @@ Use separate browser profiles or an incognito window for the buyer and seller.
 | Second buyer | buyer-two@offline.example.test | OfflineDemo!2026 |
 | Second seller | seller-two@offline.example.test | OfflineDemo!2026 |
 
-Publish a request for 1,000 USDT at 3.30 ILS using Bank Transfer and TRC20.
-As the seller, choose **Available requests**, open the request and respond from the synthetic listing.
+Publish a request for 5,000 USDT at 3.30 ILS using Bank Transfer and TRC20.
+As the seller, choose **Buyer requests · Sell USDT**, open the request and respond from the synthetic listing.
 As the buyer, refresh the request, review the response, enter a valid-format test wallet, acknowledge the terms and open the Trade Room.
 Use only synthetic values; the local preview does not move money.
 
@@ -28,13 +28,26 @@ The offline preview uses local Arial substitutes for the remotely downloaded fon
 The launcher refuses `.env` files, binds to `127.0.0.1`, and creates a separate temporary runtime for each launch.
 Stop with Ctrl+C. Starting it again resets the demo data. `--port 3212` selects another port.
 
+To preserve requests and signed-in sessions, note the **Offline runtime** folder printed by the launcher.
+After stopping that preview, restart from this same checkout with:
+
+```powershell
+node scripts/usdt-request-offline.mjs --production --resume-runtime "C:\path\to\work\usdt-offline-runtime\run-XXXXXX"
+```
+
+Use the exact existing folder printed by your launch. Resume always skips fixture reset and keeps the same isolation guards.
+It accepts only immediate `run-*` folders under this checkout's sibling `usdt-offline-runtime` directory; links, junctions and outside paths are refused.
+Do not run two previews against one runtime folder. Omit `--production` when using the development server.
+
 The default suite uses installed Google Chrome and starts its own isolated server on port 3211:
 
 ```powershell
 node node_modules/playwright/cli.js test --config=playwright.usdt-requests-offline.config.ts
 ```
 
-It checks real sessions, price boundaries, replay protection, ownership/privacy, the buyer/seller browser flow, listing prefill, all three payment methods and Arabic mobile layout. Screenshots and failure traces are saved under `test-results/usdt-requests-offline`.
+It checks real sessions, price boundaries, replay protection, ownership/privacy, the buyer/seller browser flow, listing prefill, all three payment methods and Arabic mobile layout.
+It also checks grouped number typing/pasting, canonical API amounts, fee breakdowns, invalid input, quote recovery, seller response updates/withdrawals and stale request recovery.
+Screenshots and failure traces are saved under `test-results/usdt-requests-offline`.
 It never reuses an existing server and refuses to reset any server without the offline network-guard marker.
 
 To verify the production bundle with the same isolated environment, first stop any dev server:

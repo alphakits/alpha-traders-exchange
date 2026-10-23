@@ -21,7 +21,7 @@ export const demandTermsSchema = z.object({
   network: z.enum(["TRC20", "BEP20", "ERC20", "SOL"]),
   paymentMethod: z.enum(["Bank Transfer", "Cardless ATM Withdrawal", "Face-to-Face (Meet in Person)"]),
   city: z.string().trim().max(80).regex(/^[\p{L}\p{M}\s.,'’\-]*$/u).default(""),
-}).strict().refine(v => v.paymentMethod !== "Face-to-Face (Meet in Person)" || v.city.length >= 2, "Enter the meeting city.")
+}).strict().refine(v => v.paymentMethod !== "Face-to-Face (Meet in Person)" || (v.city.length >= 2 && /\p{L}/u.test(v.city)), "Enter the meeting city.")
   .transform(v => ({ ...v, city: v.paymentMethod === "Face-to-Face (Meet in Person)" ? v.city : "" }));
 export const demandCreateSchema = z.object({ terms: demandTermsSchema, operationId: z.string().uuid() }).strict();
 export const demandChangeSchema = z.discriminatedUnion("action", [
@@ -70,6 +70,11 @@ export function isDemandReservedTrade(trade: PurchaseRequest) {
   return ["accepted", "payment_sent", "funds_received", "usdt_release_pending", "usdt_sent"].includes(trade.status)
     || (trade.status === "pending" && Boolean(trade.usdtDemandId));
 }
+export function demandListingAvailableAmount(db: AlphaExchangeDb, listing: MarketplaceListing, excludingTrade?: string) {
+  return db.purchaseRequests.filter(t => t.id !== excludingTrade && t.sellerId === listing.sellerId
+    && t.listingId === listing.id && isDemandReservedTrade(t))
+    .reduce((remaining, t) => subtractTradeAmounts(remaining, t.usdtAmount) ?? "0", listing.availableAmount);
+}
 export function demandState(db: AlphaExchangeDb, demand: UsdtDemand, market: MarketSnapshot, now = Date.now()) {
   if (demand.state === "matched") {
     const trade = db.purchaseRequests.find(t => t.id === demand.purchaseRequestId);
@@ -85,6 +90,7 @@ export function demandState(db: AlphaExchangeDb, demand: UsdtDemand, market: Mar
 export function assertDemandListing(db: AlphaExchangeDb, demand: UsdtDemand, listing: MarketplaceListing | undefined, excludingTrade?: string): asserts listing is MarketplaceListing {
   const seller = db.users.find(u => u.id === listing?.sellerId);
   if (!listing || !canRespond(db, seller, demand.requesterId) || !["active", "matched", "in_trade"].includes(listing.status)
+    || (listing.approvalStatus !== undefined && listing.approvalStatus !== "approved")
     || listing.currency !== "ILS" || listing.network !== demand.network
     || !(listing.paymentMethods ?? [listing.paymentMethod]).includes(demand.paymentMethod)
     || (demand.paymentMethod === "Face-to-Face (Meet in Person)"
@@ -92,7 +98,7 @@ export function assertDemandListing(db: AlphaExchangeDb, demand: UsdtDemand, lis
     || (listing.expiresAt && Date.parse(listing.expiresAt) <= Date.now())) throw new DemandError("LISTING_UNAVAILABLE", "Choose an approved, available listing matching this request.");
   const active = db.purchaseRequests.filter(t => t.id !== excludingTrade && t.sellerId === listing.sellerId && isDemandReservedTrade(t));
   if (active.length >= 3) throw new DemandError("SELLER_TRADE_LIMIT", "The seller already has three open trades.");
-  const available = active.filter(t => t.listingId === listing.id).reduce((remaining, t) => subtractTradeAmounts(remaining, t.usdtAmount) ?? "0", listing.availableAmount);
+  const available = demandListingAvailableAmount(db, listing, excludingTrade);
   const amount = Number(demand.amount);
   if (isTradeAmountLessThan(available, demand.amount) !== false
     || amount < getPurchaseMinimumTrade(listing.minimumTrade, demand.paymentMethod === "Cardless ATM Withdrawal")

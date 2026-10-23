@@ -4,7 +4,8 @@ import type { DemandTerms, UsdtDemand, DemandWorkspace } from "@/types/usdt-dema
 import type { MarketSnapshot } from "@/types/market";
 import { publicAccountName } from "@/lib/public-account-identity";
 import { hasSellerOperationalAccess } from "@/lib/seller-approval-verification";
-import { assertDemandActor, assertDemandListing, assertDemandTerms, canRespond, DEMAND_COOLDOWN_MS, DEMAND_TTL_MS, demandChangeSchema, demandCreateSchema, DemandError, demandOfferSchema, demandReference, demandState } from "./usdt-demand-policy";
+import { formatIls, formatUsdt } from "@/lib/usdt-demand-format";
+import { assertDemandActor, assertDemandListing, assertDemandTerms, canRespond, DEMAND_COOLDOWN_MS, DEMAND_TTL_MS, demandChangeSchema, demandCreateSchema, DemandError, demandListingAvailableAmount, demandOfferSchema, demandReference, demandState } from "./usdt-demand-policy";
 
 function actor(db: AlphaExchangeDb, id: string) {
   const user = db.users.find(u => u.id === id); assertDemandActor(user); return user;
@@ -18,11 +19,12 @@ function notice(db: AlphaExchangeDb, user: AlphaExchangeUser, d: UsdtDemand, off
   const id = `demand-notice:${d.id}:${d.revision}:${offerId ?? "new"}:${user.id}`;
   if (db.notifications.some(n => n.id === id)) return;
   const title = offerId ? "New response to your USDT request" : "New USDT request";
-  const message = `${d.amount} USDT requested at ₪${d.price} per USDT. ${d.paymentMethod} · ${d.network}.`;
+  const offeredPrice = offerId ? d.offers.find(o => o.id === offerId)?.price ?? d.price : d.price;
+  const message = `${formatUsdt(d.amount)} USDT ${offerId ? "offered" : "requested"} at ₪${formatIls(offeredPrice)} per USDT. ${d.paymentMethod} · ${d.network}.`;
   const href = `/usdt-exchange/requests/${encodeURIComponent(d.id)}${offerId ? `?offer=${encodeURIComponent(offerId)}` : ""}`;
   db.notifications.push({ id, userId: user.id, category: "listing", title, titleEn: title, message, messageEn: message,
     titleAr: offerId ? "رد جديد على طلب USDT الخاص بك" : "طلب USDT جديد",
-    messageAr: `طلب ${d.amount} USDT بسعر ₪${d.price} لكل USDT. ${d.network}.`,
+    messageAr: `${offerId ? "عرض" : "طلب"} ${formatUsdt(d.amount)} USDT بسعر ₪${formatIls(offeredPrice)} لكل USDT. ${d.network}.`,
     isRead: false, createdAt: new Date().toISOString(), relatedHref: href, actionHref: href,
     state: user.notificationPreferences?.inApp === false ? "archived" : "unread",
     archivedAt: user.notificationPreferences?.inApp === false ? new Date().toISOString() : undefined,
@@ -35,11 +37,21 @@ function notifySellers(db: AlphaExchangeDb, d: UsdtDemand) {
 function assertSingleOpen(db: AlphaExchangeDb, userId: string, exceptId?: string) {
   if ((db.usdtDemands ?? []).some(d => d.requesterId === userId && d.id !== exceptId && d.state === "open")) throw new DemandError("OPEN_REQUEST_EXISTS", "You already have an open USDT request. Update or cancel it first.");
 }
+function publicationLimits(db: AlphaExchangeDb, userId: string, now: number) {
+  const times = (db.usdtDemands ?? []).filter(d => d.requesterId === userId)
+    .flatMap(d => d.history.filter(h => ["created", "renewed"].includes(h.action)).map(h => Date.parse(h.at)))
+    .filter(Number.isFinite).sort((a, b) => a - b);
+  const recent = times.filter(at => now - at < DEMAND_TTL_MS);
+  const cooldownUntil = (times.at(-1) ?? 0) + DEMAND_COOLDOWN_MS;
+  const dailyUntil = recent.length >= 5 ? recent[recent.length - 5] + DEMAND_TTL_MS : 0;
+  const nextAt = Math.max(cooldownUntil, dailyUntil);
+  const openRequestId = db.usdtDemands?.find(d => d.requesterId === userId && d.state === "open" && Date.parse(d.expiresAt) > now)?.id ?? null;
+  return { cooldownUntil, dailyUntil, publishing: { remaining: Math.max(0, 5 - recent.length), nextAllowedAt: nextAt > now ? new Date(nextAt).toISOString() : null, openRequestId } };
+}
 function assertPostRate(db: AlphaExchangeDb, userId: string, now: number) {
-  const posts = (db.usdtDemands ?? []).filter(d => d.requesterId === userId)
-    .flatMap(d => d.history.filter(h => ["created", "renewed"].includes(h.action)));
-  if (posts.some(h => now - Date.parse(h.at) < DEMAND_COOLDOWN_MS)) throw new DemandError("REQUEST_COOLDOWN", "Wait five minutes between publishing or renewing requests.", 429);
-  if (posts.filter(h => now - Date.parse(h.at) < DEMAND_TTL_MS).length >= 5) throw new DemandError("DAILY_LIMIT", "You can publish or renew up to five requests per day.", 429);
+  const limits = publicationLimits(db, userId, now);
+  if (limits.cooldownUntil > now) throw new DemandError("REQUEST_COOLDOWN", "Wait five minutes between publishing or renewing requests.", 429);
+  if (limits.dailyUntil > now) throw new DemandError("DAILY_LIMIT", "You can publish or renew up to five requests per day.", 429);
 }
 export function createDemand(db: AlphaExchangeDb, userId: string, body: unknown, market: MarketSnapshot, assertCanPublish: () => void = () => {}) {
   const input = demandCreateSchema.parse(body); actor(db, userId);
@@ -112,15 +124,21 @@ export function withdrawDemandOffer(db: AlphaExchangeDb, userId: string, id: str
 }
 export function readDemandWorkspace(db: AlphaExchangeDb, userId: string, market: MarketSnapshot, input: { id?: string; scope?: string; cursor?: string } = {}): DemandWorkspace {
   const user = actor(db, userId);
+  const compareRequests = (a: UsdtDemand, b: UsdtDemand) => b.createdAt.localeCompare(a.createdAt) || a.id.localeCompare(b.id);
   const visible = (db.usdtDemands ?? []).filter(d => {
     if (input.id && d.id !== input.id) return false;
     if (d.requesterId === userId) return Boolean(input.id || input.scope !== "available");
     if (!canRespond(db, user, d.requesterId)) return false;
     return Boolean(input.id || (input.scope === "available" && demandState(db, d, market) === "open"));
-  }).sort((a, b) => b.createdAt.localeCompare(a.createdAt) || a.id.localeCompare(b.id));
+  }).sort(compareRequests);
   if (input.id && !visible.length) throw new DemandError("NOT_FOUND", "Request not found.", 404);
-  const start = input.cursor ? visible.findIndex(d => d.id === input.cursor) + 1 : 0;
-  const page = visible.slice(start, start + 30);
+  // The previous page's last request can close or expire between reads. Its
+  // persisted sort key still anchors the next page even when it is no longer
+  // part of the visible feed; finding its index there would restart at page 1.
+  const anchor = input.cursor ? db.usdtDemands?.find(d => d.id === input.cursor) : undefined;
+  if (input.cursor && !anchor) throw new DemandError("CURSOR_INVALID", "This request page is no longer available. Refresh the list.", 400);
+  const remaining = anchor ? visible.filter(d => compareRequests(d, anchor) > 0) : visible;
+  const page = remaining.slice(0, 30);
   const requests = page.map(d => {
     const state = demandState(db, d, market);
     const offers = d.offers.filter(o => d.requesterId === userId || o.sellerId === userId).map(o => {
@@ -130,7 +148,7 @@ export function readDemandWorkspace(db: AlphaExchangeDb, userId: string, market:
         const listing = db.marketplaceListings.find(l => l.id === o.listingId);
         assertDemandListing(db, d, listing); available &&= listing.updatedAt === o.listingUpdatedAt && listing.sellerId === o.sellerId;
       } catch { available = false; }
-      return { id: o.id, listingId: o.listingId, price: o.price, revision: o.revision, state: o.state,
+      return { id: o.id, listingId: o.listingId, price: o.price, revision: o.revision, state: o.state, createdAt: o.createdAt,
         sellerName: publicAccountName(db.users.find(u => u.id === o.sellerId) ?? { id: o.sellerId }), isMine: o.sellerId === userId, available };
     });
     const canSeeTrade = d.requesterId === userId || d.offers.some(o => o.id === d.acceptedOfferId && o.sellerId === userId);
@@ -143,7 +161,8 @@ export function readDemandWorkspace(db: AlphaExchangeDb, userId: string, market:
   const listings = selected && selected.requesterId !== userId ? db.marketplaceListings.filter(l => {
     if (l.sellerId !== userId) return false;
     try { assertDemandListing(db, selected, l); return true; } catch { return false; }
-  }).map(l => ({ id: l.id, price: l.price, amount: l.availableAmount })) : [];
+  }).map(l => ({ id: l.id, price: l.price, amount: demandListingAvailableAmount(db, l) })) : [];
   return { actorId: userId, canRespond: hasSellerOperationalAccess(user), reference: demandReference(market), requests, listings,
-    nextCursor: start + page.length < visible.length ? page.at(-1)!.id : null };
+    publishing: publicationLimits(db, userId, Date.now()).publishing,
+    nextCursor: page.length < remaining.length ? page.at(-1)!.id : null };
 }

@@ -43,7 +43,7 @@ export type DemandView = DemandTerms & {
   updatedAt: string;
   purchaseRequestId?: string;
   offers: Array<Pick<DemandOffer, "id" | "listingId" | "price" | "state" | "revision"> & {
-    sellerName: string; isMine: boolean; available: boolean;
+    sellerName: string; isMine: boolean; available: boolean; createdAt?: string;
   }>;
 };
 export type DemandWorkspace = {
@@ -53,4 +53,5 @@ export type DemandWorkspace = {
   requests: DemandView[];
   listings: Array<{ id: string; price: string; amount: string }>;
   nextCursor: string | null;
+  publishing?: { nextAllowedAt: string | null; remaining: number; openRequestId?: string | null };
 };

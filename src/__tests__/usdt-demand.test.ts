@@ -43,6 +43,10 @@ describe("request rules", () => {
     expect(() => assertDemandActor(user)).toThrow();
   });
   it("supports eligible sellers requesting as buyers", () => expect(createDemand(db, "seller", { terms: demandTestTerms(), operationId: randomUUID() }, demandTestMarket()).requesterId).toBe("seller"));
+  it.each(["..", "--"])("rejects a punctuation-only meeting city %s", city => {
+    expect(() => createDemand(db, "buyer", { terms: { ...demandTestTerms(), paymentMethod: "Face-to-Face (Meet in Person)", city }, operationId: randomUUID() }, demandTestMarket())).toThrow(/meeting city/);
+    expect(db.usdtDemands).toHaveLength(0);
+  });
   it("creates only one request and one notice per eligible seller on retry", () => {
     const body = { terms: demandTestTerms(), operationId: randomUUID() };
     const d = createDemand(db, "buyer", body, demandTestMarket());

@@ -5,11 +5,15 @@ import { createServer } from "node:net";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { OFFLINE_ACCOUNTS, OFFLINE_PASSWORD, seedOfflineFixture } from "./usdt-request-offline-fixture.mjs";
+import { resolveExistingOfflineRuntime } from "./usdt-request-offline-runtime.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const build = process.argv.includes("--build");
 const production = process.argv.includes("--production");
 if (build && production) throw new Error("Use --build or --production, not both.");
+const resumeArgument = process.argv.indexOf("--resume-runtime");
+const resuming = resumeArgument >= 0;
+if (resuming && build) throw new Error("--resume-runtime is only for serving an existing preview, not --build.");
 const portArgument = process.argv.indexOf("--port");
 const port = portArgument < 0 ? 3210 : Number(process.argv[portArgument + 1]);
 if (!Number.isInteger(port) || port < 1024 || port > 65535) throw new Error("Choose an unprivileged local port, for example --port 3210.");
@@ -22,14 +26,17 @@ const envFiles = (await readdir(root)).filter(name => /^\.env(?:\.|$)/.test(name
 if (envFiles.length) throw new Error(`Run this preview in a clean checkout without .env files (${envFiles.join(", ")}).`);
 if (!existsSync(path.join(root, "node_modules/next/dist/bin/next"))) throw new Error("Install dependencies with npm ci before running the offline preview.");
 if (production && !existsSync(path.join(root, ".next/BUILD_ID"))) throw new Error("Run the isolated --build command before --production.");
+// Validate resume targets before binding a port or starting a child process.
+const runtimeParent = path.resolve(root, "..", "usdt-offline-runtime");
+const resumedRuntime = resuming ? await resolveExistingOfflineRuntime(runtimeParent, process.argv[resumeArgument + 1]) : null;
 if (!build) await new Promise((resolve, reject) => {
   const probe = createServer(); probe.once("error", reject);
   probe.listen(port, "127.0.0.1", () => probe.close(resolve));
 });
 // Keep snapshots outside Next's checkout watcher: a login must not trigger HMR.
-const runtimeParent = path.resolve(root, "..", "usdt-offline-runtime");
 await mkdir(runtimeParent, { recursive: true });
-const runtimeTemp = await mkdtemp(path.join(runtimeParent, "run-"));
+const runtimeTemp = resumedRuntime ?? await mkdtemp(path.join(runtimeParent, "run-"));
+console.log(`Offline runtime: ${runtimeTemp}${resuming ? " (resuming; fixture reset disabled)" : ""}`);
 const osKeys = new Set(["path", "systemroot", "windir", "comspec", "pathext", "userprofile", "appdata", "localappdata", "number_of_processors", "processor_architecture"]);
 const environment = Object.fromEntries(Object.entries(process.env).filter(([key]) => osKeys.has(key.toLowerCase())));
 // NODE_OPTIONS parses backslashes as escapes even on Windows.
@@ -69,7 +76,7 @@ if (build) {
     if (!ready) await new Promise(resolve => setTimeout(resolve, 1000));
   }
   if (!ready) throw new Error("The offline preview did not become ready.");
-  if (!process.argv.includes("--no-seed")) await seedOfflineFixture(baseURL);
+  if (!resuming && !process.argv.includes("--no-seed")) await seedOfflineFixture(baseURL);
   console.log(`\nOffline USDT preview ready: ${baseURL}/en/usdt-exchange/requests`);
   console.log(`Login: ${baseURL}/en/login?redirectTo=/en/usdt-exchange/requests`);
   console.log(`Buyer: ${OFFLINE_ACCOUNTS.buyer.email} | Seller: ${OFFLINE_ACCOUNTS.seller.email}`);

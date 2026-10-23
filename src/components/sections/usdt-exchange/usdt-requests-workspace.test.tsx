@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { calculateCardlessUsdtAmount } from "@alpha-traders/contracts";
 import { UsdtRequestsWorkspace } from "./usdt-requests-workspace";
@@ -47,7 +47,7 @@ describe("USDT request workspace", () => {
     await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("needs verification"));
     expect(screen.queryByRole("button", { name: "Create a request" })).toBeNull();
   });
-  it("keeps the editor's original revision after polling sees another tab cancel the request", async () => {
+  it("blocks a stale editor until the buyer explicitly reloads the latest details", async () => {
     vi.spyOn(document, "hidden", "get").mockReturnValue(false);
     let latest: DemandView = { ...demand(), paymentMethod: "Bank Transfer", amount: "1000" };
     const fetcher = vi.fn(async (_url: string, options?: RequestInit) => options?.method === "PATCH"
@@ -58,13 +58,13 @@ describe("USDT request workspace", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Update / renew" }));
     latest = { ...latest, revision: 2, state: "cancelled", amount: "2000" };
     fireEvent.focus(window);
-    await screen.findByRole("heading", { name: /2000 USDT/ });
-    expect((screen.getByLabelText("Amount (USDT)") as HTMLInputElement).value).toBe("1000");
-    fireEvent.submit(screen.getByRole("button", { name: "Publish request" }).closest("form")!);
-    await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("request changed"));
-    const mutation = fetcher.mock.calls.find(([, options]) => options?.method === "PATCH")!;
-    expect(mutation[0]).toBe("/api/alpha-exchange/usdt-requests/demand-one");
-    expect(JSON.parse(String(mutation[1]?.body))).toMatchObject({ revision: 1, terms: { amount: "1000" } });
+    await screen.findByRole("heading", { name: /2,000 USDT/ });
+    expect((screen.getByLabelText("Amount (USDT)") as HTMLInputElement).value).toBe("1,000");
+    expect((screen.getByRole("button", { name: "Save and renew" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.submit(screen.getByRole("form", { name: "Request details" }));
+    expect(fetcher.mock.calls.some(([, options]) => options?.method === "PATCH")).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "Reload latest details" }));
+    expect((screen.getByLabelText("Amount (USDT)") as HTMLInputElement).value).toBe("2,000");
   });
   it("clears the editor on navigation and starts a fresh revision after a successful renewal", async () => {
     let second = { ...demand(), id: "demand-two", requesterName: "AT-200", revision: 7 };
@@ -77,11 +77,11 @@ describe("USDT request workspace", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Update / renew" }));
     view.rerender(<UsdtRequestsWorkspace locale="en" actorId="buyer" demandId="demand-two" />);
     await screen.findByText("AT-200");
-    expect(screen.queryByRole("button", { name: "Publish request" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Save and renew" })).toBeNull();
     for (let attempt = 0; attempt < 2; attempt += 1) {
       fireEvent.click(screen.getByRole("button", { name: "Update / renew" }));
-      fireEvent.submit(screen.getByRole("button", { name: "Publish request" }).closest("form")!);
-      await waitFor(() => expect(screen.queryByRole("button", { name: "Publish request" })).toBeNull());
+      fireEvent.submit(screen.getByRole("button", { name: "Save and renew" }).closest("form")!);
+      await waitFor(() => expect(screen.queryByRole("button", { name: "Save and renew" })).toBeNull());
       await waitFor(() => expect((screen.getByRole("button", { name: "Update / renew" }) as HTMLButtonElement).disabled).toBe(false));
     }
     const mutations = fetcher.mock.calls.filter(([, options]) => options?.method === "PATCH");
@@ -100,7 +100,7 @@ describe("USDT request workspace", () => {
     fireEvent.change(listing, { target: { value: "listing-one" } });
     fireEvent.change(screen.getByLabelText("Your response price (ILS)"), { target: { value: "3.25" } });
     latest = { ...latest, revision: 2, amount: "2000" }; fireEvent.focus(window);
-    await screen.findByRole("heading", { name: /2000 USDT/ });
+    await screen.findByRole("heading", { name: /2,000 USDT/ });
     await waitFor(() => expect(listing.value).toBe(""));
     expect((screen.getByLabelText("Your response price (ILS)") as HTMLInputElement).value).toBe("");
     expect((screen.getByRole("button", { name: "Send response" }) as HTMLButtonElement).disabled).toBe(true);
@@ -112,5 +112,68 @@ describe("USDT request workspace", () => {
     const mutation = fetcher.mock.calls.find(([, options]) => options?.method === "POST")!;
     expect(JSON.parse(String(mutation[1]?.body))).toMatchObject({ listingId: "listing-one", price: "3.20", revision: 2 });
     expect(listing.value).toBe("");
+  });
+  it("keeps loaded history on refresh and removes duplicate cursor rows", async () => {
+    const rows = Array.from({ length: 31 }, (_, index) => ({ ...demand(), id: "row-" + index, state: "cancelled" as const }));
+    const fetcher = vi.fn(async (url: string) => Response.json({
+      ...base, requests: url.includes("cursor=") ? rows.slice(29) : rows.slice(0, 30), nextCursor: url.includes("cursor=") ? null : "next-page",
+    }));
+    vi.stubGlobal("fetch", fetcher);
+    render(<UsdtRequestsWorkspace locale="en" actorId="buyer" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Load more" }));
+    await waitFor(() => expect(screen.getAllByTestId("request-card")).toHaveLength(31));
+    fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+    await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(4));
+    expect(screen.getAllByTestId("request-card")).toHaveLength(31);
+  });
+  it("guides a cancelled trade back to renewal while retaining its previous trade link", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ ...base, requests: [{ ...demand(), state: "trade_cancelled", purchaseRequestId: "old-trade" }] })));
+    render(<UsdtRequestsWorkspace locale="en" actorId="buyer" demandId="demand-one" />);
+    expect(await screen.findByRole("heading", { name: "This request is closed" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "View previous Trade Room" }).getAttribute("href")).toBe("/trade-room/old-trade");
+    expect(screen.getByRole("button", { name: "Update / renew" })).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "Continue in your Trade Room" })).toBeNull();
+  });
+  it("does not tell a seller to edit a paused buyer request", async () => {
+    mocks.session = { user: { id: "seller" } };
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ ...base, actorId: "seller", canRespond: true, requests: [{ ...demand(), isMine: false, state: "paused" }] })));
+    render(<UsdtRequestsWorkspace locale="en" actorId="seller" demandId="demand-one" />);
+    expect(await screen.findByText(/Refresh later or browse other open requests/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Update / renew" })).toBeNull();
+  });
+  it("ignores a completed submission after the account context changes", async () => {
+    let finish: (response: Response) => void = () => {};
+    const pending = new Promise<Response>(resolve => { finish = resolve; });
+    const fetcher = vi.fn(async (_url: string, options?: RequestInit) => options?.method === "POST" ? pending : Response.json(base));
+    vi.stubGlobal("fetch", fetcher);
+    const view = render(<UsdtRequestsWorkspace locale="en" actorId="buyer" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Create a request" }));
+    fireEvent.change(screen.getByLabelText("Amount (USDT)"), { target: { value: "5,000" } });
+    fireEvent.submit(screen.getByRole("form", { name: "Request details" }));
+    await waitFor(() => expect(fetcher.mock.calls.some(([, options]) => options?.method === "POST")).toBe(true));
+    mocks.session = { user: { id: "another-account" } };
+    view.rerender(<UsdtRequestsWorkspace locale="en" actorId="buyer" />);
+    await act(async () => { finish(Response.json({ destination: "/usdt-exchange/requests/new" })); await pending; });
+    expect(mocks.push).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert").textContent).toContain("session changed");
+  });
+  it("closes the trade review and clears wallet details when its response becomes unavailable", async () => {
+    vi.spyOn(document, "hidden", "get").mockReturnValue(false);
+    let latest: DemandView = {
+      ...demand(), paymentMethod: "Bank Transfer", amount: "5000",
+      offers: [{ id: "offer-one", listingId: "listing-one", price: "3.30", state: "open", revision: 1, sellerName: "AT-200", isMine: false, available: true }],
+    };
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ ...base, requests: [latest] })));
+    render(<UsdtRequestsWorkspace locale="en" actorId="buyer" demandId="demand-one" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Review response" }));
+    fireEvent.change(screen.getByLabelText(/Your receiving wallet/), { target: { value: "private-draft-wallet" } });
+    latest = { ...latest, offers: latest.offers.map(offer => ({ ...offer, available: false })) };
+    fireEvent.focus(window);
+    await waitFor(() => expect(screen.queryByRole("form", { name: "Trade review" })).toBeNull());
+    expect(screen.getByRole("status").textContent).toContain("no longer available");
+    latest = { ...latest, offers: latest.offers.map(offer => ({ ...offer, available: true })) };
+    fireEvent.focus(window);
+    fireEvent.click(await screen.findByRole("button", { name: "Review response" }));
+    expect((screen.getByLabelText(/Your receiving wallet/) as HTMLInputElement).value).toBe("");
   });
 });
