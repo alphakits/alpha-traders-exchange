@@ -15,7 +15,7 @@ The section controller now retains a short-lived explicit request before a route
 ## Verification
 
 - Two new English/Arabic component regressions failed against the released source: focus remained on the header button instead of the delayed form. The previous 31 cases passed.
-- After the repair, all 45 navigation component tests pass, including interaction/history cancellation, expiry, route/query/locale/hash mismatch, cross-page links, initial hydration, and deferred form mounting.
+- In the latest revision, all 53 navigation component tests pass, including interaction/history cancellation, expiry, route/query/locale/hash mismatch, cross-page links, initial hydration, and deferred form mounting.
 - Root TypeScript checking, targeted source lint, and diff whitespace checks pass locally using the existing matching test dependencies. CI must independently install and verify the exact candidate.
 - Eight loopback-only browser cases cover seller/owner, English/Arabic, and pointer/keyboard activation from My Trades. They assert destination URL, focused form, viewport position, and an empty amount field. Candidate Chromium/WebKit and all required release checks remain necessary before deployment.
 
@@ -30,3 +30,11 @@ Four additional deterministic component cases exposed two gaps in the pending fo
 All 50 component cases pass locally after the repair. The eight browser cases now retain bounded event diagnostics, and the WebKit release job repeats them three times with zero retries before its full group. The complete revised candidate and merged-source gates remain required.
 
 The same CI1144 database attempt also failed its unchanged one-second timing threshold (14 of 270 actions, maximum 1,121.253 ms), while correctness and recovery passed. Its original evidence remains retained; no database code, durability setting, or performance threshold was changed.
+
+## CI1145 controller lifetime follow-up
+
+The 24-case zero-retry WebKit preflight on `cd121048` passed 15 cases, then the second Arabic owner keyboard case failed; eight remaining cases were not run. Event diagnostics in artifact `12475264590` show one Enter action, then an explicit `create-listing` event before the form mounts. No further pointer, keyboard, wheel or touch action follows. At failure, focus remains on the header and the form is 4,802.859 pixels below the viewport.
+
+The route effect's cleanup unconditionally cancelled the global section controller. Two deterministic regressions reproduce lost restoration when the pathname hook catches up after a streamed mount and when the restorer remounts on the same route. Both fail against `cd121048`; the prior 51 cases pass. Effect cleanup now removes only its own scheduled frame and listeners. The shared controller retains its existing route guard, interruption handlers, ownership transfer and ten-second expiry. All 53 component tests pass, including a different-page cancellation case. The complete browser preflight and release gates still must verify this revision.
+
+CI1145's separate database attempt also failed the unchanged threshold: three `funds_received` actions exceeded one second, maximum 1,022.073 ms. Their entry/read phases took 995–1,015 ms and writes about 5 ms. Eight recorded slow commits during that burst totalled 768.118 ms while the financial lock remained held. This identifies a queue-latency contributor, not sole causation or representative production performance. All original evidence remains retained.

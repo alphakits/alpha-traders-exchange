@@ -172,6 +172,61 @@ describe("first-click section navigation", () => {
     expect(form.scrollIntoView).not.toHaveBeenCalled();
   });
 
+  it("keeps a consumed request when the pathname hook catches up after a streamed restorer mounts", async () => {
+    pathname = "/ar/trades";
+    window.history.replaceState({}, "", pathname);
+    const ui = (navigation: boolean) => <><CreateListingQuickLink label="Create Listing" className="" />{navigation && <PageSectionNavigation />}</>;
+    const view = render(ui(false));
+    const button = screen.getByRole("button", { name: /Create Listing/ });
+    button.focus();
+    fireEvent.click(button);
+    window.history.pushState({}, "", "/ar/usdt-exchange#create-listing");
+    // The address and explicit request are ready before the router hook's
+    // suspended subtree catches up. Start restoring the still-unmounted form.
+    view.rerender(ui(true));
+    await settle();
+    pathname = "/ar/usdt-exchange";
+    view.rerender(ui(true));
+    await settle();
+    const form = section("create-listing");
+    await settle();
+    expect(document.activeElement).toBe(form);
+  });
+
+  it("keeps the current explicit request through a same-route restorer remount", async () => {
+    pathname = "/en/trades";
+    window.history.replaceState({}, "", pathname);
+    const ui = (navigation: boolean) => <><CreateListingQuickLink label="Create Listing" className="" />{navigation && <PageSectionNavigation />}</>;
+    const view = render(ui(true));
+    await settle();
+    const button = screen.getByRole("button", { name: /Create Listing/ });
+    button.focus();
+    fireEvent.click(button);
+    pathname = "/en/usdt-exchange";
+    window.history.pushState({}, "", `${pathname}#create-listing`);
+    view.rerender(ui(true));
+    await settle();
+    view.rerender(ui(false));
+    view.rerender(ui(true));
+    await settle();
+    const form = section("create-listing");
+    await settle();
+    expect(document.activeElement).toBe(form);
+  });
+
+  it("does not carry an active controller into a different page after effect cleanup", async () => {
+    const view = render(<PageSectionNavigation />);
+    await settle();
+    revealPageSection("create-listing");
+    pathname = "/en/profile";
+    window.history.pushState({}, "", pathname);
+    view.rerender(<PageSectionNavigation />);
+    const unrelatedForm = section("create-listing");
+    await settle();
+    expect(document.activeElement).not.toBe(unrelatedForm);
+    expect(unrelatedForm.scrollIntoView).not.toHaveBeenCalled();
+  });
+
   it.each(["/ar/usdt-exchange#create-listing", "/en/usdt-exchange?mode=sell#create-listing", "/en/usdt-exchange#my-listings-section"])("does not carry a header request to an unrequested destination: %s", async (destination) => {
     pathname = "/en/trades";
     window.history.replaceState({}, "", pathname);

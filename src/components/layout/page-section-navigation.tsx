@@ -50,7 +50,9 @@ export function PageSectionNavigation() {
       cancelInitialRestore();
       window.removeEventListener("hashchange", revealHash);
       window.removeEventListener("popstate", revealHash);
-      cancelPageSectionNavigation();
+      // The shared controller owns its route, interruption listeners and
+      // bounded lifetime. A streamed remount or a delayed pathname update
+      // must not cancel an explicit request it already consumed.
     };
   }, [pathname, search]);
 
