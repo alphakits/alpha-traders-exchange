@@ -46,7 +46,6 @@ export function revealPageSection(sectionId: string) {
   let lastHeight: number | undefined;
   let frame: number | undefined;
   let stopped = false;
-  let smoothScrollStarted = false;
   const timers: number[] = [];
   let resize: ResizeObserver | undefined;
 
@@ -67,11 +66,6 @@ export function revealPageSection(sectionId: string) {
   const interrupt = () => {
     if (stopped) return;
     stop();
-    // Cancelling our timers does not cancel the browser's active animation.
-    // Hold the current position so a pressed button cannot move before release.
-    if (smoothScrollStarted) {
-      window.scrollTo({ left: window.scrollX, top: window.scrollY, behavior: "instant" });
-    }
   };
 
   const reveal = () => {
@@ -96,10 +90,11 @@ export function revealPageSection(sectionId: string) {
     const top = target.getBoundingClientRect().top + window.scrollY;
     const height = document.documentElement.scrollHeight;
     if (trackedTarget !== target || lastTop === undefined || Math.abs(top - lastTop) > 1 || height !== lastHeight) {
-      const behavior = trackedTarget === null && !window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ? "smooth" : "instant";
-      smoothScrollStarted = behavior === "smooth";
+      // Focus and viewport position must settle together. A smooth scroll can
+      // move the next control after its pointer coordinates have been chosen,
+      // before pointerdown can cancel the animation (CI1138).
       target.scrollIntoView({
-        behavior,
+        behavior: "instant",
         block: "start",
       });
       lastTop = top;

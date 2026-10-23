@@ -135,6 +135,9 @@ jobs:
       - name: Install Chromium runtime
         run: npx playwright install --with-deps chromium
 
+      - name: Verify the first click after section navigation
+        run: node scripts/check-section-navigation.mjs --browser=chromium
+
       - name: Verify authenticated marketplace and Trade Room flows
         run: npm run test:e2e
 
@@ -287,6 +290,9 @@ jobs:
             await browser.close();
           })().catch((error) => { console.error(error); process.exitCode = 1; });
           NODE
+      - name: Verify the first click after section navigation in WebKit
+        if: matrix.shard == 1
+        run: node scripts/check-section-navigation.mjs --browser=webkit
       - name: Verify seller keyboard navigation before the full WebKit group
         if: matrix.shard == 3
         env:

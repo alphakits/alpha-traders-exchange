@@ -194,15 +194,16 @@ describe("first-click section navigation", () => {
     expect(form.scrollIntoView).not.toHaveBeenCalled();
   });
 
-  it.each(["pointerdown", "keydown", "wheel", "touchmove"])("stops an in-flight smooth scroll at the current position on %s", async (event) => {
+  it.each(["pointerdown", "keydown", "wheel", "touchmove"])("settles the viewport before focus and yields to the next %s", async (event) => {
     const form = section("create-listing");
     vi.stubGlobal("scrollX", 20);
     vi.stubGlobal("scrollY", 350);
     revealPageSection(form.id);
-    expect(form.scrollIntoView).toHaveBeenCalledWith({ behavior: "smooth", block: "start" });
+    expect(form.scrollIntoView).toHaveBeenCalledWith({ behavior: "instant", block: "start" });
+    expect(document.activeElement).toBe(form);
     const interaction = new Event(event, { bubbles: true, cancelable: true });
     document.dispatchEvent(interaction);
-    expect(window.scrollTo).toHaveBeenCalledExactlyOnceWith({ left: 20, top: 350, behavior: "instant" });
+    expect(window.scrollTo).not.toHaveBeenCalled();
     expect(interaction.defaultPrevented).toBe(false);
     vi.mocked(form.scrollIntoView).mockClear();
     await settle();
