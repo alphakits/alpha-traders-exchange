@@ -4,7 +4,8 @@ FROM docker.io/library/node:22.18.0-alpine@sha256:1b2479dd35a99687d6638f5976fd23
 
 WORKDIR /app/discord-worker
 COPY discord-worker/package.json discord-worker/package-lock.json ./
-RUN npm ci
+COPY discord-worker/verify-dependency-security.mjs ./
+RUN npm ci && npm run test:dependencies
 
 COPY src/workers/discord-worker.ts /app/src/workers/discord-worker.ts
 COPY src/lib /app/src/lib

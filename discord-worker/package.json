@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "test:dependencies": "node --test verify-dependency-security.mjs",
     "build": "esbuild ../src/workers/discord-worker.ts --bundle --platform=node --format=esm --packages=external --conditions=react-server --alias:@=../src --alias:@alpha-traders/contracts=../packages/contracts/src/index.ts --outfile=dist/discord-worker.js"
   },
   "dependencies": {
@@ -14,5 +15,9 @@
   },
   "devDependencies": {
     "esbuild": "0.28.1"
+  },
+  "overrides": {
+    "undici@6": "6.29.1",
+    "zod": "4.6.6"
   }
 }
