@@ -150,6 +150,23 @@ async function expectVisibleTextFits(element: Locator) {
     return true;
   }), "Every visible identity label fits at the actual rendered text bounds").toBe(true);
 }
+async function expectFocusedControlUnobscured(control: Locator) {
+  await expect(control).toBeFocused();
+  await expect.poll(() => control.evaluate(element => {
+    const rect = element.getBoundingClientRect();
+    if (document.activeElement !== element) return "focus moved";
+    if (rect.width <= 0 || rect.height <= 0 || rect.left < 0 || rect.top < 0
+      || rect.right > innerWidth || rect.bottom > innerHeight) return "focused control is outside the viewport";
+    const inset = Math.min(8, rect.width / 4, rect.height / 4);
+    const points = [[rect.left + inset, rect.top + inset], [rect.right - inset, rect.top + inset],
+      [rect.left + inset, rect.bottom - inset], [rect.right - inset, rect.bottom - inset],
+      [rect.left + rect.width / 2, rect.top + rect.height / 2]];
+    return points.every(([x, y]) => {
+      const hit = document.elementFromPoint(x, y);
+      return hit === element || (hit !== null && element.contains(hit));
+    }) ? "unobscured" : "focused control is covered by another element";
+  }), { message: "Keyboard focus remains fully visible and usable above fixed navigation", timeout: 10_000 }).toBe("unobscured");
+}
 async function createDemand(api: APIRequestContext, amount = "1000") {
   const response = await api.post(root, { data: { terms: { ...terms, amount }, operationId: randomUUID() } });
   expect(response.ok(), await response.text()).toBe(true);
@@ -516,7 +533,9 @@ test("Arabic mobile request form renders RTL and publishes through the same API"
   await blockExternalBrowserRequests(context); await login(page.request, "buyer");
   await page.setViewportSize({ width: 320, height: 844 });
   await page.goto("/ar/usdt-exchange/requests");
-  await expect(page.locator("main[dir=rtl]")).toBeVisible();
+  const workspace = page.getByRole("region", { name: "طلبات الشراء", exact: true });
+  await expect(workspace).toBeVisible();
+  await expect(workspace).toHaveAttribute("dir", "rtl");
   await expectBlueAction(page.getByRole("button", { name: "إنشاء طلب", exact: true }));
   await page.getByRole("button", { name: "إنشاء طلب", exact: true }).click();
   const amount = page.getByLabel("المبلغ (USDT)", { exact: true });
@@ -547,7 +566,12 @@ for (const locale of ["en", "ar"] as const) {
     const buyerPage = await buyer.newPage(); const sellerPage = await seller.newPage();
     const ar = locale === "ar";
     const audit = async (page: import("@playwright/test").Page, stage: string) => {
-      await expect(page.getByRole("main")).toBeVisible();
+      await expect(page.getByRole("main").first()).toBeVisible();
+      await expectFocusedControlUnobscured(page.locator("input:focus, select:focus, textarea:focus, button:focus, [tabindex='-1']:focus"));
+      // Scan a deterministic document position, not a non-focused control
+      // partly passing beneath the sticky header after form navigation.
+      await page.evaluate(() => window.scrollTo({ top: 0, behavior: "instant" }));
+      await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
       await page.addScriptTag({ path: axePath });
       const result = await page.evaluate(async () => {
         const axe = (window as Window & { axe: typeof import("axe-core") }).axe;
@@ -557,33 +581,48 @@ for (const locale of ["en", "ar"] as const) {
       });
       await info.attach(`${locale}-${stage}-accessibility`, { body: Buffer.from(JSON.stringify({ violations: result.violations, incomplete: result.incomplete }, null, 2)), contentType: "application/json" });
       await page.screenshot({ path: info.outputPath(`${locale}-${stage}-accessibility.png`), fullPage: true });
-      expect(result.violations, `${locale} ${stage}: automated WCAG A/AA violations in the Buy Requests main content`).toEqual([]);
+      // Collect every stage's diagnostics while retaining both failing checks.
+      expect.soft(await page.getByRole("main").count(), `${locale} ${stage}: one main landmark per page`).toBe(1);
+      if (stage === "buyer-form") expect.soft(await page.getByRole("group", { name: ar ? "كميات سريعة" : "Quick amounts", exact: true }).count()).toBe(1);
+      expect.soft(result.violations, `${locale} ${stage}: automated WCAG A/AA violations in the Buy Requests main content`).toEqual([]);
     };
     try {
       await login(buyer.request, "buyer"); await login(seller.request, "seller");
       await buyerPage.goto(`/${locale}/usdt-exchange/requests`);
       const create = buyerPage.getByRole("button", { name: ar ? "إنشاء طلب" : "Create a request", exact: true });
       await create.focus(); await create.press("Enter");
-      await expect(buyerPage.getByLabel(ar ? "طريقة الدفع" : "Payment method", { exact: true })).toBeFocused();
+      await expectFocusedControlUnobscured(buyerPage.getByLabel(ar ? "طريقة الدفع" : "Payment method", { exact: true }));
       await buyerPage.keyboard.press("Tab");
-      await expect(buyerPage.getByLabel(ar ? "الشبكة" : "Network", { exact: true })).toBeFocused();
+      await expectFocusedControlUnobscured(buyerPage.getByLabel(ar ? "الشبكة" : "Network", { exact: true }));
       await buyerPage.keyboard.press("Tab");
       const amount = buyerPage.getByLabel(ar ? "المبلغ (USDT)" : "Amount (USDT)", { exact: true });
-      await expect(amount).toBeFocused(); await amount.fill("1000");
-      await buyerPage.getByLabel(ar ? "السعر المطلوب لكل USDT (شيكل)" : "Requested price per USDT (ILS)", { exact: true }).fill("3.30");
+      await expectFocusedControlUnobscured(amount); await amount.fill("1000");
+      for (const label of ["500 USDT", "1,000 USDT", "5,000 USDT"]) {
+        await buyerPage.keyboard.press("Tab");
+        await expectFocusedControlUnobscured(buyerPage.getByRole("button", { name: label, exact: true }));
+      }
+      await buyerPage.keyboard.press("Tab");
+      const price = buyerPage.getByLabel(ar ? "السعر المطلوب لكل USDT (شيكل)" : "Requested price per USDT (ILS)", { exact: true });
+      await expectFocusedControlUnobscured(price); await price.fill("3.30");
       await audit(buyerPage, "buyer-form");
 
       const demand = await createDemand(buyer.request);
       await sellerPage.goto(`/${locale}/usdt-exchange/requests/${demand.id}`);
       await sellerPage.getByLabel(ar ? "عرضك" : "Your listing", { exact: true }).selectOption("listing-offline-seller");
-      await sellerPage.getByLabel(ar ? "سعر ردك (شيكل)" : "Your response price (ILS)", { exact: true }).fill("3.25");
+      const sellerPrice = sellerPage.getByLabel(ar ? "سعر ردك (شيكل)" : "Your response price (ILS)", { exact: true });
+      await sellerPrice.fill("3.25");
+      // Native keyboard navigation scrolls the field into view, unlike a
+      // programmatic fill that may focus an offscreen input without scrolling.
+      await sellerPrice.press("Shift+Tab"); await sellerPage.keyboard.press("Tab");
       await audit(sellerPage, "seller-response");
       const response = await seller.request.post(`${root}/${demand.id}/offers`, { data: { revision: 1, listingId: "listing-offline-seller", price: "3.25", operationId: randomUUID() } });
       expect(response.ok(), await response.text()).toBe(true);
       await buyerPage.goto(`/${locale}/usdt-exchange/requests/${demand.id}`);
       const review = buyerPage.getByRole("button", { name: ar ? "مراجعة الرد" : "Review response", exact: true });
       await review.focus(); await review.press("Enter");
-      await expect(buyerPage.getByRole("form", { name: ar ? "مراجعة الصفقة" : "Trade review" })).toBeVisible();
+      const reviewForm = buyerPage.getByRole("form", { name: ar ? "مراجعة الصفقة" : "Trade review" });
+      await expect(reviewForm).toBeVisible();
+      await expectFocusedControlUnobscured(reviewForm.locator("legend[tabindex='-1']"));
       await audit(buyerPage, "trade-review");
     } finally { await buyer.close(); await seller.close(); }
   });
