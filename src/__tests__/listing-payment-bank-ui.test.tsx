@@ -143,13 +143,15 @@ describe("listing payment-method bank requirements", () => {
 });
 
 describe("create-listing review summary", () => {
-  it("does not submit a listing using a fallback price when the live quote is unavailable", async () => {
+  it.each(["en", "ar"] as const)("explains unavailable quotes in review and does not submit using a fallback price (%s)", async (locale) => {
     marketAvailable = false;
-    const form = await openForm(["Face-to-Face (Meet in Person)"]);
-    fireEvent.click(form.getByRole("button", { name: "Continue to payment" }));
-    fireEvent.click(form.getByRole("button", { name: "Review listing" }));
+    const form = await openForm(["Face-to-Face (Meet in Person)"], locale);
+    fireEvent.click(form.getByRole("button", { name: locale === "ar" ? "متابعة إلى الدفع" : "Continue to payment" }));
+    fireEvent.click(form.getByRole("button", { name: locale === "ar" ? "مراجعة العرض" : "Review listing" }));
     fireEvent.click(form.getByRole("checkbox"));
-    const submit = form.getByRole("button", { name: "Submit Listing" }) as HTMLButtonElement;
+    const review = within(form.getByRole("region", { name: locale === "ar" ? "المراجعة والإرسال" : "Review & submit" }));
+    expect(review.getByText(locale === "ar" ? /بانتظار سعر USD/ : /Waiting for a fresh USD/)).toBeTruthy();
+    const submit = review.getByRole("button", { name: locale === "ar" ? "إرسال العرض" : "Submit Listing" }) as HTMLButtonElement;
     expect(submit.disabled).toBe(true);
     fireEvent.click(submit);
     expect(submittedListing).toBeUndefined();
