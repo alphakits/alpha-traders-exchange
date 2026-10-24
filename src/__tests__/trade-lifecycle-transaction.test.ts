@@ -67,6 +67,16 @@ describe("canonical trade lifecycle transaction", () => {
     expect(sql.indexOf("select pg_advisory_xact_lock(61422917)")).toBeLessThan(sql.findLastIndex(statement => statement.includes("json_agg")));
     await tx.close();
   });
+  it("reads receipt dependencies once after locking and never uses a status-only optimistic retry", async () => {
+    const { repo, query } = fixture();
+    const tx = (await repo.beginTradeLifecycleTransaction(["users", "purchase_requests"], "target", undefined, "buyer"))!;
+    const sql = query.mock.calls.map(([statement]) => statement);
+    expect(sql.filter(statement => statement.includes("json_agg"))).toHaveLength(1);
+    expect(sql.indexOf("select pg_advisory_xact_lock(61422917)")).toBeLessThan(sql.findIndex(statement => statement.includes("json_agg")));
+    expect(sql.some(statement => statement.includes("pg_try_advisory_xact_lock(61422919"))).toBe(false);
+    await expect(tx.commit(tx.snapshot, { selectedTables: ["purchase_requests"] })).resolves.toBeUndefined();
+    await tx.close();
+  });
   it("reads after obtaining the cross-instance lock and persists only changed rows with stable ordering", async () => {
     const { repo, query, release } = fixture();
     const tx = await repo.beginTradeLifecycleTransaction(["purchase_requests", "audit_logs", "notifications"]);

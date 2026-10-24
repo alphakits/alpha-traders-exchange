@@ -40,3 +40,20 @@ describe("AT account identities", () => {
     expect(redact(text)).toBe(text);
   });
 });
+
+describe("financial values in identity redaction", () => {
+  it.each([false, true])("preserves currency, networks and numbers when account aliases collide (name parts: %s)", (includeNameParts) => {
+    const users = ["USDT", "USD", "ILS", "BTC", "ETH", "TRC20", "BEP20", "ERC20", "SOL", "13,000", "3.42", "１３,０００", "ＵＳＤＴ"]
+      .map((fullName, index) => ({ id: "collision-" + index, fullName }));
+    const text = "New USDT listing: 13,000 USDT on BEP20 at 3.42 ILS/USDT. USD BTC ETH TRC20 ERC20 SOL.";
+    expect(identityTextRedactor(users, includeNameParts)(text)).toBe(text);
+  });
+
+  it.each([false, true])("still hides full personal names containing a financial token (name parts: %s)", (includeNameParts) => {
+    const member = { id: "named-member", fullName: "Amir USDT", buyerDisplayName: "ليلى ILS" };
+    const redact = identityTextRedactor([member], includeNameParts);
+    expect(redact("Amir USDT / ليلى ILS: 13,000 USDT at 3.42 ILS."))
+      .toBe(publicAccountId(member) + " / " + publicAccountId(member) + ": 13,000 USDT at 3.42 ILS.");
+    expect(redact("+972501234567 member@example.test")).not.toMatch(/1234567|example/);
+  });
+});

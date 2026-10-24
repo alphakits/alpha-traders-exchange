@@ -1423,7 +1423,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                   </label>
                   <p className="mt-2 text-sm text-[#D1D5DB]">{isAr ? <>اقرأ السياسة كاملة في <Link href="/safety-trust" locale={locale} className="text-[#93C5FD] underline underline-offset-2">مركز الأمان والثقة</Link>.</> : <>Read full policy in the <Link href="/safety-trust" locale={locale} className="text-[#93C5FD] underline underline-offset-2">Safety & Trust Center</Link>.</>}</p>
                 </div>
-                {listingCreatePriceInvalid || listingCreateTradeRangeInvalid || !listingCreateSelectedMethods.length || (listingCreateRequiresBank && !listingCreateSelectedBanks.length) || (listingCreateRequiresBankAccount && !listingCreateForm.bankAccountId) || listingCreateBankAccountMismatch || !listingCommissionAgreement ? (
+                {!marketReferenceAvailable || listingCreatePriceInvalid || listingCreateTradeRangeInvalid || !listingCreateSelectedMethods.length || (listingCreateRequiresBank && !listingCreateSelectedBanks.length) || (listingCreateRequiresBankAccount && !listingCreateForm.bankAccountId) || listingCreateBankAccountMismatch || !listingCommissionAgreement ? (
                 <div className={`rounded-xl border p-3 transition-colors ${listingCreateGuardTone}`}>
                   <div className="flex items-start gap-2">
                     <AlertTriangle aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0" />

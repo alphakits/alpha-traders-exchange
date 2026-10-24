@@ -345,6 +345,15 @@ try {
   (await Promise.all(workers.map(worker => worker.call("ready")))).forEach(requireOk);
   assert.equal(requireOk(await workers[0].call("snapshot")).purchaseRequests.filter(request => request.status === "accepted").length, 45);
   passed("Application process restart preserves all accepted trades", { trades: 45 });
+  const receiptTarget = active.find(request => request.paymentMethod === "Bank Transfer");
+  assert(receiptTarget, "Receipt dependency verification needs an active bank transfer");
+  const receiptScope = requireOk(await workers[0].call("inspect-receipt-scope", { requestId: receiptTarget.id, actorUserId: receiptTarget.buyerId }));
+  const receiptRelatedRequests = snapshot.purchaseRequests.filter(request => request.sellerId === receiptTarget.sellerId || request.buyerId === receiptTarget.buyerId);
+  const receiptAuthorityIds = snapshot.users.filter(user => [user.role, ...(user.roles ?? [])].some(role => role === "owner" || role === "admin")).map(user => user.id);
+  assert.deepEqual(receiptScope.requestIds, receiptRelatedRequests.map(request => request.id).sort());
+  assert.deepEqual(receiptScope.userIds, [...new Set([receiptTarget.buyerId, ...receiptAuthorityIds, ...receiptRelatedRequests.flatMap(request => [request.sellerId, request.buyerId])])].sort());
+  assert(receiptScope.userIds.length < snapshot.users.length, "Receipt reads must exclude unrelated account payloads");
+  passed("Receipt uploads retain canonical counterparties and authorities without unrelated history", { retainedAccounts: receiptScope.userIds.length, totalAccounts: snapshot.users.length });
   const forbidden = await batch(active.map(request => buyerCommand(request, "completed")));
   assert(forbidden.every(result => !result.ok && result.code === "seller-completion-required"));
   passed("Buyer cannot complete any payment method", { rejected: forbidden.length });

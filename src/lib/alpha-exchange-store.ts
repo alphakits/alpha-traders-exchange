@@ -12839,9 +12839,10 @@ export async function uploadTradeEvidence(input: UploadTradeEvidenceInput): Prom
   const repository = await getAlphaExchangeRepository();
   // Receipts make the same financial transition as the guided status action.
   // Decide from locked canonical state, then write only changed rows and the
-  // new bytes. A status-only retry projection cannot validate file identity.
+  // new bytes. Supply the actor to scope account/history reads, but no next
+  // status: a status-only retry projection cannot validate file identity.
   const transaction = typeof repository.beginTradeLifecycleTransaction === "function"
-    ? await repository.beginTradeLifecycleTransaction(TRADE_EVIDENCE_READ_TABLES, input.purchaseRequestId)
+    ? await repository.beginTradeLifecycleTransaction(TRADE_EVIDENCE_READ_TABLES, input.purchaseRequestId, undefined, input.actorUserId)
     : null;
   if (!transaction) return uploadTradeEvidenceAttempt(input, 0);
   const transactionReadMs = Date.now() - startedAt;

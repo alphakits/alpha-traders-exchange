@@ -8,6 +8,18 @@ function fixture() {
 beforeEach(() => vi.useFakeTimers());
 afterEach(() => vi.useRealTimers());
 describe("queued owner autosave", () => {
+  it("retains the accepted value between acknowledgement and the next display render", async () => {
+    const f = fixture(); f.save.mockResolvedValueOnce(draft("one", "canonical"));
+    f.queue.enqueue(draft("one", "edited")); await vi.advanceTimersByTimeAsync(10);
+    expect(f.queue.getAcknowledged("one")).toEqual(draft("one", "canonical"));
+    expect(f.queue.getDraft("one")).toBeUndefined();
+    expect(f.queue.hasDraft("one")).toBe(false);
+    f.queue.enqueue(draft("one", "newer edit"));
+    expect(f.queue.getDraft("one")).toEqual(draft("one", "newer edit"));
+    expect(f.queue.getAcknowledged("one")).toEqual(draft("one", "canonical"));
+    f.queue.remove("one");
+    expect(f.queue.getAcknowledged("one")).toBeUndefined();
+  });
   it("carries an acknowledged revision into newer edits without replacing their content", async () => {
     type Versioned = ReturnType<typeof draft> & { updatedAt: string };
     let finish!: (value: Versioned) => void;
@@ -55,6 +67,7 @@ describe("queued owner autosave", () => {
     expect(f.onState).toHaveBeenLastCalledWith({ saving: false, dirty: true, failed: true });
     finish(draft("one")); await vi.advanceTimersByTimeAsync(0);
     expect(f.onSaved).not.toHaveBeenCalled();
+    expect(f.queue.getAcknowledged("one")).toBeUndefined();
   });
   it("does not resurrect a deleted lesson from an outstanding response", async () => {
     const f = fixture(); let finish!: (value: ReturnType<typeof draft>) => void;
@@ -62,6 +75,7 @@ describe("queued owner autosave", () => {
     f.queue.enqueue(draft("one")); await vi.advanceTimersByTimeAsync(10);
     f.queue.remove("one"); finish(draft("one")); await vi.advanceTimersByTimeAsync(0);
     expect(f.onSaved).not.toHaveBeenCalled(); expect(f.queue.hasDraft("one")).toBe(false);
+    expect(f.queue.getAcknowledged("one")).toBeUndefined();
   });
   it("rejects a mismatched response and preserves the actual lesson", async () => {
     const f = fixture(); f.save.mockResolvedValueOnce(draft("other")); f.queue.enqueue(draft("one"));
