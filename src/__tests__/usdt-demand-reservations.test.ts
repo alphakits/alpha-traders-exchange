@@ -1,10 +1,12 @@
 // @vitest-environment node
 import { randomUUID } from "node:crypto";
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
-import { demandTestDb, demandTestTerms, DEMAND_TEST_WALLET } from "@/test-utils/usdt-demand-fixtures";
+import { demandTestDb, demandTestTerms, demandTestUser, DEMAND_TEST_WALLET } from "@/test-utils/usdt-demand-fixtures";
 import { publishDemand, offerDemand } from "@/lib/usdt-demand-store";
-import { createPurchaseRequest, invalidateAlphaExchangeStoreCache, updateMarketplaceListingForSeller, updatePurchaseRequestStatus } from "@/lib/alpha-exchange-store";
+import { createPurchaseRequest, getAccountProfileData, getMyMarketplaceListings, getPublicUserProfileRouteData, invalidateAlphaExchangeStoreCache, updateMarketplaceListingForSeller, updatePurchaseRequestStatus } from "@/lib/alpha-exchange-store";
 import { getAlphaExchangeRepository } from "@/lib/alpha-exchange-repository";
+import { publicAccountUsername } from "@/lib/public-account-username";
+import { isRequestableMarketplaceListing } from "@/lib/requestable-listing";
 
 const hooks = vi.hoisted(() => ({ market: undefined as undefined | (() => Promise<void>), reference: undefined as undefined | (() => Promise<void>) }));
 vi.mock("@/lib/postgres-runtime", () => ({ getRuntimePostgresPool: () => null }));
@@ -34,6 +36,52 @@ function shrinkListing() {
 function gate() { let resolve!: () => void; const promise = new Promise<void>(r => { resolve = r; }); return { promise, resolve }; }
 
 describe("pending demand inventory reservations", () => {
+  it.each([
+    { inventory: "10000", expected: 1 },
+    { inventory: "1000", expected: 0 },
+  ])("keeps public, account and seller overview counts consistent after reserving 1,000 of $inventory", async ({ inventory, expected }) => {
+    const listing = globalThis.__alphaExchangeMemorySnapshot!.marketplaceListings.find(row => row.id === "listing-seller")!;
+    listing.availableAmount = inventory;
+    listing.originalAmount = inventory;
+    listing.maximumTrade = inventory;
+    await createPurchaseRequest(await prepare());
+    const publicProfile = await getPublicUserProfileRouteData({ username: publicAccountUsername("seller"), viewerUserId: "buyer" });
+    const account = await getAccountProfileData("seller");
+    const ownListings = await getMyMarketplaceListings("seller", "all");
+    expect(ownListings.find(row => row.id === listing.id)?.status).toBe("matched");
+    expect(publicProfile?.stats?.activeListings).toBe(expected);
+    expect(account.stats.kind).toBe("seller");
+    if (account.stats.kind !== "seller") throw new Error("Expected seller statistics");
+    expect(account.stats.activeListings).toBe(expected);
+    expect(ownListings.filter(row => isRequestableMarketplaceListing(row))).toHaveLength(expected);
+    expect((await stored()).purchaseRequests).toHaveLength(1);
+  });
+
+  it("does not count a closed listing with leftover inventory as publicly requestable", async () => {
+    const listing = globalThis.__alphaExchangeMemorySnapshot!.marketplaceListings.find(row => row.id === "listing-seller")!;
+    listing.status = "closed";
+    const publicProfile = await getPublicUserProfileRouteData({ username: publicAccountUsername("seller"), viewerUserId: "buyer" });
+    const account = await getAccountProfileData("seller");
+    expect(publicProfile?.stats?.activeListings).toBe(0);
+    expect(account.stats).toMatchObject({ kind: "seller", activeListings: 0 });
+    const ownListings = await getMyMarketplaceListings("seller", "all");
+    expect(ownListings.filter(row => isRequestableMarketplaceListing(row))).toHaveLength(0);
+    expect(ownListings[0].availableAmount).toBe("10000");
+  });
+
+  it("stops counting available listings when the third pending reservation fills seller capacity", async () => {
+    globalThis.__alphaExchangeMemorySnapshot!.users.push(demandTestUser("buyer-three"));
+    for (const buyerId of ["buyer", "buyer-two", "buyer-three"]) await createPurchaseRequest(await prepare(buyerId));
+    const publicProfile = await getPublicUserProfileRouteData({ username: publicAccountUsername("seller"), viewerUserId: "buyer" });
+    const account = await getAccountProfileData("seller");
+    const ownListings = await getMyMarketplaceListings("seller", "all");
+    expect(publicProfile?.stats?.activeListings).toBe(0);
+    expect(account.stats).toMatchObject({ kind: "seller", activeListings: 0 });
+    expect(ownListings[0]).toMatchObject({ availableAmount: "10000", sellerActiveTradeCount: 3, newRequestBlockReason: "trade_limit" });
+    expect(ownListings.filter(row => isRequestableMarketplaceListing(row))).toHaveLength(0);
+    expect((await stored()).purchaseRequests).toHaveLength(3);
+  });
+
   it("commits the listing lock with the match and refuses a seller inventory edit", async () => {
     const input = await prepare(); const created = await createPurchaseRequest(input);
     expect((await stored()).marketplaceListings[0]).toMatchObject({ status: "matched", activeTradeRequestId: created.request.id, availableAmount: "10000" });

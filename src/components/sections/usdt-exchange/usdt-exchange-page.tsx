@@ -77,6 +77,7 @@ import { sortNotificationsNewestFirst } from "@/lib/notification-sort";
 import { formatNotificationRelativeTime } from "@/lib/notification-time";
 import { containsArabicText, localizeActivityCopy, localizeNotificationActionLabel, localizeNotificationCopy } from "@/lib/notification-localization";
 import { calculateSellerMarketplaceInsights } from "@/lib/marketplace-insights";
+import { isRequestableMarketplaceListing } from "@/lib/requestable-listing";
 import { compareMarketplaceSellers } from "@/lib/marketplace-seller-order";
 import { cn } from "@/lib/utils";
 import { getOfficialOwnerWhatsAppUrl } from "@/lib/official-contact";
@@ -3402,7 +3403,7 @@ export function UsdtExchangePage({
     const repeatBuyersCount = Object.values(repeatBuyers).filter((count) => count > 1).length;
     const selfReputation = myListings.find((listing) => Boolean(listing.sellerReputation))?.sellerReputation ?? null;
     return {
-      activeListings: myListings.filter((listing) => listing.status === "active").length,
+      activeListings: myListings.filter((listing) => isRequestableMarketplaceListing(listing)).length,
       pendingRequests: pendingSellerRequests.length,
       completedTrades: insightMetrics.completedTrades,
       totalUsdtSold: insightMetrics.totalUsdtSold,

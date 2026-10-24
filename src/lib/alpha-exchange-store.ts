@@ -1,4 +1,5 @@
 import { assertDemandActor, assertDemandEnabled, commitDemandMatch, isDemandReservedTrade, validateDemandMatch } from "@/lib/usdt-demand-policy";
+import { isRequestableMarketplaceListing, MAX_SELLER_ACTIVE_TRADES, minimumRequestableListingAmount } from "@/lib/requestable-listing";
 import { getMarketSnapshot as getDemandMarket } from "@/lib/market-service";
 import { materializeCommissionShortfalls } from "./commission-shortfall-ledger";
 import { calculateTradeTermsQuote } from "@alpha-traders/contracts";
@@ -28,7 +29,7 @@ import { nextProfileNameChangeAt, ProfileNameCooldownError } from "@/lib/profile
 import { verifyBep20Commission } from "@/lib/bep20-commission-verifier";
 import { isOwnerApprovedSeller } from "@/lib/seller-approval";
 import { hasVerifiedPhone } from "@/lib/verification-bypass";
-import { formatCardlessWithdrawalPayload, cardlessPaymentAmountNotice, getPurchaseMinimumTrade, normalizeCardlessDigits, isCardlessWithdrawalBank, parseCardlessWithdrawalDetails, validateCardlessIlsAmount, calculateCardlessUsdtAmount, normalizeRegistrationWhatsApp } from "@alpha-traders/contracts";
+import { formatCardlessWithdrawalPayload, cardlessPaymentAmountNotice, getPurchaseMinimumTrade, normalizeCardlessDigits, isCardlessWithdrawalBank, parseCardlessWithdrawalDetails, validateCardlessIlsAmount, normalizeRegistrationWhatsApp } from "@alpha-traders/contracts";
 import { appendFileSync, mkdirSync } from "fs";
 import path from "path";
 import { createHash, randomBytes, randomInt, randomUUID, timingSafeEqual } from "crypto";
@@ -1392,8 +1393,6 @@ function getSellerOpenTradeCount(db: AlphaExchangeDb, sellerId: string) {
   return db.purchaseRequests.filter(request => request.sellerId === sellerId && isDemandReservedTrade(request)).length;
 }
 
-const MAX_SELLER_ACTIVE_TRADES = 3;
-
 /** Unsettled inventory stays on the listing; active requests reserve their amount. */
 function listingUnreservedAmount(db: AlphaExchangeDb, listing: MarketplaceListing, excludingRequestId?: string) {
   let remaining = listing.availableAmount;
@@ -1403,6 +1402,21 @@ function listingUnreservedAmount(db: AlphaExchangeDb, listing: MarketplaceListin
     }
   }
   return remaining;
+}
+
+function sellerRequestableListingCount(db: AlphaExchangeDb, sellerId: string) {
+  const now = Date.now();
+  const listings = db.marketplaceListings.filter(listing => listing.sellerId === sellerId
+    && isRequestableMarketplaceListing(listing, listing.availableAmount, now));
+  const available = new Map(listings.map(listing => [listing.id, listing.availableAmount]));
+  let openTrades = 0;
+  for (const request of db.purchaseRequests) {
+    if (request.sellerId !== sellerId || !isDemandReservedTrade(request)) continue;
+    if (++openTrades >= MAX_SELLER_ACTIVE_TRADES) return 0;
+    const remaining = available.get(request.listingId);
+    if (remaining !== undefined) available.set(request.listingId, subtractTradeAmounts(remaining, request.usdtAmount) ?? "0");
+  }
+  return listings.filter(listing => isRequestableMarketplaceListing(listing, available.get(listing.id), now)).length;
 }
 
 function assertSellerTradeCapacity(db: AlphaExchangeDb, listing: MarketplaceListing, amount: string, requestId?: string) {
@@ -1854,7 +1868,7 @@ function buildPublicUserProfileDataForUser(input: {
           completedAsSeller,
           reviewsWritten,
           reviewsReceived,
-          activeListings: db.marketplaceListings.filter((listing) => listing.sellerId === user.id && listing.status === "active").length,
+          activeListings: sellerRequestableListingCount(db, user.id),
           pendingListings: viewerIsOwner || platformOwner ? db.marketplaceListings.filter((listing) => listing.sellerId === user.id && isListingPendingApproval(listing)).length : 0,
         }
       : null,
@@ -2169,15 +2183,6 @@ function qualitySortListings(
     const rightRep = snapshots.get(right.sellerId) ?? computeSellerReputationSnapshot(db, right.sellerId);
     return compareMarketplaceSellers(leftRep, rightRep) || left.id.localeCompare(right.id);
   });
-}
-
-/** The next ATM buyer can request a smaller code-backed quantity with seller approval. */
-function minimumRequestableListingAmount(listing: MarketplaceListing) {
-  const methods = resolveListingPaymentMethods(listing.paymentMethods, listing.paymentMethod);
-  const listedMinimum = Math.max(0, toNumber(listing.minimumTrade));
-  if (!methods.some(isCardlessAtmPaymentMethod)) return listedMinimum;
-  const atmMinimum = toNumber(calculateCardlessUsdtAmount("100", listing.price, true));
-  return methods.every(isCardlessAtmPaymentMethod) ? atmMinimum : Math.min(listedMinimum, atmMinimum);
 }
 
 function publicMarketplaceListing(listing: MarketplaceListing): MarketplaceListing {
@@ -12777,7 +12782,7 @@ export async function getAccountProfileData(userId: string): Promise<{
       promotionHistory: [...(user.sellerPromotionHistory ?? [])].slice(0, 10),
       trustScore: reputation.trustScore,
       completedTrades: sellerRequests.filter((request) => request.status === "completed" || Boolean(request.completedAt)).length,
-      activeListings: db.marketplaceListings.filter((listing) => listing.sellerId === user.id && listing.status === "active").length,
+      activeListings: sellerRequestableListingCount(db, user.id),
       pendingListings: db.marketplaceListings.filter((listing) => listing.sellerId === user.id && isListingPendingApproval(listing)).length,
       averageRating: reputation.rating,
       buyerActivity: buildBuyerActivityStats(db, user.id),

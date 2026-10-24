@@ -118,7 +118,7 @@ function containsArabic(value: string) {
   return /[\u0600-\u06FF]/.test(value);
 }
 
-export function publicCountryLabel(country: string | undefined, isAr: boolean) {
+function publicCountryLabel(country: string | undefined, isAr: boolean) {
   const value = country?.trim();
   if (!value || /^(unknown|not specified|n\/?a|null|undefined|-+)$/i.test(value)) {
     return isAr ? "غير محددة" : "Not specified";
@@ -129,7 +129,7 @@ export function publicCountryLabel(country: string | undefined, isAr: boolean) {
   return ARABIC_COUNTRY_ALIASES[value] ?? (containsArabic(value) ? "Other country" : value);
 }
 
-export function publicLanguageLabel(language: string, isAr: boolean) {
+function publicLanguageLabel(language: string, isAr: boolean) {
   const value = language.trim();
   const normalized = value.toLowerCase();
   const labels: Record<string, { ar: string; en: string }> = {
@@ -148,17 +148,6 @@ export function publicLanguageLabel(language: string, isAr: boolean) {
   if (known) return isAr ? known.ar : known.en;
   if (isAr) return containsArabic(value) ? value : "لغة أخرى";
   return containsArabic(value) ? "Other language" : value;
-}
-
-export function publicVolumeLabel(value: string, isAr: boolean) {
-  const trimmed = value.trim();
-  if (!isAr || !trimmed) return trimmed || "0+";
-  if (containsArabic(trimmed)) return trimmed;
-  const match = trimmed.match(/^([\d,.]+)\s*([KMB])?\s*(\+)?(?:\s+(USDT))?$/i);
-  if (!match) return "حجم موثّق";
-  const [, amount, unit, plus, currency] = match;
-  const unitLabel = unit ? ({ K: "ألف", M: "مليون", B: "مليار" } as const)[unit.toUpperCase() as "K" | "M" | "B"] : "";
-  return `${plus ? "+" : ""}${amount}${unitLabel ? ` ${unitLabel}` : ""}${currency ? " USDT" : ""}`;
 }
 
 function sellerBadgeLabel(badge: string, isAr: boolean) {
@@ -241,7 +230,7 @@ export default async function PublicUserProfilePage({
             </div>
           </div>
 
-          <div className="px-6 pb-6 pt-0 md:px-8">
+          <div className="relative z-10 px-6 pb-6 pt-0 md:px-8">
             <div className="-mt-14 flex flex-wrap items-end justify-between gap-4 md:-mt-16">
               <div className="flex min-w-0 flex-wrap items-end gap-4">
                 <div className={isVerifiedSeller ? "profile-seller-frame" : "profile-member-frame"}>
