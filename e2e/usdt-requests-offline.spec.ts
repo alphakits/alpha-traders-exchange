@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { createRequire } from "node:module";
-import { expect, test, type APIRequestContext, type BrowserContext, type Locator } from "@playwright/test";
+import { expect, test, type APIRequestContext, type BrowserContext, type Locator, type TestInfo } from "@playwright/test";
+import sharp from "sharp";
 import { OFFLINE_ACCOUNTS, OFFLINE_HEADERS, OFFLINE_PASSWORD, seedOfflineFixture } from "../scripts/usdt-request-offline-fixture.mjs";
 import type { AlphaExchangeDb, PurchaseRequest } from "../src/types/alpha-exchange";
 import type { DemandWorkspace } from "../src/types/usdt-demand";
@@ -130,6 +131,36 @@ async function expectGreenMoney(container: Locator) {
   const values = container.locator("bdi").filter({ hasText: /[₪$]\s*\d/ });
   expect(await values.count(), "The checked section contains actual currency values").toBeGreaterThan(0);
   for (const value of await values.all()) await expectGreenText(value);
+}
+async function expectReadableSelectPaint(select: Locator, info: TestInfo, name: string) {
+  // Native select painting can ignore the CSS background in WebKit. Measure
+  // rendered pixels, not just the computed styles used by the color helpers.
+  await select.scrollIntoViewIfNeeded();
+  const bounds = await select.boundingBox();
+  expect(bounds).not.toBeNull();
+  const screenshot = await select.screenshot();
+  await info.attach(name, { body: screenshot, contentType: "image/png" });
+  const { data, info: pixels } = await sharp(screenshot).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+  const foreground = await select.evaluate(node => {
+    const canvas = document.createElement("canvas"); canvas.width = canvas.height = 1;
+    const context = canvas.getContext("2d", { willReadFrequently: true })!;
+    context.fillStyle = getComputedStyle(node).color; context.fillRect(0, 0, 1, 1);
+    return Array.from(context.getImageData(0, 0, 1, 1).data);
+  });
+  const luminance = (channels: number[]) => channels.slice(0, 3).reduce((sum, channel, index) => {
+    const value = channel / 255;
+    return sum + (value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4) * [0.2126, 0.7152, 0.0722][index];
+  }, 0);
+  expect(foreground[3], "Enabled selection text is opaque").toBe(255);
+  // Both padding edges are outside the label and chevron, in LTR and RTL.
+  for (const cssX of [8, bounds!.width - 8]) {
+    const x = Math.min(pixels.width - 1, Math.round(cssX / bounds!.width * pixels.width));
+    const y = Math.floor(pixels.height / 2);
+    const background = Array.from(data.subarray((y * pixels.width + x) * pixels.channels, (y * pixels.width + x) * pixels.channels + 3));
+    expect(Math.max(...background), "Native select surface stays dark in the actual screenshot").toBeLessThan(100);
+    const light = luminance(foreground); const dark = luminance(background);
+    expect((Math.max(light, dark) + 0.05) / (Math.min(light, dark) + 0.05), "Selected text contrasts with its actual painted surface").toBeGreaterThanOrEqual(4.5);
+  }
 }
 async function expectTextFits(element: Locator) {
   expect(await element.evaluate(node => {
@@ -473,6 +504,7 @@ for (const paymentMethod of ["Face-to-Face (Meet in Person)", "Cardless ATM With
           await form.getByLabel("Payment method", { exact: true }).selectOption(paymentMethod);
           const cash = form.getByLabel("ATM cash total incl. 1% fee (ILS)", { exact: true });
           await cash.selectOption("1000"); await expectGreenText(cash);
+          await expectReadableSelectPaint(cash, testInfo, "atm-cash-select-paint");
           await expectFees(form, "990.10", "9.90", "1,000.00");
           await expect(form).toContainText("≈300");
           await cash.scrollIntoViewIfNeeded();
@@ -605,6 +637,8 @@ for (const locale of ["en", "ar"] as const) {
       const price = buyerPage.getByLabel(ar ? "السعر المطلوب لكل USDT (شيكل)" : "Requested price per USDT (ILS)", { exact: true });
       await expectFocusedControlUnobscured(price); await price.fill("3.30");
       await audit(buyerPage, "buyer-form");
+      await expectReadableSelectPaint(buyerPage.getByLabel(ar ? "طريقة الدفع" : "Payment method", { exact: true }), info, `${locale}-payment-select-paint`);
+      await expectReadableSelectPaint(buyerPage.getByLabel(ar ? "الشبكة" : "Network", { exact: true }), info, `${locale}-network-select-paint`);
 
       const demand = await createDemand(buyer.request);
       await sellerPage.goto(`/${locale}/usdt-exchange/requests/${demand.id}`);
@@ -615,6 +649,7 @@ for (const locale of ["en", "ar"] as const) {
       // programmatic fill that may focus an offscreen input without scrolling.
       await sellerPrice.press("Shift+Tab"); await sellerPage.keyboard.press("Tab");
       await audit(sellerPage, "seller-response");
+      await expectReadableSelectPaint(sellerPage.getByLabel(ar ? "عرضك" : "Your listing", { exact: true }), info, `${locale}-listing-select-paint`);
       const response = await seller.request.post(`${root}/${demand.id}/offers`, { data: { revision: 1, listingId: "listing-offline-seller", price: "3.25", operationId: randomUUID() } });
       expect(response.ok(), await response.text()).toBe(true);
       await buyerPage.goto(`/${locale}/usdt-exchange/requests/${demand.id}`);

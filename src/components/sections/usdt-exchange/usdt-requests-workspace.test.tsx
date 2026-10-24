@@ -12,6 +12,22 @@ const base: DemandWorkspace = { actorId: "buyer", canRespond: false, reference: 
 function demand(): DemandView {
   return { id: "demand-one", requesterName: "AT-100", amount: calculateCardlessUsdtAmount("1000", "3.30", true)!, price: "3.30", network: "TRC20", paymentMethod: "Cardless ATM Withdrawal", city: "", revision: 1, state: "open", isMine: true, expiresAt: new Date(Date.now() + 86_400_000).toISOString(), updatedAt: new Date().toISOString(), offers: [] };
 }
+function mockFocusFrames() {
+  let nextId = 0;
+  const pending = new Map<number, FrameRequestCallback>();
+  vi.stubGlobal("requestAnimationFrame", vi.fn((callback: FrameRequestCallback) => { pending.set(++nextId, callback); return nextId; }));
+  const cancel = vi.fn((id: number) => { pending.delete(id); });
+  vi.stubGlobal("cancelAnimationFrame", cancel);
+  return { cancel, pending, flush: () => act(() => {
+    const callbacks = [...pending.values()]; pending.clear(); callbacks.forEach(callback => callback(0));
+  }) };
+}
+async function openFocusForm(locale: "en" | "ar" = "en") {
+  vi.stubGlobal("fetch", vi.fn(async () => Response.json(base)));
+  const view = render(<><header className="alpha-site-header" style={{ position: "sticky" }} /><UsdtRequestsWorkspace locale={locale} actorId="buyer" /><nav data-mobile-bottom-navigation style={{ position: "fixed" }} /></>);
+  fireEvent.click(await screen.findByRole("button", { name: locale === "ar" ? "إنشاء طلب" : "Create a request" }));
+  return view;
+}
 beforeEach(() => { vi.clearAllMocks(); mocks.query = ""; mocks.session = { user: { id: "buyer" } }; });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 describe("USDT request workspace", () => {
@@ -31,7 +47,7 @@ describe("USDT request workspace", () => {
     };
     typeDigit("5");
     expect(amount.value).toBe("5");
-    expect(frames).toHaveLength(1);
+    expect(frames).toHaveLength(2); // Delayed reveal plus the native-focus visibility check.
     act(() => { frames.splice(0).forEach(callback => callback(0)); });
     expect(document.activeElement).toBe(amount);
     for (const digit of "000") typeDigit(digit);
@@ -65,6 +81,87 @@ describe("USDT request workspace", () => {
     await act(async () => { selected.focus(); });
     act(() => { frames.splice(0).forEach(callback => callback(0)); });
     expect(document.activeElement).toBe(selected);
+  });
+
+  it.each(["en", "ar"] as const)("brings the natively focused price above phone navigation without changing focus or its value (%s)", async locale => {
+    const frames = mockFocusFrames();
+    vi.stubGlobal("innerHeight", 640);
+    vi.stubGlobal("visualViewport", undefined);
+    await openFocusForm(locale);
+    frames.flush(); frames.flush();
+    const price = document.getElementById("request-price") as HTMLInputElement;
+    const header = document.querySelector(".alpha-site-header")!;
+    const nav = document.querySelector("[data-mobile-bottom-navigation]")!;
+    vi.spyOn(header, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 0, 320, 80));
+    vi.spyOn(nav, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 576, 320, 64));
+    let priceTop = 700;
+    vi.spyOn(price, "getBoundingClientRect").mockImplementation(() => new DOMRect(20, priceTop, 280, 48));
+    const scroll = vi.fn((options: ScrollToOptions) => { priceTop -= options.top ?? 0; });
+    vi.stubGlobal("scrollBy", scroll);
+    fireEvent.input(price, { target: { value: "3.30" } });
+    act(() => { price.focus(); });
+    expect(scroll).not.toHaveBeenCalled(); // Wait for the browser's own focus scroll first.
+    frames.flush();
+    expect(scroll).toHaveBeenCalledOnce();
+    expect(scroll).toHaveBeenCalledWith({ top: 180, left: 0, behavior: "instant" });
+    expect(price.getBoundingClientRect().bottom).toBeLessThan(nav.getBoundingClientRect().top);
+    expect(price.getBoundingClientRect().top).toBeGreaterThan(header.getBoundingClientRect().bottom);
+    expect(document.activeElement).toBe(price);
+    expect(price.value).toBe("3.30");
+  });
+
+  it("uses the visible keyboard/zoom viewport and clears the sticky header without animation", async () => {
+    const frames = mockFocusFrames();
+    vi.stubGlobal("innerHeight", 800);
+    vi.stubGlobal("visualViewport", { offsetTop: 40, height: 300 });
+    vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: true })));
+    const scroll = vi.fn(); vi.stubGlobal("scrollBy", scroll);
+    await openFocusForm(); frames.flush(); frames.flush();
+    const price = document.getElementById("request-price")!;
+    vi.spyOn(document.querySelector(".alpha-site-header")!, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 0, 320, 90));
+    // The layout viewport's bottom navigation is below the on-screen keyboard.
+    vi.spyOn(document.querySelector("[data-mobile-bottom-navigation]")!, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 736, 320, 64));
+    const bounds = vi.spyOn(price, "getBoundingClientRect").mockReturnValue(new DOMRect(20, 310, 280, 48));
+    act(() => { price.focus(); }); frames.flush();
+    expect(scroll).toHaveBeenLastCalledWith({ top: 26, left: 0, behavior: "instant" });
+    act(() => { price.blur(); }); bounds.mockReturnValue(new DOMRect(20, 70, 280, 48));
+    act(() => { price.focus(); }); frames.flush();
+    expect(scroll).toHaveBeenLastCalledWith({ top: -28, left: 0, behavior: "instant" });
+    expect(document.activeElement).toBe(price);
+  });
+
+  it("does not shift controls that native focus already placed inside the safe viewport", async () => {
+    const frames = mockFocusFrames();
+    vi.stubGlobal("innerHeight", 640); vi.stubGlobal("visualViewport", undefined);
+    const scroll = vi.fn(); vi.stubGlobal("scrollBy", scroll);
+    await openFocusForm(); frames.flush(); frames.flush();
+    const price = document.getElementById("request-price")!;
+    vi.spyOn(document.querySelector(".alpha-site-header")!, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 0, 320, 80));
+    vi.spyOn(document.querySelector("[data-mobile-bottom-navigation]")!, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 576, 320, 64));
+    vi.spyOn(price, "getBoundingClientRect").mockReturnValue(new DOMRect(20, 200, 280, 48));
+    act(() => { price.focus(); }); frames.flush();
+    expect(scroll).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(price);
+  });
+
+  it("ignores a queued check when focus has left the workspace and cancels it on unmount", async () => {
+    const frames = mockFocusFrames();
+    const scroll = vi.fn(); vi.stubGlobal("scrollBy", scroll);
+    const view = await openFocusForm(); frames.flush(); frames.flush();
+    const price = document.getElementById("request-price")!;
+    const outside = document.querySelector("[data-mobile-bottom-navigation]") as HTMLElement;
+    outside.tabIndex = 0;
+    vi.spyOn(price, "getBoundingClientRect").mockReturnValue(new DOMRect(20, 1500, 280, 48));
+    act(() => { price.focus(); outside.focus(); }); frames.flush();
+    expect(scroll).not.toHaveBeenCalled(); expect(document.activeElement).toBe(outside);
+    act(() => { price.focus(); });
+    expect(frames.pending.size).toBe(1);
+    const queued = [...frames.pending.values()];
+    view.unmount();
+    expect(frames.pending.size).toBe(0); expect(frames.cancel).toHaveBeenCalled();
+    // Even an already-delivered callback cannot scroll a detached form.
+    act(() => queued.forEach(callback => callback(0)));
+    expect(scroll).not.toHaveBeenCalled();
   });
 
   it("shows canonical public identities in buyer cards, seller responses and final review", async () => {

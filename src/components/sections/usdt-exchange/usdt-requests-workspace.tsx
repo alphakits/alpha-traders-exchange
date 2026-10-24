@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FocusEvent, type FormEvent } from "react";
 import { useSearchParams } from "next/navigation";
 import { Link, useRouter } from "@/i18n/navigation";
 import { calculateCardlessUsdtAmount, calculateTradePaymentTotal, getCardlessWithdrawalBankOptions, getWalletAddressValidationError, normalizeWalletAddress, parseCardlessWithdrawalDetails, type CardlessVerificationKind } from "@alpha-traders/contracts";
@@ -35,9 +35,32 @@ function reveal(id: string) {
     // the revealed form, including typing into a different amount field.
     if (active instanceof HTMLElement && element.contains(active)
       && (active.matches("input, select, textarea, button, a[href], summary") || active.isContentEditable || active.tabIndex >= 0)) return;
-    element.scrollIntoView?.({ block: "start", behavior: window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches ? "auto" : "smooth" });
+    // Complete navigation before focusing so the visibility correction below
+    // cannot compete with a smooth scroll (also respects reduced motion).
+    element.scrollIntoView?.({ block: "start", behavior: "instant" });
     (element.matches("[tabindex='-1']") ? element : element.querySelector<HTMLElement>("input, select, [tabindex='-1']"))?.focus({ preventScroll: true });
   });
+}
+function keepFocusedControlVisible(target: HTMLElement) {
+  const rect = target.getBoundingClientRect();
+  if (rect.width <= 0 || rect.height <= 0) return;
+  const viewport = window.visualViewport;
+  let top = viewport?.offsetTop ?? 0;
+  let bottom = top + (viewport?.height ?? window.innerHeight);
+  for (const selector of [".alpha-site-header", "[data-mobile-bottom-navigation]"]) {
+    const obstruction = document.querySelector<HTMLElement>(selector);
+    if (!obstruction || !["sticky", "fixed"].includes(window.getComputedStyle(obstruction).position)) continue;
+    const bounds = obstruction.getBoundingClientRect();
+    if (bounds.width <= 0 || bounds.height <= 0 || bounds.right <= rect.left || bounds.left >= rect.right) continue;
+    if (selector === ".alpha-site-header" && bounds.top <= top && bounds.bottom > top) top = bounds.bottom;
+    if (selector === "[data-mobile-bottom-navigation]" && bounds.bottom >= bottom && bounds.top < bottom) bottom = bounds.top;
+  }
+  top += 8; bottom -= 8;
+  if (bottom <= top) return;
+  const delta = rect.top < top || rect.height > bottom - top ? rect.top - top : rect.bottom > bottom ? rect.bottom - bottom : 0;
+  // Correct only clipping after native focus has scrolled. Never move focus or
+  // animate keyboard navigation, including when reduced motion is requested.
+  if (delta) window.scrollBy({ top: delta, left: 0, behavior: "instant" });
 }
 function mergeRequests(rows: DemandView[]) {
   return [...new Map(rows.map(row => [row.id, row])).values()];
@@ -61,6 +84,17 @@ export function UsdtRequestsWorkspace({ locale, actorId, demandId }: { locale: "
   const [busy, setBusy] = useState(false);
   const [now, setNow] = useState(Date.now);
   const busyRef = useRef(false);
+  const focusFrame = useRef<number | null>(null);
+  const keepFocusVisible = useCallback((event: FocusEvent<HTMLElement>) => {
+    if (focusFrame.current !== null) cancelAnimationFrame(focusFrame.current);
+    const target = event.target;
+    const workspace = event.currentTarget;
+    focusFrame.current = requestAnimationFrame(() => {
+      focusFrame.current = null;
+      if (target instanceof HTMLElement && target.isConnected && document.activeElement === target && workspace.contains(target)) keepFocusedControlVisible(target);
+    });
+  }, []);
+  useEffect(() => () => { if (focusFrame.current !== null) cancelAnimationFrame(focusFrame.current); }, []);
   const sequence = useRef(0);
   const loadedLimit = useRef(30);
   const submission = useRef<{ body: string; id: string } | null>(null);
@@ -254,8 +288,8 @@ export function UsdtRequestsWorkspace({ locale, actorId, demandId }: { locale: "
       {confirming && <div className="mt-4 space-y-3 rounded-xl border border-amber-300/20 p-4"><p className="text-sm">{text("Withdraw this response? The buyer will no longer be able to select it.", "هل تريد سحب هذا الرد؟ لن يتمكن المشتري من اختياره.")}</p><div className="flex flex-wrap gap-3"><button disabled={busy} className={secondary} onClick={() => setConfirmation(null)}>{text("Keep response", "إبقاء الرد")}</button><button disabled={busy} className={primary} onClick={() => void confirmAction()}>{text("Confirm withdrawal", "تأكيد السحب")}</button></div></div>}
     </article>;
   }
-  if (!accountMatches) return <section aria-label={text("Buy Requests", "طلبات الشراء")} className="usdt-requests-workspace mx-auto max-w-4xl space-y-4 p-6"><p role="alert">{text("Your session changed. Reload this page to continue with your current account.", "تغيّرت جلستك. أعد تحميل هذه الصفحة للمتابعة بحسابك الحالي.")}</p><button className={secondary} onClick={() => window.location.reload()}>{text("Reload page", "إعادة تحميل الصفحة")}</button></section>;
-  return <section aria-label={text("Buy Requests", "طلبات الشراء")} dir={ar ? "rtl" : "ltr"} className="usdt-requests-workspace mx-auto min-h-screen max-w-5xl space-y-5 px-4 py-6 pb-28 text-white sm:space-y-6 sm:px-6 sm:py-8 sm:pb-28">
+  if (!accountMatches) return <section onFocusCapture={keepFocusVisible} aria-label={text("Buy Requests", "طلبات الشراء")} className="usdt-requests-workspace mx-auto max-w-4xl space-y-4 p-6"><p role="alert">{text("Your session changed. Reload this page to continue with your current account.", "تغيّرت جلستك. أعد تحميل هذه الصفحة للمتابعة بحسابك الحالي.")}</p><button className={secondary} onClick={() => window.location.reload()}>{text("Reload page", "إعادة تحميل الصفحة")}</button></section>;
+  return <section onFocusCapture={keepFocusVisible} aria-label={text("Buy Requests", "طلبات الشراء")} dir={ar ? "rtl" : "ltr"} className="usdt-requests-workspace mx-auto min-h-screen max-w-5xl space-y-5 px-4 py-6 pb-28 text-white sm:space-y-6 sm:px-6 sm:py-8 sm:pb-28">
     <header className="space-y-4">
       <Link href={demandId ? "/usdt-exchange/requests?scope=" + (current && !current.isMine && data?.canRespond ? "available" : "mine") : "/usdt-exchange"} className="inline-flex min-h-11 items-center text-sm text-sky-300 underline underline-offset-4">{demandId ? text("Back to requests", "العودة إلى الطلبات") : text("Back to Alpha Exchange", "العودة إلى Alpha Exchange")}</Link>
       <p className="text-xs font-bold uppercase tracking-[0.2em] text-blue-300">ALPHA EXCHANGE</p>
