@@ -174,6 +174,19 @@ type AdminSmsDelivery = Omit<SmsDeliveryRecord, "recipientPhone" | "body"> & {
   recipientPhoneMasked: string;
 };
 
+function isAdminSmsDeliveryArray(value: unknown): value is AdminSmsDelivery[] {
+  return Array.isArray(value) && value.every((entry: unknown) => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) return false;
+    const row = entry as Record<string, unknown>;
+    return ["id", "eventKey", "eventType", "recipientUserId", "recipientPhoneMasked"].every(key => typeof row[key] === "string" && row[key].trim().length > 0)
+      && ["queued", "sent", "delivered", "failed"].includes(String(row.status))
+      && Number.isInteger(row.retryCount) && Number(row.retryCount) >= 0
+      && ["createdAt", "updatedAt"].every(key => typeof row[key] === "string" && Number.isFinite(Date.parse(row[key])))
+      && ["sentAt", "deliveredAt", "failedAt"].every(key => row[key] === undefined || (typeof row[key] === "string" && Number.isFinite(Date.parse(row[key]))))
+      && ["twilioMessageSid", "providerStatus", "lastError"].every(key => row[key] === undefined || typeof row[key] === "string");
+  });
+}
+
 type SystemHealthSnapshot = {
   status: "healthy" | "degraded";
   checkedAt: string;
@@ -510,6 +523,8 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
   const [toast, setToast, toastFeedbackKey] = useActionFeedbackState<string | null>(null);
   const [data, setData] = useState<AdminPayload | null>(null);
   const dashboardReadEpoch = useRef(0);
+  const smsReadEpoch = useRef(0);
+  const [smsHistoryState, setSmsHistoryState] = useState<"loading" | "ready" | "error">("loading");
   const dashboardMounted = useRef(true);
   const dashboardActionInFlight = useRef(false);
   const [ownerAccountTarget, setOwnerAccountTarget] = useState<OwnerAccountTarget | null>(null);
@@ -712,8 +727,10 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
   const clearOwnerReadData = useCallback(() => {
     // Ignore any earlier successful read that completes after access is lost.
     dashboardReadEpoch.current++;
+    smsReadEpoch.current++;
     systemHealthReadEpoch.current++;
     setData(null);
+    setSmsHistoryState("error");
     setSystemHealth(null);
     setSelectedSeller(null);
     setSelectedSellerProfile(null);
@@ -725,11 +742,35 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
     setSystemHealthLoading(false);
   }, []);
 
+  const fetchSmsDeliveries = useCallback(async () => {
+    const dashboardEpoch = dashboardReadEpoch.current;
+    const epoch = ++smsReadEpoch.current;
+    const current = () => dashboardMounted.current && dashboardEpoch === dashboardReadEpoch.current && epoch === smsReadEpoch.current;
+    setSmsHistoryState("loading");
+    try {
+      const response = await readOwnerDashboardJson("/api/alpha-exchange/admin/sms-deliveries");
+      if (!current()) return;
+      if (response.status === 401 || response.status === 403) {
+        clearOwnerReadData();
+        router.refresh();
+        return;
+      }
+      const payload = response.payload as { deliveries?: unknown } | null;
+      if (!response.ok || !isAdminSmsDeliveryArray(payload?.deliveries)) throw new Error("SMS history read unconfirmed");
+      const deliveries = payload.deliveries;
+      setData(previous => previous ? { ...previous, smsDeliveries: deliveries } : previous);
+      setSmsHistoryState("ready");
+    } catch {
+      if (current()) setSmsHistoryState("error");
+    }
+  }, [clearOwnerReadData, router]);
+
   const fetchData = useCallback(async (options: { silent?: boolean } = {}): Promise<AdminPayload | null> => {
     const epoch = ++dashboardReadEpoch.current;
     const current = () => dashboardMounted.current && epoch === dashboardReadEpoch.current;
     if (!options.silent) setLoading(true);
     setError(null);
+    setSmsHistoryState("loading");
     try {
       const response = await readOwnerDashboardJson("/api/alpha-exchange/admin-prep");
       if (!current()) return null;
@@ -747,19 +788,18 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
       setSelectedRequest(previous => previous ? payload.purchaseRequests.find(row => row.id === previous.id) ?? null : null);
       setSelectedSeller(previous => previous ? payload.approvedSellers.find(row => row.id === previous.id) ?? null : null);
       // Optional delivery history never holds up core account readback.
-      void readOwnerDashboardJson("/api/alpha-exchange/admin/sms-deliveries").then(sms => {
-        if (!current() || !sms.ok) return;
-        const body = sms.payload as { deliveries?: AdminSmsDelivery[] } | null;
-        if (Array.isArray(body?.deliveries)) setData(previous => previous ? { ...previous, smsDeliveries: body.deliveries! } : previous);
-      }).catch(() => {});
+      void fetchSmsDeliveries();
       return fresh;
     } catch (requestError) {
-      if (current()) setError(isArabic ? safeAdminError("load", locale) : requestError instanceof Error ? requestError.message : safeAdminError("load", locale));
+      if (current()) {
+        setError(isArabic ? safeAdminError("load", locale) : requestError instanceof Error ? requestError.message : safeAdminError("load", locale));
+        setSmsHistoryState("error");
+      }
       return null;
     } finally {
       if (current()) setLoading(false);
     }
-  }, [clearOwnerReadData, isArabic, locale, router]);
+  }, [clearOwnerReadData, fetchSmsDeliveries, isArabic, locale, router]);
 
   useEffect(() => {
     void fetchData();
@@ -3380,6 +3420,12 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                         <CardDescription>{t("Recent lifecycle messages. Recipient numbers are always masked.", "أحدث الرسائل التشغيلية. أرقام المستلمين مخفية دائمًا.")}</CardDescription>
                       </CardHeader>
                       <CardContent>
+                        {smsHistoryState === "loading" ? <p role="status" className="py-4 text-sm text-[#D1D5DB]">{t("Loading SMS delivery history…", "جارٍ تحميل سجل رسائل SMS…")}</p> : null}
+                        {smsHistoryState === "error" ? <div className="space-y-3 py-4">
+                          <p role="alert" className="text-sm text-amber-200">{t("SMS delivery history could not be loaded. Try again.", "تعذر تحميل سجل رسائل SMS. أعد المحاولة.")}</p>
+                          <Button type="button" variant="secondary" onClick={() => void fetchSmsDeliveries()}>{t("Retry SMS history", "إعادة تحميل سجل رسائل SMS")}</Button>
+                        </div> : null}
+                        {smsHistoryState === "ready" ? <>
                         <div className="overflow-x-auto rounded-xl border border-white/10">
                           <table className="w-full min-w-[1320px] text-sm">
                             <thead className="bg-white/[0.03] text-left text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">
@@ -3430,6 +3476,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                           </table>
                         </div>
                         {renderPagination(smsDeliveryRows.safePage, smsDeliveryRows.totalPages, setSmsDeliveriesPage)}
+                        </> : null}
                       </CardContent>
                     </Card>
                   ) : null}

@@ -1,4 +1,5 @@
-import { test, expect, request as pwRequest, type APIRequestContext, type Page } from "@playwright/test";
+import { expect, request as pwRequest, type APIRequestContext, type Page } from "@playwright/test";
+import { test } from "./support/focus-diagnostics";
 import { randomBytes, randomUUID, scrypt as scryptCallback } from "node:crypto";
 import { promisify } from "node:util";
 import { E2E_BASE_URL } from "./support/base-url";

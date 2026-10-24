@@ -85,7 +85,7 @@ function transientAuditFailure(report) {
   return null;
 }
 
-function readFreshDependencyAudit() {
+export function readFreshDependencyAudit({ cwd } = {}) {
   const deadline = performance.now() + auditBudgetMs;
   let lastReason = "DEADLINE_EXCEEDED";
   for (let attempt = 1; attempt <= maxAuditAttempts; attempt++) {
@@ -93,6 +93,7 @@ function readFreshDependencyAudit() {
     if (remainingMs <= 0) break;
     const result = spawnSync(process.platform === "win32" ? "npm.cmd" : "npm",
       ["audit", "--omit=dev", "--json", "--fetch-timeout=10000", "--fetch-retries=0"], {
+        cwd,
         encoding: "utf8", timeout: Math.min(auditAttemptMs, remainingMs),
         killSignal: "SIGKILL", maxBuffer: 8 * 1024 * 1024,
       });
