@@ -3872,19 +3872,18 @@ export class AlphaExchangeRepository {
       await runSchema(pool);
     }
 
-    const selectedTables = options?.selectedTables?.length
+    // Sessions belong to the dedicated login/revocation methods. Rewriting a
+    // session collection read earlier can erase a concurrent login or restore
+    // a revoked token: those methods do not take the snapshot advisory lock.
+    // Retained users are upserted, and actual user deletion already cascades
+    // to that account's sessions through the database foreign key.
+    const selectedTables = (options?.selectedTables?.length
       ? Array.from(new Set(options.selectedTables))
-      : [...SNAPSHOT_TABLE_NAMES];
-    const selectedTableSet = new Set<SnapshotTableName>(selectedTables);
+      : [...SNAPSHOT_TABLE_NAMES]).filter(table => table !== "sessions");
     if (options?.rebaseTables && !options.rebaseOnLatest) {
       throw new Error("Scoped snapshot rebasing requires a canonical mutation.");
     }
-    // When writing the 'users' table, also write 'sessions' to preserve active auth sessions.
-    // PostgreSQL's ON DELETE CASCADE on sessions.user_id can evict auth sessions if a user is deleted.
-    if (selectedTableSet.has("users") && !selectedTableSet.has("sessions")) {
-      selectedTables.push("sessions");
-      selectedTableSet.add("sessions");
-    }
+    if (selectedTables.length === 0) return;
     const rebaseTables = options?.rebaseTables
       ? Array.from(new Set([...options.rebaseTables, ...selectedTables]))
       : SNAPSHOT_TABLE_NAMES;
@@ -3961,13 +3960,9 @@ export class AlphaExchangeRepository {
             const nextVersion = currentVersion + 1;
             // Existing receipt bytes stay in PostgreSQL. Only explicit binary
             // overrides cross the connection; metadata-only upserts retain them.
-            // When sessions are being written, use the sessions from the current full DB read
-            // (latestSnapshot) rather than the potentially-stale sessions in the incoming db.
-            // This prevents the deferred trust write from overwriting sessions created after
-            // the initial db snapshot was loaded.
-            const snapshotForMergeWrite = selectedTableSet.has("sessions")
-              ? pruneOrphanAuthSessions({ ...mergedSnapshot, authSessions: latestSnapshot.authSessions })
-              : pruneOrphanAuthSessions(mergedSnapshot);
+            const snapshotForMergeWrite = pruneOrphanAuthSessions({
+              ...mergedSnapshot, authSessions: latestSnapshot.authSessions,
+            });
             const persistedSnapshot = attachVersion(snapshotForMergeWrite, nextVersion);
             options?.validateBeforeCommit?.(persistedSnapshot);
             // A concurrent reconciliation may already have consumed every
@@ -4014,18 +4009,7 @@ export class AlphaExchangeRepository {
             return;
           }
 
-          // Snapshot writes should not evict active auth sessions managed by dedicated session methods.
-          let persistedSnapshot: AlphaExchangeDb = pruneOrphanAuthSessions(db);
-          if (selectedTableSet.has("sessions")) {
-            const currentSessions = await queryWithLogging(client, "select payload from alpha_exchange.sessions order by sort_index asc") as { rows?: Array<{ payload: unknown }> };
-            logProfile("load_sessions");
-            perf?.step("load_sessions");
-            const currentSessionRows = (currentSessions.rows ?? []) as Array<{ payload: AuthSession }>;
-            persistedSnapshot = pruneOrphanAuthSessions({
-              ...db,
-              authSessions: fromPayloadRows(currentSessionRows),
-            });
-          }
+          const persistedSnapshot = pruneOrphanAuthSessions(db);
           options?.validateBeforeCommit?.(persistedSnapshot);
           for (const tableName of selectedTables) {
             await replaceTableContents(client, tableName, persistedSnapshot, {

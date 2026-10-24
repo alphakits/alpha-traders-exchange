@@ -24,6 +24,19 @@ const listing = {
   createdAt: "2026-08-22T00:00:00.000Z",
 };
 
+const smsDelivery = {
+  id: "sms-test-1",
+  eventKey: "trade-test:completed",
+  eventType: "trade_completed",
+  recipientUserId: "test-buyer",
+  recipientPhoneMasked: "+97•••01",
+  status: "delivered",
+  retryCount: 0,
+  createdAt: "2026-10-24T00:00:00Z",
+  updatedAt: "2026-10-24T00:01:00Z",
+  deliveredAt: "2026-10-24T00:01:00Z",
+};
+
 function adminPayload(
   listings = [listing],
   approvedSellers: Array<Record<string, unknown>> = [],
@@ -148,6 +161,109 @@ describe("AlphaExchangeAdminDashboard admin destinations", () => {
     expect(await screen.findByRole("heading", { name: "Marketplace Listings" })).toBeTruthy();
     await act(async () => resolveSms(Response.json({ deliveries: [] })));
   });
+
+  it.each(["en", "ar"] as const)("shows SMS history loading until an empty read is confirmed (%s)", async locale => {
+    navigationState.search = "section=sms-deliveries";
+    let finishSms!: (response: Response) => void;
+    vi.mocked(fetch).mockImplementation(async input => String(input).includes("sms-deliveries")
+      ? new Promise<Response>(resolve => { finishSms = resolve; }) : Response.json(adminPayload()));
+    render(<AlphaExchangeAdminDashboard isOwner locale={locale} />);
+    expect(await screen.findByText(locale === "ar" ? "جارٍ تحميل سجل رسائل SMS…" : "Loading SMS delivery history…")).toBeTruthy();
+    const empty = locale === "ar" ? "لا توجد رسائل SMS مسجّلة بعد." : "No SMS deliveries recorded yet.";
+    expect(screen.queryByText(empty)).toBeNull();
+    await act(async () => finishSms(Response.json({ deliveries: [] })));
+    expect(await screen.findByText(empty)).toBeTruthy();
+  });
+
+  it.each([
+    ["en", "http"], ["ar", "http"], ["en", "transport"], ["ar", "transport"],
+    ["en", "shape"], ["ar", "shape"],
+  ] as const)("does not present failed SMS history as empty (%s, %s)", async (locale, failure) => {
+    navigationState.search = "section=sms-deliveries";
+    vi.mocked(fetch).mockImplementation(async input => {
+      if (!String(input).includes("sms-deliveries")) return Response.json(adminPayload());
+      if (failure === "transport") throw new TypeError("private provider diagnostic");
+      return failure === "http" ? new Response(null, { status: 503 }) : Response.json({ deliveries: null });
+    });
+    render(<AlphaExchangeAdminDashboard isOwner locale={locale} />);
+    expect(await screen.findByText(locale === "ar" ? "تعذر تحميل سجل رسائل SMS. أعد المحاولة." : "SMS delivery history could not be loaded. Try again.")).toBeTruthy();
+    expect(screen.queryByText(locale === "ar" ? "لا توجد رسائل SMS مسجّلة بعد." : "No SMS deliveries recorded yet.")).toBeNull();
+    expect(screen.queryByText("private provider diagnostic")).toBeNull();
+    expect(navigationState.router.refresh).not.toHaveBeenCalled();
+  });
+
+  it.each(["en", "ar"] as const)("retries SMS history with a read only and reports confirmed empty history (%s)", async locale => {
+    navigationState.search = "section=sms-deliveries";
+    let attempts = 0;
+    vi.mocked(fetch).mockImplementation(async input => {
+      if (!String(input).includes("sms-deliveries")) return Response.json(adminPayload());
+      return ++attempts === 1 ? new Response(null, { status: 503 }) : Response.json({ deliveries: [] });
+    });
+    render(<AlphaExchangeAdminDashboard isOwner locale={locale} />);
+    fireEvent.click(await screen.findByRole("button", { name: locale === "ar" ? "إعادة تحميل سجل رسائل SMS" : "Retry SMS history" }));
+    expect(await screen.findByText(locale === "ar" ? "لا توجد رسائل SMS مسجّلة بعد." : "No SMS deliveries recorded yet.")).toBeTruthy();
+    expect(attempts).toBe(2);
+    expect(vi.mocked(fetch).mock.calls.filter(([input]) => String(input).includes("admin-prep"))).toHaveLength(1);
+    expect(vi.mocked(fetch).mock.calls.every(([, init]) => !init?.method || init.method === "GET")).toBe(true);
+  });
+
+  it("renders a confirmed SMS history record with its masked recipient", async () => {
+    navigationState.search = "section=sms-deliveries";
+    vi.mocked(fetch).mockImplementation(async input => Response.json(String(input).includes("sms-deliveries")
+      ? { deliveries: [smsDelivery] } : adminPayload()));
+    render(<AlphaExchangeAdminDashboard isOwner />);
+    expect(await screen.findByText(smsDelivery.recipientPhoneMasked)).toBeTruthy();
+    expect(screen.getByText("Delivered")).toBeTruthy();
+    expect(screen.queryByText("No SMS deliveries recorded yet.")).toBeNull();
+  });
+
+  it.each([
+    null,
+    { ...smsDelivery, updatedAt: "not-a-date" },
+    { ...smsDelivery, lastError: { diagnostic: "not display text" } },
+    { ...smsDelivery, status: "unknown" },
+  ])("rejects a malformed SMS history row without rendering an empty-success state (%j)", async delivery => {
+    navigationState.search = "section=sms-deliveries";
+    vi.mocked(fetch).mockImplementation(async input => Response.json(String(input).includes("sms-deliveries")
+      ? { deliveries: [delivery] } : adminPayload()));
+    render(<AlphaExchangeAdminDashboard isOwner />);
+    expect(await screen.findByText("SMS delivery history could not be loaded. Try again.")).toBeTruthy();
+    expect(screen.queryByText("No SMS deliveries recorded yet.")).toBeNull();
+  });
+
+  it.each([401, 403])("clears owner records when SMS history confirms access loss (%s)", async status => {
+    let finishSms!: (response: Response) => void;
+    vi.mocked(fetch).mockImplementation(async input => String(input).includes("sms-deliveries")
+      ? new Promise<Response>(resolve => { finishSms = resolve; }) : Response.json(adminPayload()));
+    render(<AlphaExchangeAdminDashboard isOwner />);
+    expect(await screen.findByText("Verified Seller")).toBeTruthy();
+    await act(async () => finishSms(new Response(null, { status })));
+    expect(screen.queryByText("Verified Seller")).toBeNull();
+    expect(navigationState.router.refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["success", "failure"])("ignores an older SMS history %s after a newer dashboard read", async result => {
+    navigationState.search = "section=sms-deliveries";
+    let finishOld!: (response: Response) => void;
+    let smsReads = 0;
+    vi.mocked(fetch).mockImplementation(async input => {
+      if (!String(input).includes("sms-deliveries")) return Response.json(adminPayload());
+      if (++smsReads === 1) return new Promise<Response>(resolve => { finishOld = resolve; });
+      return Response.json({ deliveries: [smsDelivery] });
+    });
+    const { rerender } = render(<AlphaExchangeAdminDashboard isOwner />);
+    await screen.findByText("Loading SMS delivery history…");
+    rerender(<AlphaExchangeAdminDashboard isOwner locale="ar" />);
+    expect(await screen.findByText(smsDelivery.recipientPhoneMasked)).toBeTruthy();
+    await act(async () => finishOld(result === "success"
+      ? Response.json({ deliveries: [{ ...smsDelivery, id: "sms-old", recipientPhoneMasked: "+97•••99" }] })
+      : new Response(null, { status: 503 })));
+    expect(screen.getByText(smsDelivery.recipientPhoneMasked)).toBeTruthy();
+    expect(screen.queryByText("+97•••99")).toBeNull();
+    expect(screen.queryByText("SMS delivery history could not be loaded. Try again.")).toBeNull();
+    expect(screen.queryByText("تعذر تحميل سجل رسائل SMS. أعد المحاولة.")).toBeNull();
+  });
+
   it("shows buyer and suspended-account names beside AT IDs in audit and notification history", async () => {
     navigationState.search = "section=audit-logs";
     const buyer = { id: "identity-buyer", fullName: "AT-100001 (Private Buyer)", role: "buyer" };

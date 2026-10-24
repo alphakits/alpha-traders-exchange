@@ -31,6 +31,7 @@ async function execute(operation: string, input: unknown) {
   if (operation === "cms-media") return addMediaItem(input as Parameters<typeof addMediaItem>[0]);
   if (operation === "cms-snapshot") return (await getAdminContentRepository()).loadSnapshot();
   if (operation === "auth-session") { await repository.upsertAuthSession(input as AuthSession); return { saved: true }; }
+  if (operation === "auth-session-delete") { await repository.deleteAuthSession(input as string); return { deleted: true }; }
   if (operation === "snapshot") return repository.loadSnapshot();
   if (operation === "save-history") {
     const snapshot = await repository.loadSnapshot();
