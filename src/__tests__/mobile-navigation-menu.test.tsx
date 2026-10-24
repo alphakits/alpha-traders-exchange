@@ -1,6 +1,8 @@
-import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it } from "vitest";
 import { MobileNavigationMenu } from "@/components/layout/mobile-navigation-menu";
+
+afterEach(cleanup);
 
 describe("MobileNavigationMenu", () => {
   it("closes immediately after a navigation item is selected", () => {
@@ -37,5 +39,27 @@ describe("MobileNavigationMenu", () => {
 
     expect(details!.open).toBe(false);
     expect(document.activeElement).toBe(trigger);
+  });
+
+  it("keeps the menu open while moving within it, then closes when keyboard focus leaves", () => {
+    render(<><MobileNavigationMenu label="Open menu"><a href="https://example.com/requests">Buy Requests</a></MobileNavigationMenu><button>Outside</button></>);
+    const link = screen.getByRole("link", { name: "Buy Requests" });
+    const details = link.closest("details")!;
+    details.open = true;
+    fireEvent.blur(screen.getByLabelText("Open menu"), { relatedTarget: link });
+    expect(details.open).toBe(true);
+    fireEvent.blur(link, { relatedTarget: screen.getByRole("button", { name: "Outside" }) });
+    expect(details.open).toBe(false);
+  });
+
+  it("allows touches inside the menu and dismisses it on an outside touch", () => {
+    render(<><MobileNavigationMenu label="Open menu"><a href="https://example.com/requests">Buy Requests</a></MobileNavigationMenu><button>Outside</button></>);
+    const link = screen.getByRole("link", { name: "Buy Requests" });
+    const details = link.closest("details")!;
+    details.open = true;
+    fireEvent.pointerDown(link, { pointerType: "touch" });
+    expect(details.open).toBe(true);
+    fireEvent.pointerDown(screen.getByRole("button", { name: "Outside" }), { pointerType: "touch" });
+    expect(details.open).toBe(false);
   });
 });

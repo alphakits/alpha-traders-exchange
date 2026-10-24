@@ -10,12 +10,29 @@ function groupInteger(value: string) {
   return value.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 }
 
-/** Display a validated USDT amount without losing any of its six decimal places. */
+/** Presentation only: show whole USDT with exact half-up rounding; mark rounded amounts. */
 export function formatUsdt(value: string | null | undefined): string {
+  const parts = decimalParts(value);
+  if (!parts || parts.fraction.length > 6) return unavailable;
+  const rounded = BigInt(parts.integer) + BigInt(parts.fraction[0] >= "5" ? 1 : 0);
+  const fractional = /[1-9]/.test(parts.fraction);
+  if (fractional && rounded === BigInt(0)) return "<1";
+  return (fractional ? "≈" : "") + groupInteger(rounded.toString());
+}
+
+/** Exact quantity for explicit details; never use a rounded display value in trade math. */
+export function formatUsdtExact(value: string | null | undefined): string {
   const parts = decimalParts(value);
   if (!parts || parts.fraction.length > 6) return unavailable;
   const fraction = parts.fraction.replace(/0+$/, "");
   return groupInteger(parts.integer) + (fraction ? `.${fraction}` : "");
+}
+
+/** Keep the source quote precision visible so inward-rounded bounds make sense. */
+export function formatPriceReference(value: string | null | undefined): string {
+  const parts = decimalParts(value);
+  if (!parts) return unavailable;
+  return `${groupInteger(parts.integer)}.${parts.fraction.replace(/0+$/, "").padEnd(2, "0")}`;
 }
 
 /** Presentation only: round to cents with decimal half-up arithmetic, never floats. */

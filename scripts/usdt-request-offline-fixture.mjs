@@ -9,13 +9,21 @@ export const OFFLINE_ACCOUNTS = {
 };
 export const OFFLINE_HEADERS = { "content-type": "application/json", "x-alpha-test-support": "enabled" };
 
-export async function seedOfflineFixture(baseURL) {
+export async function seedOfflineFixture(baseURL, options = {}) {
+  const namespace = options.accountNamespace;
+  if (namespace !== undefined && !/^[a-z0-9-]{1,36}$/.test(namespace)) throw new Error("Invalid synthetic account namespace.");
+  const accounts = Object.fromEntries(Object.entries(OFFLINE_ACCOUNTS).map(([role, account]) =>
+    [role, { ...account, id: namespace ? `${account.id}-${namespace}` : account.id }]));
   const url = new URL(baseURL);
   if (url.protocol !== "http:" || !["127.0.0.1", "localhost"].includes(url.hostname)) throw new Error("Offline fixture target must be HTTP loopback.");
   const health = await fetch(`${baseURL}/__usdt-offline-health`, { signal: AbortSignal.timeout(10_000) });
   const marker = health.ok ? await health.json() : null;
   if (marker?.kind !== "alpha-usdt-offline-preview-v1" || marker.isolated !== true || marker.externalNetworkBlocked !== true) {
     throw new Error("Refusing to reset a server that is not the isolated offline preview.");
+  }
+  if (marker.quoteScenarios) {
+    const resetQuote = await fetch(`${baseURL}/__usdt-offline-quote?price=3.30&mode=live`, { method: "PUT", headers: OFFLINE_HEADERS });
+    if (!resetQuote.ok) throw new Error("Could not reset the isolated synthetic quote.");
   }
   const response = await fetch(`${baseURL}/api/testing/alpha-exchange-state`, { headers: OFFLINE_HEADERS, signal: AbortSignal.timeout(120_000) });
   if (!response.ok) throw new Error(`Local fixture route failed (${response.status}).`);
@@ -29,7 +37,7 @@ export async function seedOfflineFixture(baseURL) {
   const now = new Date().toISOString();
   db.__runtimeVersion = current.__runtimeVersion;
   db.usdtDemands = [];
-  db.users = Object.entries(OFFLINE_ACCOUNTS).map(([key, account], index) => {
+  db.users = Object.entries(accounts).map(([key, account], index) => {
     const seller = key === "seller" || key === "otherSeller";
     const salt = randomBytes(16).toString("hex");
     return {
@@ -54,14 +62,16 @@ export async function seedOfflineFixture(baseURL) {
         isDefault: true, createdAt: now, updatedAt: now }] : [], createdAt: now, updatedAt: now,
     };
   });
-  db.marketplaceListings = [OFFLINE_ACCOUNTS.seller, OFFLINE_ACCOUNTS.otherSeller].map(account => ({
-    id: `listing-${account.id}`, sellerId: account.id, sellerDisplayName: account.name, photos: [],
+  db.marketplaceListings = ["seller", "otherSeller"].map(role => {
+    const account = accounts[role];
+    return {
+    id: `listing-${OFFLINE_ACCOUNTS[role].id}`, sellerId: account.id, sellerDisplayName: account.name, photos: [],
     originalAmount: "10000", availableAmount: "10000", price: "3.30", currency: "ILS", network: "TRC20",
     paymentMethod: "Bank Transfer", paymentMethods: ["Bank Transfer", "Cardless ATM Withdrawal", "Face-to-Face (Meet in Person)"], bankAccountId: `bank-${account.id}`,
     bankName: "Bank Hapoalim", minimumTrade: "100", maximumTrade: "10000",
     expiresAt: new Date(Date.now() + 48 * 3600_000).toISOString(), sellerDescription: "Synthetic offline listing",
     responseTime: "5 min", status: "active", approvalStatus: "approved", createdAt: now, updatedAt: now,
-  }));
+  }; });
   const saved = await fetch(`${baseURL}/api/testing/alpha-exchange-state`, {
     method: "PUT", headers: OFFLINE_HEADERS, body: JSON.stringify(db), signal: AbortSignal.timeout(120_000),
   });

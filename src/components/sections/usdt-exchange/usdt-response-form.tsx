@@ -5,7 +5,7 @@ import { calculateTradePaymentTotal, parseCardlessCashAmount } from "@alpha-trad
 import { Link } from "@/i18n/navigation";
 import { formatIls, formatUsdt } from "@/lib/usdt-demand-format";
 import type { DemandView, DemandWorkspace } from "@/types/usdt-demand";
-import { FeeBreakdown, paymentLabel, requestField, requestPanel, requestPrimary, requestSecondary } from "./usdt-request-details";
+import { FeeBreakdown, RequestMoneyText, paymentLabel, requestMoneyField, requestPanel, requestPrimary, requestSecondary } from "./usdt-request-details";
 import { GroupedDecimalInput } from "./usdt-number-input";
 
 type SellerResponseFormProps = {
@@ -62,10 +62,10 @@ export function SellerResponseForm({ ar, current, listings, reference, listingId
   return <section className={requestPanel} dir={ar ? "rtl" : "ltr"}>
     <h2 className="text-xl font-semibold">{updating ? text("Update your response", "حدّث ردك") : text("Respond to this request", "الرد على هذا الطلب")}</h2>
     <p className="mt-2 text-sm leading-6 text-gray-300">
-      {text("Offer the full requested amount:", "قدّم كامل الكمية المطلوبة:")} <bdi dir="ltr" className="font-semibold text-white">{formatUsdt(current.amount)} USDT</bdi>.
+      {text("Offer the full requested amount:", "قدّم كامل الكمية المطلوبة:")} <bdi dir="ltr" className="font-semibold tabular-nums text-emerald-300">{formatUsdt(current.amount)} USDT</bdi>.
       {" "}{text("The buyer reviews your price before opening the Trade Room.", "يراجع المشتري سعرك قبل فتح غرفة الصفقة.")}
     </p>
-    <p className="mt-2 text-xs leading-5 text-gray-400">{paymentLabel(current.paymentMethod, ar)} · <bdi>{current.network}</bdi>{current.city ? <> · {current.city}</> : null}</p>
+    <p className="mt-2 text-xs leading-5 text-gray-400 [overflow-wrap:anywhere]">{paymentLabel(current.paymentMethod, ar)} · <bdi>{current.network}</bdi>{current.city ? <> · {current.city}</> : null}</p>
 
     {listings.length === 0 ? <div className="mt-5 space-y-4 rounded-xl border border-amber-300/20 bg-amber-300/[0.04] p-4">
       <h3 className="font-semibold text-amber-100">{text("No eligible listing yet", "لا يوجد عرض مؤهل بعد")}</h3>
@@ -82,7 +82,7 @@ export function SellerResponseForm({ ar, current, listings, reference, listingId
       <fieldset disabled={busy} className="space-y-5">
         <div>
           <label htmlFor={`${id}-listing`} className="text-sm font-medium">{text("Your listing", "عرضك")}</label>
-          <select id={`${id}-listing`} required value={listingId} onChange={event => onListingChange(event.target.value)} className={requestField} aria-describedby={`${id}-stock`}>
+          <select id={`${id}-listing`} required value={listingId} onChange={event => onListingChange(event.target.value)} className={requestMoneyField} aria-describedby={`${id}-stock`}>
             <option value="">{text("Select a listing", "اختر عرضًا")}</option>
             {listings.map(listing => <option key={listing.id} value={listing.id}>{formatUsdt(listing.amount)} USDT · ₪{formatIls(listing.price)} {text("per USDT", "لكل USDT")}</option>)}
           </select>
@@ -92,14 +92,14 @@ export function SellerResponseForm({ ar, current, listings, reference, listingId
           <div className="flex flex-wrap items-center justify-between gap-2">
             <label htmlFor={`${id}-price`} className="text-sm font-medium">{text("Your response price (ILS)", "سعر ردك (شيكل)")}</label>
             <button type="button" onClick={() => { onPriceChange(current.price); resetPriceInput(); }} className={`${requestSecondary} min-h-11 px-3 py-2 text-xs`}>
-              {text("Match requested price", "مطابقة السعر المطلوب")} <bdi dir="ltr">₪{formatIls(current.price)}</bdi>
+              {text("Match requested price", "مطابقة السعر المطلوب")} <bdi dir="ltr" className="tabular-nums text-emerald-300">₪{formatIls(current.price)}</bdi>
             </button>
           </div>
           <GroupedDecimalInput key={`${current.id}:${current.revision}:${listingId}:${priceInputRevision}`} id={`${id}-price`} value={offerPrice} onValueChange={onPriceChange} maxFractionDigits={2} maxIntegerDigits={4}
-            required autoComplete="off" className={requestField}
+            required autoComplete="off" className={requestMoneyField}
             aria-invalid={Boolean(offerPrice && priceIssue)} aria-describedby={`${id}-price-help ${id}-reason`} />
           <p id={`${id}-price-help`} className="mt-2 text-xs leading-5 text-gray-400">
-            {reference ? <>{text("Allowed price:", "السعر المسموح:")} <bdi dir="ltr">₪{formatIls(reference.minimum)} – ₪{formatIls(reference.maximum)}</bdi></>
+            {reference ? <>{text("Allowed price:", "السعر المسموح:")} <bdi dir="ltr" className="font-medium tabular-nums text-emerald-300">₪{formatIls(reference.minimum)} – ₪{formatIls(reference.maximum)}</bdi></>
               : text("A fresh reference is required before sending.", "يلزم مرجع سعر حديث قبل الإرسال.")}
           </p>
         </div>
@@ -107,7 +107,7 @@ export function SellerResponseForm({ ar, current, listings, reference, listingId
       {priceSyntaxValid ? <FeeBreakdown amount={current.amount} price={offerPrice} ar={ar} seller title={text("Buyer payment preview", "معاينة دفعة المشتري")} /> : null}
       <div className="space-y-3">
         <p id={`${id}-reason`} className={"text-sm leading-6 " + (disabledReason ? "text-amber-200" : "text-gray-400")}>
-          {disabledReason ?? text("Ready to send. Your response replaces any earlier open response from you.", "جاهز للإرسال. سيحل ردك محل أي رد مفتوح سابق منك.")}
+          <RequestMoneyText>{disabledReason ?? text("Ready to send. Your response replaces any earlier open response from you.", "جاهز للإرسال. سيحل ردك محل أي رد مفتوح سابق منك.")}</RequestMoneyText>
         </p>
         <button type="submit" disabled={Boolean(disabledReason)} className={`${requestPrimary} w-full sm:w-auto`}>
           {updating ? text("Update response", "تحديث الرد") : text("Send response", "إرسال الرد")}

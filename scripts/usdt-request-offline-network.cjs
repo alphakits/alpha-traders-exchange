@@ -1,6 +1,8 @@
 /* Local preview only. Loaded before Next and inherited by its worker processes. */
 const net = require("node:net");
 const http = require("node:http");
+const fs = require("node:fs");
+const path = require("node:path");
 const { syncBuiltinESMExports } = require("node:module");
 
 if (process.env.ALPHA_USDT_OFFLINE_PREVIEW !== "1" || process.env.VERCEL || process.env.VERCEL_ENV) {
@@ -28,6 +30,8 @@ if (!globalThis.__alphaUsdtOfflineNetworkGuard) {
   // This marker exists only in a process loaded through this network guard.
   // Fixture helpers refuse generic test-enabled servers without these guards.
   const originalEmit = http.Server.prototype.emit;
+  const quoteScenarios = process.env.ALPHA_USDT_OFFLINE_QUOTE_SCENARIOS === "1";
+  const quoteFile = path.join(process.env.TMPDIR, "usdt-offline-quote.json");
   const originalSetHeader = http.ServerResponse.prototype.setHeader;
   http.ServerResponse.prototype.setHeader = function (name, value) {
     if (String(name).toLowerCase() === "content-security-policy" && typeof value === "string") {
@@ -44,7 +48,24 @@ if (!globalThis.__alphaUsdtOfflineNetworkGuard) {
       const safe = process.env.ALPHA_EXCHANGE_FORCE_INMEMORY_REPOSITORY === "1"
         && process.env.ALPHA_USDT_REQUEST_EMAIL_DELIVERY_ENABLED === "0";
       args[1].writeHead(safe ? 200 : 503, { "Content-Type": "application/json", "Cache-Control": "no-store" });
-      args[1].end(JSON.stringify({ kind: "alpha-usdt-offline-preview-v1", isolated: safe, externalNetworkBlocked: true }));
+      args[1].end(JSON.stringify({ kind: "alpha-usdt-offline-preview-v1", isolated: safe, externalNetworkBlocked: true, quoteScenarios }));
+      return true;
+    }
+    // Only the explicitly opted-in test launcher exposes this fixture. It is
+    // absent from the application bundle and from the user's normal preview.
+    // A shared file keeps Next's server/worker synthetic quotes consistent.
+    if (event === "request" && quoteScenarios && args[0]?.url?.startsWith("/__usdt-offline-quote?")) {
+      const [request, response] = args;
+      const query = new URL(request.url, "http://localhost").searchParams;
+      const price = query.get("price"); const mode = query.get("mode");
+      const safe = request.method === "PUT" && request.headers["x-alpha-test-support"] === "enabled"
+        && process.env.ALPHA_EXCHANGE_FORCE_INMEMORY_REPOSITORY === "1"
+        && process.env.ALPHA_USDT_REQUEST_EMAIL_DELIVERY_ENABLED === "0";
+      const valid = price !== null && /^\d{1,2}(?:\.\d{1,6})?$/.test(price) && Number(price) > 0
+        && ["live", "unavailable", "stale"].includes(mode);
+      if (safe && valid) fs.writeFileSync(quoteFile, JSON.stringify({ price: Number(price), mode }), "utf8");
+      response.writeHead(!safe ? 404 : valid ? 200 : 400, { "Content-Type": "application/json", "Cache-Control": "no-store" });
+      response.end(JSON.stringify({ ok: safe && valid }));
       return true;
     }
     return originalEmit.call(this, event, ...args);
@@ -54,8 +75,11 @@ if (!globalThis.__alphaUsdtOfflineNetworkGuard) {
   globalThis.fetch = async (input, init) => {
     const url = new URL(typeof input === "string" || input instanceof URL ? input : input.url);
     if (url.href === "https://usdt-offline.invalid/quote") {
-      return Response.json({ base: "USD", quote: "ILS", symbol: "WISE:USDILS", price: 3.30,
-        quotedAt: new Date().toISOString(), marketState: "open" });
+      const quote = quoteScenarios && fs.existsSync(quoteFile)
+        ? JSON.parse(fs.readFileSync(quoteFile, "utf8")) : { price: 3.30, mode: "live" };
+      if (quote.mode === "unavailable") return Response.json({ error: "Synthetic provider unavailable" }, { status: 503 });
+      return Response.json({ base: "USD", quote: "ILS", symbol: "WISE:USDILS", price: quote.price,
+        quotedAt: new Date(Date.now() - (quote.mode === "stale" ? 24 * 3600_000 : 0)).toISOString(), marketState: "open" });
     }
     if (!local(url.hostname) || !["http:", "https:"].includes(url.protocol)) throw denied();
     return originalFetch(input, init);

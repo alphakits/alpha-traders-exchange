@@ -2,9 +2,9 @@ import { randomUUID } from "node:crypto";
 import type { AlphaExchangeDb, AlphaExchangeUser } from "@/types/alpha-exchange";
 import type { DemandTerms, UsdtDemand, DemandWorkspace } from "@/types/usdt-demand";
 import type { MarketSnapshot } from "@/types/market";
-import { publicAccountName } from "@/lib/public-account-identity";
 import { hasSellerOperationalAccess } from "@/lib/seller-approval-verification";
 import { formatIls, formatUsdt } from "@/lib/usdt-demand-format";
+import { demandIdentityProjector } from "@/lib/usdt-demand-identity";
 import { assertDemandActor, assertDemandListing, assertDemandTerms, canRespond, DEMAND_COOLDOWN_MS, DEMAND_TTL_MS, demandChangeSchema, demandCreateSchema, DemandError, demandListingAvailableAmount, demandOfferSchema, demandReference, demandState } from "./usdt-demand-policy";
 
 function actor(db: AlphaExchangeDb, id: string) {
@@ -71,16 +71,21 @@ export function createDemand(db: AlphaExchangeDb, userId: string, body: unknown,
     history: [{ action: "created", actorId: userId, at, revision: 1 }] };
   (db.usdtDemands ??= []).push(demand); notifySellers(db, demand); return demand;
 }
-export function changeDemand(db: AlphaExchangeDb, userId: string, id: string, body: unknown, market: MarketSnapshot) {
+export function changeDemand(db: AlphaExchangeDb, userId: string, id: string, body: unknown, market?: MarketSnapshot) {
   const input = demandChangeSchema.parse(body); actor(db, userId);
   const demand = (db.usdtDemands ?? []).find(d => d.id === id && d.requesterId === userId);
   if (!demand) throw new DemandError("NOT_FOUND", "Request not found.", 404);
   if (demand.revision !== input.revision) throw new DemandError("REQUEST_CHANGED", "This request changed. Refresh before trying again.");
-  const state = demandState(db, demand, market);
-  if (["matched", "fulfilled"].includes(state)) throw new DemandError("TRADE_EXISTS", "Continue in the existing Trade Room.");
+  // Cancellation never depends on a market provider. Only a cancelled or
+  // declined matched trade can be reopened or cancelled from this workspace.
+  if (demand.state === "matched") {
+    const trade = db.purchaseRequests.find(t => t.id === demand.purchaseRequestId);
+    if (!trade || !["cancelled", "declined"].includes(trade.status)) throw new DemandError("TRADE_EXISTS", "Continue in the existing Trade Room.");
+  }
   const now = Date.now(); expire(db, now);
   if (input.action === "cancel" && demand.state === "cancelled") return demand;
   if (input.action === "renew") {
+    if (!market) throw new DemandError("QUOTE_UNAVAILABLE", "A fresh USD/ILS reference is required. Please try again shortly.");
     assertSingleOpen(db, userId, id); assertPostRate(db, userId, now); assertDemandTerms(input.terms, market, now);
     demand.createTerms ??= { amount: demand.amount, price: demand.price, network: demand.network, paymentMethod: demand.paymentMethod, city: demand.city };
     Object.assign(demand, input.terms); demand.state = "open"; demand.expiresAt = new Date(now + DEMAND_TTL_MS).toISOString();
@@ -124,6 +129,7 @@ export function withdrawDemandOffer(db: AlphaExchangeDb, userId: string, id: str
 }
 export function readDemandWorkspace(db: AlphaExchangeDb, userId: string, market: MarketSnapshot, input: { id?: string; scope?: string; cursor?: string } = {}): DemandWorkspace {
   const user = actor(db, userId);
+  const identity = demandIdentityProjector(db, userId);
   const compareRequests = (a: UsdtDemand, b: UsdtDemand) => b.createdAt.localeCompare(a.createdAt) || a.id.localeCompare(b.id);
   const visible = (db.usdtDemands ?? []).filter(d => {
     if (input.id && d.id !== input.id) return false;
@@ -149,12 +155,12 @@ export function readDemandWorkspace(db: AlphaExchangeDb, userId: string, market:
         assertDemandListing(db, d, listing); available &&= listing.updatedAt === o.listingUpdatedAt && listing.sellerId === o.sellerId;
       } catch { available = false; }
       return { id: o.id, listingId: o.listingId, price: o.price, revision: o.revision, state: o.state, createdAt: o.createdAt,
-        sellerName: publicAccountName(db.users.find(u => u.id === o.sellerId) ?? { id: o.sellerId }), isMine: o.sellerId === userId, available };
+        sellerName: identity(o.sellerId).displayName, seller: identity(o.sellerId), isMine: o.sellerId === userId, available };
     });
     const canSeeTrade = d.requesterId === userId || d.offers.some(o => o.id === d.acceptedOfferId && o.sellerId === userId);
     return { id: d.id, amount: d.amount, price: d.price, network: d.network, paymentMethod: d.paymentMethod, city: d.city,
       revision: d.revision, state, updatedAt: d.updatedAt, expiresAt: d.expiresAt, isMine: d.requesterId === userId,
-      requesterName: publicAccountName(db.users.find(u => u.id === d.requesterId) ?? { id: d.requesterId }),
+      requesterName: identity(d.requesterId).displayName, requester: identity(d.requesterId),
       purchaseRequestId: canSeeTrade ? d.purchaseRequestId : undefined, offers };
   });
   const selected = input.id ? page[0] : undefined;

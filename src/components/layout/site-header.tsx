@@ -15,6 +15,7 @@ import { OwnerActiveTradeNotices } from "./owner-active-trade-notices";
 import { SellerActiveTradeNotices } from "./seller-active-trade-notices";
 import { usesSellerActiveTradeHeader } from "@/lib/seller-active-trades";
 import { journalEnabled } from "@/lib/journal/feature";
+import { demandEnabled } from "@/lib/usdt-demand-policy";
 
 async function getNonBlockingTradeHeaderState(sessionUser: AlphaExchangeUser | null) {
   if (!sessionUser) {
@@ -109,6 +110,7 @@ export async function SiteHeader({
         <HeaderAuthArea
           locale={locale}
           navItems={nav}
+          buyRequestsEnabled={demandEnabled()}
           initialSessionUser={sessionUser ? { id: sessionUser.id, fullName: sessionUser.fullName, role: sessionUser.role, roles: sessionUser.roles ?? [sessionUser.role], sellerStatus: sessionUser.sellerStatus } : null}
           labels={{
             signIn: t("signIn"),

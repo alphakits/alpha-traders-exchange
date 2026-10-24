@@ -4216,6 +4216,7 @@ async function writeDb(
     rebaseOnLatest?: (snapshot: AlphaExchangeDb) => AlphaExchangeDb | Promise<AlphaExchangeDb>;
     rebaseTables?: readonly SnapshotTableName[];
     cacheResult?: boolean;
+    beforeWrite?: () => Promise<void>;
   },
 ) {
   const normalized = normalizeDb(db);
@@ -4223,6 +4224,7 @@ async function writeDb(
   const tables = options?.selectedTables ?? ["(all)"];
   const storeWriteStart = allowsRuntimeDiagnostics() && process.env.ALPHA_EXCHANGE_PERF === "1" ? Date.now() : 0;
   const writeTask = dbWriteInFlight.then(async () => {
+    if (options?.beforeWrite) await options.beforeWrite();
     if (storeWriteStart) {
       const waitedMs = Date.now() - storeWriteStart;
       console.log(`[STORE-PERF] writeDb[${tables.join(",")}] waited_for_prev_write ${waitedMs}ms`);
@@ -10687,13 +10689,13 @@ export async function createPurchaseRequest(input: {
   const demandInput = demandMode ? { buyerId: input.buyerId, demandId: input.usdtDemandId ?? "", offerId: input.usdtDemandOfferId ?? "",
     revision: input.usdtDemandRevision ?? 0, listingId: input.listingId, amount: input.usdtAmount,
     network: input.receivingNetwork, paymentMethod: input.paymentMethod } : null;
-  const demandMarket = demandMode ? await getDemandMarket() : null;
   if (demandInput) {
     if (input.actorUserId !== input.buyerId) throw new Error("Buyer identity mismatch.");
     assertDemandActor(db.users.find(u => u.id === input.buyerId));
     const previous = db.purchaseRequests.find(t => t.usdtDemandOfferId === input.usdtDemandOfferId && t.usdtDemandId === input.usdtDemandId && t.buyerId === input.buyerId);
     if (previous) return { request: previous, replayed: true, metrics: { totalMs: Date.now() - startedAt, readDbMs: 0, validationMs: 0, businessMs: 0, writeDbMs: 0, sseMs: 0, trustMs: 0 } };
   }
+  let demandMarket = demandMode ? await getDemandMarket({ forceRefresh: true }) : null;
   const demandMatch = demandInput && demandMarket ? validateDemandMatch(db, demandInput, demandMarket) : null;
   const priorSmsCount = db.smsDeliveries?.length ?? 0;
   const dbReadMs = Date.now() - dbReadStartedAt;
@@ -11030,6 +11032,10 @@ export async function createPurchaseRequest(input: {
   await writeDb(db, {
     selectedTables: demandMode ? [...PURCHASE_REQUEST_CREATE_TABLES, "usdt_demands", "listings"] : PURCHASE_REQUEST_CREATE_TABLES,
     cacheResult: fromFullCache,
+    // A quote may change while the canonical trade is prepared or waiting for
+    // another local write. Refresh outside the lock, then validate both prices
+    // and the source expiry again in the commit guards below.
+    beforeWrite: demandMode ? async () => { demandMarket = await getDemandMarket({ forceRefresh: true }); } : undefined,
     // `validateBeforeCommit` runs after the repository's stale-snapshot merge.
     // User and enforcement collections historically prefer the incoming
     // snapshot during that merge, so inspect the untouched latest snapshot as

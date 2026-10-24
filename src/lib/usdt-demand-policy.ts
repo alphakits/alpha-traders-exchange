@@ -1,6 +1,6 @@
 import { subtractTradeAmounts, isTradeAmountLessThan } from "@/lib/trade-amount";
 import { z } from "zod";
-import { calculateTradePaymentTotal, canonicalizeTradeAmount, getPriceOfferBounds, validatePriceOffer, parseCardlessCashAmount, getPurchaseMinimumTrade, maximumIlsListingPrice } from "@alpha-traders/contracts";
+import { calculateTradePaymentTotal, canonicalizeTradeAmount, getIlsReferencePriceBounds, parseCardlessCashAmount, getPurchaseMinimumTrade } from "@alpha-traders/contracts";
 import type { AlphaExchangeDb, AlphaExchangeUser, MarketplaceListing, PurchaseRequest } from "@/types/alpha-exchange";
 import type { DemandTerms, UsdtDemand } from "@/types/usdt-demand";
 import type { MarketSnapshot } from "@/types/market";
@@ -15,9 +15,10 @@ export const DEMAND_COOLDOWN_MS = 5 * 60 * 1000;
 export class DemandError extends Error {
   constructor(public code: string, message: string, public status = 409) { super(message); this.name = "DemandError"; }
 }
+const demandPriceSchema = z.string().regex(/^\d{1,4}(?:\.\d{1,2})?$/).refine(v => Number(v) > 0).transform(v => Number(v).toFixed(2));
 export const demandTermsSchema = z.object({
   amount: z.string().regex(/^\d{1,9}(?:\.\d{1,6})?$/).refine(v => Number(v) > 0).transform(v => canonicalizeTradeAmount(v)!),
-  price: z.string().regex(/^\d{1,4}(?:\.\d{1,2})?$/).refine(v => Number(v) > 0).transform(v => Number(v).toFixed(2)),
+  price: demandPriceSchema,
   network: z.enum(["TRC20", "BEP20", "ERC20", "SOL"]),
   paymentMethod: z.enum(["Bank Transfer", "Cardless ATM Withdrawal", "Face-to-Face (Meet in Person)"]),
   city: z.string().trim().max(80).regex(/^[\p{L}\p{M}\s.,'’\-]*$/u).default(""),
@@ -28,7 +29,7 @@ export const demandChangeSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("cancel"), revision: z.number().int().positive() }).strict(),
   z.object({ action: z.literal("renew"), revision: z.number().int().positive(), terms: demandTermsSchema }).strict(),
 ]);
-export const demandOfferSchema = z.object({ revision: z.number().int().positive(), listingId: z.string().min(1).max(100), price: z.string().regex(/^\d{1,4}(?:\.\d{1,2})?$/), operationId: z.string().uuid() }).strict();
+export const demandOfferSchema = z.object({ revision: z.number().int().positive(), listingId: z.string().min(1).max(100), price: demandPriceSchema, operationId: z.string().uuid() }).strict();
 export function demandEnabled() { return process.env.ALPHA_USDT_REQUESTS_ENABLED === "1"; }
 export function assertDemandEnabled() {
   if (!demandEnabled()) throw new DemandError("FEATURE_UNAVAILABLE", "USDT requests are unavailable.", 404);
@@ -50,15 +51,15 @@ export function canRespond(db: AlphaExchangeDb, seller: AlphaExchangeUser | unde
 }
 export function demandReference(market: MarketSnapshot, now = Date.now()) {
   if (!isFxReferenceUsable(market, now)) return null;
-  const bounds = getPriceOfferBounds(market.pairs.usdtIls.price);
-  return bounds ? { price: String(market.pairs.usdtIls.price), minimum: (Math.ceil((market.pairs.usdtIls.price - 0.35 - Number.EPSILON * 4) * 100) / 100).toFixed(2), maximum: maximumIlsListingPrice(market.pairs.usdtIls.price).toFixed(2), quotedAt: market.pairs.usdtIls.quotedAt } : null;
+  const bounds = getIlsReferencePriceBounds(market.pairs.usdtIls.price);
+  return bounds ? { price: String(market.pairs.usdtIls.price), minimum: bounds.minimumPrice, maximum: bounds.maximumPrice, quotedAt: market.pairs.usdtIls.quotedAt, validUntil: market.pairs.usdtIls.validUntil } : null;
 }
 export function assertDemandPrice(price: string, market: MarketSnapshot, now = Date.now()) {
   const reference = demandReference(market, now);
   if (!reference) throw new DemandError("QUOTE_UNAVAILABLE", "A fresh USD/ILS reference is required. Please try again shortly.");
-  const result = validatePriceOffer(reference.price, price);
-  if (!result.ok || Number(price) < Number(reference.minimum) || Number(price) > Number(reference.maximum)) throw new DemandError("PRICE_OUTSIDE_BAND", `Price must be between ₪${reference.minimum} and ₪${reference.maximum}.`);
-  return result.offeredPrice;
+  const result = demandPriceSchema.safeParse(price);
+  if (!result.success || Number(result.data) < Number(reference.minimum) || Number(result.data) > Number(reference.maximum)) throw new DemandError("PRICE_OUTSIDE_BAND", `Price must be between ₪${reference.minimum} and ₪${reference.maximum}.`);
+  return result.data;
 }
 export function assertDemandTerms(terms: DemandTerms, market: MarketSnapshot, now = Date.now()) {
   assertDemandPrice(terms.price, market, now);

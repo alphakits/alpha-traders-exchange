@@ -27,6 +27,36 @@ function pasteAmount(text: string) {
 }
 
 describe("buyer USDT request form", () => {
+  it("rounds the main USDT display while retaining the exact trade quantity and payment", () => {
+    render(<Harness initialTerms={{ ...initial, amount: "660.6607" }} />);
+    const estimate = screen.getByRole("region", { name: "Estimated payment" });
+    expect(within(estimate).getByText("≈661 USDT")).toBeTruthy();
+    expect(within(estimate).getByText("₪2,201.98")).toBeTruthy();
+    expect(within(estimate).getByText("View exact USDT amount").closest("details")?.open).toBe(false);
+    expect(within(estimate).getByText("660.6607 USDT")).toBeTruthy();
+    expect(JSON.parse(screen.getByTestId("terms").textContent!).amount).toBe("660.6607");
+  });
+  it.each([["2.74", true], ["2.75", false], ["3.45", false], ["3.46", true]])("enforces the live 3.10 band for requested price %s", (price, disabled) => {
+    const onSubmit = vi.fn();
+    render(<Harness initialTerms={{ ...initial, price: String(price) }} reference={{ price: "3.10", minimum: "2.75", maximum: "3.45" }} onSubmit={onSubmit} />);
+    expect(submitButton().disabled).toBe(disabled);
+    fireEvent.submit(form());
+    expect(onSubmit).toHaveBeenCalledTimes(disabled ? 0 : 1);
+  });
+  it("uses authoritative cent bounds even when the provider reference has more than six decimals", () => {
+    render(<Harness initialTerms={{ ...initial, price: "3.45" }} reference={{ price: "3.100000001", minimum: "2.76", maximum: "3.45" }} />);
+    expect(submitButton().disabled).toBe(false);
+    fireEvent.change(screen.getByLabelText("Requested price per USDT (ILS)"), { target: { value: "2.75" } });
+    expect(submitButton().disabled).toBe(true);
+  });
+  it("updates bounds immediately after a quote change without silently rewriting the buyer price", () => {
+    const view = render(<Harness initialTerms={{ ...initial, price: "3.60" }} />);
+    expect(submitButton().disabled).toBe(false);
+    view.rerender(<Harness reference={{ price: "3.10", minimum: "2.75", maximum: "3.45" }} />);
+    expect(submitButton().disabled).toBe(true);
+    expect((screen.getByLabelText("Requested price per USDT (ILS)") as HTMLInputElement).value).toBe("3.60");
+    expect(document.getElementById("request-submit-help")?.textContent).toContain("between ₪2.75 and ₪3.45");
+  });
   it("shows grouped amounts, exact payment detail, limits and clear field labels", () => {
     render(<Harness publishing={{ nextAllowedAt: null, remaining: 4 }} />);
     expect(form().id).toBe("request-form");

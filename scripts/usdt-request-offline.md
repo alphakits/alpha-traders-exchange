@@ -22,6 +22,8 @@ As the buyer, refresh the request, review the response, enter a valid-format tes
 Use only synthetic values; the local preview does not move money.
 
 The reference is fixed at **3.30 ILS**, with the request price range **2.95–3.65 ILS**.
+
+The dedicated Playwright server additionally opts into `--quote-scenarios` to verify changing, stale and unavailable synthetic provider quotes, including **3.10 ILS → 2.75–3.45 ILS**. That fixture control exists only in the offline network guard. The ordinary user preview does not enable it, and production application routes do not expose it. Each automated case receives fresh synthetic account IDs so cases do not share rate-limit windows; the actual per-account limits remain enforced.
 All accounts, listings and bank details are synthetic. External server networking is blocked, service credentials are omitted, and request email delivery is off.
 In-app notifications and real application session/API/Trade Room logic remain active.
 The offline preview uses local Arial substitutes for the remotely downloaded fonts.

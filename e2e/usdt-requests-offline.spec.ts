@@ -8,12 +8,21 @@ import { calculateCardlessUsdtAmount } from "@alpha-traders/contracts";
 const root = "/api/alpha-exchange/usdt-requests";
 const terms = { amount: "1000", price: "3.30", network: "TRC20", paymentMethod: "Bank Transfer", city: "" };
 const wallet = "TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE";
+let uncaughtPageErrors: string[] = [];
 
 // The fixture is intentionally destructive only inside the dedicated isolated
 // launcher. Ordinary release suites must not run this file against their state.
-test.beforeEach(async ({ baseURL }, info) => {
+test.beforeEach(async ({ baseURL, request }, info) => {
+  uncaughtPageErrors = [];
   test.skip(!info.project.name.startsWith("usdt-offline-"), "Use the dedicated offline configuration.");
-  await seedOfflineFixture(baseURL!);
+  // Fresh identities isolate account rate-limit windows between cases without
+  // relaxing or bypassing any real per-account request limit.
+  await seedOfflineFixture(baseURL!, { accountNamespace: randomUUID() });
+  await expect.poll(async () => (await (await request.get("/api/alpha-exchange/market-rate")).json()).market.pairs.usdtIls,
+    { message: "The isolated quote reset must reach the actual market service", timeout: 15_000 }).toMatchObject({ price: 3.3, quoteStatus: "live" });
+});
+test.afterEach(() => {
+  expect(uncaughtPageErrors, "No uncaught browser application errors in any buyer, seller or profile tab").toEqual([]);
 });
 
 async function login(api: APIRequestContext, role: keyof typeof OFFLINE_ACCOUNTS) {
@@ -24,6 +33,11 @@ async function login(api: APIRequestContext, role: keyof typeof OFFLINE_ACCOUNTS
   expect(response.ok(), await response.text()).toBe(true);
 }
 async function blockExternalBrowserRequests(context: BrowserContext) {
+  const observePage = (page: import("@playwright/test").Page) => {
+    page.on("pageerror", error => uncaughtPageErrors.push(`${page.url()}: ${error.message}`));
+  };
+  for (const page of context.pages()) observePage(page);
+  context.on("page", observePage);
   await context.route("**/*", route => {
     const url = new URL(route.request().url());
     return ["127.0.0.1", "localhost"].includes(url.hostname) ? route.continue() : route.abort("blockedbyclient");
@@ -49,6 +63,46 @@ async function expectFees(container: Locator, subtotal: string, fee: string, tot
   for (const [label, value] of [["Subtotal", subtotal], ["Buyer fee (1%)", fee], [seller ? "Buyer pays in total" : "You pay in total", total]]) {
     await expect(breakdown.getByText(label, { exact: true }).locator("xpath=following-sibling::dd[1]")).toContainText(value);
   }
+  await expectGreenMoney(breakdown);
+}
+async function expectGreenText(element: Locator) {
+  // Test the browser's rendered color rather than a particular CSS class.
+  // Canvas also resolves modern CSS color syntax to comparable sRGB channels.
+  const { rgba: [red, green, blue, alpha], contrast } = await element.evaluate(node => {
+    const canvas = document.createElement("canvas"); canvas.width = canvas.height = 1;
+    const context = canvas.getContext("2d")!;
+    context.fillStyle = "#000"; context.fillRect(0, 0, 1, 1);
+    const ancestry: Element[] = [];
+    for (let parent: Element | null = node; parent; parent = parent.parentElement) ancestry.unshift(parent);
+    for (const parent of ancestry) {
+      context.fillStyle = getComputedStyle(parent).backgroundColor; context.fillRect(0, 0, 1, 1);
+    }
+    const background = Array.from(context.getImageData(0, 0, 1, 1).data);
+    context.fillStyle = getComputedStyle(node).color; context.fillRect(0, 0, 1, 1);
+    const rgba = Array.from(context.getImageData(0, 0, 1, 1).data);
+    const luminance = (channels: number[]) => channels.slice(0, 3).reduce((sum, channel, index) => {
+      const value = channel / 255;
+      return sum + (value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4) * [0.2126, 0.7152, 0.0722][index];
+    }, 0);
+    const foregroundLuminance = luminance(rgba); const backgroundLuminance = luminance(background);
+    return { rgba, contrast: (Math.max(foregroundLuminance, backgroundLuminance) + 0.05) / (Math.min(foregroundLuminance, backgroundLuminance) + 0.05) };
+  });
+  expect(green, "Money is visibly green, including inherited text colors").toBeGreaterThan(red + 30);
+  expect(green).toBeGreaterThan(blue + 15);
+  expect(green, "Money stays bright against the dark form background").toBeGreaterThanOrEqual(150);
+  expect(alpha).toBe(255);
+  expect(contrast, "Money is legible against its composited solid background").toBeGreaterThanOrEqual(4.5);
+}
+async function expectGreenMoney(container: Locator) {
+  const values = container.locator("bdi").filter({ hasText: /[₪$]\s*\d/ });
+  expect(await values.count(), "The checked section contains actual currency values").toBeGreaterThan(0);
+  for (const value of await values.all()) await expectGreenText(value);
+}
+async function expectTextFits(element: Locator) {
+  expect(await element.evaluate(node => {
+    const bounds = node.getBoundingClientRect(); const range = document.createRange(); range.selectNodeContents(node);
+    return Array.from(range.getClientRects()).every(rect => rect.left >= bounds.left - 1 && rect.right <= bounds.right + 1);
+  }), "Rendered text must wrap within its own container, even when the page clips horizontal overflow").toBe(true);
 }
 async function createDemand(api: APIRequestContext, amount = "1000") {
   const response = await api.post(root, { data: { terms: { ...terms, amount }, operationId: randomUUID() } });
@@ -69,6 +123,23 @@ async function ageDemandPastCooldown(api: APIRequestContext, id: string) {
   for (const offer of demand.offers) offer.createdAt = earlier;
   const saved = await api.put("/api/testing/alpha-exchange-state", { headers: OFFLINE_HEADERS, data: snapshot });
   expect(saved.ok(), await saved.text()).toBe(true);
+}
+
+async function setSyntheticQuote(api: APIRequestContext, price: string, mode: "live" | "unavailable" | "stale" = "live") {
+  const changed = await api.put(`/__usdt-offline-quote?price=${price}&mode=${mode}`, { headers: OFFLINE_HEADERS });
+  expect(changed.ok(), await changed.text()).toBe(true);
+  const quote = expect.poll(async () => (await (await api.get(root)).json() as DemandWorkspace).reference,
+    { message: "Wait for the real server quote cache to observe the synthetic provider", timeout: 15_000 });
+  if (mode === "live") await quote.toMatchObject({ price: String(Number(price)) });
+  else await quote.toBe(null);
+}
+
+async function matchDemand(api: APIRequestContext, demandId: string, offerId: string, revision = 1, extra: Record<string, unknown> = {}) {
+  return api.post("/api/alpha-exchange/purchase-requests", { data: {
+    listingId: "listing-offline-seller", usdtAmount: "1000", receivingNetwork: "TRC20", paymentMethod: "Bank Transfer",
+    buyerReceivingWalletAddress: wallet, feePolicyVersion: "buyer_seller_1pct_v1", usdtDemandId: demandId,
+    usdtDemandOfferId: offerId, usdtDemandRevision: revision, safetyAcknowledged: true, ...extra,
+  } });
 }
 
 test("real API enforces the price band, operation replay, ownership and private response views", async ({ playwright, baseURL }) => {
@@ -98,6 +169,9 @@ test("real API enforces the price band, operation replay, ownership and private 
     expect(JSON.stringify(rivalView)).not.toMatch(/example\.test|passwordHash|requesterId|verifiedPhone/);
     const buyerView = await (await buyer.get(`${root}/${demand.id}`)).json() as DemandWorkspace;
     expect(buyerView.requests[0].offers).toHaveLength(1);
+    expect(buyerView.requests[0].requester).toMatchObject({ accountId: expect.stringMatching(/^AT-\d{6,7}$/), profileHref: expect.stringMatching(/^\/u\/seller-[a-f0-9]+$/), approvedSeller: false, sellerRank: null, completedPurchases: 0 });
+    expect(buyerView.requests[0].offers[0].seller).toMatchObject({ accountId: expect.stringMatching(/^AT-\d{6,7}$/), profileHref: expect.stringMatching(/^\/u\/seller-[a-f0-9]+$/), approvedSeller: true, sellerRank: "bronze" });
+    expect(JSON.stringify(buyerView)).not.toMatch(/Demo Buyer|Demo Seller|example\.test|passwordHash|verifiedPhone|90000900/);
     const stored = await state(buyer);
     expect(stored.usdtDemands).toHaveLength(1);
     expect(stored.notifications.filter(n => n.id.startsWith(`demand-notice:${demand.id}:`))).toHaveLength(3);
@@ -122,6 +196,9 @@ test("buyer publishes, seller responds, buyer reviews and the canonical Trade Ro
     await pasteAmount(amount, "5,000");
     await expect(amount).toHaveValue("5,000");
     await buyerPage.getByLabel("Requested price per USDT (ILS)", { exact: true }).fill("3.30");
+    await expectGreenText(amount);
+    await expectGreenText(buyerPage.getByLabel("Requested price per USDT (ILS)", { exact: true }));
+    await expectGreenMoney(buyerPage.getByRole("region", { name: "Price reference" }));
     await expectFees(buyerPage.getByRole("form", { name: "Request details" }), "16,500.00", "165.00", "16,665.00");
     await buyerPage.evaluate(() => window.scrollTo({ top: 0, behavior: "instant" }));
     await buyerPage.screenshot({ path: testInfo.outputPath("polished-buyer-form.png"), fullPage: true });
@@ -131,6 +208,19 @@ test("buyer publishes, seller responds, buyer reviews and the canonical Trade Ro
     await expect(buyerPage).toHaveURL(/\/en\/usdt-exchange\/requests\/[^/]+$/);
     const demandId = buyerPage.url().split("/").pop()!;
     await expect(buyerPage.getByTestId("request-card")).toContainText("5,000");
+    await expectGreenMoney(buyerPage.getByTestId("request-card"));
+    const buyerIdentity = buyerPage.getByTestId("request-card").getByTestId("request-counterparty-identity");
+    await expect(buyerIdentity).toContainText(/AT-\d{6,7}/);
+    await expect(buyerIdentity).toContainText("0 completed purchases");
+    await expect(buyerIdentity).not.toContainText("Demo Buyer");
+    const buyerProfileLink = buyerIdentity.getByRole("link", { name: /^View profile:/ });
+    await expect(buyerProfileLink).toHaveAttribute("href", /^\/en\/u\/seller-[a-f0-9]+$/);
+    const buyerProfileOpened = buyerPage.waitForEvent("popup"); await buyerProfileLink.click();
+    const buyerProfile = await buyerProfileOpened;
+    await buyerProfile.waitForLoadState("domcontentloaded");
+    await expect(buyerProfile).toHaveURL(/\/en\/u\/seller-[a-f0-9]+$/);
+    await expect(buyerProfile.getByRole("main")).toContainText(/AT-\d{6,7}/);
+    await buyerProfile.close();
     await expect(buyerPage.getByTestId("offer-card")).toHaveCount(0);
     await expect(buyerPage.getByTestId("next-step-panel")).toBeVisible();
     await buyerPage.evaluate(() => window.scrollTo(0, 0));
@@ -139,17 +229,32 @@ test("buyer publishes, seller responds, buyer reviews and the canonical Trade Ro
     await sellerPage.goto(`/en/usdt-exchange/requests/${demandId}`);
     await sellerPage.getByLabel("Your listing", { exact: false }).selectOption("listing-offline-seller");
     await sellerPage.getByLabel("Your response price (ILS)", { exact: true }).fill("3.25");
+    await expectGreenText(sellerPage.getByLabel("Your response price (ILS)", { exact: true }));
+    await expectGreenText(sellerPage.getByLabel("Your listing", { exact: false }));
+    await expectGreenMoney(sellerPage.getByRole("form", { name: "Seller response" }));
     await expectFees(sellerPage.getByRole("form", { name: "Seller response" }), "16,250.00", "162.50", "16,412.50", true);
     await sellerPage.evaluate(() => window.scrollTo({ top: 0, behavior: "instant" }));
     await sellerPage.screenshot({ path: testInfo.outputPath("polished-seller-form.png"), fullPage: true });
     await sellerPage.getByRole("button", { name: "Send response", exact: true }).click();
     await expect(sellerPage.getByTestId("offer-card")).toContainText("3.25");
+    await expectGreenMoney(sellerPage.getByTestId("offer-card"));
     await expect(sellerPage.getByTestId("next-step-panel")).toBeVisible();
     await sellerPage.evaluate(() => window.scrollTo(0, 0));
     await sellerPage.screenshot({ path: testInfo.outputPath("seller-response-mobile.png"), fullPage: true });
     await sellerPage.screenshot({ path: testInfo.outputPath("seller-response-mobile-viewport.png") });
 
     await buyerPage.reload();
+    const sellerIdentity = buyerPage.getByTestId("offer-card").getByTestId("request-counterparty-identity");
+    await expect(sellerIdentity).toContainText("Approved Seller");
+    await expect(sellerIdentity.locator('[data-rank="bronze"]')).toBeVisible();
+    await expect(sellerIdentity).not.toContainText("Demo Seller");
+    const sellerProfileLink = sellerIdentity.getByRole("link", { name: /^View profile:/ });
+    const sellerProfileOpened = buyerPage.waitForEvent("popup"); await sellerProfileLink.click();
+    const sellerProfile = await sellerProfileOpened;
+    await sellerProfile.waitForLoadState("domcontentloaded");
+    await expect(sellerProfile).toHaveURL(/\/en\/u\/seller-[a-f0-9]+$/);
+    await expect(sellerProfile.getByRole("main")).toContainText(/AT-\d{6,7}/);
+    await sellerProfile.close();
     await buyerPage.getByRole("button", { name: "Review response", exact: true }).click();
     const review = buyerPage.getByRole("form", { name: "Trade review" });
     await expectFees(review, "16,250.00", "162.50", "16,412.50");
@@ -183,7 +288,7 @@ test("buyer publishes, seller responds, buyer reviews and the canonical Trade Ro
 });
 
 for (const paymentMethod of ["Face-to-Face (Meet in Person)", "Cardless ATM Withdrawal"]) {
-  test(`${paymentMethod}: real request, response, match and cancellation preserve payment totals`, async ({ playwright, baseURL }) => {
+  test(`${paymentMethod}: real request, response, match and cancellation preserve payment totals`, async ({ playwright, browser, baseURL }, testInfo) => {
     const buyer = await playwright.request.newContext({ baseURL });
     const seller = await playwright.request.newContext({ baseURL });
     try {
@@ -191,12 +296,47 @@ for (const paymentMethod of ["Face-to-Face (Meet in Person)", "Cardless ATM With
       const cardless = paymentMethod === "Cardless ATM Withdrawal";
       const amount = cardless ? calculateCardlessUsdtAmount("1000", "3.30", true)! : "1000";
       const requestedTerms = { ...terms, amount, paymentMethod, city: cardless ? "" : "Haifa" };
+      if (cardless) {
+        const draft = await browser.newContext({ baseURL, storageState: await buyer.storageState(), viewport: { width: 390, height: 844 } });
+        try {
+          await blockExternalBrowserRequests(draft);
+          const page = await draft.newPage(); await page.goto("/en/usdt-exchange/requests?scope=mine");
+          await page.getByRole("button", { name: "Create a request", exact: true }).click();
+          const form = page.getByRole("form", { name: "Request details" });
+          await form.getByLabel("Payment method", { exact: true }).selectOption(paymentMethod);
+          const cash = form.getByLabel("ATM cash total incl. 1% fee (ILS)", { exact: true });
+          await cash.selectOption("1000"); await expectGreenText(cash);
+          await expectFees(form, "990.10", "9.90", "1,000.00");
+          await expect(form).toContainText("≈300");
+          await cash.scrollIntoViewIfNeeded();
+          await page.screenshot({ path: testInfo.outputPath("atm-cash-selection-mobile.png") });
+        } finally { await draft.close(); }
+      }
       const created = await buyer.post(root, { data: { terms: requestedTerms, operationId: randomUUID() } });
       expect(created.ok(), await created.text()).toBe(true);
       const demand = await created.json();
       const response = await seller.post(`${root}/${demand.id}/offers`, { data: { revision: 1, listingId: "listing-offline-seller", price: "3.30", operationId: randomUUID() } });
       expect(response.ok(), await response.text()).toBe(true);
       const offer = await response.json();
+      if (cardless) {
+        const preview = await browser.newContext({ baseURL, storageState: await buyer.storageState(), viewport: { width: 390, height: 844 } });
+        try {
+          await blockExternalBrowserRequests(preview);
+          const page = await preview.newPage(); await page.goto(`/en/usdt-exchange/requests/${demand.id}`);
+          await expect(page.getByTestId("request-card")).toContainText(`≈${Math.round(Number(amount)).toLocaleString("en-US")}`);
+          await page.getByRole("button", { name: "Review response", exact: true }).click();
+          const review = page.getByRole("form", { name: "Trade review" });
+          await expect(review.getByTestId("fee-breakdown")).toContainText("1,000.00");
+          await expectFees(review, "990.10", "9.90", "1,000.00");
+          await review.locator("summary").filter({ hasText: /exact USDT amount/i }).click();
+          await expect(review).toContainText(amount);
+          expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+          await page.evaluate(() => window.scrollTo({ top: 0, behavior: "instant" }));
+          await page.screenshot({ path: testInfo.outputPath("atm-review-mobile.png"), fullPage: true });
+          await review.getByTestId("fee-breakdown").scrollIntoViewIfNeeded();
+          await page.screenshot({ path: testInfo.outputPath("atm-fees-exact-mobile.png") });
+        } finally { await preview.close(); }
+      }
       const matchBody = { listingId: "listing-offline-seller", usdtAmount: amount, receivingNetwork: "TRC20", paymentMethod,
         buyerReceivingWalletAddress: wallet, feePolicyVersion: "buyer_seller_1pct_v1", usdtDemandId: demand.id,
         usdtDemandOfferId: offer.id, usdtDemandRevision: 1, safetyAcknowledged: true,
@@ -232,9 +372,13 @@ test("Arabic mobile request form renders RTL and publishes through the same API"
   await pasteAmount(amount, "٥٬٠٠٠٫١٢");
   await expect(amount).toHaveValue("5,000.12");
   await page.getByLabel("السعر المطلوب لكل USDT (شيكل)", { exact: true }).fill("3.30");
+  await expectGreenText(amount);
+  await expectGreenText(page.getByLabel("السعر المطلوب لكل USDT (شيكل)", { exact: true }));
+  await expectGreenMoney(page.getByRole("form"));
   await page.getByRole("button", { name: "نشر الطلب", exact: true }).click();
   await expect(page).toHaveURL(/\/ar\/usdt-exchange\/requests\/[^/]+$/);
-  await expect(page.getByTestId("request-card")).toContainText("5,000.12");
+  await expect(page.getByTestId("request-card")).toContainText("≈5,000");
+  await expectGreenMoney(page.getByTestId("request-card"));
   expect((await state(page.request)).usdtDemands?.[0].amount).toBe("5000.12");
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.evaluate(() => window.scrollTo(0, 0));
@@ -337,7 +481,8 @@ test("a seller without an eligible listing gets a clear path to the prefilled li
     await login(buyer, "buyer");
     const demand = await createDemand(buyer, "5000");
     const snapshot = await state(buyer);
-    snapshot.marketplaceListings = snapshot.marketplaceListings.filter(listing => listing.sellerId !== OFFLINE_ACCOUNTS.seller.id);
+    const sellerId = snapshot.users.find(user => user.email === OFFLINE_ACCOUNTS.seller.email)!.id;
+    snapshot.marketplaceListings = snapshot.marketplaceListings.filter(listing => listing.sellerId !== sellerId);
     const saved = await buyer.put("/api/testing/alpha-exchange-state", { headers: OFFLINE_HEADERS, data: snapshot });
     expect(saved.ok(), await saved.text()).toBe(true);
     await page.goto(`/en/usdt-exchange/requests/${demand.id}`);
@@ -379,4 +524,304 @@ test("refreshing a changed request clears the seller's stale selection before se
     await expect(page.getByTestId("offer-card")).toContainText("3.25");
     expect((await state(buyer)).usdtDemands?.[0].offers[0].revision).toBe(2);
   } finally { await buyer.dispose(); }
+});
+
+test("a 3.10 server reference enforces 2.75–3.45 on publishing, renewal, response and matching", async ({ playwright, baseURL }) => {
+  const buyer = await playwright.request.newContext({ baseURL });
+  const seller = await playwright.request.newContext({ baseURL });
+  try {
+    await login(buyer, "buyer"); await login(seller, "seller");
+    await setSyntheticQuote(buyer, "3.10");
+    expect((await (await buyer.get(root)).json() as DemandWorkspace).reference).toMatchObject({ price: "3.1", minimum: "2.75", maximum: "3.45" });
+    for (const price of ["2.74", "3.46"]) {
+      const rejected = await buyer.post(root, { data: { terms: { ...terms, price }, operationId: randomUUID() } });
+      expect(rejected.status()).toBe(409); expect((await rejected.json()).code).toBe("PRICE_OUTSIDE_BAND");
+    }
+    const created = await buyer.post(root, { data: { terms: { ...terms, price: "2.75" }, operationId: randomUUID() } });
+    expect(created.ok(), await created.text()).toBe(true);
+    const demand = await created.json();
+    await ageDemandPastCooldown(buyer, demand.id);
+    for (const price of ["2.74", "3.46"]) {
+      const rejected = await buyer.patch(`${root}/${demand.id}`, { data: { action: "renew", revision: 1, terms: { ...terms, price } } });
+      expect(rejected.status()).toBe(409); expect((await rejected.json()).code).toBe("PRICE_OUTSIDE_BAND");
+      const rejectedOffer = await seller.post(`${root}/${demand.id}/offers`, { data: { revision: 1, listingId: "listing-offline-seller", price, operationId: randomUUID() } });
+      expect(rejectedOffer.status()).toBe(409); expect((await rejectedOffer.json()).code).toBe("PRICE_OUTSIDE_BAND");
+    }
+    const renewed = await buyer.patch(`${root}/${demand.id}`, { data: { action: "renew", revision: 1, terms: { ...terms, price: "3.45" } } });
+    expect(renewed.ok(), await renewed.text()).toBe(true);
+    const offered = await seller.post(`${root}/${demand.id}/offers`, { data: { revision: 2, listingId: "listing-offline-seller", price: "2.75", operationId: randomUUID() } });
+    expect(offered.ok(), await offered.text()).toBe(true);
+    const offer = await offered.json();
+    const matched = await matchDemand(buyer, demand.id, offer.id, 2);
+    expect(matched.status(), await matched.text()).toBe(201);
+    expect((await matched.json()).purchase).toMatchObject({ pricePerUsdt: "2.75", fiatAmount: "2777.50" });
+    expect((await state(buyer)).purchaseRequests).toHaveLength(1);
+  } finally { await buyer.dispose(); await seller.dispose(); }
+});
+
+test("buyer and seller forms clearly show the 3.10 quote and its inclusive price limits", async ({ page, context, browser, baseURL }, testInfo) => {
+  await blockExternalBrowserRequests(context); await login(page.request, "buyer");
+  const seller = await browser.newContext({ baseURL, viewport: { width: 320, height: 844 }, isMobile: true, hasTouch: true });
+  await blockExternalBrowserRequests(seller);
+  try {
+    await login(seller.request, "seller"); await setSyntheticQuote(page.request, "3.10");
+    await page.goto("/en/usdt-exchange/requests?scope=mine");
+    await page.getByRole("button", { name: "Create a request", exact: true }).click();
+    const form = page.getByRole("form", { name: "Request details" });
+    await form.getByLabel("Amount (USDT)", { exact: true }).fill("5000");
+    const price = form.getByLabel("Requested price per USDT (ILS)", { exact: true });
+    const publish = form.getByRole("button", { name: "Publish request", exact: true });
+    await expect(page.getByRole("region", { name: "Price reference" })).toContainText("3.10");
+    await expectGreenMoney(page.getByRole("region", { name: "Price reference" }));
+    for (const boundary of ["2.74", "3.46"]) {
+      await price.fill(boundary); await expect(publish).toBeDisabled();
+      await expectGreenText(price); await expectGreenMoney(form);
+      await expectGreenMoney(form.locator("#request-submit-help"));
+    }
+    for (const boundary of ["2.75", "3.45"]) { await price.fill(boundary); await expect(publish).toBeEnabled(); }
+    await price.fill("3.10"); await publish.click();
+    await expect(page).toHaveURL(/\/en\/usdt-exchange\/requests\/[^/]+$/);
+    const sellerPage = await seller.newPage(); await sellerPage.goto(page.url());
+    const responseForm = sellerPage.getByRole("form", { name: "Seller response" });
+    await responseForm.getByLabel("Your listing", { exact: false }).selectOption("listing-offline-seller");
+    const offerPrice = responseForm.getByLabel("Your response price (ILS)", { exact: true });
+    const send = responseForm.getByRole("button", { name: "Send response", exact: true });
+    for (const boundary of ["2.74", "3.46"]) {
+      await offerPrice.fill(boundary); await expect(send).toBeDisabled();
+      await expectGreenText(offerPrice); await expectGreenMoney(responseForm);
+      await expectGreenMoney(responseForm.locator('p[id$="-reason"]'));
+    }
+    for (const boundary of ["2.75", "3.45"]) { await offerPrice.fill(boundary); await expect(send).toBeEnabled(); }
+    await expect(responseForm).toContainText("2.75"); await expect(responseForm).toContainText("3.45");
+    await expectFees(responseForm, "17,250.00", "172.50", "17,422.50", true);
+    expect(await sellerPage.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    await sellerPage.evaluate(() => window.scrollTo({ top: 0, behavior: "instant" }));
+    await sellerPage.screenshot({ path: testInfo.outputPath("seller-price-limits-320px.png"), fullPage: true });
+    await offerPrice.scrollIntoViewIfNeeded();
+    await sellerPage.screenshot({ path: testInfo.outputPath("seller-price-input-320px.png") });
+  } finally { await seller.close(); }
+});
+
+test("provider movement and unavailable quotes block stale acceptance until the request is reviewed again", async ({ playwright, baseURL }) => {
+  const buyer = await playwright.request.newContext({ baseURL });
+  const seller = await playwright.request.newContext({ baseURL });
+  const newBuyer = await playwright.request.newContext({ baseURL });
+  try {
+    await login(buyer, "buyer"); await login(seller, "seller"); await login(newBuyer, "otherBuyer");
+    const created = await buyer.post(root, { data: { terms: { ...terms, price: "3.60" }, operationId: randomUUID() } });
+    expect(created.ok(), await created.text()).toBe(true);
+    const demand = await created.json();
+    const offered = await seller.post(`${root}/${demand.id}/offers`, { data: { revision: 1, listingId: "listing-offline-seller", price: "3.60", operationId: randomUUID() } });
+    expect(offered.ok(), await offered.text()).toBe(true); const offer = await offered.json();
+    await setSyntheticQuote(buyer, "3.10");
+    const paused = (await (await buyer.get(`${root}/${demand.id}`)).json() as DemandWorkspace).requests[0];
+    expect(paused.state).toBe("paused"); expect(paused.offers.every(item => !item.available)).toBe(true);
+    const moved = await matchDemand(buyer, demand.id, offer.id);
+    expect(moved.status()).toBe(400); expect((await moved.json()).code).toBe("PRICE_OUTSIDE_BAND");
+    expect((await state(buyer)).purchaseRequests).toHaveLength(0);
+    await ageDemandPastCooldown(buyer, demand.id);
+    const renewed = await buyer.patch(`${root}/${demand.id}`, { data: { action: "renew", revision: 1, terms: { ...terms, price: "3.10" } } });
+    expect(renewed.ok(), await renewed.text()).toBe(true);
+    const freshResponse = await seller.post(`${root}/${demand.id}/offers`, { data: { revision: 2, listingId: "listing-offline-seller", price: "3.10", operationId: randomUUID() } });
+    expect(freshResponse.ok(), await freshResponse.text()).toBe(true); const currentOffer = await freshResponse.json();
+    await ageDemandPastCooldown(buyer, demand.id);
+    for (const mode of ["unavailable", "stale"] as const) {
+      await setSyntheticQuote(buyer, "3.10", mode);
+      const unpublished = await newBuyer.post(root, { data: { terms: { ...terms, price: "3.10" }, operationId: randomUUID() } });
+      expect(unpublished.status()).toBe(409); expect((await unpublished.json()).code).toBe("QUOTE_UNAVAILABLE");
+      const unrenewed = await buyer.patch(`${root}/${demand.id}`, { data: { action: "renew", revision: 2, terms: { ...terms, price: "3.10" } } });
+      expect(unrenewed.status()).toBe(409); expect((await unrenewed.json()).code).toBe("QUOTE_UNAVAILABLE");
+      const unoffered = await seller.post(`${root}/${demand.id}/offers`, { data: { revision: 2, listingId: "listing-offline-seller", price: "3.10", operationId: randomUUID() } });
+      expect(unoffered.status()).toBe(409); expect((await unoffered.json()).code).toBe("REQUEST_CHANGED");
+      const rejected = await matchDemand(buyer, demand.id, currentOffer.id, 2);
+      expect(rejected.status()).toBe(400); expect((await rejected.json()).code).toBe("QUOTE_UNAVAILABLE");
+      expect((await state(buyer)).purchaseRequests).toHaveLength(0);
+    }
+    await setSyntheticQuote(buyer, "3.10");
+    const staleRevision = await matchDemand(buyer, demand.id, offer.id);
+    expect(staleRevision.status()).toBe(400);
+    const accepted = await matchDemand(buyer, demand.id, currentOffer.id, 2);
+    expect(accepted.status(), await accepted.text()).toBe(201);
+    const snapshot = await state(buyer);
+    expect(snapshot.purchaseRequests).toHaveLength(1);
+    expect(snapshot.purchaseRequests[0]).toMatchObject({ pricePerUsdt: "3.10", fiatAmount: "3131.00" });
+  } finally { await buyer.dispose(); await seller.dispose(); await newBuyer.dispose(); }
+});
+
+for (const role of ["buyer", "seller"] as const) {
+  test(`${role}: mobile Buy Requests entry lands on the correct workspace at narrow and tablet widths`, async ({ page, context, playwright, baseURL }, testInfo) => {
+    await blockExternalBrowserRequests(context); await login(page.request, role);
+    const buyer = await playwright.request.newContext({ baseURL });
+    try {
+      // The account permits one active session. Reuse the browser buyer's
+      // session rather than replacing it with a second API login.
+      if (role === "seller") await login(buyer, "buyer");
+      const demand = await createDemand(role === "buyer" ? page.request : buyer, "5000");
+      const scope = role === "seller" ? "available" : "mine";
+      for (const width of [320, 390, 768, 1024]) {
+        await page.setViewportSize({ width, height: 844 });
+        await page.goto(`/en/usdt-exchange/requests/${demand.id}`);
+        const toggle = page.locator('summary[aria-label="Open menu"]');
+        await toggle.click();
+        const menu = toggle.locator("..");
+        const entry = menu.getByRole("link", { name: "Buy Requests", exact: true });
+        await expect(entry).toHaveAttribute("href", `/en/usdt-exchange/requests?scope=${scope}`);
+        await expect(entry).toHaveCSS("color", "rgb(144, 194, 255)");
+        expect(await entry.evaluate(element => element.previousElementSibling?.textContent)).toMatch(/Alpha Exchange/);
+        if (width === 320 || width === 390) {
+          await entry.scrollIntoViewIfNeeded();
+          await page.screenshot({ path: testInfo.outputPath(`${role}-menu-${width}px.png`) });
+        }
+        await entry.click();
+        await expect(page).toHaveURL(new RegExp(`/en/usdt-exchange/requests\\?scope=${scope}$`));
+        await expect(page.getByRole("button", { name: role === "seller" ? "Buyer requests · Sell USDT" : "My buying requests", exact: true })).toHaveAttribute("aria-pressed", "true");
+        await expect(page.getByTestId("request-card")).toContainText("5,000");
+        await expect(toggle.locator("..")).not.toHaveAttribute("open", "");
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+      }
+      await page.setViewportSize({ width: 568, height: 320 });
+      const landscapeToggle = page.locator('summary[aria-label="Open menu"]');
+      await landscapeToggle.click();
+      const landscapeEntry = landscapeToggle.locator("..").getByRole("link", { name: "Buy Requests", exact: true });
+      await landscapeEntry.scrollIntoViewIfNeeded();
+      const bounds = await landscapeEntry.boundingBox();
+      expect(bounds).not.toBeNull(); expect(bounds!.y).toBeGreaterThanOrEqual(0); expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(320);
+      await landscapeEntry.click();
+      await expect(page.getByTestId("request-card")).toBeVisible();
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+      await page.setViewportSize({ width: 1024, height: 844 });
+      await page.screenshot({ path: testInfo.outputPath(`${role}-tablet-request-list.png`) });
+    } finally { await buyer.dispose(); }
+  });
+}
+
+test("buyer form stays readable without horizontal overflow from 320 to 1920 pixels", async ({ page, context, browser, baseURL }, testInfo) => {
+  await blockExternalBrowserRequests(context); await login(page.request, "buyer");
+  await page.goto("/en/usdt-exchange/requests?scope=mine");
+  await page.getByRole("button", { name: "Create a request", exact: true }).click();
+  const form = page.getByRole("form", { name: "Request details" });
+  await form.getByLabel("Amount (USDT)", { exact: true }).fill("5000");
+  await form.getByLabel("Requested price per USDT (ILS)", { exact: true }).fill("3.30");
+  await expectGreenText(form.getByLabel("Amount (USDT)", { exact: true }));
+  await expectGreenText(form.getByLabel("Requested price per USDT (ILS)", { exact: true }));
+  for (const width of [320, 375, 390, 768, 1024, 1440, 1920]) {
+    await page.setViewportSize({ width, height: 900 });
+    await expect(form.getByRole("button", { name: "Publish request", exact: true })).toBeEnabled();
+    await expectFees(form, "16,500.00", "165.00", "16,665.00");
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), `No overflow at ${width}px`).toBe(true);
+    if (width === 320) {
+      await page.evaluate(() => window.scrollTo({ top: 0, behavior: "instant" }));
+      await page.screenshot({ path: testInfo.outputPath("buyer-form-320px.png"), fullPage: true });
+    }
+  }
+  await page.setViewportSize({ width: 320, height: 844 });
+  await form.getByLabel("Amount (USDT)", { exact: true }).fill("999999999.999999");
+  await form.getByLabel("Payment method", { exact: true }).selectOption("Face-to-Face (Meet in Person)");
+  const longCity = "A".repeat(80);
+  await form.getByLabel("Meeting city", { exact: true }).fill(longCity);
+  await expect(form.getByLabel("Amount (USDT)", { exact: true })).toHaveValue("999,999,999.999999");
+  await expectFees(form, "3,300,000,000.00", "33,000,000.00", "3,333,000,000.00");
+  for (const value of await form.getByTestId("fee-breakdown").locator("dd").all()) await expectTextFits(value);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.evaluate(() => window.scrollTo({ top: 0, behavior: "instant" }));
+  await page.screenshot({ path: testInfo.outputPath("buyer-max-amount-320px.png"), fullPage: true });
+  await form.getByTestId("fee-breakdown").scrollIntoViewIfNeeded();
+  await page.screenshot({ path: testInfo.outputPath("buyer-max-fees-320px.png") });
+  await form.getByRole("button", { name: "Publish request", exact: true }).click();
+  await expect(page.getByTestId("request-card")).toContainText("≈1,000,000,000");
+  await expect(page.getByTestId("request-card")).toContainText(longCity);
+  await expectTextFits(page.getByTestId("request-card").getByText(longCity, { exact: false }));
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  // Keep the stress case eligible for a seller response so the same maximum
+  // values are checked in the seller form, not just on the buyer's card.
+  const snapshot = await state(page.request);
+  const listing = snapshot.marketplaceListings.find(item => item.id === "listing-offline-seller")!;
+  listing.originalAmount = listing.availableAmount = listing.maximumTrade = "999999999.999999";
+  snapshot.users.find(user => user.id === listing.sellerId)!.city = longCity;
+  const saved = await page.request.put("/api/testing/alpha-exchange-state", { headers: OFFLINE_HEADERS, data: snapshot });
+  expect(saved.ok(), await saved.text()).toBe(true);
+  const seller = await browser.newContext({ baseURL, viewport: { width: 320, height: 844 }, isMobile: true, hasTouch: true });
+  try {
+    await blockExternalBrowserRequests(seller); await login(seller.request, "seller");
+    const sellerPage = await seller.newPage(); await sellerPage.goto(page.url());
+    const responseForm = sellerPage.getByRole("form", { name: "Seller response" });
+    await expect(responseForm).toBeVisible();
+    await expectTextFits(responseForm.locator("..").locator("p").filter({ hasText: longCity }).first());
+    await responseForm.getByLabel("Your listing", { exact: false }).selectOption("listing-offline-seller");
+    await responseForm.getByLabel("Your response price (ILS)", { exact: true }).fill("3.30");
+    await expectGreenText(responseForm.getByLabel("Your response price (ILS)", { exact: true }));
+    await expectGreenMoney(responseForm);
+    for (const value of await responseForm.getByTestId("fee-breakdown").locator("dd").all()) await expectTextFits(value);
+    expect(await sellerPage.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    await sellerPage.evaluate(() => window.scrollTo({ top: 0, behavior: "instant" }));
+    await sellerPage.screenshot({ path: testInfo.outputPath("seller-max-amount-city-320px.png"), fullPage: true });
+    await responseForm.getByTestId("fee-breakdown").scrollIntoViewIfNeeded();
+    await sellerPage.screenshot({ path: testInfo.outputPath("seller-max-fees-320px.png") });
+  } finally { await seller.close(); }
+});
+
+test("buyer can keep or cancel a request and then renew it after the cooldown", async ({ page, context }) => {
+  await blockExternalBrowserRequests(context); await login(page.request, "buyer");
+  const demand = await createDemand(page.request, "5000");
+  await page.goto(`/en/usdt-exchange/requests/${demand.id}`);
+  await page.getByRole("button", { name: "Cancel request", exact: true }).click();
+  await page.getByRole("button", { name: "Keep request", exact: true }).click();
+  expect((await state(page.request)).usdtDemands?.[0].state).toBe("open");
+  await page.getByRole("button", { name: "Cancel request", exact: true }).click();
+  await page.getByRole("button", { name: "Confirm cancellation", exact: true }).click();
+  expect((await state(page.request)).usdtDemands?.[0].state).toBe("cancelled");
+  await ageDemandPastCooldown(page.request, demand.id); await page.reload();
+  await page.getByRole("button", { name: "Update / renew", exact: true }).click();
+  const form = page.getByRole("form", { name: "Request details" });
+  await expect(form.getByLabel("Amount (USDT)", { exact: true })).toHaveValue("5,000");
+  await form.getByLabel("Requested price per USDT (ILS)", { exact: true }).fill("3.10");
+  await form.getByRole("button", { name: "Save and renew", exact: true }).click();
+  await expect(page.getByTestId("request-card")).toContainText("3.10");
+  expect((await state(page.request)).usdtDemands?.[0]).toMatchObject({ state: "open", revision: 3, amount: "5000", price: "3.10" });
+});
+
+test("a demand-origin Bank Transfer completes through payment proof, release and seller completion", async ({ page, context, playwright, baseURL }) => {
+  await blockExternalBrowserRequests(context); await login(page.request, "buyer");
+  const seller = await playwright.request.newContext({ baseURL });
+  try {
+    await login(seller, "seller"); const demand = await createDemand(page.request);
+    const offered = await seller.post(`${root}/${demand.id}/offers`, { data: { revision: 1, listingId: "listing-offline-seller", price: "3.30", operationId: randomUUID() } });
+    expect(offered.ok(), await offered.text()).toBe(true);
+    const matched = await matchDemand(page.request, demand.id, (await offered.json()).id);
+    expect(matched.status(), await matched.text()).toBe(201); const trade = (await matched.json()).purchase;
+    const path = `/api/alpha-exchange/purchase-requests/${trade.id}`;
+    const premature = await seller.patch(path, { data: { action: "complete_trade", usdtSentConfirmed: true } });
+    expect(premature.ok()).toBe(false);
+    const accepted = await seller.patch(path, { data: { status: "accepted", safetyAcknowledged: true } });
+    expect(accepted.ok(), await accepted.text()).toBe(true);
+    const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO9Wl8cAAAAASUVORK5CYII=";
+    const evidence = async (api: APIRequestContext, side: "buyer" | "seller") => {
+      const response = await api.post(`${path}/evidence`, { data: { side, fileName: `${side}-proof.png`, mimeType: "image/png",
+        sizeBytes: Buffer.from(png, "base64").length, fileData: `data:image/png;base64,${png}` } });
+      expect(response.ok(), await response.text()).toBe(true); return (await response.json()).request;
+    };
+    expect((await evidence(page.request, "buyer")).status).toBe("payment_sent");
+    for (const status of ["funds_received", "usdt_release_pending"]) {
+      const advanced = await seller.patch(path, { data: { status } });
+      expect(advanced.ok(), await advanced.text()).toBe(true); expect((await advanced.json()).request.status).toBe(status);
+    }
+    expect((await evidence(seller, "seller")).status).toBe("usdt_sent");
+    const denied = await page.request.patch(path, { data: { status: "completed" } });
+    expect(denied.ok()).toBe(false); expect((await denied.json()).code).toBe("seller-completion-required");
+    const completed = await seller.patch(path, { data: { action: "complete_trade" } });
+    expect(completed.ok(), await completed.text()).toBe(true);
+    expect((await completed.json()).request.status).toBe("review_open");
+    // Retrying completion must never debit inventory or create either fee twice.
+    await seller.patch(path, { data: { action: "complete_trade" } });
+    const snapshot = await state(page.request);
+    expect(snapshot.marketplaceListings.find(listing => listing.id === "listing-offline-seller")?.availableAmount).toBe("9000");
+    const commissions = snapshot.commissionRecords.filter(commission => commission.purchaseRequestId === trade.id);
+    expect(commissions).toHaveLength(1);
+    expect(commissions[0]).toMatchObject({ purchaseRequestId: trade.id, sellerFeeAmount: 10, buyerFeeCollectedAmount: 10,
+      commissionAmount: 20, grossAmount: 3333, paymentStatus: "pending", feePolicyVersion: "buyer_seller_1pct_v1", commissionCalculationVersion: "usdt_6dp_v2" });
+    await page.goto(`/en/usdt-exchange/requests/${demand.id}`);
+    await expect(page.getByTestId("request-card")).toContainText(/fulfilled|completed/i);
+    await expect(page.getByTestId("request-card").getByTestId("request-counterparty-identity")).toContainText("1 completed purchase");
+    expect((await (await page.request.get(`${root}/${demand.id}`)).json() as DemandWorkspace).requests[0].state).toBe("fulfilled");
+  } finally { await seller.dispose(); }
 });

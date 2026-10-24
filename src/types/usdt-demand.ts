@@ -1,4 +1,14 @@
-import type { SupportedNetwork } from "./alpha-exchange";
+import type { SellerLevel, SupportedNetwork } from "./alpha-exchange";
+
+/** Public profile facts only; absent history is not a fabricated zero. */
+export type DemandPublicIdentity = {
+  displayName: string;
+  accountId: string;
+  profileHref: string | null;
+  approvedSeller: boolean;
+  sellerRank: SellerLevel | null;
+  completedPurchases: number | null;
+};
 
 export type DemandTerms = {
   amount: string;
@@ -36,6 +46,7 @@ export type UsdtDemand = DemandTerms & {
 export type DemandView = DemandTerms & {
   id: string;
   requesterName: string;
+  requester?: DemandPublicIdentity;
   isMine: boolean;
   revision: number;
   state: UsdtDemand["state"] | "paused" | "fulfilled" | "trade_cancelled";
@@ -44,12 +55,13 @@ export type DemandView = DemandTerms & {
   purchaseRequestId?: string;
   offers: Array<Pick<DemandOffer, "id" | "listingId" | "price" | "state" | "revision"> & {
     sellerName: string; isMine: boolean; available: boolean; createdAt?: string;
+    seller?: DemandPublicIdentity;
   }>;
 };
 export type DemandWorkspace = {
   actorId: string;
   canRespond: boolean;
-  reference: { price: string; minimum: string; maximum: string; quotedAt?: string } | null;
+  reference: { price: string; minimum: string; maximum: string; quotedAt?: string; validUntil?: string } | null;
   requests: DemandView[];
   listings: Array<{ id: string; price: string; amount: string }>;
   nextCursor: string | null;

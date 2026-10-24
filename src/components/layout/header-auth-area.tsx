@@ -1,9 +1,11 @@
 "use client";
 
 import { canShowInterfaceLink, getInterfaceAccess } from "@alpha-traders/contracts";
+import { ClipboardList } from "lucide-react";
+import { Fragment } from "react";
 import type { AppLocale } from "@/i18n/routing";
 import type { HeaderNavItem } from "@/components/layout/header-nav";
-import { Link } from "@/i18n/navigation";
+import { Link, usePathname } from "@/i18n/navigation";
 import type { ClientSessionUser } from "@/lib/client-session-user";
 import { cn } from "@/lib/utils";
 import { buttonVariants } from "@/components/ui/button";
@@ -30,19 +32,26 @@ export function HeaderAuthArea({
   locale,
   navItems,
   labels,
+  buyRequestsEnabled = false,
 }: {
   locale: AppLocale;
   navItems: HeaderNavItem[];
   labels: HeaderAuthLabels;
+  buyRequestsEnabled?: boolean;
   initialSessionUser: SessionUserSummary | null;
 }) {
   const { user: sessionUser } = useCanonicalSession();
+  const pathname = usePathname();
   const dashboardHref = sessionUser ? "/profile" : "/login";
   const dashboardLabel = sessionUser ? labels.profile : labels.signIn;
 
   const access = getInterfaceAccess(sessionUser);
   const sellerWorkspaceAccess = access.canSell;
   const adminDashboardAccess = access.administration;
+  const showBuyRequests = buyRequestsEnabled && sessionUser?.emailVerified === true
+    && sessionUser.isPhotoVerified === true && sessionUser.adultConfirmed === true
+    && (access.buyer || access.canSell);
+  const buyRequestsHref = `/usdt-exchange/requests?scope=${access.canSell ? "available" : "mine"}`;
   const visibleNavItems = navItems
     .map((item) => !sessionUser && item.href === "/academy" ? { ...item, href: "/learn-trading-free" } : item)
     .filter((item) => canShowInterfaceLink(item.href, sessionUser));
@@ -81,23 +90,36 @@ export function HeaderAuthArea({
         />
       ) : null}
       <MobileNavigationMenu label={labels.openMenu}>
-        <nav className="space-y-1">
+        <nav className="space-y-1" aria-label={locale === "ar" ? "قائمة الهاتف" : "Mobile menu"}>
           {visibleNavItems.map((item) => (
-            <Link
-              key={item.href}
-              href={item.href}
-              locale={locale}
-              className={
-                item.cta
-                  ? "group relative flex min-h-11 items-center overflow-hidden rounded-full border border-[#6CAEFF]/45 bg-gradient-to-r from-[#1B60ED]/85 via-[#2A7BFF]/80 to-[#3A9DFF]/75 px-3 text-sm font-semibold text-white shadow-[0_10px_24px_rgba(36,121,255,0.32)] backdrop-blur-xl transition duration-300 hover:-translate-y-0.5 hover:shadow-[0_14px_30px_rgba(36,121,255,0.42)]"
-                  : "flex min-h-11 items-center rounded-xl px-3 text-sm text-[#D1D5DB] transition hover:bg-white/5 hover:text-white"
-              }
-            >
-              {item.label}
-              {item.cta ? (
-                <span className="pointer-events-none absolute inset-y-0 -left-1/3 w-1/3 -skew-x-12 bg-gradient-to-r from-transparent via-white/30 to-transparent opacity-0 transition duration-700 group-hover:left-[120%] group-hover:opacity-100" />
+            <Fragment key={item.href}>
+              <Link
+                href={item.href}
+                locale={locale}
+                className={
+                  item.cta
+                    ? "group relative flex min-h-11 items-center overflow-hidden rounded-full border border-[#6CAEFF]/45 bg-gradient-to-r from-[#1B60ED]/85 via-[#2A7BFF]/80 to-[#3A9DFF]/75 px-3 text-sm font-semibold text-white shadow-[0_10px_24px_rgba(36,121,255,0.32)] backdrop-blur-xl transition duration-300 hover:-translate-y-0.5 hover:shadow-[0_14px_30px_rgba(36,121,255,0.42)]"
+                    : "flex min-h-11 items-center rounded-xl px-3 text-sm text-[#D1D5DB] transition hover:bg-white/5 hover:text-white"
+                }
+              >
+                {item.label}
+                {item.cta ? (
+                  <span className="pointer-events-none absolute inset-y-0 -left-1/3 w-1/3 -skew-x-12 bg-gradient-to-r from-transparent via-white/30 to-transparent opacity-0 transition duration-700 group-hover:left-[120%] group-hover:opacity-100" />
+                ) : null}
+              </Link>
+              {showBuyRequests && item.href === "/usdt-exchange" ? (
+                <Link
+                  href={buyRequestsHref}
+                  locale={locale}
+                  data-buy-requests-link
+                  aria-current={pathname === "/usdt-exchange/requests" || pathname.startsWith("/usdt-exchange/requests/") ? "page" : undefined}
+                  className="flex min-h-11 touch-manipulation items-center gap-2 rounded-xl border border-[#6CAEFF]/35 bg-[#1B60ED]/15 px-3 py-2 text-sm font-semibold text-[#90C2FF] transition-colors hover:border-[#6CAEFF]/60 hover:bg-[#1B60ED]/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6CAEFF] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0b0b0b]"
+                >
+                  <ClipboardList className="h-4 w-4 shrink-0" aria-hidden="true" />
+                  {locale === "ar" ? "طلبات الشراء" : "Buy Requests"}
+                </Link>
               ) : null}
-            </Link>
+            </Fragment>
           ))}
           <div className="border-t border-white/10 pt-2">
             {sessionUser ? (

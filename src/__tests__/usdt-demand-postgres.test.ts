@@ -69,6 +69,19 @@ async function counts() {
 }
 
 describe("draft USDT PostgreSQL invariants", () => {
+  it("keeps the standalone rollout review SQL identical to runtime schema and safely repeatable", async () => {
+    const review = (await readFile("docs/sql/usdt-demand-schema-review.sql", "utf8")).replace(/\r\n/g, "\n");
+    const body = review.split("-- BEGIN REVIEWED DEMAND SCHEMA\n")[1]?.split("-- END REVIEWED DEMAND SCHEMA")[0];
+    const compact = (value: string) => value.replace(/\s+/g, " ").trim();
+    expect(compact(body ?? "")).toBe(compact(`${USDT_DEMAND_SCHEMA_SQL.join(";\n")};`));
+    await database.exec(review);
+    const rows = await database.query<{ rls: boolean; client_access: boolean }>(`select
+      (select relrowsecurity from pg_class where oid='alpha_exchange.usdt_demands'::regclass) as rls,
+      has_table_privilege('anon','alpha_exchange.usdt_demands','select')
+        or has_table_privilege('authenticated','alpha_exchange.usdt_demands','select') as client_access`);
+    expect(rows.rows[0]).toEqual({ rls: true, client_access: false });
+  });
+
   it("enforces one open request per account and durable publication idempotency", async () => {
     const first = sample(); await insert(first);
     await expect(insert(sample())).rejects.toThrow(/idx_usdt_demands_one_open/);

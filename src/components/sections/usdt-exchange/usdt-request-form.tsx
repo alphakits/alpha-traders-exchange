@@ -1,11 +1,11 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
-import { calculateCardlessUsdtAmount, calculateTradePaymentTotal, parseCardlessCashAmount, validatePriceOffer } from "@alpha-traders/contracts";
+import { calculateCardlessUsdtAmount, calculateTradePaymentTotal, parseCardlessCashAmount } from "@alpha-traders/contracts";
 import { formatIls, formatUsdt } from "@/lib/usdt-demand-format";
 import type { DemandTerms, DemandWorkspace } from "@/types/usdt-demand";
 import { GroupedDecimalInput } from "./usdt-number-input";
-import { FeeBreakdown, paymentLabel, requestField as field, requestPanel as panel, requestPrimary as primary, requestSecondary as secondary } from "./usdt-request-details";
+import { FeeBreakdown, RequestMoneyText, paymentLabel, requestField as field, requestMoneyField as moneyField, requestPanel as panel, requestPrimary as primary, requestSecondary as secondary } from "./usdt-request-details";
 
 export type RequestFormProps = {
   ar: boolean;
@@ -59,8 +59,7 @@ export function RequestForm({ ar, terms, setTerms, cash, setCash, reference, pub
   const minimum = reference ? cents(reference.minimum) : null;
   const maximum = reference ? cents(reference.maximum) : null;
   const quoteAvailable = reference !== null && minimum !== null && maximum !== null;
-  const priceInRange = quoteAvailable && priceCents !== null && priceCents >= minimum! && priceCents <= maximum!
-    && validatePriceOffer(reference!.price, terms.price).ok;
+  const priceInRange = quoteAvailable && priceCents !== null && priceCents >= minimum! && priceCents <= maximum!;
   const total = amountValid && priceValid ? calculateTradePaymentTotal(formTerms.amount, terms.price, true) : null;
   const totalCents = total ? cents(total) : null;
   const city = terms.city.trim();
@@ -121,18 +120,18 @@ export function RequestForm({ ar, terms, setTerms, cash, setCash, reference, pub
           <p className="mt-2 text-xs leading-5 text-gray-400">{text("Use the network supported by your receiving wallet.", "اختر الشبكة التي تدعمها محفظتك المستلمة.")}</p>
         </div>
         {atm ? <div><label htmlFor="request-cash" className="text-sm font-medium">{text("ATM cash total incl. 1% fee (ILS)", "إجمالي النقد شامل رسوم 1% (شيكل)")}</label>
-          <select id="request-cash" className={field} value={cash} onChange={event => setCash(event.target.value)} aria-describedby="request-amount-help">{cashOptions.map(amount => <option key={amount} value={amount}>₪{formatIls(amount)}</option>)}</select>
+          <select id="request-cash" className={moneyField} value={cash} onChange={event => setCash(event.target.value)} aria-describedby="request-amount-help">{cashOptions.map(amount => <option key={amount} value={amount}>₪{formatIls(amount)}</option>)}</select>
           <p id="request-amount-help" className="mt-2 text-xs leading-5 text-gray-400">{text("Choose the exact cash amount. Your USDT is calculated after including the buyer fee.", "اختر مبلغ النقد بالضبط. تُحسب كمية USDT بعد احتساب رسوم المشتري.")}</p>
           <p className="mt-2 text-sm text-emerald-300"><bdi dir="ltr">{formatUsdt(formTerms.amount)} USDT</bdi></p>
         </div> : <div><label htmlFor="request-amount" className="text-sm font-medium">{text("Amount (USDT)", "المبلغ (USDT)")}</label>
-          <GroupedDecimalInput key={amountKey} id="request-amount" className={field} required value={terms.amount} onValueChange={amount => { setTerms({ ...terms, amount }); setSubmissionError(""); }} maxIntegerDigits={9} maxFractionDigits={6} placeholder="5,000" autoComplete="off" aria-describedby="request-amount-help" aria-invalid={Boolean(terms.amount && amountError) || undefined} />
-          <div className="mt-2 flex flex-wrap gap-2" aria-label={text("Quick amounts", "كميات سريعة")}>{["500", "1000", "5000"].map(amount => <button key={amount} type="button" className="min-h-11 rounded-lg border border-white/15 px-3 text-xs text-gray-300 hover:border-amber-300/50 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300" onClick={() => { setTerms({ ...terms, amount }); setAmountKey(key => key + 1); setSubmissionError(""); }}>{formatUsdt(amount)} USDT</button>)}</div>
+          <GroupedDecimalInput key={amountKey} id="request-amount" className={moneyField} required value={terms.amount} onValueChange={amount => { setTerms({ ...terms, amount }); setSubmissionError(""); }} maxIntegerDigits={9} maxFractionDigits={6} placeholder="5,000" autoComplete="off" aria-describedby="request-amount-help" aria-invalid={Boolean(terms.amount && amountError) || undefined} />
+          <div className="mt-2 flex flex-wrap gap-2" aria-label={text("Quick amounts", "كميات سريعة")}>{["500", "1000", "5000"].map(amount => <button key={amount} type="button" className="min-h-11 rounded-lg border border-white/15 px-3 text-xs tabular-nums text-emerald-300 hover:border-emerald-300/50 hover:text-emerald-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300" onClick={() => { setTerms({ ...terms, amount }); setAmountKey(key => key + 1); setSubmissionError(""); }}>{formatUsdt(amount)} USDT</button>)}</div>
           <p id="request-amount-help" className="mt-2 text-xs leading-5 text-gray-400">{text("Enter the full amount you want to receive, with up to 6 decimal places.", "أدخل كامل الكمية التي تريد استلامها، حتى 6 منازل عشرية.")}</p>
         </div>}
         <div><label htmlFor="request-price" className="text-sm font-medium">{text("Requested price per USDT (ILS)", "السعر المطلوب لكل USDT (شيكل)")}</label>
-          <GroupedDecimalInput key={priceKey} id="request-price" className={field} required value={terms.price} onValueChange={price => { setTerms({ ...terms, price }); setSubmissionError(""); }} maxIntegerDigits={4} maxFractionDigits={2} placeholder="3.30" autoComplete="off" aria-describedby="request-price-help" aria-invalid={Boolean(terms.price && priceError) || undefined} />
+          <GroupedDecimalInput key={priceKey} id="request-price" className={moneyField} required value={terms.price} onValueChange={price => { setTerms({ ...terms, price }); setSubmissionError(""); }} maxIntegerDigits={4} maxFractionDigits={2} placeholder="3.30" autoComplete="off" aria-describedby="request-price-help" aria-invalid={Boolean(terms.price && priceError) || undefined} />
           <button type="button" className="mt-2 min-h-11 rounded-lg px-2 text-xs font-medium text-amber-200 underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300 disabled:opacity-40" disabled={!quoteAvailable} onClick={() => { if (reference) { setTerms({ ...terms, price: formatIls(reference.price).replace(/,/g, "") }); setPriceKey(key => key + 1); setSubmissionError(""); } }}>{text("Use reference price", "استخدام السعر المرجعي")}</button>
-          <p id="request-price-help" className="mt-2 text-xs leading-5 text-gray-400">{quoteAvailable ? text(`Allowed price: ₪${formatIls(reference!.minimum)}–₪${formatIls(reference!.maximum)}. Your price never changes automatically.`, `السعر المسموح: ₪${formatIls(reference!.minimum)}–₪${formatIls(reference!.maximum)}. لا يتغير سعرك تلقائيًا.`) : text("A fresh reference is needed before publishing.", "يلزم مرجع سعر حديث قبل النشر.")}</p>
+          <p id="request-price-help" className="mt-2 text-xs leading-5 text-gray-400"><RequestMoneyText>{quoteAvailable ? text(`Allowed price: ₪${formatIls(reference!.minimum)}–₪${formatIls(reference!.maximum)}. Your price never changes automatically.`, `السعر المسموح: ₪${formatIls(reference!.minimum)}–₪${formatIls(reference!.maximum)}. لا يتغير سعرك تلقائيًا.`) : text("A fresh reference is needed before publishing.", "يلزم مرجع سعر حديث قبل النشر.")}</RequestMoneyText></p>
         </div>
         {meeting && <div className="sm:col-span-2"><label htmlFor="request-city" className="text-sm font-medium">{text("Meeting city", "مدينة اللقاء")}</label>
           <input id="request-city" className={field} required minLength={2} maxLength={80} autoComplete="address-level2" value={terms.city} onChange={event => setTerms({ ...terms, city: event.target.value })} aria-describedby="request-city-help" aria-invalid={Boolean(terms.city && cityError) || undefined} />
@@ -150,6 +149,6 @@ export function RequestForm({ ar, terms, setTerms, cash, setCash, reference, pub
       <button type="submit" className={primary} disabled={Boolean(disabledReason)} aria-describedby={disabledReason || submissionError ? "request-submit-help" : undefined}>{busy ? text("Saving…", "جارٍ الحفظ…") : renewing ? text("Save and renew", "حفظ وتجديد") : text("Publish request", "نشر الطلب")}</button>
       <button type="button" className={secondary} onClick={onClose} disabled={busy}>{text("Close", "إغلاق")}</button>
     </div>
-    {(disabledReason || submissionError) && <p id="request-submit-help" role={submissionError ? "alert" : undefined} className="mt-3 text-sm leading-6 text-amber-200">{disabledReason || submissionError}</p>}
+    {(disabledReason || submissionError) && <p id="request-submit-help" role={submissionError ? "alert" : undefined} className="mt-3 text-sm leading-6 text-amber-200"><RequestMoneyText>{disabledReason || submissionError}</RequestMoneyText></p>}
   </form>;
 }

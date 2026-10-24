@@ -13,7 +13,10 @@ vi.mock("@/components/auth/canonical-session-provider", () => ({
   useOptionalCanonicalSession: () => ({ user: mocks.user }),
 }));
 vi.mock("@/i18n/locale-preference", () => ({ clearClientLocaleChoice: mocks.clearLocale }));
-vi.mock("@/i18n/navigation", () => ({ Link: ({ children, href }: { children: React.ReactNode; href: string }) => <a href={href}>{children}</a> }));
+vi.mock("@/i18n/navigation", () => ({
+  Link: ({ children, href }: { children: React.ReactNode; href: string }) => <a href={href}>{children}</a>,
+  usePathname: () => "/",
+}));
 vi.mock("@/components/notifications/notification-bell", () => ({ NotificationBell: () => <span>Notifications</span> }));
 vi.mock("@/components/layout/create-listing-quick-link", () => ({ CreateListingQuickLink: () => <span>Create listing</span> }));
 vi.mock("@/components/layout/mobile-navigation-menu", () => ({ MobileNavigationMenu: ({ children }: { children: React.ReactNode }) => <div>{children}</div> }));

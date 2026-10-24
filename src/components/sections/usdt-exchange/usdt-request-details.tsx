@@ -1,12 +1,21 @@
 import type { ReactNode } from "react";
 import { calculateFiatAmount, calculateTradeBuyerFiatFee, calculateTradePaymentTotal } from "@alpha-traders/contracts";
-import { formatIls, formatUsdt } from "@/lib/usdt-demand-format";
+import { formatIls, formatUsdt, formatUsdtExact } from "@/lib/usdt-demand-format";
 import type { DemandView } from "@/types/usdt-demand";
 
 export const requestPanel = "rounded-2xl border border-white/10 bg-[#111318] p-5 sm:p-6";
 export const requestPrimary = "inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-amber-300 px-5 py-3 text-sm font-semibold text-black transition-colors hover:bg-amber-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-200 focus-visible:ring-offset-2 focus-visible:ring-offset-[#111318] disabled:cursor-not-allowed disabled:opacity-40";
 export const requestSecondary = "inline-flex min-h-12 items-center justify-center gap-2 rounded-xl border border-white/20 px-4 py-3 text-sm text-gray-100 transition-colors hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-200 disabled:cursor-not-allowed disabled:opacity-40";
-export const requestField = "mt-2 min-h-12 w-full rounded-xl border border-white/20 bg-[#090b0f] px-3 py-3 text-base text-white outline-none placeholder:text-gray-500 focus:border-amber-300 focus:ring-2 focus:ring-amber-300/20 aria-[invalid=true]:border-red-400";
+const requestFieldBase = "mt-2 min-h-12 w-full rounded-xl border border-white/20 bg-[#090b0f] px-3 py-3 text-base outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-300/20 aria-[invalid=true]:border-red-400";
+export const requestField = `${requestFieldBase} text-white placeholder:text-gray-500`;
+export const requestMoneyField = `${requestFieldBase} font-medium tabular-nums text-emerald-300 placeholder:text-emerald-300/60`;
+
+/** Keep currency amounts recognizable even inside translated help and errors. */
+export function RequestMoneyText({ children }: { children: string }) {
+  return <>{children.split(/([±+-]?[₪$]\s*\d[\d,]*(?:\.\d+)?)/u).map((part, index) =>
+    index % 2 === 1 ? <bdi key={index} dir="ltr" className="font-medium tabular-nums text-emerald-300">{part}</bdi> : part,
+  )}</>;
+}
 
 export function paymentLabel(method: string, ar: boolean) {
   if (!ar) return method === "Face-to-Face (Meet in Person)" ? "Face-to-Face" : method;
@@ -26,14 +35,21 @@ export function RequestStatus({ state, ar }: { state: DemandView["state"]; ar: b
 
 export function FeeBreakdown({ amount, price, ar, title, seller = false }: { amount: string; price: string; ar: boolean; title: string; seller?: boolean }) {
   const total = calculateTradePaymentTotal(amount, price, true);
+  const exactAmount = formatUsdtExact(amount);
+  const rounded = exactAmount !== "—" && exactAmount !== formatUsdt(amount);
   return <section aria-label={title} data-testid="fee-breakdown" className="rounded-xl border border-emerald-300/20 bg-emerald-300/[0.04] p-4 sm:p-5">
     <h3 className="text-sm font-semibold text-gray-200">{title}</h3>
-    <dl className="mt-4 space-y-3 text-sm">
+    <dl className="mt-4 space-y-3 text-sm [&_dd]:min-w-0 [&_dd]:max-w-full [&_dd]:text-emerald-300 [&_dd]:[overflow-wrap:anywhere]">
       <div className="flex flex-wrap items-center justify-between gap-2"><dt className="text-gray-400">{ar ? "كمية USDT" : "USDT amount"}</dt><dd className="font-medium tabular-nums"><bdi dir="ltr">{formatUsdt(amount)} USDT</bdi></dd></div>
       <div className="flex flex-wrap items-center justify-between gap-2"><dt className="text-gray-400">{ar ? "المبلغ قبل الرسوم" : "Subtotal"}</dt><dd className="tabular-nums"><bdi dir="ltr">₪{formatIls(calculateFiatAmount(amount, price))}</bdi></dd></div>
       <div className="flex flex-wrap items-center justify-between gap-2"><dt className="text-gray-400">{ar ? "رسوم المشتري (1%)" : "Buyer fee (1%)"}</dt><dd className="tabular-nums"><bdi dir="ltr">₪{formatIls(calculateTradeBuyerFiatFee(amount, price))}</bdi></dd></div>
       <div className="flex flex-wrap items-center justify-between gap-3 border-t border-white/10 pt-4"><dt className="font-semibold">{seller ? (ar ? "إجمالي ما يدفعه المشتري" : "Buyer pays in total") : (ar ? "إجمالي ما تدفعه" : "You pay in total")}</dt><dd className="text-2xl font-semibold tabular-nums text-emerald-300"><bdi dir="ltr">₪{formatIls(total)}</bdi></dd></div>
     </dl>
+    {rounded && <details className="mt-4 text-xs leading-5 text-gray-400">
+      <summary className="min-h-11 cursor-pointer py-3 text-sky-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-300">{ar ? "عرض كمية USDT الدقيقة" : "View exact USDT amount"}</summary>
+      <p className="[overflow-wrap:anywhere]"><bdi dir="ltr" className="font-medium tabular-nums text-emerald-300">{exactAmount} USDT</bdi></p>
+      <p className="mt-1">{ar ? "تُقرّب الكمية المعروضة لتسهيل القراءة. تُستخدم الكمية الدقيقة في الصفقة، ولا يتغير إجمالي الدفع." : "The main amount is rounded for readability. The trade uses this exact amount; your payment total stays unchanged."}</p>
+    </details>}
     <p className="mt-3 text-xs leading-5 text-gray-400">{ar ? "يشمل الإجمالي رسوم المشتري. يستلم المشتري كامل كمية USDT الموضحة." : "The total includes the buyer fee. The buyer receives the full USDT amount shown."}</p>
   </section>;
 }

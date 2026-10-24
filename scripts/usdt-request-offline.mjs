@@ -10,6 +10,7 @@ import { resolveExistingOfflineRuntime } from "./usdt-request-offline-runtime.mj
 const root = fileURLToPath(new URL("../", import.meta.url));
 const build = process.argv.includes("--build");
 const production = process.argv.includes("--production");
+const quoteScenarios = process.argv.includes("--quote-scenarios");
 if (build && production) throw new Error("Use --build or --production, not both.");
 const resumeArgument = process.argv.indexOf("--resume-runtime");
 const resuming = resumeArgument >= 0;
@@ -46,6 +47,7 @@ Object.assign(environment, {
   NEXT_FONT_GOOGLE_MOCKED_RESPONSES: path.join(root, "scripts/usdt-request-offline-fonts.cjs"),
   TEMP: runtimeTemp, TMP: runtimeTemp, TMPDIR: runtimeTemp,
   ALPHA_USDT_OFFLINE_PREVIEW: "1", ALPHA_E2E_TEST_SUPPORT: "1", ALPHA_E2E_LOOPBACK_ONLY: "1",
+  ALPHA_USDT_OFFLINE_QUOTE_SCENARIOS: quoteScenarios ? "1" : "0",
   ALPHA_EXCHANGE_FORCE_INMEMORY_REPOSITORY: "1", ALPHA_USDT_REQUESTS_ENABLED: "1",
   ALPHA_USDT_REQUEST_EMAIL_DELIVERY_ENABLED: "0", ALPHA_EXCHANGE_TWILIO_SEND_ENABLED: "false",
   ALPHA_EXCHANGE_TWILIO_OTP_SEND_ENABLED: "false", ALPHA_FX_REFERENCE_URL: "https://usdt-offline.invalid/quote",
@@ -81,7 +83,7 @@ if (build) {
   console.log(`Login: ${baseURL}/en/login?redirectTo=/en/usdt-exchange/requests`);
   console.log(`Buyer: ${OFFLINE_ACCOUNTS.buyer.email} | Seller: ${OFFLINE_ACCOUNTS.seller.email}`);
   console.log(`Synthetic demo password: ${OFFLINE_PASSWORD}`);
-  console.log("Reference fixed at 3.30 ILS. External server networking blocked. Email/SMS credentials absent. Ctrl+C stops the preview.\n");
+  console.log(`Reference defaults to 3.30 ILS${quoteScenarios ? "; isolated test quote scenarios enabled" : " (fixed)"}. External server networking blocked. Email/SMS credentials absent. Ctrl+C stops the preview.\n`);
 } catch (error) {
   server.kill();
   throw error;

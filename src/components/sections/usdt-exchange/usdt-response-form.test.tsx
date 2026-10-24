@@ -15,6 +15,13 @@ const submitButton = () => screen.getByRole("button", { name: /^(Send|Update) re
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
 describe("seller response form", () => {
+  it.each([["2.74", true], ["2.75", false], ["3.45", false], ["3.46", true]])("enforces the live 3.10 band for response price %s", (offerPrice, disabled) => {
+    const input = { ...props(), offerPrice: String(offerPrice), reference: { price: "3.10", minimum: "2.75", maximum: "3.45" } };
+    render(<SellerResponseForm {...input} />);
+    expect(submitButton().disabled).toBe(disabled);
+    fireEvent.submit(screen.getByRole("form", { name: "Seller response" }));
+    expect(input.onSubmit).toHaveBeenCalledTimes(disabled ? 0 : 1);
+  });
   it("shows grouped available stock and the exact inclusive payment preview", () => {
     const input = props(); render(<SellerResponseForm {...input} />);
     expect(screen.getByRole("option", { name: "10,000 USDT · ₪3.20 per USDT" })).toBeTruthy();
@@ -71,7 +78,7 @@ describe("seller response form", () => {
     input.current = { ...input.current, paymentMethod: "Cardless ATM Withdrawal", amount: calculateCardlessUsdtAmount("5000", "3.20", true)! };
     const view = render(<SellerResponseForm {...input} offerPrice="3.10" />);
     expect(submitButton().disabled).toBe(true);
-    expect(screen.getByText(/must be ₪100–₪10,000/)).toBeTruthy();
+    expect(screen.getByText(/At this price,/).textContent).toContain("must be ₪100–₪10,000");
     fireEvent.click(screen.getByRole("button", { name: /Match requested price/ }));
     expect(input.onPriceChange).toHaveBeenCalledWith("3.20");
     view.rerender(<SellerResponseForm {...input} offerPrice="3.20" />);

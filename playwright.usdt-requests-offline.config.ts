@@ -10,7 +10,7 @@ export default defineConfig({
   outputDir: "test-results/usdt-requests-offline",
   use: { baseURL, trace: "retain-on-failure", screenshot: "only-on-failure", headless: true, actionTimeout: 45_000 },
   webServer: {
-    command: `node scripts/usdt-request-offline.mjs --port ${port} --no-seed${process.env.USDT_OFFLINE_PRODUCTION === "1" ? " --production" : ""}`,
+    command: `node scripts/usdt-request-offline.mjs --port ${port} --no-seed --quote-scenarios${process.env.USDT_OFFLINE_PRODUCTION === "1" ? " --production" : ""}`,
     url: `${baseURL}/api/alpha-exchange/market-rate`, reuseExistingServer: false, timeout: 240_000,
     stdout: "pipe", stderr: "pipe",
   },
