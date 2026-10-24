@@ -413,7 +413,7 @@ test("buyer and seller buyer-rank progress uses completed purchases and stays pr
     // counterparty once. Avoid a redundant four-render cross product on CI.
     for (const [locale, page] of [["en", buyerPage], ["ar", sellerPage]] as const) {
         await page.goto(`/${locale}/usdt-exchange/requests/${demand.id}`);
-        await expect(page.locator("main[dir]")).toHaveAttribute("dir", locale === "ar" ? "rtl" : "ltr");
+        await expect(page.getByRole("region", { name: locale === "ar" ? "طلبات الشراء" : "Buy Requests", exact: true })).toHaveAttribute("dir", locale === "ar" ? "rtl" : "ltr");
         const requester = page.getByTestId("request-card").getByTestId("request-counterparty-identity");
         const responder = page.getByTestId("offer-card").getByTestId("request-counterparty-identity");
         for (const [identity, rankLabel, progress] of [
