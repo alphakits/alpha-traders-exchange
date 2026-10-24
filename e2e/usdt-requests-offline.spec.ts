@@ -68,7 +68,10 @@ async function expectFees(container: Locator, subtotal: string, fee: string, tot
 async function renderedColors(element: Locator) {
   // Test the browser's rendered color rather than a particular CSS class.
   // Canvas also resolves modern CSS color syntax to comparable sRGB channels.
-  return element.evaluate(node => {
+  const measure = () => element.evaluate(node => {
+    // Responsive hydration can replace a locator's resolved element before
+    // evaluate runs. Detached nodes have empty computed styles, not UI colors.
+    if (!node.isConnected || node.getClientRects().length === 0) return null;
     const canvas = document.createElement("canvas"); canvas.width = canvas.height = 1;
     const context = canvas.getContext("2d", { willReadFrequently: true })!;
     context.fillStyle = "#000"; context.fillRect(0, 0, 1, 1);
@@ -87,6 +90,14 @@ async function renderedColors(element: Locator) {
     const foregroundLuminance = luminance(rgba); const backgroundLuminance = luminance(background);
     return { rgba, background, contrast: (Math.max(foregroundLuminance, backgroundLuminance) + 0.05) / (Math.min(foregroundLuminance, backgroundLuminance) + 0.05) };
   });
+  let colors = await measure();
+  if (colors === null) {
+    await expect.poll(async () => {
+      colors = await measure();
+      return colors !== null;
+    }, { message: "Measure the current connected, visible control after responsive hydration", timeout: 5_000 }).toBe(true);
+  }
+  return colors!;
 }
 async function expectGreenText(element: Locator) {
   const { rgba: [red, green, blue, alpha], contrast } = await renderedColors(element);
