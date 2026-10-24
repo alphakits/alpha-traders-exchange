@@ -135,7 +135,16 @@ async function expectGreenMoney(container: Locator) {
 async function expectReadableSelectPaint(select: Locator, info: TestInfo, name: string) {
   // Native select painting can ignore the CSS background in WebKit. Measure
   // rendered pixels, not just the computed styles used by the color helpers.
-  await select.scrollIntoViewIfNeeded();
+  // Measurement setup runs after native-focus assertions; it must not be used
+  // to make those interaction checks pass.
+  await select.evaluate(node => node.scrollIntoView({ block: "center", inline: "nearest", behavior: "instant" }));
+  await expect.poll(() => select.evaluate(node => {
+    const rect = node.getBoundingClientRect(); const y = rect.top + rect.height / 2;
+    return [rect.left + 8, rect.right - 8].every(x => {
+      const hit = document.elementFromPoint(x, y);
+      return hit === node || (hit !== null && node.contains(hit));
+    });
+  }), { message: "Select paint samples are not covered by fixed navigation" }).toBe(true);
   const bounds = await select.boundingBox();
   expect(bounds).not.toBeNull();
   const screenshot = await select.screenshot();
