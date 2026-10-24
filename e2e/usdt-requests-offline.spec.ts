@@ -564,6 +564,10 @@ for (const locale of ["en", "ar"] as const) {
       await buyerPage.goto(`/${locale}/usdt-exchange/requests`);
       const create = buyerPage.getByRole("button", { name: ar ? "إنشاء طلب" : "Create a request", exact: true });
       await create.focus(); await create.press("Enter");
+      await expect(buyerPage.getByLabel(ar ? "طريقة الدفع" : "Payment method", { exact: true })).toBeFocused();
+      await buyerPage.keyboard.press("Tab");
+      await expect(buyerPage.getByLabel(ar ? "الشبكة" : "Network", { exact: true })).toBeFocused();
+      await buyerPage.keyboard.press("Tab");
       const amount = buyerPage.getByLabel(ar ? "المبلغ (USDT)" : "Amount (USDT)", { exact: true });
       await expect(amount).toBeFocused(); await amount.fill("1000");
       await buyerPage.getByLabel(ar ? "السعر المطلوب لكل USDT (شيكل)" : "Requested price per USDT (ILS)", { exact: true }).fill("3.30");
