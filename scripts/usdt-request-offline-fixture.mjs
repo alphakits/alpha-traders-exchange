@@ -16,7 +16,7 @@ export async function seedOfflineFixture(baseURL, options = {}) {
     [role, { ...account, id: namespace ? `${account.id}-${namespace}` : account.id }]));
   const url = new URL(baseURL);
   if (url.protocol !== "http:" || !["127.0.0.1", "localhost"].includes(url.hostname)) throw new Error("Offline fixture target must be HTTP loopback.");
-  const health = await fetch(`${baseURL}/__usdt-offline-health`, { signal: AbortSignal.timeout(10_000) });
+  const health = await fetch(`${baseURL}/__usdt-offline-health`, { signal: AbortSignal.timeout(30_000) });
   const marker = health.ok ? await health.json() : null;
   if (marker?.kind !== "alpha-usdt-offline-preview-v1" || marker.isolated !== true || marker.externalNetworkBlocked !== true) {
     throw new Error("Refusing to reset a server that is not the isolated offline preview.");

@@ -47,6 +47,8 @@ The default suite uses installed Google Chrome and starts its own isolated serve
 node node_modules/playwright/cli.js test --config=playwright.usdt-requests-offline.config.ts
 ```
 
+The isolated headless browser uses `--disable-gpu` for stable software-rendered captures on shared Windows hosts. This does not change the user's preview browsers. Color checks use CPU-backed canvas sampling. The fixture health check has a bounded 30-second timeout; the multi-viewport menu and maximum-value cases have a 300-second overall budget, while individual action and assertion timeouts remain unchanged.
+
 It checks real sessions, price boundaries, replay protection, ownership/privacy, the buyer/seller browser flow, listing prefill, all three payment methods and Arabic mobile layout.
 It also checks grouped number typing/pasting, canonical API amounts, fee breakdowns, invalid input, quote recovery, seller response updates/withdrawals and stale request recovery.
 Screenshots and failure traces are saved under `test-results/usdt-requests-offline`.

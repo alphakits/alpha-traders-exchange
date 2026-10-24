@@ -8,7 +8,10 @@ export default defineConfig({
   testDir: "./e2e", testMatch: "usdt-requests-offline.spec.ts", fullyParallel: false,
   workers: 1, retries: 0, timeout: 180_000, expect: { timeout: 30_000 }, reporter: "list",
   outputDir: "test-results/usdt-requests-offline",
-  use: { baseURL, trace: "retain-on-failure", screenshot: "only-on-failure", headless: true, actionTimeout: 45_000 },
+  use: { baseURL, trace: "retain-on-failure", screenshot: "only-on-failure", headless: true, actionTimeout: 45_000,
+    // Keep isolated Windows headless captures from competing with the user's GPU.
+    launchOptions: { args: ["--disable-gpu"] },
+  },
   webServer: {
     command: `node scripts/usdt-request-offline.mjs --port ${port} --no-seed --quote-scenarios${process.env.USDT_OFFLINE_PRODUCTION === "1" ? " --production" : ""}`,
     url: `${baseURL}/api/alpha-exchange/market-rate`, reuseExistingServer: false, timeout: 240_000,

@@ -70,7 +70,7 @@ async function expectGreenText(element: Locator) {
   // Canvas also resolves modern CSS color syntax to comparable sRGB channels.
   const { rgba: [red, green, blue, alpha], contrast } = await element.evaluate(node => {
     const canvas = document.createElement("canvas"); canvas.width = canvas.height = 1;
-    const context = canvas.getContext("2d")!;
+    const context = canvas.getContext("2d", { willReadFrequently: true })!;
     context.fillStyle = "#000"; context.fillRect(0, 0, 1, 1);
     const ancestry: Element[] = [];
     for (let parent: Element | null = node; parent; parent = parent.parentElement) ancestry.unshift(parent);
@@ -650,6 +650,7 @@ test("provider movement and unavailable quotes block stale acceptance until the 
 
 for (const role of ["buyer", "seller"] as const) {
   test(`${role}: mobile Buy Requests entry lands on the correct workspace at narrow and tablet widths`, async ({ page, context, playwright, baseURL }, testInfo) => {
+    test.setTimeout(300_000); // Several viewport journeys and captures on shared Windows hosts.
     await blockExternalBrowserRequests(context); await login(page.request, role);
     const buyer = await playwright.request.newContext({ baseURL });
     try {
@@ -696,6 +697,7 @@ for (const role of ["buyer", "seller"] as const) {
 }
 
 test("buyer form stays readable without horizontal overflow from 320 to 1920 pixels", async ({ page, context, browser, baseURL }, testInfo) => {
+  test.setTimeout(300_000); // Seven sizes plus both maximum-value forms; action timeouts stay bounded.
   await blockExternalBrowserRequests(context); await login(page.request, "buyer");
   await page.goto("/en/usdt-exchange/requests?scope=mine");
   await page.getByRole("button", { name: "Create a request", exact: true }).click();

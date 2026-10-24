@@ -53,7 +53,7 @@ In PowerShell, set `$env:USDT_OFFLINE_PRODUCTION='1'` before the Playwright comm
 | Buyer request lifecycle | Keep cancellation, confirm cancellation, reload, update and renew after cooldown. |
 | Bank Transfer completion | Premature completion rejected; buyer payment evidence; seller funds/release stages; seller evidence; buyer completion rejected; seller completion; fulfilled request and stock. A 1,000 USDT trade records a 10 USDT seller share plus 10 USDT collected buyer share, totaling 20 USDT pending commission with the agreed policy/calculation versions. Completion retry cannot create a second commission or debit stock again. |
 
-Browser automation uses installed Chromium/Chrome on Windows. It does not establish behavior on actual iOS Safari, Android WebView, assistive technology, every desktop browser or every device pixel ratio. Validate representative real devices before broad rollout. Screenshots are review evidence for the tested viewports.
+Browser automation uses installed Chromium/Chrome on Windows. The final isolated harness disables GPU acceleration for software-rendered screenshots after a shared-host run stalled with high test-GPU CPU usage and repeated image tiles; color sampling is also CPU-backed. This changes only the test process, not the user preview. It does not establish behavior on actual iOS Safari, Android WebView, assistive technology, every desktop browser or every device pixel ratio. Validate representative real devices before broad rollout. Screenshots are review evidence for the tested viewports.
 
 ## Database review artifact
 
