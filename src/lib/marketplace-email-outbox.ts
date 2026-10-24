@@ -276,7 +276,18 @@ export async function runMarketplaceEmailSweep(send: MarketplaceEmailTransport) 
       break;
     }
     work += 1;
-    const outcome = await attempt(pool, job, send);
+    let outcome: Awaited<ReturnType<typeof attempt>>;
+    try {
+      outcome = await attempt(pool, job, send);
+    } catch {
+      // A temporary eligibility/provider failure belongs to this job. Keep
+      // its frozen body/key for recovery and continue unrelated deliveries.
+      // A storage failure here still rejects the sweep for operator visibility.
+      await finish(pool, job, "pending", "attempt_interrupted_retry_preserved", 30_000);
+      logEvent("error", { event: "marketplace_email_outbox", resourceId: job.id,
+        outcome: "failed", reason: "attempt_interrupted_retry_preserved" });
+      outcome = "pending";
+    }
     summary[outcome] += 1;
   }
   const counts = await pool.query<{ pending: number; failed: number }>(

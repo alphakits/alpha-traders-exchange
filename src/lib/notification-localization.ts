@@ -107,6 +107,7 @@ const ARABIC_ACTION_BY_ENGLISH: Record<string, string> = {
   "view seller insights": "عرض إحصاءات البائع",
   "manage listing": "إدارة العرض",
   "view listing": "عرض الإعلان",
+  "view usdt request": "عرض طلب USDT",
   "review listing": "مراجعة العرض",
   "pay commission": "دفع العمولة",
   "review commission": "مراجعة العمولة",

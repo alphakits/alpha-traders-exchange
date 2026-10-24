@@ -32,6 +32,20 @@ CREATE TABLE IF NOT EXISTS alpha_exchange.usdt_demands (
     CHECK ((payload->>'purchaseRequestId') IS NOT DISTINCT FROM purchase_request_id)
   );
 
+DO $$ BEGIN
+    PERFORM pg_advisory_xact_lock(61422920);
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint
+      WHERE conrelid = 'alpha_exchange.usdt_demands'::regclass
+        AND conname = 'usdt_demands_decimal_terms') THEN
+      ALTER TABLE alpha_exchange.usdt_demands ADD CONSTRAINT usdt_demands_decimal_terms CHECK (
+        coalesce(jsonb_typeof(payload->'amount') = 'string'
+          AND payload->>'amount' ~ '^[0-9]{1,9}([.][0-9]{1,6})?$'
+          AND jsonb_typeof(payload->'price') = 'string'
+          AND payload->>'price' ~ '^[0-9]{1,4}([.][0-9]{1,2})?$', false)
+      );
+    END IF;
+  END $$;
+
 CREATE UNIQUE INDEX IF NOT EXISTS idx_usdt_demands_one_open ON alpha_exchange.usdt_demands(requester_id) WHERE state='open';
 
 ALTER TABLE alpha_exchange.usdt_demands ENABLE ROW LEVEL SECURITY;

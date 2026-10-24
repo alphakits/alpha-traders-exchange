@@ -107,6 +107,27 @@ describe("durable marketplace email delivery", () => {
     expect((await rows()).rows[0]).toMatchObject({ status: "sent", attempts: 2 });
   });
 
+  it("continues other deliveries after one interrupted attempt and retries its frozen message", async () => {
+    await db.exec("update alpha_exchange.marketplace_email_gate set available_at = now() + interval '2 minutes'");
+    const second = { ...email, idempotencyKey: "trade:second:buyer", body: "second frozen message" };
+    const send = sender().mockRejectedValueOnce(new Error("temporary private provider detail"));
+    await enqueueMarketplaceEmail(email, send);
+    await enqueueMarketplaceEmail(second, send);
+    expect(send).not.toHaveBeenCalled();
+    await openGate();
+    expect(await runMarketplaceEmailSweep(send)).toMatchObject({ sent: 1, pending: 1, backlog: 1 });
+    const interrupted = (await rows()).rows.find(row => row.status === "pending");
+    expect(interrupted).toMatchObject({ request_body: email.body, attempts: 1,
+      last_reason: "attempt_interrupted_retry_preserved" });
+    expect(send.mock.calls.map(call => call[0])).toEqual([email, second]);
+    expect(JSON.stringify(mocks.log.mock.calls)).not.toContain("temporary private provider detail");
+    await db.exec("update alpha_exchange.marketplace_email_outbox set available_at = now() - interval '1 second'");
+    await openGate();
+    expect(await runMarketplaceEmailSweep(send)).toMatchObject({ sent: 1, pending: 0, backlog: 0 });
+    expect(send.mock.calls[2][0]).toEqual(email);
+    expect((await rows()).rows.every(row => row.status === "sent" && row.request_body === null && row.recipient_email === null)).toBe(true);
+  });
+
   it("fences an old worker result when a newer lease owns the job", async () => {
     const send = sender().mockImplementation(async () => {
       await db.exec("update alpha_exchange.marketplace_email_outbox set lease_token = 'new-worker'");

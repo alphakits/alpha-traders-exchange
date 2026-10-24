@@ -27,7 +27,7 @@ vi.mock("@/lib/marketplace-email-delivery", () => ({
 }));
 vi.mock("@/lib/structured-logging", () => ({ logEvent: mocks.logEvent }));
 
-import { GET as getRuntimeState } from "@/app/api/testing/alpha-exchange-state/route";
+import { GET as getRuntimeState, PUT as putRuntimeState } from "@/app/api/testing/alpha-exchange-state/route";
 import { GET as getEmailAttempts } from "@/app/api/testing/marketplace-email-attempts/route";
 
 function testingRequest(url: string) {
@@ -67,5 +67,15 @@ describe("test-support routes", () => {
 
     expect((await getRuntimeState(testingRequest("http://localhost:3100/api/testing/alpha-exchange-state"))).status).toBe(200);
     expect((await getEmailAttempts(testingRequest("http://localhost:3100/api/testing/marketplace-email-attempts"))).status).toBe(200);
+  });
+  it.each(["https://alphatraders.co.il", "http://localhost:3211"])("blocks fixture writes before parsing or persistence in deployed production at %s", async origin => {
+    vi.stubEnv("NODE_ENV", "production"); vi.stubEnv("VERCEL", "1"); vi.stubEnv("VERCEL_ENV", "production");
+    vi.stubEnv("ALPHA_E2E_TEST_SUPPORT", "1"); vi.stubEnv("ALPHA_E2E_LOOPBACK_ONLY", "1");
+    const response = await putRuntimeState(new NextRequest(`${origin}/api/testing/alpha-exchange-state`, {
+      method: "PUT", headers: { "x-alpha-test-support": "enabled" }, body: "{malformed",
+    }));
+    expect(response.status).toBe(404);
+    expect(mocks.loadSnapshot).not.toHaveBeenCalled(); expect(mocks.saveSnapshot).not.toHaveBeenCalled();
+    expect(mocks.invalidateAlphaExchangeStoreCache).not.toHaveBeenCalled();
   });
 });

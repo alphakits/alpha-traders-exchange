@@ -4,10 +4,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { demandApi, demandBody } from "./usdt-demand-api";
 import { DemandError } from "./usdt-demand-policy";
 
-const mocks = vi.hoisted(() => ({ auth: vi.fn(), verification: vi.fn(), rate: vi.fn(), after: vi.fn() }));
+const mocks = vi.hoisted(() => ({ auth: vi.fn(), verification: vi.fn(), rate: vi.fn(), after: vi.fn(), log: vi.fn(), queue: vi.fn() }));
+vi.mock("./structured-logging", () => ({ logEvent: mocks.log }));
 vi.mock("./api-auth", () => ({ requireApiUser: mocks.auth, requireMarketplaceVerificationForTrading: mocks.verification }));
 vi.mock("./rate-limit", () => ({ checkSharedRateLimit: mocks.rate }));
-vi.mock("./usdt-demand-email", () => ({ queueDemandEmails: vi.fn() }));
+vi.mock("./usdt-demand-email", () => ({ queueDemandEmails: mocks.queue }));
 vi.mock("next/server", async importOriginal => ({ ...await importOriginal<typeof import("next/server")>(), after: mocks.after }));
 const url = "http://localhost:3217/api/alpha-exchange/usdt-requests";
 const request = (headers: Record<string, string> = {}) => new NextRequest(url, { method: "POST", headers });
@@ -20,8 +21,8 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllEnvs());
 
 describe("USDT request API boundary", () => {
-  it("fails closed before authentication when the feature is disabled", async () => {
-    vi.stubEnv("ALPHA_USDT_REQUESTS_ENABLED", "0"); const run = vi.fn();
+  it.each(["0", "", "true", "01", " 1"])("fails closed before authentication for a disabled or malformed flag %j", async flag => {
+    vi.stubEnv("ALPHA_USDT_REQUESTS_ENABLED", flag); const run = vi.fn();
     expect((await demandApi(request(), true, run)).status).toBe(404);
     expect(mocks.auth).not.toHaveBeenCalled(); expect(run).not.toHaveBeenCalled();
   });
@@ -61,6 +62,46 @@ describe("USDT request API boundary", () => {
   it("does not expose internal failures", async () => {
     const response = await demandApi(request(), true, async () => { throw new Error("private database connection details"); });
     expect(response.status).toBe(503); expect(JSON.stringify(await response.json())).not.toContain("database");
+  });
+  it("correlates a safe failure without logging private input or exception text", async () => {
+    const sensitive = "private-person@example.com wallet-and-bank-secret";
+    const input = new NextRequest(`${url}/private-request-id?secret=${encodeURIComponent(sensitive)}`, {
+      method: "POST", headers: { "x-request-id": sensitive }, body: JSON.stringify({ withdrawalCode: sensitive }),
+    });
+    const response = await demandApi(input, true, async () => { throw new Error(sensitive); });
+    expect(response.status).toBe(503);
+    const correlationId = response.headers.get("X-Request-Id");
+    expect(correlationId).toMatch(/^[0-9a-f-]{36}$/);
+    expect(mocks.log).toHaveBeenCalledExactlyOnceWith("error", {
+      event: "usdt_demand_request", outcome: "failed", reason: "REQUEST_UNAVAILABLE",
+      metadata: { correlationId, operation: "write", status: 503, durationMs: expect.any(Number) },
+    });
+    expect(JSON.stringify(mocks.log.mock.calls)).not.toMatch(/private-person|private-request-id|withdrawalCode|wallet-and-bank/);
+    expect(response.headers.get("cache-control")).toContain("no-store");
+  });
+  it("separates quote rejection from server failure and measures one successful read", async () => {
+    await demandApi(request(), true, async () => { throw new DemandError("QUOTE_UNAVAILABLE", "Refresh"); });
+    expect(mocks.log).toHaveBeenLastCalledWith("warn", expect.objectContaining({ outcome: "denied", reason: "QUOTE_UNAVAILABLE" }));
+    await demandApi(request(), false, async () => ({ requests: [] }));
+    expect(mocks.log).toHaveBeenCalledTimes(2);
+    expect(mocks.log).toHaveBeenLastCalledWith("info", expect.objectContaining({ outcome: "success", metadata: expect.objectContaining({ operation: "read", status: 200 }) }));
+  });
+  it("keeps a committed mutation successful if telemetry is unavailable", async () => {
+    mocks.log.mockImplementationOnce(() => { throw new Error("logger unavailable"); });
+    const run = vi.fn().mockResolvedValue({ ok: true });
+    const response = await demandApi(request(), true, run);
+    expect(response.status).toBe(200); expect(run).toHaveBeenCalledTimes(1);
+  });
+  it("reports background queue failure without leaking delivery credentials", async () => {
+    mocks.queue.mockRejectedValueOnce(new Error("smtp-private-password recipient@example.com"));
+    const response = await demandApi(request(), true, async () => ({ ok: true }));
+    expect(response.status).toBe(200);
+    await mocks.after.mock.calls[0][0]();
+    expect(mocks.log).toHaveBeenLastCalledWith("error", {
+      event: "usdt_demand_email_queue", outcome: "failed", reason: "PREPARATION_FAILED",
+      metadata: { correlationId: response.headers.get("X-Request-Id") },
+    });
+    expect(JSON.stringify(mocks.log.mock.calls)).not.toMatch(/smtp-private|recipient@example/);
   });
 });
 

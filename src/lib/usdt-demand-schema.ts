@@ -1,4 +1,20 @@
-/** Draft schema. No production migration has been executed. */
+// Serialize additive schema upgrades across application processes. The lock is
+// transaction scoped, including when this statement runs on its own.
+export const USDT_DEMAND_DECIMAL_UPGRADE_SQL = `DO $$ BEGIN
+    PERFORM pg_advisory_xact_lock(61422920);
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint
+      WHERE conrelid = 'alpha_exchange.usdt_demands'::regclass
+        AND conname = 'usdt_demands_decimal_terms') THEN
+      ALTER TABLE alpha_exchange.usdt_demands ADD CONSTRAINT usdt_demands_decimal_terms CHECK (
+        coalesce(jsonb_typeof(payload->'amount') = 'string'
+          AND payload->>'amount' ~ '^[0-9]{1,9}([.][0-9]{1,6})?$'
+          AND jsonb_typeof(payload->'price') = 'string'
+          AND payload->>'price' ~ '^[0-9]{1,4}([.][0-9]{1,2})?$', false)
+      );
+    END IF;
+  END $$`;
+
+/** The release migration is prepared locally; no production migration has been executed. */
 export const USDT_DEMAND_SCHEMA_SQL = [
   `CREATE TABLE IF NOT EXISTS alpha_exchange.usdt_demands (
     id text PRIMARY KEY,
@@ -19,6 +35,9 @@ export const USDT_DEMAND_SCHEMA_SQL = [
       AND (payload->>'amount')::numeric > 0 AND (payload->>'price')::numeric > 0, false)),
     CHECK ((payload->>'purchaseRequestId') IS NOT DISTINCT FROM purchase_request_id)
   )`,
+  // numeric accepts NaN/Infinity and exponent notation. Match the bounded
+  // decimal strings accepted by the API before trusting a persisted amount.
+  USDT_DEMAND_DECIMAL_UPGRADE_SQL,
   `CREATE UNIQUE INDEX IF NOT EXISTS idx_usdt_demands_one_open ON alpha_exchange.usdt_demands(requester_id) WHERE state='open'`,
   `ALTER TABLE alpha_exchange.usdt_demands ENABLE ROW LEVEL SECURITY`,
   `REVOKE ALL ON alpha_exchange.usdt_demands FROM PUBLIC`,

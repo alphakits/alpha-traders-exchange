@@ -2,7 +2,7 @@ import "server-only";
 import { getAlphaExchangeRepository } from "./alpha-exchange-repository";
 import { sendMarketplaceEmail } from "./marketplace-email-delivery";
 import { getMarketSnapshot } from "./market-service";
-import { canRespond, demandEnabled, demandState, assertDemandActor, assertDemandListing, assertDemandTerms } from "./usdt-demand-policy";
+import { canRespond, demandEnabled, demandReference, assertDemandActor, assertDemandListing, assertDemandTerms } from "./usdt-demand-policy";
 import { DEMAND_TABLES, mutateDemands } from "./usdt-demand-store";
 import type { AlphaExchangeDb, AlphaExchangeNotification } from "@/types/alpha-exchange";
 import type { MarketSnapshot } from "@/types/market";
@@ -16,19 +16,31 @@ function eligibleNotice(db: AlphaExchangeDb, notice: AlphaExchangeNotification, 
   const d = db.usdtDemands?.find(candidate => candidate.id === intent?.demandId);
   const user = db.users.find(candidate => candidate.id === notice.userId);
   if (!intent || intent.state === "suppressed" || !d || !user || user.notificationPreferences?.email !== true
-    || intent.revision !== d.revision || demandState(db, d, market) !== "open"
+    || intent.revision !== d.revision || d.state !== "open"
+    || !Number.isFinite(Date.parse(d.expiresAt)) || Date.parse(d.expiresAt) <= Date.now()
     || !Number.isFinite(Date.parse(notice.createdAt))
     || Date.now() - Date.parse(notice.createdAt) >= 23 * 60 * 60 * 1000) return false;
   try {
     assertDemandActor(user);
-    if (!intent.offerId) return canRespond(db, user, d.requesterId);
-    const offer = d.offers.find(candidate => candidate.id === intent.offerId);
-    if (!offer || offer.state !== "open" || offer.revision !== d.revision || d.requesterId !== user.id
-      || !canRespond(db, db.users.find(candidate => candidate.id === offer.sellerId), user.id)) return false;
-    assertDemandTerms({ ...d, price: offer.price }, market);
-    const listing = db.marketplaceListings.find(candidate => candidate.id === offer.listingId);
-    assertDemandListing(db, d, listing);
-    return listing.sellerId === offer.sellerId && listing.updatedAt === offer.listingUpdatedAt;
+    if (!intent.offerId) {
+      if (!canRespond(db, user, d.requesterId)) return false;
+    } else {
+      const offer = d.offers.find(candidate => candidate.id === intent.offerId);
+      if (!offer || offer.state !== "open" || offer.revision !== d.revision || d.requesterId !== user.id
+        || !canRespond(db, db.users.find(candidate => candidate.id === offer.sellerId), user.id)) return false;
+      const listing = db.marketplaceListings.find(candidate => candidate.id === offer.listingId);
+      assertDemandListing(db, d, listing);
+      if (listing.sellerId !== offer.sellerId || listing.updatedAt !== offer.listingUpdatedAt) return false;
+    }
+  } catch { return false; }
+  // A provider outage must pause delivery, not permanently retire an otherwise
+  // eligible notice. The durable worker preserves its bounded retry window.
+  if (!demandReference(market)) throw new Error("Demand email reference temporarily unavailable.");
+  try {
+    assertDemandTerms(d, market);
+    const offer = intent.offerId ? d.offers.find(candidate => candidate.id === intent.offerId) : undefined;
+    if (offer) assertDemandTerms({ ...d, price: offer.price }, market);
+    return true;
   } catch { return false; }
 }
 
@@ -50,8 +62,10 @@ export async function canDeliverDemandEmail(recipientId: string, email: string, 
 export async function queueDemandEmails() {
   if (!deliveryEnabled()) return;
   const db = await (await getAlphaExchangeRepository()).loadSelectedSnapshot(DEMAND_TABLES);
+  const notices = db.notifications.filter(n => n.demandEmail?.state === "pending").slice(0, 30);
+  if (!notices.length) return;
   const market = await getMarketSnapshot();
-  for (const notice of db.notifications.filter(n => n.demandEmail?.state === "pending").slice(0, 30)) {
+  for (const notice of notices) {
     const intent = notice.demandEmail!;
     const user = db.users.find(u => u.id === notice.userId);
     let allowed = deliveryEnabled() && eligibleNotice(db, notice, market);

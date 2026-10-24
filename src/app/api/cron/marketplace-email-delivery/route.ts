@@ -35,8 +35,24 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    await queueDemandEmails();
+    let demandPreparationFailed = false;
+    try {
+      await queueDemandEmails();
+    } catch (error) {
+      demandPreparationFailed = true;
+      logEvent("error", { event: "marketplace_email_delivery_cron", outcome: "failed",
+        reason: "demand_email_preparation_failed",
+        metadata: { errorType: error instanceof Error ? error.name : typeof error } });
+    }
+    // Existing trade and marketplace jobs must still recover when preparing
+    // new Buy Requests messages fails. Report the partial failure for alerts.
     const result = await deliverMarketplaceEmailQueue();
+    if (demandPreparationFailed) {
+      return NextResponse.json(
+        { ok: false, error: "Buy Requests email preparation failed. Existing queued deliveries were processed.", ...result },
+        { status: 500, headers: { "Cache-Control": "no-store" } },
+      );
+    }
     logEvent("info", {
       event: "marketplace_email_delivery_cron",
       outcome: "success",

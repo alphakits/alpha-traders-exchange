@@ -7,7 +7,7 @@ import {
   calculateTradeBuyerFiatFee, calculateTradePaymentTotal,
 } from "@alpha-traders/contracts";
 import { demandTestDb, demandTestListing, demandTestTerms, DEMAND_TEST_WALLET } from "@/test-utils/usdt-demand-fixtures";
-import { offerDemand, publishDemand } from "@/lib/usdt-demand-store";
+import { offerDemand, publishDemand, readDemands } from "@/lib/usdt-demand-store";
 import {
   createPurchaseRequest, getSellerCommissionStatus, getTradeRoomData,
   invalidateAlphaExchangeStoreCache, updatePurchaseRequestStatus,
@@ -61,10 +61,11 @@ describe("Buy Request exact fee contract", () => {
 
 describe("Buy Request commission through canonical completion", () => {
   it.each([
-    { method: FACE_TO_FACE, amount: "660.6607", responsePrice: "3.25", fiat: "2168.62", fee: 6.606607, due: 13.213214, remaining: "9339.3393" },
-    { method: FACE_TO_FACE, amount: "100.5", responsePrice: "3.23", fiat: "327.86", fee: 1.005, due: 2.01, remaining: "9899.5" },
-    { method: "Cardless ATM Withdrawal", amount: "415.202811", responsePrice: "3.10", fiat: "1300.00", fee: 4.152028, due: 8.304056, remaining: "9584.797189" },
-  ])("settles $amount USDT via $method at response price $responsePrice exactly once", async ({ method, amount, responsePrice, fiat, fee, due, remaining }) => {
+    { method: FACE_TO_FACE, amount: "660.6607", responsePrice: "3.25", fiat: "2168.62", fee: 6.606607, due: 13.213214, remaining: "9339.3393", rollback: false },
+    { method: FACE_TO_FACE, amount: "100.5", responsePrice: "3.23", fiat: "327.86", fee: 1.005, due: 2.01, remaining: "9899.5", rollback: false },
+    { method: "Cardless ATM Withdrawal", amount: "415.202811", responsePrice: "3.10", fiat: "1300.00", fee: 4.152028, due: 8.304056, remaining: "9584.797189", rollback: false },
+    { method: "Cardless ATM Withdrawal", amount: "415.202811", responsePrice: "3.10", fiat: "1300.00", fee: 4.152028, due: 8.304056, remaining: "9584.797189", rollback: true },
+  ])("settles $amount USDT via $method at response price $responsePrice exactly once (feature-off rollback=$rollback)", async ({ method, amount, responsePrice, fiat, fee, due, remaining, rollback }) => {
     const cashAtm = method === "Cardless ATM Withdrawal";
     const db = globalThis.__alphaExchangeMemorySnapshot!;
     db.marketplaceListings = [demandTestListing("seller", method)];
@@ -83,6 +84,16 @@ describe("Buy Request commission through canonical completion", () => {
     expect(request).toMatchObject({ usdtAmount: amount, pricePerUsdt: responsePrice, fiatAmount: fiat, feePolicyVersion: "buyer_seller_1pct_v1", commissionCalculationVersion: "usdt_6dp_v2" });
     expect((await stored()).commissionRecords).toHaveLength(0);
 
+    if (rollback) {
+      // The rollback closes discovery and new matches, while the canonical
+      // Trade Room must retain its prepared credentials, inventory and fees.
+      vi.stubEnv("ALPHA_USDT_REQUESTS_ENABLED", "0");
+      await expect(readDemands("buyer", {})).rejects.toMatchObject({ code: "FEATURE_UNAVAILABLE", status: 404 });
+      await expect(publishDemand("buyer", { terms, operationId: randomUUID() })).rejects.toMatchObject({ code: "FEATURE_UNAVAILABLE" });
+      await expect(offerDemand("seller", demand.id, { listingId: "listing-seller", revision: 1, price: responsePrice, operationId: randomUUID() })).rejects.toMatchObject({ code: "FEATURE_UNAVAILABLE" });
+      await expect(createPurchaseRequest(match)).rejects.toMatchObject({ code: "FEATURE_UNAVAILABLE" });
+    }
+
     const seller = { requestId: request.id, actorUserId: "seller", actorRole: "approved_seller" as const };
     await updatePurchaseRequestStatus({ ...seller, nextStatus: "accepted", safetyAcknowledged: true });
     if (cashAtm) await updatePurchaseRequestStatus({ requestId: request.id, actorUserId: "buyer", actorRole: "buyer", nextStatus: "payment_sent", usePreparedCardlessDetails: true, clientOperationId: randomUUID() });
@@ -96,10 +107,11 @@ describe("Buy Request commission through canonical completion", () => {
     await Promise.all([updatePurchaseRequestStatus(complete), updatePurchaseRequestStatus(complete)]);
     await updatePurchaseRequestStatus(complete);
     // Replaying the original Buy Request match also returns the same completed trade.
-    expect((await createPurchaseRequest(match)).request.id).toBe(request.id);
+    if (!rollback) expect((await createPurchaseRequest(match)).request.id).toBe(request.id);
 
     const snapshot = await stored();
     expect(snapshot.purchaseRequests).toHaveLength(1);
+    expect(snapshot.usdtDemands!.find(item => item.id === demand.id)?.purchaseRequestId).toBe(request.id);
     expect(snapshot.purchaseRequests[0]).toMatchObject({ usdtAmount: amount, fiatAmount: fiat, status: "review_open" });
     expect(snapshot.purchaseRequests[0].completedAt).toBeTruthy();
     expect(snapshot.marketplaceListings[0].availableAmount).toBe(remaining);

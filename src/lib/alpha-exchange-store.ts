@@ -206,6 +206,7 @@ import {
   sellerProfileDestination,
 } from "@/lib/action-destinations";
 import { isNewListingBroadcastNotification, listingNotificationViewDestination, NEW_LISTING_NOTIFICATION_REASON } from "@/lib/listing-notification";
+import { demandNotificationDestination } from "@/lib/usdt-demand-notification";
 import { COMMISSION_PAYMENT_DUE_NOTIFICATION_REASON, commissionPaymentDestination } from "@/lib/commission-payment-destination";
 import { normalizePreferredLocale } from "@/lib/preferred-locale";
 import { getPriceOfferBounds, normalizeListingPrice, validatePriceOffer } from "@/lib/price-offer";
@@ -733,6 +734,7 @@ function enrichNotification(db: AlphaExchangeDb, notification: AlphaExchangeNoti
     return user ? `${profileRoute[1] ?? ""}/${profileRoute[2]}/${derivePublicProfileUsername(user)}` : "/usdt-exchange";
   };
   const isListingBroadcast = isNewListingBroadcastNotification(notification);
+  const demandHref = demandNotificationDestination(notification);
   const request = isListingBroadcast ? undefined : resolveTradeContextForNotification(db, {
     userId: notification.userId,
     relatedRequestId: notification.relatedRequestId,
@@ -767,16 +769,16 @@ function enrichNotification(db: AlphaExchangeDb, notification: AlphaExchangeNoti
     : explicitCommissionPaymentHref;
   const sellerContext = resolveNotificationSellerContext(db, notification);
   const sellerProfileHref = notification.category === "trust" ? sellerContext?.profileHref : undefined;
-  let relatedHref = commissionPaymentHref
+  let relatedHref = demandHref ?? commissionPaymentHref
     ?? (isTradeNotification && request && recipientIsTradeParticipant
       ? requestDetailsHref(request.id)
       : publicHref(notification.relatedHref) ?? sellerProfileHref);
-  let actionHref = commissionPaymentHref ?? (publicHref(notification.actionHref) || relatedHref);
+  let actionHref = demandHref ?? commissionPaymentHref ?? (publicHref(notification.actionHref) || relatedHref);
   const listingId = notification.relatedListingId ?? request?.listingId;
   const listing = listingId ? db.marketplaceListings.find((item) => item.id === listingId) : undefined;
   const recipient = db.users.find((user) => user.id === notification.userId);
   const recipientCanReviewListings = Boolean(recipient && (hasRole(recipient, "owner") || hasRole(recipient, "admin")));
-  const viewListingOnly = notification.category === "listing" && (
+  const viewListingOnly = !demandHref && notification.category === "listing" && (
     isListingBroadcast
     || (listing?.sellerId !== notification.userId && !recipientCanReviewListings)
   );
@@ -844,7 +846,7 @@ function enrichNotification(db: AlphaExchangeDb, notification: AlphaExchangeNoti
     relatedSellerUsername: sellerContext?.username ?? (listing ? derivePublicProfileUsername({ id: listing.sellerId }) : undefined),
     relatedHref,
     actionHref,
-    actionLabel: viewListingOnly ? "View listing" : commissionPaymentHref
+    actionLabel: demandHref ? "View USDT request" : viewListingOnly ? "View listing" : commissionPaymentHref
       ? visibleText(notification.actionLabel?.trim()) || "Pay Commission"
       : visibleText(notification.actionLabel?.trim()) || (
         notification.category === "listing" && listing?.sellerId === notification.userId

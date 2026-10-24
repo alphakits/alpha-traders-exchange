@@ -1,4 +1,5 @@
-import { USDT_DEMAND_SCHEMA_SQL } from "@/lib/usdt-demand-schema";
+import { USDT_DEMAND_DECIMAL_UPGRADE_SQL, USDT_DEMAND_SCHEMA_SQL } from "@/lib/usdt-demand-schema";
+import { readUsdtDemandSchemaReadiness } from "@/lib/usdt-demand-schema-readiness";
 import type { UsdtDemand } from "@/types/usdt-demand";
 import { Pool, type PoolClient, type QueryResult, type QueryResultRow } from "pg";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "fs";
@@ -46,9 +47,8 @@ import type {
 
 type Queryable = Pool | PoolClient;
 
-// This index is the final object created by SCHEMA_SQL. Its presence proves
-// that the current runtime schema bootstrap completed successfully. When the
-// schema changes, append the new statements and advance this sentinel too.
+// This final bootstrap object avoids repeating runtime DDL. It does not prove
+// the table contract is intact: enabling Buy Requests checks the actual catalog.
 const CURRENT_SCHEMA_SENTINEL = "alpha_exchange.idx_usdt_demands_owner";
 
 type EvidenceWriteMap = Map<string, Buffer>;
@@ -2113,7 +2113,16 @@ function mergeSnapshotWithLatest(latest: AlphaExchangeDb, incoming: AlphaExchang
 }
 
 async function runSchema(target: Queryable) {
-  for (const statement of SCHEMA_SQL) {
+  const existingDemandTable = await target.query<{ exists: boolean }>(
+    "select to_regclass('alpha_exchange.usdt_demands') is not null as exists",
+  );
+  // A missing final sentinel can also mean a partially modified existing table.
+  // Bootstrap base tables, but never use IF NOT EXISTS + REVOKE/ENABLE RLS as
+  // an implicit repair of an existing demand table. Its ON contract check will
+  // fail closed; the separately reviewed decimal-only upgrade remains allowed.
+  const statements = existingDemandTable.rows[0]?.exists
+    ? SCHEMA_SQL.slice(0, -USDT_DEMAND_SCHEMA_SQL.length) : SCHEMA_SQL;
+  for (const statement of statements) {
     await target.query(statement);
   }
   await target.query(
@@ -2121,7 +2130,7 @@ async function runSchema(target: Queryable) {
   );
 }
 
-async function isCurrentSchemaReady(target: Pool) {
+async function isCurrentSchemaReady(target: Queryable) {
   const result = await queryReadWithRetry<{ ready: boolean }>(
     target,
     "select to_regclass($1) is not null as ready",
@@ -2309,6 +2318,7 @@ export class AlphaExchangeRepository {
   private readonly pool: Pool | null;
   private usesMemoryFallback: boolean;
   private initPromise: Promise<void> | null = null;
+  private demandReadinessPromise: Promise<void> | null = null;
 
   constructor(pool: Pool | null) {
     if (!pool && isProductionSecurityRuntime()) {
@@ -2333,7 +2343,18 @@ export class AlphaExchangeRepository {
         try {
           if (!(await isCurrentSchemaReady(pool))) {
             initializationPhase = "schema_migration";
-            await runSchema(pool);
+            const client = await pool.connect();
+            let destroyClient = false;
+            try {
+              await client.query("begin");
+              await client.query("select pg_advisory_xact_lock(61422920)");
+              // Another process may have finished while this one waited.
+              if (!(await isCurrentSchemaReady(client))) await runSchema(client);
+              await client.query("commit");
+            } catch (error) {
+              destroyClient = await rollbackFailedTransaction(client, error);
+              throw error;
+            } finally { client.release(destroyClient); }
           }
           // Production is never seeded from the bundled fixture. Avoid paying
           // for an extra full-table count on every cold serverless instance.
@@ -2383,6 +2404,32 @@ export class AlphaExchangeRepository {
       // allow the next request to establish a fresh connection and recover.
       if (this.initPromise === currentAttempt) this.initPromise = null;
       throw error;
+    }
+    // Keep this separate from initPromise: a warm process initialized with the
+    // feature OFF must still verify the contract before its first enabled use.
+    // OFF preserves existing Trade Rooms without depending on unused drift.
+    if (process.env.ALPHA_USDT_REQUESTS_ENABLED === "1" && this.pool && !this.usesMemoryFallback) {
+      if (!this.demandReadinessPromise) {
+        const pool = this.pool;
+        this.demandReadinessPromise = (async () => {
+          let readiness = await readUsdtDemandSchemaReadiness(pool);
+          if (readiness.issues.length === 1 && readiness.issues[0] === "decimal_terms_missing") {
+            await pool.query(USDT_DEMAND_DECIMAL_UPGRADE_SQL);
+            readiness = await readUsdtDemandSchemaReadiness(pool);
+          }
+          if (!readiness.ready) {
+            logEvent("error", { event: "usdt_demand_schema_not_ready", outcome: "failed",
+              reason: "schema_contract_mismatch", metadata: { issues: readiness.issues } });
+            throw new Error("USDT Buy Requests database schema is not ready.");
+          }
+        })();
+      }
+      const attempt = this.demandReadinessPromise;
+      try { await attempt; }
+      catch (error) {
+        if (this.demandReadinessPromise === attempt) this.demandReadinessPromise = null;
+        throw error;
+      }
     }
   }
 

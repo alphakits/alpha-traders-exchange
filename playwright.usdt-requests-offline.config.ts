@@ -3,19 +3,24 @@ import { defineConfig, devices } from "@playwright/test";
 const port = Number(process.env.USDT_OFFLINE_PORT ?? 3211);
 if (!Number.isInteger(port) || port < 1024 || port > 65535) throw new Error("Invalid offline test port.");
 const baseURL = `http://localhost:${port}`;
+const engine = process.env.USDT_OFFLINE_BROWSER ?? "chromium";
+if (engine !== "chromium" && engine !== "webkit") throw new Error("Offline browser must be chromium or webkit.");
 
 export default defineConfig({
   testDir: "./e2e", testMatch: "usdt-requests-offline.spec.ts", fullyParallel: false,
-  workers: 1, retries: 0, timeout: 180_000, expect: { timeout: 30_000 }, reporter: "list",
+  workers: 1, retries: 0, forbidOnly: !!process.env.CI, failOnFlakyTests: !!process.env.CI,
+  timeout: 180_000, expect: { timeout: 30_000 }, reporter: "list",
   outputDir: "test-results/usdt-requests-offline",
   use: { baseURL, trace: "retain-on-failure", screenshot: "only-on-failure", headless: true, actionTimeout: 45_000,
     // Keep isolated Windows headless captures from competing with the user's GPU.
-    launchOptions: { args: ["--disable-gpu"] },
+    launchOptions: engine === "chromium" ? { args: ["--disable-gpu"] } : undefined,
   },
   webServer: {
     command: `node scripts/usdt-request-offline.mjs --port ${port} --no-seed --quote-scenarios${process.env.USDT_OFFLINE_PRODUCTION === "1" ? " --production" : ""}`,
     url: `${baseURL}/api/alpha-exchange/market-rate`, reuseExistingServer: false, timeout: 240_000,
     stdout: "pipe", stderr: "pipe",
   },
-  projects: [{ name: "usdt-offline-chrome", use: { ...devices["Desktop Chrome"], channel: process.env.USDT_OFFLINE_BROWSER_CHANNEL ?? "chrome" } }],
+  projects: [engine === "webkit"
+    ? { name: "usdt-offline-webkit", use: { ...devices["Desktop Safari"] } }
+    : { name: "usdt-offline-chrome", use: { ...devices["Desktop Chrome"], channel: process.env.USDT_OFFLINE_BROWSER_CHANNEL ?? (process.env.CI ? "chromium" : "chrome") } }],
 });

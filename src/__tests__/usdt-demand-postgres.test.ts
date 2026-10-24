@@ -6,6 +6,7 @@ import type { Pool } from "pg";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { AlphaExchangeRepository } from "@/lib/alpha-exchange-repository";
 import { USDT_DEMAND_SCHEMA_SQL } from "@/lib/usdt-demand-schema";
+import { readUsdtDemandSchemaReadiness } from "@/lib/usdt-demand-schema-readiness";
 import { createDemand, respondToDemand } from "@/lib/usdt-demand-engine";
 import { commitDemandMatch } from "@/lib/usdt-demand-policy";
 import { demandTestDb, demandTestMarket, demandTestTerms } from "@/test-utils/usdt-demand-fixtures";
@@ -59,6 +60,11 @@ function insert(demand: UsdtDemand, payload: unknown = demand) {
     values($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb)`,
   [demand.id, demand.requesterId, demand.operationId, demand.state, demand.revision, demand.purchaseRequestId ?? null, demand.expiresAt, demand.updatedAt, JSON.stringify(payload)]);
 }
+const readiness = () => readUsdtDemandSchemaReadiness(database as unknown as Pool);
+function realRepository() {
+  const client = { query: (sql: string, values?: unknown[]) => database.query(sql, values), release() {} };
+  return new AlphaExchangeRepository({ ...client, connect: async () => client, on() {} } as unknown as Pool);
+}
 async function counts() {
   const result = await database.query<{ demands: number; trades: number; notices: number; version: string }>(`select
     (select count(*)::int from alpha_exchange.usdt_demands) as demands,
@@ -74,12 +80,100 @@ describe("draft USDT PostgreSQL invariants", () => {
     const body = review.split("-- BEGIN REVIEWED DEMAND SCHEMA\n")[1]?.split("-- END REVIEWED DEMAND SCHEMA")[0];
     const compact = (value: string) => value.replace(/\s+/g, " ").trim();
     expect(compact(body ?? "")).toBe(compact(`${USDT_DEMAND_SCHEMA_SQL.join(";\n")};`));
+    const migration = await readFile("supabase/migrations/20261024024258_usdt_buy_requests.sql", "utf8");
+    expect(compact(migration.split("-- BEGIN REVIEWED DEMAND SCHEMA\n")[1]?.split("-- END REVIEWED DEMAND SCHEMA")[0] ?? "")).toBe(compact(body ?? ""));
     await database.exec(review);
     const rows = await database.query<{ rls: boolean; client_access: boolean }>(`select
       (select relrowsecurity from pg_class where oid='alpha_exchange.usdt_demands'::regclass) as rls,
       has_table_privilege('anon','alpha_exchange.usdt_demands','select')
         or has_table_privilege('authenticated','alpha_exchange.usdt_demands','select') as client_access`);
     expect(rows.rows[0]).toEqual({ rls: true, client_access: false });
+  });
+
+  it("verifies the actual private table contract and trusted runtime role without reading records", async () => {
+    expect(await readiness()).toEqual({ ready: true, issues: [] });
+    await database.exec("begin");
+    try {
+      await database.exec("create role demand_runtime; grant usage on schema alpha_exchange to demand_runtime; grant select,insert,update,delete on alpha_exchange.usdt_demands to demand_runtime; set role demand_runtime");
+      expect((await readiness()).issues).toEqual(["server_role_access"]);
+      await database.exec("reset role; alter role demand_runtime bypassrls; set role demand_runtime");
+      expect(await readiness()).toEqual({ ready: true, issues: [] });
+    } finally { await database.exec("rollback; reset role"); }
+  });
+
+  it.each([
+    ["drop index alpha_exchange.idx_usdt_demands_one_open; create index idx_usdt_demands_one_open on alpha_exchange.usdt_demands(requester_id)", "index_one_open"],
+    ["alter table alpha_exchange.usdt_demands drop constraint usdt_demands_state_check; alter table alpha_exchange.usdt_demands add constraint usdt_demands_state_check check(state <> '')", "constraint_state"],
+    ["alter table alpha_exchange.usdt_demands drop constraint usdt_demands_revision_check; alter table alpha_exchange.usdt_demands add constraint usdt_demands_revision_check check(revision > 0) not valid", "constraint_revision"],
+    ["alter table alpha_exchange.usdt_demands alter column sort_index set default 1", "column_sort_index"],
+    ["alter table alpha_exchange.usdt_demands disable row level security", "rls_disabled"],
+    ["grant select(payload) on alpha_exchange.usdt_demands to anon", "client_privileges"],
+    ["grant select on alpha_exchange.usdt_demands to public", "public_privileges"],
+    ["create policy unsafe_read on alpha_exchange.usdt_demands for select using(true)", "unexpected_rls_policies"],
+    ["create unique index unsafe_unique_state on alpha_exchange.usdt_demands(state)", "unexpected_unique_indexes"],
+    ["create function alpha_exchange.discard_demand() returns trigger language plpgsql as 'begin return null; end'; create trigger discard_demand before insert on alpha_exchange.usdt_demands for each row execute function alpha_exchange.discard_demand()", "unexpected_triggers"],
+    ["create rule discard_demand as on insert to alpha_exchange.usdt_demands do instead nothing", "unexpected_rules"],
+  ])("rejects catalog drift even when the bootstrap sentinel remains: %s", async (sql, issue) => {
+    await database.exec("begin");
+    try {
+      await database.exec(sql);
+      expect((await readiness()).issues).toContain(issue);
+      expect((await database.query("select to_regclass('alpha_exchange.idx_usdt_demands_owner') as sentinel")).rows[0]).toHaveProperty("sentinel", "alpha_exchange.idx_usdt_demands_owner");
+    } finally { await database.exec("rollback"); }
+    expect((await readiness()).ready).toBe(true);
+  });
+
+  it("checks a warm OFF-to-ON transition, fails closed without repairing grants, then recovers after reviewed repair", async () => {
+    const repo = realRepository();
+    await database.exec("grant select on alpha_exchange.usdt_demands to anon");
+    vi.stubEnv("ALPHA_USDT_REQUESTS_ENABLED", "0");
+    await expect(repo.healthCheck()).resolves.toBe("ok");
+    vi.stubEnv("ALPHA_USDT_REQUESTS_ENABLED", "1");
+    await expect(repo.healthCheck()).rejects.toThrow("database schema is not ready");
+    expect((await readiness()).issues).toContain("client_privileges");
+    vi.stubEnv("ALPHA_USDT_REQUESTS_ENABLED", "0");
+    await expect(repo.healthCheck()).resolves.toBe("ok");
+    await database.exec("revoke all on alpha_exchange.usdt_demands from anon");
+    vi.stubEnv("ALPHA_USDT_REQUESTS_ENABLED", "1");
+    await expect(repo.healthCheck()).resolves.toBe("ok");
+  });
+
+  it("upgrades only the known missing decimal check on an otherwise valid existing table", async () => {
+    const d = sample(); await insert(d);
+    await database.exec("alter table alpha_exchange.usdt_demands drop constraint usdt_demands_decimal_terms");
+    expect((await readiness()).issues).toEqual(["decimal_terms_missing"]);
+    await realRepository().ensureReady();
+    expect((await readiness()).ready).toBe(true);
+    expect((await counts()).demands).toBe(1);
+  });
+
+  it("does not repair existing demand privileges when its final bootstrap sentinel is missing", async () => {
+    await database.exec("drop index alpha_exchange.idx_usdt_demands_owner; grant select on alpha_exchange.usdt_demands to anon");
+    try {
+      vi.stubEnv("ALPHA_USDT_REQUESTS_ENABLED", "0");
+      const repo = realRepository();
+      await expect(repo.healthCheck()).resolves.toBe("ok");
+      expect((await readiness()).issues).toEqual(expect.arrayContaining(["index_owner", "client_privileges"]));
+      vi.stubEnv("ALPHA_USDT_REQUESTS_ENABLED", "1");
+      await expect(repo.healthCheck()).rejects.toThrow("database schema is not ready");
+    } finally {
+      await database.exec("create index idx_usdt_demands_owner on alpha_exchange.usdt_demands(requester_id,updated_at desc); revoke all on alpha_exchange.usdt_demands from anon");
+    }
+  });
+
+  it("does not upgrade invalid persisted decimals or silently replace a weak named check", async () => {
+    await database.exec("begin");
+    try {
+      await database.exec("alter table alpha_exchange.usdt_demands drop constraint usdt_demands_decimal_terms");
+      await insert(sample({ amount: "NaN" }));
+      await expect(realRepository().ensureReady()).rejects.toThrow(/check constraint/);
+    } finally { await database.exec("rollback"); }
+    await database.exec("begin");
+    try {
+      await database.exec("alter table alpha_exchange.usdt_demands drop constraint usdt_demands_decimal_terms; alter table alpha_exchange.usdt_demands add constraint usdt_demands_decimal_terms check(revision>0)");
+      await expect(realRepository().ensureReady()).rejects.toThrow("database schema is not ready");
+      expect((await readiness()).issues).toContain("constraint_decimal_terms");
+    } finally { await database.exec("rollback"); }
   });
 
   it("enforces one open request per account and durable publication idempotency", async () => {
@@ -98,6 +192,37 @@ describe("draft USDT PostgreSQL invariants", () => {
     }
     await expect(insert({ ...d, state: "matched" })).rejects.toThrow(/check constraint/);
     expect((await counts()).demands).toBe(0);
+  });
+
+  it("rejects non-finite numbers, exponent notation, numeric JSON and precision outside the API contract", async () => {
+    const d = sample();
+    for (const amount of ["NaN", "Infinity", "+Infinity", "1e3", "1000000000", "1.0000001", 1000]) {
+      await expect(insert(d, { ...d, amount })).rejects.toThrow(/check constraint/);
+    }
+    for (const price of ["NaN", "Infinity", "+Infinity", "3.2e0", "10000", "3.201", 3.2]) {
+      await expect(insert(d, { ...d, price })).rejects.toThrow(/check constraint/);
+    }
+    expect((await counts()).demands).toBe(0);
+  });
+
+  it("preserves the complete valid decimal range without rounding persisted terms", async () => {
+    const d = sample({ amount: "999999999.999999", price: "9999.99" });
+    await insert(d);
+    const row = (await database.query<{ payload: UsdtDemand }>("select payload from alpha_exchange.usdt_demands where id=$1", [d.id])).rows[0];
+    expect(row.payload.amount).toBe("999999999.999999");
+    expect(row.payload.price).toBe("9999.99");
+  });
+
+  it("adds the decimal invariant to an existing draft table without replacing valid data", async () => {
+    const d = sample();
+    await insert(d);
+    await database.exec("alter table alpha_exchange.usdt_demands drop constraint usdt_demands_decimal_terms");
+    await database.exec(USDT_DEMAND_SCHEMA_SQL.join(";\n"));
+    await database.exec(USDT_DEMAND_SCHEMA_SQL.join(";\n"));
+    expect((await counts()).demands).toBe(1);
+    await expect(insert(sample({ requesterId: "buyer-two", amount: "NaN" }))).rejects.toThrow(/usdt_demands_decimal_terms/);
+    const row = (await database.query<{ payload: UsdtDemand }>("select payload from alpha_exchange.usdt_demands where id=$1", [d.id])).rows[0];
+    expect(row.payload).toEqual(d);
   });
 
   it("prevents a purchase from being assigned to two matched requests", async () => {

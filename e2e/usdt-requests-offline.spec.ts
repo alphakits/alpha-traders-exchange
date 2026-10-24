@@ -1,9 +1,12 @@
 import { randomUUID } from "node:crypto";
+import { createRequire } from "node:module";
 import { expect, test, type APIRequestContext, type BrowserContext, type Locator } from "@playwright/test";
 import { OFFLINE_ACCOUNTS, OFFLINE_HEADERS, OFFLINE_PASSWORD, seedOfflineFixture } from "../scripts/usdt-request-offline-fixture.mjs";
 import type { AlphaExchangeDb, PurchaseRequest } from "../src/types/alpha-exchange";
 import type { DemandWorkspace } from "../src/types/usdt-demand";
 import { calculateCardlessUsdtAmount, calculateTradePaymentTotal } from "@alpha-traders/contracts";
+
+const axePath = createRequire(`${process.cwd()}/package.json`).resolve("axe-core/axe.min.js");
 
 const root = "/api/alpha-exchange/usdt-requests";
 const terms = { amount: "1000", price: "3.30", network: "TRC20", paymentMethod: "Bank Transfer", city: "" };
@@ -534,6 +537,53 @@ test("Arabic mobile request form renders RTL and publishes through the same API"
   await page.evaluate(() => window.scrollTo(0, 0));
   await page.screenshot({ path: testInfo.outputPath("buyer-request-arabic-mobile.png"), fullPage: true });
 });
+
+for (const locale of ["en", "ar"] as const) {
+  test(`${locale}: buyer form, seller response and review pass automated accessibility at 320px`, async ({ browser, baseURL }, info) => {
+    test.setTimeout(300_000);
+    const buyer = await browser.newContext({ baseURL, viewport: { width: 320, height: 844 }, isMobile: true, hasTouch: true });
+    const seller = await browser.newContext({ baseURL, viewport: { width: 320, height: 844 }, isMobile: true, hasTouch: true });
+    await blockExternalBrowserRequests(buyer); await blockExternalBrowserRequests(seller);
+    const buyerPage = await buyer.newPage(); const sellerPage = await seller.newPage();
+    const ar = locale === "ar";
+    const audit = async (page: import("@playwright/test").Page, stage: string) => {
+      await expect(page.getByRole("main")).toBeVisible();
+      await page.addScriptTag({ path: axePath });
+      const result = await page.evaluate(async () => {
+        const axe = (window as Window & { axe: typeof import("axe-core") }).axe;
+        return axe.run(document.querySelector("main")!, {
+          runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"] },
+        });
+      });
+      await info.attach(`${locale}-${stage}-accessibility`, { body: Buffer.from(JSON.stringify({ violations: result.violations, incomplete: result.incomplete }, null, 2)), contentType: "application/json" });
+      await page.screenshot({ path: info.outputPath(`${locale}-${stage}-accessibility.png`), fullPage: true });
+      expect(result.violations, `${locale} ${stage}: automated WCAG A/AA violations in the Buy Requests main content`).toEqual([]);
+    };
+    try {
+      await login(buyer.request, "buyer"); await login(seller.request, "seller");
+      await buyerPage.goto(`/${locale}/usdt-exchange/requests`);
+      const create = buyerPage.getByRole("button", { name: ar ? "إنشاء طلب" : "Create a request", exact: true });
+      await create.focus(); await create.press("Enter");
+      const amount = buyerPage.getByLabel(ar ? "المبلغ (USDT)" : "Amount (USDT)", { exact: true });
+      await expect(amount).toBeFocused(); await amount.fill("1000");
+      await buyerPage.getByLabel(ar ? "السعر المطلوب لكل USDT (شيكل)" : "Requested price per USDT (ILS)", { exact: true }).fill("3.30");
+      await audit(buyerPage, "buyer-form");
+
+      const demand = await createDemand(buyer.request);
+      await sellerPage.goto(`/${locale}/usdt-exchange/requests/${demand.id}`);
+      await sellerPage.getByLabel(ar ? "عرضك" : "Your listing", { exact: true }).selectOption("listing-offline-seller");
+      await sellerPage.getByLabel(ar ? "سعر ردك (شيكل)" : "Your response price (ILS)", { exact: true }).fill("3.25");
+      await audit(sellerPage, "seller-response");
+      const response = await seller.request.post(`${root}/${demand.id}/offers`, { data: { revision: 1, listingId: "listing-offline-seller", price: "3.25", operationId: randomUUID() } });
+      expect(response.ok(), await response.text()).toBe(true);
+      await buyerPage.goto(`/${locale}/usdt-exchange/requests/${demand.id}`);
+      const review = buyerPage.getByRole("button", { name: ar ? "مراجعة الرد" : "Review response", exact: true });
+      await review.focus(); await review.press("Enter");
+      await expect(buyerPage.getByRole("form", { name: ar ? "مراجعة الصفقة" : "Trade review" })).toBeVisible();
+      await audit(buyerPage, "trade-review");
+    } finally { await buyer.close(); await seller.close(); }
+  });
+}
 
 test("grouped drafts and invalid prices cannot publish, and a fresh quote restores the form", async ({ page, context }) => {
   await blockExternalBrowserRequests(context); await login(page.request, "buyer");
