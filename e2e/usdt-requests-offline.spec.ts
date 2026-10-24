@@ -373,10 +373,14 @@ test("buyer and seller buyer-rank progress uses completed purchases and stays pr
     for (const identity of [projected.requester!, projected.offers[0].seller!]) {
       expect(Object.keys(identity.buyerProgress!).sort()).toEqual(["nextRank", "progressPercent", "rank"]);
     }
+    const publicSellerView = (await (await seller.request.get(`${root}/${demand.id}`)).json() as DemandWorkspace).requests[0];
+    expect(publicSellerView.requester).toMatchObject({ completedPurchases: 2, buyerProgress: projected.requester!.buyerProgress });
+    expect(publicSellerView.offers[0].seller).toMatchObject({ completedPurchases: 1, buyerProgress: projected.offers[0].seller!.buyerProgress });
 
     const buyerPage = await buyer.newPage(); const sellerPage = await seller.newPage();
-    for (const locale of ["en", "ar"] as const) {
-      for (const page of [buyerPage, sellerPage]) {
+    // Both identities are rendered in each locale, with each role viewing the
+    // counterparty once. Avoid a redundant four-render cross product on CI.
+    for (const [locale, page] of [["en", buyerPage], ["ar", sellerPage]] as const) {
         await page.goto(`/${locale}/usdt-exchange/requests/${demand.id}`);
         await expect(page.locator("main[dir]")).toHaveAttribute("dir", locale === "ar" ? "rtl" : "ltr");
         const requester = page.getByTestId("request-card").getByTestId("request-counterparty-identity");
@@ -397,11 +401,8 @@ test("buyer and seller buyer-rank progress uses completed purchases and stays pr
           await expectBlueText(profile);
         }
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-        if (page === buyerPage) {
-          await requester.scrollIntoViewIfNeeded(); await page.screenshot({ path: testInfo.outputPath(`buyer-progress-${locale}-320px.png`) });
-          await responder.scrollIntoViewIfNeeded(); await page.screenshot({ path: testInfo.outputPath(`seller-buyer-progress-${locale}-320px.png`) });
-        }
-      }
+        await requester.scrollIntoViewIfNeeded(); await page.screenshot({ path: testInfo.outputPath(`buyer-progress-${locale}-320px.png`) });
+        await responder.scrollIntoViewIfNeeded(); await page.screenshot({ path: testInfo.outputPath(`seller-buyer-progress-${locale}-320px.png`) });
     }
 
     const privateState = await state(buyer.request);
@@ -416,7 +417,7 @@ test("buyer and seller buyer-rank progress uses completed purchases and stays pr
       await page.reload();
       const hiddenIdentity = page.getByTestId(hiddenCard).getByTestId("request-counterparty-identity");
       await expect(hiddenIdentity.getByRole("progressbar")).toHaveCount(0);
-      await expect(hiddenIdentity).not.toContainText("عملية شراء مكتملة");
+      await expect(hiddenIdentity).not.toContainText(/completed purchases?|عملية شراء مكتملة/);
       await expect(page.getByTestId(ownCard).getByRole("progressbar")).toHaveCount(1);
     }
   } finally { await buyer.close(); await seller.close(); }

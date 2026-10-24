@@ -29,8 +29,14 @@ async function api<T>(url: string, options: RequestInit = {}) {
 function reveal(id: string) {
   requestAnimationFrame(() => {
     const element = document.getElementById(id);
-    element?.scrollIntoView?.({ block: "start", behavior: window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches ? "auto" : "smooth" });
-    (element?.matches("[tabindex='-1']") ? element : element?.querySelector<HTMLElement>("input, select, [tabindex='-1']"))?.focus({ preventScroll: true });
+    if (!element) return;
+    const active = document.activeElement;
+    // A delayed frame must not interrupt someone who already started using
+    // the revealed form, including typing into a different amount field.
+    if (active instanceof HTMLElement && element.contains(active)
+      && (active.matches("input, select, textarea, button, a[href], summary") || active.isContentEditable || active.tabIndex >= 0)) return;
+    element.scrollIntoView?.({ block: "start", behavior: window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches ? "auto" : "smooth" });
+    (element.matches("[tabindex='-1']") ? element : element.querySelector<HTMLElement>("input, select, [tabindex='-1']"))?.focus({ preventScroll: true });
   });
 }
 function mergeRequests(rows: DemandView[]) {

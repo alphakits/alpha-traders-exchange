@@ -15,6 +15,58 @@ function demand(): DemandView {
 beforeEach(() => { vi.clearAllMocks(); mocks.query = ""; mocks.session = { user: { id: "buyer" } }; });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 describe("USDT request workspace", () => {
+  it("keeps amount typing and the submitted value intact when the reveal frame runs late", async () => {
+    const frames: FrameRequestCallback[] = [];
+    vi.stubGlobal("requestAnimationFrame", vi.fn((callback: FrameRequestCallback) => frames.push(callback)));
+    const fetcher = vi.fn(async (_url: string, options?: RequestInit) => Response.json(options?.method === "POST"
+      ? { destination: "/usdt-exchange/requests/new" } : base));
+    vi.stubGlobal("fetch", fetcher);
+    render(<UsdtRequestsWorkspace locale="en" actorId="buyer" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Create a request" }));
+    const amount = screen.getByLabelText("Amount (USDT)") as HTMLInputElement;
+    await act(async () => { amount.focus(); });
+    const typeDigit = (digit: string) => {
+      const focused = document.activeElement as HTMLInputElement;
+      fireEvent.input(focused, { target: { value: focused.value + digit } });
+    };
+    typeDigit("5");
+    expect(amount.value).toBe("5");
+    expect(frames).toHaveLength(1);
+    act(() => { frames.splice(0).forEach(callback => callback(0)); });
+    expect(document.activeElement).toBe(amount);
+    for (const digit of "000") typeDigit(digit);
+    expect(amount.value).toBe("5,000");
+    expect((screen.getByLabelText("Payment method") as HTMLSelectElement).value).toBe("Bank Transfer");
+    fireEvent.submit(screen.getByRole("form", { name: "Request details" }));
+    await waitFor(() => expect(fetcher.mock.calls.some(([, options]) => options?.method === "POST")).toBe(true));
+    const submission = fetcher.mock.calls.find(([, options]) => options?.method === "POST")!;
+    expect(JSON.parse(String(submission[1]?.body)).terms).toMatchObject({ amount: "5000", paymentMethod: "Bank Transfer" });
+  });
+
+  it("still hands keyboard focus to the first form control when the user has not entered the form", async () => {
+    const frames: FrameRequestCallback[] = [];
+    vi.stubGlobal("requestAnimationFrame", vi.fn((callback: FrameRequestCallback) => frames.push(callback)));
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json(base)));
+    render(<UsdtRequestsWorkspace locale="en" actorId="buyer" />);
+    const create = await screen.findByRole("button", { name: "Create a request" });
+    await act(async () => { create.focus(); });
+    fireEvent.click(create);
+    act(() => { frames.splice(0).forEach(callback => callback(0)); });
+    expect(document.activeElement).toBe(screen.getByLabelText("Payment method"));
+  });
+
+  it.each(["select", "button"])("preserves a %s the user focused inside the form before the reveal frame", async control => {
+    const frames: FrameRequestCallback[] = [];
+    vi.stubGlobal("requestAnimationFrame", vi.fn((callback: FrameRequestCallback) => frames.push(callback)));
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json(base)));
+    render(<UsdtRequestsWorkspace locale="en" actorId="buyer" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Create a request" }));
+    const selected = control === "select" ? screen.getByLabelText("Network") : screen.getByRole("button", { name: "5,000 USDT" });
+    await act(async () => { selected.focus(); });
+    act(() => { frames.splice(0).forEach(callback => callback(0)); });
+    expect(document.activeElement).toBe(selected);
+  });
+
   it("shows canonical public identities in buyer cards, seller responses and final review", async () => {
     const requester = { accountId: "AT-123456", displayName: "AT-123456", profileHref: "/u/seller-buyer", approvedSeller: false, sellerRank: null, completedPurchases: 12, buyerProgress: { rank: "bronze" as const, nextRank: "silver" as const, progressPercent: 0 } };
     const seller = { accountId: "AT-654321", displayName: "AT-654321", profileHref: "/u/seller-approved", approvedSeller: true, sellerRank: "gold" as const, completedPurchases: null, buyerProgress: null };
