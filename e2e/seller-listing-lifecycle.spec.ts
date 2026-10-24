@@ -1,4 +1,5 @@
-import { request, test, expect, type APIRequestContext, type Browser, type Page } from "@playwright/test";
+import { request, expect, type APIRequestContext, type Browser, type Page } from "@playwright/test";
+import { test } from "./support/focus-diagnostics";
 import { randomUUID } from "node:crypto";
 import type { AlphaExchangeDb } from "@/types/alpha-exchange";
 import { cleanupBuyerFixture, resolveBuyerFixture, type BuyerFixture } from "./support/buyer-fixture";
