@@ -6,18 +6,19 @@ import { OFFLINE_ACCOUNTS, OFFLINE_HEADERS, OFFLINE_PASSWORD, seedOfflineFixture
 import type { AlphaExchangeDb, PurchaseRequest } from "../src/types/alpha-exchange";
 import type { DemandWorkspace } from "../src/types/usdt-demand";
 import { calculateCardlessUsdtAmount, calculateTradePaymentTotal } from "@alpha-traders/contracts";
+import { createHardNavigationErrorAudit } from "./support/hard-navigation-errors";
 
 const axePath = createRequire(`${process.cwd()}/package.json`).resolve("axe-core/axe.min.js");
 
 const root = "/api/alpha-exchange/usdt-requests";
 const terms = { amount: "1000", price: "3.30", network: "TRC20", paymentMethod: "Bank Transfer", city: "" };
 const wallet = "TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE";
-let uncaughtPageErrors: string[] = [];
+let browserErrorAudit: ReturnType<typeof createHardNavigationErrorAudit>;
 
 // The fixture is intentionally destructive only inside the dedicated isolated
 // launcher. Ordinary release suites must not run this file against their state.
-test.beforeEach(async ({ baseURL, request }, info) => {
-  uncaughtPageErrors = [];
+test.beforeEach(async ({ baseURL, request, browserName }, info) => {
+  browserErrorAudit = createHardNavigationErrorAudit(browserName);
   test.skip(!info.project.name.startsWith("usdt-offline-"), "Use the dedicated offline configuration.");
   // Fresh identities isolate account rate-limit windows between cases without
   // relaxing or bypassing any real per-account request limit.
@@ -25,8 +26,9 @@ test.beforeEach(async ({ baseURL, request }, info) => {
   await expect.poll(async () => (await (await request.get("/api/alpha-exchange/market-rate")).json()).market.pairs.usdtIls,
     { message: "The isolated quote reset must reach the actual market service", timeout: 15_000 }).toMatchObject({ price: 3.3, quoteStatus: "live" });
 });
-test.afterEach(() => {
-  expect(uncaughtPageErrors, "No uncaught browser application errors in any buyer, seller or profile tab").toEqual([]);
+test.afterEach(async ({}, info) => {
+  await info.attach("browser-error-audit", { body: JSON.stringify(browserErrorAudit.report(), null, 2), contentType: "application/json" });
+  expect(browserErrorAudit.errors, "No uncaught browser application errors in any buyer, seller or profile tab").toEqual([]);
 });
 
 async function login(api: APIRequestContext, role: keyof typeof OFFLINE_ACCOUNTS) {
@@ -38,7 +40,7 @@ async function login(api: APIRequestContext, role: keyof typeof OFFLINE_ACCOUNTS
 }
 async function blockExternalBrowserRequests(context: BrowserContext) {
   const observePage = (page: import("@playwright/test").Page) => {
-    page.on("pageerror", error => uncaughtPageErrors.push(`${page.url()}: ${error.message}`));
+    browserErrorAudit.observe(page);
   };
   for (const page of context.pages()) observePage(page);
   context.on("page", observePage);
@@ -116,7 +118,13 @@ async function expectBlueAction(element: Locator) {
   expect(blue, "Primary actions use a blue surface").toBeGreaterThan(red + 35);
   expect(blue).toBeGreaterThan(green + 20);
   expect(contrast, "Blue action labels stay readable").toBeGreaterThanOrEqual(4.5);
-  const bounds = await element.boundingBox();
+  let bounds = await element.boundingBox();
+  if (bounds === null) {
+    await expect.poll(async () => {
+      bounds = await element.boundingBox();
+      return bounds !== null;
+    }, { message: "Measure current action geometry after responsive hydration", timeout: 5_000 }).toBe(true);
+  }
   expect(bounds).not.toBeNull();
   expect(bounds!.height, "Actions preserve a usable touch target").toBeGreaterThanOrEqual(44);
   expect(bounds!.width).toBeGreaterThanOrEqual(44);
@@ -353,7 +361,28 @@ test("buyer publishes, seller responds, buyer reviews and the canonical Trade Ro
     await sellerPage.screenshot({ path: testInfo.outputPath("seller-response-mobile.png"), fullPage: true });
     await sellerPage.screenshot({ path: testInfo.outputPath("seller-response-mobile-viewport.png") });
 
-    await buyerPage.reload();
+    const beforeReloadResponse = await buyer.request.get(`${root}/${demandId}`);
+    expect(beforeReloadResponse.status()).toBe(200);
+    const beforeReload = await beforeReloadResponse.json() as DemandWorkspace;
+    expect(beforeReload.actorId).toBeTruthy();
+    expect(beforeReload.requests[0]).toMatchObject({ id: demandId, revision: 1, isMine: true });
+    expect(beforeReload.requests[0].offers).toHaveLength(1);
+    const expectedOfferId = beforeReload.requests[0].offers[0].id;
+    // WebKit can report a native fetch refusal before a hard reload commits,
+    // despite the workspace catching the cancelled fetch. Accept only that
+    // exact old demand endpoint, retain the diagnostic, and prove the new
+    // document fetched the same actor/revision and newly submitted offer.
+    await browserErrorAudit.navigate(buyerPage, () => buyerPage.reload(), {
+      url: new URL(`${root}/${demandId}`, baseURL).href,
+      label: "same-demand workspace",
+      validateBody: (body) => {
+        const next = body as Partial<DemandWorkspace> | null;
+        const request = next?.requests?.[0];
+        return next?.actorId === beforeReload.actorId && next?.requests?.length === 1
+          && request?.id === demandId && request.revision === 1 && request.isMine
+          && request.offers.some(offer => offer.id === expectedOfferId && offer.price === "3.25" && offer.state === "open");
+      },
+    });
     const sellerIdentity = buyerPage.getByTestId("offer-card").getByTestId("request-counterparty-identity");
     await expect(sellerIdentity).toContainText("Approved Seller");
     await expect(sellerIdentity.getByText("Bronze Seller", { exact: true })).toBeVisible();
@@ -615,7 +644,7 @@ for (const locale of ["en", "ar"] as const) {
       await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
       await page.addScriptTag({ path: axePath });
       const result = await page.evaluate(async () => {
-        const axe = (window as Window & { axe: typeof import("axe-core") }).axe;
+        const axe = (window as unknown as Window & { axe: typeof import("axe-core") }).axe;
         return axe.run(document.querySelector("main")!, {
           runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"] },
         });
