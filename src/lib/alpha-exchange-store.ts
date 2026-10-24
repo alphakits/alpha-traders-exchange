@@ -18169,26 +18169,49 @@ export async function updateNotificationPreferences(
 }
 
 export async function updateSmsDeliveryStatus(input: { deliveryId?: string; messageSid: string; status: SmsDeliveryStatus; providerStatus: string }) {
-  const db = await readDb({ bypassCache: true });
-  const index = (db.smsDeliveries ?? []).findIndex((item) =>
-    (input.deliveryId && item.id === input.deliveryId) || item.twilioMessageSid === input.messageSid
-  );
-  if (index < 0) return false;
-  const current = db.smsDeliveries![index];
-  const status = resolveSmsDeliveryStatusTransition(current.status, input.status);
-  if (status === current.status && input.status !== current.status) return false;
-  const now = nowIso();
-  db.smsDeliveries![index] = {
-    ...current,
-    status,
-    twilioMessageSid: current.twilioMessageSid ?? input.messageSid,
-    providerStatus: input.providerStatus,
-    updatedAt: now,
-    deliveredAt: status === "delivered" ? (current.deliveredAt ?? now) : current.deliveredAt,
-    failedAt: status === "failed" ? (current.failedAt ?? now) : current.failedAt,
+  if (!input.messageSid) return false;
+  const apply = (snapshot: AlphaExchangeDb) => {
+    const rows = snapshot.smsDeliveries ?? [];
+    // An explicit local ID and the provider SID must identify the same send.
+    // A callback can arrive before the sender has persisted its returned SID.
+    const index = rows.findIndex(item => input.deliveryId !== undefined
+      ? item.id === input.deliveryId
+      : item.twilioMessageSid === input.messageSid);
+    if (index < 0) return { changed: false, accepted: false };
+    const current = rows[index];
+    if ((current.twilioMessageSid && current.twilioMessageSid !== input.messageSid)
+      || rows.some((item, rowIndex) => rowIndex !== index && item.twilioMessageSid === input.messageSid)) {
+      return { changed: false, accepted: false };
+    }
+    const status = resolveSmsDeliveryStatusTransition(current.status, input.status);
+    // Known late/duplicate callbacks are successful no-ops, not missing rows.
+    if ((status === current.status && input.status !== current.status)
+      || (status === current.status && current.twilioMessageSid === input.messageSid && current.providerStatus === input.providerStatus)) {
+      return { changed: false, accepted: true };
+    }
+    const now = nowIso();
+    rows[index] = {
+      ...current,
+      status,
+      twilioMessageSid: current.twilioMessageSid ?? input.messageSid,
+      providerStatus: input.providerStatus,
+      updatedAt: now,
+      deliveredAt: status === "delivered" ? (current.deliveredAt ?? now) : current.deliveredAt,
+      failedAt: status === "failed" ? (current.failedAt ?? now) : current.failedAt,
+    };
+    return { changed: true, accepted: true };
   };
-  await writeDb(db, { selectedTables: ["sms_deliveries"] });
-  return true;
+  const { db } = await readDbForCriticalTradeMutation(SMS_DELIVERY_READ_TABLES);
+  let outcome = apply(db);
+  if (outcome.changed) {
+    await writeDb(db, {
+      selectedTables: SMS_DELIVERY_READ_TABLES,
+      rebaseTables: SMS_DELIVERY_READ_TABLES,
+      rebaseOnLatest: latest => { outcome = apply(latest); return latest; },
+      cacheResult: false,
+    });
+  }
+  return outcome.accepted;
 }
 
 export function toAdminSmsDelivery(delivery: SmsDeliveryRecord) {
