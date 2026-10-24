@@ -20,7 +20,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState, type FormEvent
 import { createPortal } from "react-dom";
 import dynamic from "next/dynamic";
 import { useSearchParams } from "next/navigation";
-import { AlertTriangle, ArrowRight, BadgePercent, BellRing, CheckCircle2, ChevronDown, Clock3, Copy, Crown, Edit3, HandCoins, Loader2, LockKeyhole, MessageCircle, Network, ShieldCheck, Sparkles, Star, Store, TrendingUp, Trophy, Upload, Users, Wallet, WalletCards, X, Zap } from "lucide-react";
+import { AlertTriangle, ArrowRight, BadgePercent, BellRing, CheckCircle2, ChevronDown, ClipboardList, Clock3, Copy, Crown, Edit3, HandCoins, Loader2, LockKeyhole, MessageCircle, Network, ShieldCheck, Sparkles, Star, Store, TrendingUp, Trophy, Upload, Users, Wallet, WalletCards, X, Zap } from "lucide-react";
 import { Link, useRouter } from "@/i18n/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -28,7 +28,8 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { AccountWelcome } from "@/components/ui/account-welcome";
 import { ExchangeWorkspaceNavigation, type ExchangeWorkspaceAction } from "@/components/sections/usdt-exchange/exchange-workspace-navigation";
-import { requestPrimary } from "@/components/sections/usdt-exchange/usdt-request-details";
+import { requestPrimary, requestSecondary } from "@/components/sections/usdt-exchange/usdt-request-details";
+import { buyRequestsDestination } from "@/lib/usdt-demand-navigation";
 import { useWorkspaceViewport } from "@/components/sections/usdt-exchange/use-desktop-workspace";
 import { BuyerRankCard } from "@/components/ui/buyer-rank-card";
 import { SellerRankCard } from "@/components/ui/seller-rank-card";
@@ -1374,6 +1375,7 @@ export function UsdtExchangePage({
   // an effect can briefly retain a previous account after sign-out.
   const sessionUser = canonicalSession ? canonicalSession.user : initialSessionUser ?? null;
   const interfaceAccess = getInterfaceAccess(sessionUser);
+  const buyRequestsHref = buyRequestsDestination(sessionUser, usdtRequestsEnabled);
   const [buyerProfileSummary, setBuyerProfileSummary] = useState<BuyerRankSummary | null>(null);
   const [listings, setListings] = useState<MarketplaceListing[]>([]);
   // The server-backed session is authoritative for seller-application eligibility.
@@ -5094,31 +5096,39 @@ export function UsdtExchangePage({
   const workspaceNavigation = (
     <ExchangeWorkspaceNavigation cards={visibleWorkspaceCards} isAr={isAr} integrated={integrateWorkspace} compact={compactBuyerWorkspace} ready={workspaceViewport !== null} />
   );
+  const buyRequestsShortcut = buyRequestsHref ? (
+    <Link data-testid="welcome-buy-requests" href={buyRequestsHref} className={`${requestPrimary} w-full sm:w-auto`}>
+      <ClipboardList className="h-4 w-4 shrink-0" aria-hidden="true" />
+      {isAr ? "طلبات الشراء" : "Buy Requests"}
+    </Link>
+  ) : null;
   const welcomeActions = !isDashboardWorkspace || integrateWorkspace ? (
     <div className="account-welcome__actions">
       {heroPrimaryActions.map((action, index) => (
         <Button
           key={action.key}
           type="button"
-          variant={index === 0 ? "default" : "secondary"}
-          className="min-h-11"
+          variant="ghost"
+          className={index === 0 ? requestPrimary : requestSecondary}
           onClick={action.onClick}
         >
           {currencyText(action.label)}
         </Button>
       ))}
+      {buyRequestsShortcut}
     </div>
   ) : (
     <div className="account-welcome__actions">
       {welcomeRole === "owner" ? (
         <Link href="/admin/alpha-exchange" className="gold-gradient inline-flex min-h-11 items-center justify-center rounded-full px-6 py-3 text-sm font-semibold text-black">{isAr ? "لوحة المالك" : "Owner Dashboard"}</Link>
       ) : (
-        <Link href="/usdt-exchange#marketplace" className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[#B8860B] via-[#D4AF37] to-[#E7C65B] px-6 py-3 text-sm font-semibold text-black shadow-[0_4px_20px_rgba(201,162,39,0.15)] transition hover:brightness-110 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#D4AF37] sm:w-auto">
+        <Link href="/usdt-exchange#marketplace" className={`${requestSecondary} w-full sm:w-auto`}>
           <Store className="h-4 w-4" aria-hidden="true" />
           {isAr ? "تصفح البائعين" : "Browse Sellers"}
           <ArrowRight className={cn("h-4 w-4", isAr && "rotate-180")} aria-hidden="true" />
         </Link>
       )}
+      {buyRequestsShortcut}
     </div>
   );
 
@@ -5410,11 +5420,11 @@ export function UsdtExchangePage({
               </div>
         </MarketplaceToolPanel>
 
-        {usdtRequestsEnabled && sessionUser && (hasBuyerRole || isSellerWorkspaceUser) ? <div className="mb-4 rounded-2xl border border-blue-400/30 bg-blue-400/[0.06] p-4 sm:p-5">
-          <Link href={demandListingIntent ? `/usdt-exchange/requests/${encodeURIComponent(demandListingIntent)}` : `/usdt-exchange/requests?scope=${isSellerWorkspaceUser ? "available" : "mine"}`} className={requestPrimary}>
+        {buyRequestsHref ? <div className="mb-4 rounded-2xl border border-blue-400/30 bg-blue-400/[0.06] p-4 sm:p-5">
+          <Link href={demandListingIntent ? `/usdt-exchange/requests/${encodeURIComponent(demandListingIntent)}` : buyRequestsHref} className={requestPrimary}>
             {demandListingIntent ? (isAr ? "العودة إلى طلب USDT" : "Return to the USDT request") : (isAr ? "طلبات الشراء" : "Buy Requests")}
           </Link>
-          <p className="mt-2 text-sm leading-6 text-gray-300">{demandListingIntent ? (isAr ? "عد إلى الطلب بعد موافقة المالك على عرضك." : "Return to the request after your listing receives owner approval.") : isSellerWorkspaceUser ? (isAr ? "تصفح طلبات المشترين وأرسل سعرك من عرضك المعتمد." : "Browse buyer requests and send your price from an approved listing.") : (isAr ? "انشر المبلغ المطلوب وراجع ردود البائعين المعتمدين." : "Post the amount you need and review responses from approved sellers.")}</p>
+          <p className="mt-2 text-sm leading-6 text-gray-300">{demandListingIntent ? (isAr ? "عد إلى الطلب بعد موافقة المالك على عرضك." : "Return to the request after your listing receives owner approval.") : interfaceAccess.canSell ? (isAr ? "تصفح طلبات المشترين وأرسل سعرك من عرضك المعتمد." : "Browse buyer requests and send your price from an approved listing.") : (isAr ? "انشر المبلغ المطلوب وراجع ردود البائعين المعتمدين." : "Post the amount you need and review responses from approved sellers.")}</p>
         </div> : null}
         {sessionUser && hasBuyerRole ? <MarketplacePriceAlertPanel key={sessionUser.id} userId={sessionUser.id} isAr={isAr} /> : null}
         <div id="buyer-marketplace-listings" tabIndex={desktopBuyerNavigation ? -1 : undefined} className={cn("mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-2 min-[1440px]:grid-cols-3", desktopBuyerNavigation && "scroll-mt-24")}>

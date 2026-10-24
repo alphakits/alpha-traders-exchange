@@ -15,6 +15,7 @@ import { CreateListingQuickLink } from "@/components/layout/create-listing-quick
 import { MobileNavigationMenu } from "@/components/layout/mobile-navigation-menu";
 import { LocaleSwitcher } from "@/components/layout/locale-switcher";
 import { useCanonicalSession } from "@/components/auth/canonical-session-provider";
+import { buyRequestsDestination } from "@/lib/usdt-demand-navigation";
 
 type SessionUserSummary = Pick<ClientSessionUser, "id" | "fullName" | "role" | "roles" | "sellerStatus" | "sellerApprovalVerified">;
 
@@ -48,10 +49,8 @@ export function HeaderAuthArea({
   const access = getInterfaceAccess(sessionUser);
   const sellerWorkspaceAccess = access.canSell;
   const adminDashboardAccess = access.administration;
-  const showBuyRequests = buyRequestsEnabled && sessionUser?.emailVerified === true
-    && sessionUser.isPhotoVerified === true && sessionUser.adultConfirmed === true
-    && (access.buyer || access.canSell);
-  const buyRequestsHref = `/usdt-exchange/requests?scope=${access.canSell ? "available" : "mine"}`;
+  const buyRequestsHref = buyRequestsDestination(sessionUser, buyRequestsEnabled);
+  const showBuyRequests = buyRequestsHref !== null;
   const visibleNavItems = navItems
     .map((item) => !sessionUser && item.href === "/academy" ? { ...item, href: "/learn-trading-free" } : item)
     .filter((item) => canShowInterfaceLink(item.href, sessionUser));

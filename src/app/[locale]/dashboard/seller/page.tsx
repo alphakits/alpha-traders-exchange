@@ -7,6 +7,7 @@ import { UsdtExchangePage } from "@/components/sections/usdt-exchange/usdt-excha
 import { toClientSessionUser } from "@/lib/client-session-user";
 import { SellerEnforcementRestrictionScreen } from "@/components/sections/seller/seller-enforcement-restriction-screen";
 import { isOwnerApprovedSeller } from "@/lib/seller-approval";
+import { demandEnabled } from "@/lib/usdt-demand-policy";
 
 export const dynamic = "force-dynamic";
 
@@ -52,5 +53,5 @@ export default async function SellerDashboardPage({ params }: { params: Promise<
     );
   }
 
-  return <UsdtExchangePage locale={locale as "ar" | "en"} initialSessionUser={toClientSessionUser(user)} />;
+  return <UsdtExchangePage locale={locale as "ar" | "en"} initialSessionUser={toClientSessionUser(user)} usdtRequestsEnabled={demandEnabled()} />;
 }

@@ -797,9 +797,38 @@ for (const role of ["buyer", "seller"] as const) {
       if (role === "seller") await login(buyer, "buyer");
       const demand = await createDemand(role === "buyer" ? page.request : buyer, "5000");
       const scope = role === "seller" ? "available" : "mine";
+      for (const width of [1440, 320]) {
+        await page.setViewportSize({ width, height: 900 });
+        await page.goto(role === "seller" ? "/en/dashboard/seller" : "/en/dashboard");
+        await expect(page).toHaveURL(new RegExp(`/en/dashboard${role === "seller" ? "/seller" : ""}$`));
+        const dashboardEntry = page.getByTestId("welcome-buy-requests");
+        const welcome = page.locator(".account-welcome").filter({ has: dashboardEntry });
+        await expect(welcome.getByRole("heading", { name: /Welcome back,/ })).toBeVisible();
+        await expect(dashboardEntry).toHaveAccessibleName("Buy Requests");
+        await expect(dashboardEntry).toHaveAttribute("href", `/en/usdt-exchange/requests?scope=${scope}`);
+        await expectBlueAction(dashboardEntry);
+        await expectVisibleTextFits(dashboardEntry);
+        for (const action of await welcome.locator(".account-welcome__actions").locator("a,button").all()) {
+          if (!await action.isVisible()) continue;
+          const { background: [red, green, blue] } = await renderedColors(action);
+          if (blue > red + 35 && blue > green + 20) await expectBlueAction(action);
+          else await expectBlueText(action);
+          await expectVisibleTextFits(action);
+          const bounds = await action.boundingBox();
+          expect(bounds!.height).toBeGreaterThanOrEqual(44);
+          expect(bounds!.x).toBeGreaterThanOrEqual(0);
+          expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width);
+        }
+        await dashboardEntry.scrollIntoViewIfNeeded();
+        await page.screenshot({ path: testInfo.outputPath(`${role}-dashboard-shortcut-${width}px.png`) });
+        await dashboardEntry.click();
+        await expect(page).toHaveURL(new RegExp(`/en/usdt-exchange/requests\\?scope=${scope}$`));
+        await expect(page.getByRole("button", { name: role === "seller" ? "Buyer requests · Sell USDT" : "My buying requests", exact: true })).toHaveAttribute("aria-pressed", "true");
+        await expect(page.getByTestId("request-card")).toContainText("5,000");
+      }
       await page.setViewportSize({ width: 390, height: 844 });
       await page.goto("/en/usdt-exchange");
-      const exchangeEntry = page.getByRole("main").getByRole("link", { name: "Buy Requests", exact: true });
+      const exchangeEntry = page.getByRole("main").locator('a:not([data-testid="welcome-buy-requests"])').filter({ hasText: /^Buy Requests$/ });
       await expect(exchangeEntry).toHaveAttribute("href", `/en/usdt-exchange/requests?scope=${scope}`);
       await expectBlueAction(exchangeEntry);
       await exchangeEntry.click();
