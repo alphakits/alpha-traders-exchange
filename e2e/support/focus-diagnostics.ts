@@ -64,15 +64,28 @@ export async function installFocusDiagnostics(page: Page) {
   return () => ({ version: 1, maxEvents: MAX_EVENTS, droppedEvents, events: [...events] });
 }
 
-export const test = base.extend({
-  page: async ({ page }, runTest, testInfo) => {
-    if (!TARGET_TESTS.has(testInfo.title)) { await runTest(page); return; }
-    const snapshot = await installFocusDiagnostics(page);
-    await runTest(page);
+type FocusDiagnosticsFixtures = {
+  // Lifecycle tests can create their own session pages without using `page`.
+  captureFocusDiagnostics: (page: Page) => Promise<void>;
+};
+
+export const test = base.extend<FocusDiagnosticsFixtures>({
+  captureFocusDiagnostics: async ({}, runTest, testInfo) => {
+    const snapshots = new Map<Page, Awaited<ReturnType<typeof installFocusDiagnostics>>>();
+    await runTest(async (page) => {
+      if (!TARGET_TESTS.has(testInfo.title) || snapshots.has(page)) return;
+      snapshots.set(page, await installFocusDiagnostics(page));
+    });
     if (testInfo.status !== testInfo.expectedStatus) {
-      await testInfo.attach("focus-diagnostics", {
-        body: Buffer.from(JSON.stringify(snapshot())), contentType: "application/json",
-      });
+      for (const [index, snapshot] of [...snapshots.values()].entries()) {
+        await testInfo.attach(index === 0 ? "focus-diagnostics" : `focus-diagnostics-${index + 1}`, {
+          body: Buffer.from(JSON.stringify(snapshot())), contentType: "application/json",
+        });
+      }
     }
+  },
+  page: async ({ page, captureFocusDiagnostics }, runTest) => {
+    await captureFocusDiagnostics(page);
+    await runTest(page);
   },
 });

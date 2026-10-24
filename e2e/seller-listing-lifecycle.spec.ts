@@ -598,12 +598,13 @@ test("listing publish failures stay visible beside the mobile submit action", as
   await seller.context.close();
 });
 
-test("bank-transfer listing requires selected seller bank account and preserves privacy in public listings", async ({ browser }) => {
+test("bank-transfer listing requires selected seller bank account and preserves privacy in public listings", async ({ browser, captureFocusDiagnostics }) => {
   test.setTimeout(240_000);
   const hasFixtures = await resetLifecycleFixtures();
   test.skip(!hasFixtures, "Set E2E owner/seller credentials and seed matching runtime accounts to run lifecycle tests.");
 
   const seller = await createSession(browser, SELLER_EMAIL, SELLER_PASSWORD);
+  await captureFocusDiagnostics(seller.page);
   await seller.page.goto("/en/usdt-exchange");
   const sellerMain = seller.page.getByRole("main");
   await expect(sellerMain.locator("#create-listing")).toBeVisible({ timeout: 60_000 });
