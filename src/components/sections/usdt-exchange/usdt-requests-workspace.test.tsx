@@ -16,8 +16,8 @@ beforeEach(() => { vi.clearAllMocks(); mocks.query = ""; mocks.session = { user:
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 describe("USDT request workspace", () => {
   it("shows canonical public identities in buyer cards, seller responses and final review", async () => {
-    const requester = { accountId: "AT-123456", displayName: "AT-123456", profileHref: "/u/seller-buyer", approvedSeller: false, sellerRank: null, completedPurchases: 12 };
-    const seller = { accountId: "AT-654321", displayName: "AT-654321", profileHref: "/u/seller-approved", approvedSeller: true, sellerRank: "gold" as const, completedPurchases: null };
+    const requester = { accountId: "AT-123456", displayName: "AT-123456", profileHref: "/u/seller-buyer", approvedSeller: false, sellerRank: null, completedPurchases: 12, buyerProgress: { rank: "bronze" as const, nextRank: "silver" as const, progressPercent: 0 } };
+    const seller = { accountId: "AT-654321", displayName: "AT-654321", profileHref: "/u/seller-approved", approvedSeller: true, sellerRank: "gold" as const, completedPurchases: null, buyerProgress: null };
     const row: DemandView = { ...demand(), requester, paymentMethod: "Bank Transfer", amount: "5000", offers: [{ id: "offer-one", listingId: "listing-one", price: "3.30", state: "open", revision: 1, sellerName: seller.displayName, seller, isMine: false, available: true }] };
     vi.stubGlobal("fetch", vi.fn(async () => Response.json({ ...base, requests: [row] })));
     render(<UsdtRequestsWorkspace locale="en" actorId="buyer" demandId="demand-one" />);

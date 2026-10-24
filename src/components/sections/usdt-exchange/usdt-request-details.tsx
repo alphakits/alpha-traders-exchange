@@ -3,10 +3,11 @@ import { calculateFiatAmount, calculateTradeBuyerFiatFee, calculateTradePaymentT
 import { formatIls, formatUsdt, formatUsdtExact } from "@/lib/usdt-demand-format";
 import type { DemandView } from "@/types/usdt-demand";
 
-export const requestPanel = "rounded-2xl border border-white/10 bg-[#111318] p-5 sm:p-6";
-export const requestPrimary = "inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-amber-300 px-5 py-3 text-sm font-semibold text-black transition-colors hover:bg-amber-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-200 focus-visible:ring-offset-2 focus-visible:ring-offset-[#111318] disabled:cursor-not-allowed disabled:opacity-40";
-export const requestSecondary = "inline-flex min-h-12 items-center justify-center gap-2 rounded-xl border border-white/20 px-4 py-3 text-sm text-gray-100 transition-colors hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-200 disabled:cursor-not-allowed disabled:opacity-40";
-const requestFieldBase = "mt-2 min-h-12 w-full rounded-xl border border-white/20 bg-[#090b0f] px-3 py-3 text-base outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-300/20 aria-[invalid=true]:border-red-400";
+export const requestPanel = "min-w-0 rounded-2xl border border-white/10 bg-[#111318] p-4 sm:p-6";
+const requestActionBase = "inline-flex min-h-11 min-w-0 max-w-full items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-center text-sm leading-5 [overflow-wrap:anywhere] transition-colors motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300 focus-visible:ring-offset-2 focus-visible:ring-offset-[#111318] disabled:cursor-not-allowed disabled:opacity-40";
+export const requestPrimary = `${requestActionBase} bg-blue-600 font-semibold text-white hover:bg-blue-700`;
+export const requestSecondary = `${requestActionBase} border border-blue-400/30 bg-blue-400/[0.06] font-medium text-blue-200 hover:border-blue-300/60 hover:bg-blue-400/15`;
+const requestFieldBase = "mt-2 min-h-11 w-full rounded-xl border border-white/20 bg-[#090b0f] px-3 py-2.5 text-base outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-400/25 aria-[invalid=true]:border-red-400";
 export const requestField = `${requestFieldBase} text-white placeholder:text-gray-500`;
 export const requestMoneyField = `${requestFieldBase} font-medium tabular-nums text-emerald-300 placeholder:text-emerald-300/60`;
 
@@ -59,16 +60,16 @@ export function RequestSteps({ selling, step, ar }: { selling: boolean; step: nu
     ? (ar ? ["اختر طلبًا", "أرسل سعرك", "تابع في غرفة الصفقة"] : ["Choose a request", "Send your price", "Continue in Trade Room"])
     : (ar ? ["أنشئ طلبًا", "قارن الردود", "راجع وافتح الصفقة"] : ["Create a request", "Compare responses", "Review and open trade"]);
   return <ol aria-label={ar ? "خطوات الطلب" : "Request steps"} className="grid grid-cols-3 gap-2 rounded-2xl border border-white/10 bg-black/20 p-3 sm:gap-4 sm:p-4">
-    {labels.map((label, index) => <li key={label} aria-current={step === index ? "step" : undefined} className={"flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:gap-3 " + (step === index ? "text-amber-200" : "text-gray-400")}>
-      <span className={"flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold " + (step === index ? "bg-amber-300 text-black" : "bg-white/10")}>{index + 1}</span>
+    {labels.map((label, index) => <li key={label} aria-current={step === index ? "step" : undefined} className={"flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:gap-3 " + (step === index ? "text-blue-200" : "text-gray-400")}>
+      <span className={"flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold " + (step === index ? "bg-blue-600 text-white" : "bg-white/10")}>{index + 1}</span>
       <span className="text-xs leading-5 sm:text-sm">{label}</span>
     </li>)}
   </ol>;
 }
 
 export function NextStep({ title, children, ar }: { title: string; children: ReactNode; ar: boolean }) {
-  return <section data-testid="next-step-panel" aria-label={ar ? "الخطوة التالية" : "Your next step"} className="rounded-2xl border border-amber-300/20 bg-amber-300/[0.05] p-5">
-    <p className="text-xs font-semibold uppercase tracking-wider text-amber-200">{ar ? "الخطوة التالية" : "Your next step"}</p>
+  return <section data-testid="next-step-panel" aria-label={ar ? "الخطوة التالية" : "Your next step"} className="rounded-2xl border border-blue-400/25 bg-blue-400/[0.06] p-4 sm:p-5">
+    <p className="text-xs font-semibold uppercase tracking-wider text-blue-300">{ar ? "الخطوة التالية" : "Your next step"}</p>
     <h2 className="mt-2 text-lg font-semibold">{title}</h2>
     <div className="mt-2 space-y-3 text-sm leading-6 text-gray-300">{children}</div>
   </section>;

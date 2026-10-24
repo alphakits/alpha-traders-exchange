@@ -8,6 +8,11 @@ export type DemandPublicIdentity = {
   approvedSeller: boolean;
   sellerRank: SellerLevel | null;
   completedPurchases: number | null;
+  buyerProgress: {
+    rank: SellerLevel;
+    nextRank: SellerLevel | null;
+    progressPercent: number;
+  } | null;
 };
 
 export type DemandTerms = {

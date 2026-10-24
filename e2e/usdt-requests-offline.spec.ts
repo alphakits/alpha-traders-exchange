@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { expect, test, type APIRequestContext, type BrowserContext, type Locator } from "@playwright/test";
 import { OFFLINE_ACCOUNTS, OFFLINE_HEADERS, OFFLINE_PASSWORD, seedOfflineFixture } from "../scripts/usdt-request-offline-fixture.mjs";
-import type { AlphaExchangeDb } from "../src/types/alpha-exchange";
+import type { AlphaExchangeDb, PurchaseRequest } from "../src/types/alpha-exchange";
 import type { DemandWorkspace } from "../src/types/usdt-demand";
-import { calculateCardlessUsdtAmount } from "@alpha-traders/contracts";
+import { calculateCardlessUsdtAmount, calculateTradePaymentTotal } from "@alpha-traders/contracts";
 
 const root = "/api/alpha-exchange/usdt-requests";
 const terms = { amount: "1000", price: "3.30", network: "TRC20", paymentMethod: "Bank Transfer", city: "" };
@@ -65,10 +65,10 @@ async function expectFees(container: Locator, subtotal: string, fee: string, tot
   }
   await expectGreenMoney(breakdown);
 }
-async function expectGreenText(element: Locator) {
+async function renderedColors(element: Locator) {
   // Test the browser's rendered color rather than a particular CSS class.
   // Canvas also resolves modern CSS color syntax to comparable sRGB channels.
-  const { rgba: [red, green, blue, alpha], contrast } = await element.evaluate(node => {
+  return element.evaluate(node => {
     const canvas = document.createElement("canvas"); canvas.width = canvas.height = 1;
     const context = canvas.getContext("2d", { willReadFrequently: true })!;
     context.fillStyle = "#000"; context.fillRect(0, 0, 1, 1);
@@ -85,13 +85,32 @@ async function expectGreenText(element: Locator) {
       return sum + (value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4) * [0.2126, 0.7152, 0.0722][index];
     }, 0);
     const foregroundLuminance = luminance(rgba); const backgroundLuminance = luminance(background);
-    return { rgba, contrast: (Math.max(foregroundLuminance, backgroundLuminance) + 0.05) / (Math.min(foregroundLuminance, backgroundLuminance) + 0.05) };
+    return { rgba, background, contrast: (Math.max(foregroundLuminance, backgroundLuminance) + 0.05) / (Math.min(foregroundLuminance, backgroundLuminance) + 0.05) };
   });
+}
+async function expectGreenText(element: Locator) {
+  const { rgba: [red, green, blue, alpha], contrast } = await renderedColors(element);
   expect(green, "Money is visibly green, including inherited text colors").toBeGreaterThan(red + 30);
   expect(green).toBeGreaterThan(blue + 15);
   expect(green, "Money stays bright against the dark form background").toBeGreaterThanOrEqual(150);
   expect(alpha).toBe(255);
   expect(contrast, "Money is legible against its composited solid background").toBeGreaterThanOrEqual(4.5);
+}
+async function expectBlueAction(element: Locator) {
+  const { background: [red, green, blue], contrast } = await renderedColors(element);
+  expect(blue, "Primary actions use a blue surface").toBeGreaterThan(red + 35);
+  expect(blue).toBeGreaterThan(green + 20);
+  expect(contrast, "Blue action labels stay readable").toBeGreaterThanOrEqual(4.5);
+  const bounds = await element.boundingBox();
+  expect(bounds).not.toBeNull();
+  expect(bounds!.height, "Actions preserve a usable touch target").toBeGreaterThanOrEqual(44);
+  expect(bounds!.width).toBeGreaterThanOrEqual(44);
+}
+async function expectBlueText(element: Locator) {
+  const { rgba: [red, green, blue], contrast } = await renderedColors(element);
+  expect(blue, "Navigation and current-step accents are blue").toBeGreaterThan(red + 30);
+  expect(blue).toBeGreaterThan(green + 15);
+  expect(contrast).toBeGreaterThanOrEqual(4.5);
 }
 async function expectGreenMoney(container: Locator) {
   const values = container.locator("bdi").filter({ hasText: /[₪$]\s*\d/ });
@@ -103,6 +122,19 @@ async function expectTextFits(element: Locator) {
     const bounds = node.getBoundingClientRect(); const range = document.createRange(); range.selectNodeContents(node);
     return Array.from(range.getClientRects()).every(rect => rect.left >= bounds.left - 1 && rect.right <= bounds.right + 1);
   }), "Rendered text must wrap within its own container, even when the page clips horizontal overflow").toBe(true);
+}
+async function expectVisibleTextFits(element: Locator) {
+  expect(await element.evaluate(node => {
+    const bounds = node.getBoundingClientRect();
+    const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
+    let textNode: Node | null;
+    while ((textNode = walker.nextNode())) {
+      if (!textNode.textContent?.trim() || textNode.parentElement?.closest('.sr-only,[aria-hidden="true"]')) continue;
+      const range = document.createRange(); range.selectNodeContents(textNode);
+      if (Array.from(range.getClientRects()).some(rect => rect.left < bounds.left - 1 || rect.right > bounds.right + 1)) return false;
+    }
+    return true;
+  }), "Every visible identity label fits at the actual rendered text bounds").toBe(true);
 }
 async function createDemand(api: APIRequestContext, amount = "1000") {
   const response = await api.post(root, { data: { terms: { ...terms, amount }, operationId: randomUUID() } });
@@ -189,6 +221,9 @@ test("buyer publishes, seller responds, buyer reviews and the canonical Trade Ro
     await login(buyer.request, "buyer"); await login(seller.request, "seller");
     await buyerPage.goto("/en/usdt-exchange/requests");
     await expect(buyerPage.getByRole("heading", { name: "Request USDT", exact: true })).toBeVisible();
+    await expectBlueAction(buyerPage.getByRole("button", { name: "Create a request", exact: true }));
+    await expectBlueAction(buyerPage.getByRole("button", { name: "My buying requests", exact: true }));
+    await expectBlueText(buyerPage.getByRole("list", { name: "Request steps" }).locator('[aria-current="step"]'));
     await buyerPage.getByRole("button", { name: "Create a request", exact: true }).click();
     const amount = buyerPage.getByLabel("Amount (USDT)", { exact: true });
     await amount.pressSequentially("5000");
@@ -200,6 +235,7 @@ test("buyer publishes, seller responds, buyer reviews and the canonical Trade Ro
     await expectGreenText(buyerPage.getByLabel("Requested price per USDT (ILS)", { exact: true }));
     await expectGreenMoney(buyerPage.getByRole("region", { name: "Price reference" }));
     await expectFees(buyerPage.getByRole("form", { name: "Request details" }), "16,500.00", "165.00", "16,665.00");
+    await expectBlueAction(buyerPage.getByRole("button", { name: "Publish request", exact: true }));
     await buyerPage.evaluate(() => window.scrollTo({ top: 0, behavior: "instant" }));
     await buyerPage.screenshot({ path: testInfo.outputPath("polished-buyer-form.png"), fullPage: true });
     const publication = buyerPage.waitForRequest(request => request.method() === "POST" && new URL(request.url()).pathname === root);
@@ -212,6 +248,8 @@ test("buyer publishes, seller responds, buyer reviews and the canonical Trade Ro
     const buyerIdentity = buyerPage.getByTestId("request-card").getByTestId("request-counterparty-identity");
     await expect(buyerIdentity).toContainText(/AT-\d{6,7}/);
     await expect(buyerIdentity).toContainText("0 completed purchases");
+    await expect(buyerIdentity.getByText("Bronze Buyer", { exact: true })).toBeVisible();
+    await expect(buyerIdentity.getByRole("progressbar", { name: "Buyer rank progress" })).toHaveAttribute("aria-valuenow", "0");
     await expect(buyerIdentity).not.toContainText("Demo Buyer");
     const buyerProfileLink = buyerIdentity.getByRole("link", { name: /^View profile:/ });
     await expect(buyerProfileLink).toHaveAttribute("href", /^\/en\/u\/seller-[a-f0-9]+$/);
@@ -233,6 +271,7 @@ test("buyer publishes, seller responds, buyer reviews and the canonical Trade Ro
     await expectGreenText(sellerPage.getByLabel("Your listing", { exact: false }));
     await expectGreenMoney(sellerPage.getByRole("form", { name: "Seller response" }));
     await expectFees(sellerPage.getByRole("form", { name: "Seller response" }), "16,250.00", "162.50", "16,412.50", true);
+    await expectBlueAction(sellerPage.getByRole("button", { name: "Send response", exact: true }));
     await sellerPage.evaluate(() => window.scrollTo({ top: 0, behavior: "instant" }));
     await sellerPage.screenshot({ path: testInfo.outputPath("polished-seller-form.png"), fullPage: true });
     await sellerPage.getByRole("button", { name: "Send response", exact: true }).click();
@@ -246,7 +285,9 @@ test("buyer publishes, seller responds, buyer reviews and the canonical Trade Ro
     await buyerPage.reload();
     const sellerIdentity = buyerPage.getByTestId("offer-card").getByTestId("request-counterparty-identity");
     await expect(sellerIdentity).toContainText("Approved Seller");
-    await expect(sellerIdentity.locator('[data-rank="bronze"]')).toBeVisible();
+    await expect(sellerIdentity.getByText("Bronze Seller", { exact: true })).toBeVisible();
+    await expect(sellerIdentity.getByText("Bronze Buyer", { exact: true })).toBeVisible();
+    await expect(sellerIdentity).toContainText("0 completed purchases");
     await expect(sellerIdentity).not.toContainText("Demo Seller");
     const sellerProfileLink = sellerIdentity.getByRole("link", { name: /^View profile:/ });
     const sellerProfileOpened = buyerPage.waitForEvent("popup"); await sellerProfileLink.click();
@@ -255,6 +296,7 @@ test("buyer publishes, seller responds, buyer reviews and the canonical Trade Ro
     await expect(sellerProfile).toHaveURL(/\/en\/u\/seller-[a-f0-9]+$/);
     await expect(sellerProfile.getByRole("main")).toContainText(/AT-\d{6,7}/);
     await sellerProfile.close();
+    await expectBlueAction(buyerPage.getByRole("button", { name: "Review response", exact: true }));
     await buyerPage.getByRole("button", { name: "Review response", exact: true }).click();
     const review = buyerPage.getByRole("form", { name: "Trade review" });
     await expectFees(review, "16,250.00", "162.50", "16,412.50");
@@ -264,6 +306,8 @@ test("buyer publishes, seller responds, buyer reviews and the canonical Trade Ro
     await expect(review.getByRole("button", { name: "Open Trade Room", exact: true })).toBeDisabled();
     await receivingWallet.fill(wallet);
     await buyerPage.getByRole("checkbox", { name: "I checked the amount", exact: false }).check();
+    await expectBlueAction(buyerPage.getByRole("button", { name: "Open Trade Room", exact: true }));
+    await expectBlueText(buyerPage.getByRole("list", { name: "Request steps" }).locator('[aria-current="step"]'));
     await buyerPage.evaluate(() => window.scrollTo(0, 0));
     await buyerPage.screenshot({ path: testInfo.outputPath("buyer-review-desktop.png"), fullPage: true });
     await buyerPage.getByRole("button", { name: "Open Trade Room", exact: true }).click();
@@ -284,6 +328,97 @@ test("buyer publishes, seller responds, buyer reviews and the canonical Trade Ro
     expect((await accepted.json()).request.status).toBe("accepted");
     const room = await buyer.request.get(`/api/alpha-exchange/trade-room/${tradeId}`);
     expect((await room.json()).request.status).toBe("accepted");
+  } finally { await buyer.close(); await seller.close(); }
+});
+
+test("buyer and seller buyer-rank progress uses completed purchases and stays private and readable at 320px", async ({ browser, baseURL }, testInfo) => {
+  test.setTimeout(300_000);
+  const buyer = await browser.newContext({ baseURL, viewport: { width: 320, height: 844 }, isMobile: true, hasTouch: true });
+  const seller = await browser.newContext({ baseURL, viewport: { width: 320, height: 844 }, isMobile: true, hasTouch: true });
+  await blockExternalBrowserRequests(buyer); await blockExternalBrowserRequests(seller);
+  try {
+    await login(buyer.request, "buyer"); await login(seller.request, "seller");
+    const demand = await createDemand(buyer.request);
+    const offered = await seller.request.post(`${root}/${demand.id}/offers`, { data: { revision: 1, listingId: "listing-offline-seller", price: "3.30", operationId: randomUUID() } });
+    expect(offered.ok(), await offered.text()).toBe(true);
+    const snapshot = await state(buyer.request);
+    const buyerUser = snapshot.users.find(user => user.email === OFFLINE_ACCOUNTS.buyer.email)!;
+    const sellerUser = snapshot.users.find(user => user.email === OFFLINE_ACCOUNTS.seller.email)!;
+    const otherBuyer = snapshot.users.find(user => user.email === OFFLINE_ACCOUNTS.otherBuyer.email)!;
+    const otherSeller = snapshot.users.find(user => user.email === OFFLINE_ACCOUNTS.otherSeller.email)!;
+    const past = new Date(Date.now() - 7 * 24 * 3600_000).toISOString();
+    const history = (buyerId: string, sellerId: string, amount: string, status: PurchaseRequest["status"], completed = status === "completed"): PurchaseRequest => ({
+      id: `offline-history-${randomUUID()}`, buyerId, sellerId, listingId: sellerId === sellerUser.id ? "listing-offline-seller" : "listing-offline-seller-two",
+      buyerName: snapshot.users.find(user => user.id === buyerId)!.fullName, usdtAmount: amount, pricePerUsdt: "3.30",
+      fiatAmount: calculateTradePaymentTotal(amount, "3.30", true)!, currency: "ILS", network: "TRC20", paymentMethod: "Bank Transfer",
+      timeline: [], status, createdAt: past, updatedAt: past, completedAt: completed ? past : undefined,
+    });
+    // Seed only this isolated case's canonical purchase history, never cached rank
+    // labels. Sales, pending and uncompleted terminal-looking states must not count.
+    snapshot.purchaseRequests.push(
+      history(buyerUser.id, otherSeller.id, "15000", "completed"),
+      history(buyerUser.id, otherSeller.id, "7500", "review_open", true),
+      history(sellerUser.id, otherSeller.id, "52500", "completed"),
+      history(otherBuyer.id, sellerUser.id, "150000", "completed"),
+      history(buyerUser.id, otherSeller.id, "500000", "pending"),
+      history(buyerUser.id, otherSeller.id, "500000", "review_open", false),
+      history(sellerUser.id, otherSeller.id, "500000", "cancelled"),
+    );
+    const saved = await buyer.request.put("/api/testing/alpha-exchange-state", { headers: OFFLINE_HEADERS, data: snapshot });
+    expect(saved.ok(), await saved.text()).toBe(true);
+    const projected = (await (await buyer.request.get(`${root}/${demand.id}`)).json() as DemandWorkspace).requests[0];
+    expect(projected.requester).toMatchObject({ completedPurchases: 2, buyerProgress: { rank: "silver", nextRank: "gold", progressPercent: 21.43 } });
+    expect(projected.offers[0].seller).toMatchObject({ approvedSeller: true, sellerRank: "diamond", completedPurchases: 1,
+      buyerProgress: { rank: "gold", nextRank: "diamond", progressPercent: 2.5 } });
+    for (const identity of [projected.requester!, projected.offers[0].seller!]) {
+      expect(Object.keys(identity.buyerProgress!).sort()).toEqual(["nextRank", "progressPercent", "rank"]);
+    }
+
+    const buyerPage = await buyer.newPage(); const sellerPage = await seller.newPage();
+    for (const locale of ["en", "ar"] as const) {
+      for (const page of [buyerPage, sellerPage]) {
+        await page.goto(`/${locale}/usdt-exchange/requests/${demand.id}`);
+        await expect(page.locator("main[dir]")).toHaveAttribute("dir", locale === "ar" ? "rtl" : "ltr");
+        const requester = page.getByTestId("request-card").getByTestId("request-counterparty-identity");
+        const responder = page.getByTestId("offer-card").getByTestId("request-counterparty-identity");
+        for (const [identity, rankLabel, progress] of [
+          [requester, locale === "ar" ? "مشتري فضي" : "Silver Buyer", "21.43"],
+          [responder, locale === "ar" ? "مشتري ذهبي" : "Gold Buyer", "2.5"],
+        ] as const) {
+          await expect(identity.getByText(rankLabel, { exact: true })).toBeVisible();
+          const bar = identity.getByRole("progressbar", { name: locale === "ar" ? "تقدم رتبة المشتري" : "Buyer rank progress" });
+          await expect(bar).toHaveAttribute("aria-valuenow", progress);
+          await expect(bar).toHaveAttribute("aria-valuemin", "0"); await expect(bar).toHaveAttribute("aria-valuemax", "100");
+          const ratio = await bar.evaluate(node => node.firstElementChild!.getBoundingClientRect().width / node.getBoundingClientRect().width);
+          expect(ratio).toBeCloseTo(Number(progress) / 100, 2);
+          await expectVisibleTextFits(identity);
+          const profile = identity.getByRole("link");
+          await expect(profile).toHaveAttribute("href", new RegExp(`^/${locale}/u/seller-[a-f0-9]+$`));
+          await expectBlueText(profile);
+        }
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+        if (page === buyerPage) {
+          await requester.scrollIntoViewIfNeeded(); await page.screenshot({ path: testInfo.outputPath(`buyer-progress-${locale}-320px.png`) });
+          await responder.scrollIntoViewIfNeeded(); await page.screenshot({ path: testInfo.outputPath(`seller-buyer-progress-${locale}-320px.png`) });
+        }
+      }
+    }
+
+    const privateState = await state(buyer.request);
+    for (const user of privateState.users.filter(user => [buyerUser.id, sellerUser.id].includes(user.id))) user.showTradeStats = false;
+    const hidden = await buyer.request.put("/api/testing/alpha-exchange-state", { headers: OFFLINE_HEADERS, data: privateState });
+    expect(hidden.ok(), await hidden.text()).toBe(true);
+    const buyerView = (await (await buyer.request.get(`${root}/${demand.id}`)).json() as DemandWorkspace).requests[0];
+    const sellerView = (await (await seller.request.get(`${root}/${demand.id}`)).json() as DemandWorkspace).requests[0];
+    expect(buyerView.offers[0].seller).toMatchObject({ completedPurchases: null, buyerProgress: null });
+    expect(sellerView.requester).toMatchObject({ completedPurchases: null, buyerProgress: null });
+    for (const [page, hiddenCard, ownCard] of [[buyerPage, "offer-card", "request-card"], [sellerPage, "request-card", "offer-card"]] as const) {
+      await page.reload();
+      const hiddenIdentity = page.getByTestId(hiddenCard).getByTestId("request-counterparty-identity");
+      await expect(hiddenIdentity.getByRole("progressbar")).toHaveCount(0);
+      await expect(hiddenIdentity).not.toContainText("عملية شراء مكتملة");
+      await expect(page.getByTestId(ownCard).getByRole("progressbar")).toHaveCount(1);
+    }
   } finally { await buyer.close(); await seller.close(); }
 });
 
@@ -364,9 +499,10 @@ for (const paymentMethod of ["Face-to-Face (Meet in Person)", "Cardless ATM With
 
 test("Arabic mobile request form renders RTL and publishes through the same API", async ({ page, context }, testInfo) => {
   await blockExternalBrowserRequests(context); await login(page.request, "buyer");
-  await page.setViewportSize({ width: 390, height: 844 });
+  await page.setViewportSize({ width: 320, height: 844 });
   await page.goto("/ar/usdt-exchange/requests");
   await expect(page.locator("main[dir=rtl]")).toBeVisible();
+  await expectBlueAction(page.getByRole("button", { name: "إنشاء طلب", exact: true }));
   await page.getByRole("button", { name: "إنشاء طلب", exact: true }).click();
   const amount = page.getByLabel("المبلغ (USDT)", { exact: true });
   await pasteAmount(amount, "٥٬٠٠٠٫١٢");
@@ -375,10 +511,12 @@ test("Arabic mobile request form renders RTL and publishes through the same API"
   await expectGreenText(amount);
   await expectGreenText(page.getByLabel("السعر المطلوب لكل USDT (شيكل)", { exact: true }));
   await expectGreenMoney(page.getByRole("form"));
+  await expectBlueAction(page.getByRole("button", { name: "نشر الطلب", exact: true }));
   await page.getByRole("button", { name: "نشر الطلب", exact: true }).click();
   await expect(page).toHaveURL(/\/ar\/usdt-exchange\/requests\/[^/]+$/);
   await expect(page.getByTestId("request-card")).toContainText("≈5,000");
   await expectGreenMoney(page.getByTestId("request-card"));
+  await expectVisibleTextFits(page.getByTestId("request-card").getByTestId("request-counterparty-identity"));
   expect((await state(page.request)).usdtDemands?.[0].amount).toBe("5000.12");
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.evaluate(() => window.scrollTo(0, 0));
@@ -659,6 +797,13 @@ for (const role of ["buyer", "seller"] as const) {
       if (role === "seller") await login(buyer, "buyer");
       const demand = await createDemand(role === "buyer" ? page.request : buyer, "5000");
       const scope = role === "seller" ? "available" : "mine";
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.goto("/en/usdt-exchange");
+      const exchangeEntry = page.getByRole("main").getByRole("link", { name: "Buy Requests", exact: true });
+      await expect(exchangeEntry).toHaveAttribute("href", `/en/usdt-exchange/requests?scope=${scope}`);
+      await expectBlueAction(exchangeEntry);
+      await exchangeEntry.click();
+      await expect(page).toHaveURL(new RegExp(`/en/usdt-exchange/requests\\?scope=${scope}$`));
       for (const width of [320, 390, 768, 1024]) {
         await page.setViewportSize({ width, height: 844 });
         await page.goto(`/en/usdt-exchange/requests/${demand.id}`);
@@ -667,7 +812,7 @@ for (const role of ["buyer", "seller"] as const) {
         const menu = toggle.locator("..");
         const entry = menu.getByRole("link", { name: "Buy Requests", exact: true });
         await expect(entry).toHaveAttribute("href", `/en/usdt-exchange/requests?scope=${scope}`);
-        await expect(entry).toHaveCSS("color", "rgb(144, 194, 255)");
+        await expectBlueText(entry);
         expect(await entry.evaluate(element => element.previousElementSibling?.textContent)).toMatch(/Alpha Exchange/);
         if (width === 320 || width === 390) {
           await entry.scrollIntoViewIfNeeded();
@@ -676,6 +821,7 @@ for (const role of ["buyer", "seller"] as const) {
         await entry.click();
         await expect(page).toHaveURL(new RegExp(`/en/usdt-exchange/requests\\?scope=${scope}$`));
         await expect(page.getByRole("button", { name: role === "seller" ? "Buyer requests · Sell USDT" : "My buying requests", exact: true })).toHaveAttribute("aria-pressed", "true");
+        await expectBlueAction(page.getByRole("button", { name: role === "seller" ? "Buyer requests · Sell USDT" : "My buying requests", exact: true }));
         await expect(page.getByTestId("request-card")).toContainText("5,000");
         await expect(toggle.locator("..")).not.toHaveAttribute("open", "");
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
@@ -709,6 +855,7 @@ test("buyer form stays readable without horizontal overflow from 320 to 1920 pix
   for (const width of [320, 375, 390, 768, 1024, 1440, 1920]) {
     await page.setViewportSize({ width, height: 900 });
     await expect(form.getByRole("button", { name: "Publish request", exact: true })).toBeEnabled();
+    await expectBlueAction(form.getByRole("button", { name: "Publish request", exact: true }));
     await expectFees(form, "16,500.00", "165.00", "16,665.00");
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), `No overflow at ${width}px`).toBe(true);
     if (width === 320) {

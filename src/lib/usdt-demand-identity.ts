@@ -5,6 +5,7 @@ import { publicAccountUsername } from "@/lib/public-account-username";
 import { isOwnerApprovedSeller } from "@/lib/seller-approval";
 import { resolveSellerPrestigeRankWithFloor, SELLER_PRESTIGE_TIERS } from "@/lib/seller-prestige";
 import { calculateSellerTrustSnapshot } from "@/lib/trust-engine";
+import { getBuyerPrestigeProgress } from "@/lib/buyer-rank";
 
 function groupBy<T>(rows: readonly T[], key: (row: T) => string) {
   const groups = new Map<string, T[]>();
@@ -26,9 +27,16 @@ export function demandIdentityProjector(db: AlphaExchangeDb, viewerId: string) {
   const requestsBySeller = groupBy(db.purchaseRequests, request => request.sellerId);
   const listingsBySeller = groupBy(db.marketplaceListings, listing => listing.sellerId);
   const commissionsBySeller = groupBy(db.commissionRecords, record => record.sellerId);
-  const purchasesByBuyer = new Map<string, number>();
+  const purchasesByBuyer = new Map<string, { count: number; volumeUsdt: number }>();
   for (const request of db.purchaseRequests) {
-    if (request.status === "completed" || Boolean(request.completedAt)) purchasesByBuyer.set(request.buyerId, (purchasesByBuyer.get(request.buyerId) ?? 0) + 1);
+    // Keep the evidence boundary identical to the public profile's purchase
+    // count. Pending sales and a cached seller rank cannot earn buyer progress.
+    if (request.status !== "completed" && !request.completedAt) continue;
+    const purchases = purchasesByBuyer.get(request.buyerId) ?? { count: 0, volumeUsdt: 0 };
+    const amount = Number(request.usdtAmount);
+    purchases.count += 1;
+    if (Number.isFinite(amount) && amount > 0) purchases.volumeUsdt += amount;
+    purchasesByBuyer.set(request.buyerId, purchases);
   }
   const profileOwners = new Map<string, string | null>();
   for (const user of db.users) {
@@ -63,6 +71,10 @@ export function demandIdentityProjector(db: AlphaExchangeDb, viewerId: string) {
       sellerRank = knownRank(user.sellerRankOverride?.rank) ?? resolveSellerPrestigeRankWithFloor(volume, knownRank(user.sellerPrestigeRank));
     }
     const showStats = profileVisible && user && (user.showTradeStats !== false || canBypassVisibility);
+    const purchases = purchasesByBuyer.get(userId);
+    // Buyer profile progress uses completed purchase volume rounded to two
+    // decimal places. Use its shared rank policy, but expose only public badges.
+    const progress = showStats ? getBuyerPrestigeProgress(Number((purchases?.volumeUsdt ?? 0).toFixed(2))) : null;
     const identity: DemandPublicIdentity = {
       // Member real names and buyerDisplayName are private under the site's
       // existing policy. Keep cards identical to their actual public profile.
@@ -71,7 +83,12 @@ export function demandIdentityProjector(db: AlphaExchangeDb, viewerId: string) {
       profileHref,
       approvedSeller,
       sellerRank,
-      completedPurchases: showStats ? purchasesByBuyer.get(userId) ?? 0 : null,
+      completedPurchases: showStats ? purchases?.count ?? 0 : null,
+      buyerProgress: progress ? {
+        rank: progress.rank,
+        nextRank: progress.nextRank ?? null,
+        progressPercent: Number(progress.progressPercent.toFixed(2)),
+      } : null,
     };
     identities.set(userId, identity);
     return identity;

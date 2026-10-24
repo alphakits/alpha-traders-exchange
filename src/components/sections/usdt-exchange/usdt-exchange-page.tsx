@@ -28,6 +28,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { AccountWelcome } from "@/components/ui/account-welcome";
 import { ExchangeWorkspaceNavigation, type ExchangeWorkspaceAction } from "@/components/sections/usdt-exchange/exchange-workspace-navigation";
+import { requestPrimary } from "@/components/sections/usdt-exchange/usdt-request-details";
 import { useWorkspaceViewport } from "@/components/sections/usdt-exchange/use-desktop-workspace";
 import { BuyerRankCard } from "@/components/ui/buyer-rank-card";
 import { SellerRankCard } from "@/components/ui/seller-rank-card";
@@ -5409,11 +5410,11 @@ export function UsdtExchangePage({
               </div>
         </MarketplaceToolPanel>
 
-        {usdtRequestsEnabled && sessionUser && (hasBuyerRole || isSellerWorkspaceUser) ? <div className="mb-4 rounded-2xl border border-amber-300/30 bg-amber-300/5 p-5">
-          <Link href={demandListingIntent ? `/usdt-exchange/requests/${encodeURIComponent(demandListingIntent)}` : "/usdt-exchange/requests"} className="inline-flex min-h-12 items-center rounded-xl bg-amber-300 px-5 py-3 font-semibold text-black">
-            {demandListingIntent ? (isAr ? "العودة إلى طلب USDT" : "Return to the USDT request") : (isAr ? "اطلب USDT" : "Request USDT")}
+        {usdtRequestsEnabled && sessionUser && (hasBuyerRole || isSellerWorkspaceUser) ? <div className="mb-4 rounded-2xl border border-blue-400/30 bg-blue-400/[0.06] p-4 sm:p-5">
+          <Link href={demandListingIntent ? `/usdt-exchange/requests/${encodeURIComponent(demandListingIntent)}` : `/usdt-exchange/requests?scope=${isSellerWorkspaceUser ? "available" : "mine"}`} className={requestPrimary}>
+            {demandListingIntent ? (isAr ? "العودة إلى طلب USDT" : "Return to the USDT request") : (isAr ? "طلبات الشراء" : "Buy Requests")}
           </Link>
-          <p className="mt-2 text-sm text-gray-300">{demandListingIntent ? (isAr ? "عد إلى الطلب بعد موافقة المالك على عرضك." : "Return to the request after your listing receives owner approval.") : (isAr ? "انشر المبلغ المطلوب وراجع ردود البائعين المعتمدين." : "Post the amount you need and review responses from approved sellers.")}</p>
+          <p className="mt-2 text-sm leading-6 text-gray-300">{demandListingIntent ? (isAr ? "عد إلى الطلب بعد موافقة المالك على عرضك." : "Return to the request after your listing receives owner approval.") : isSellerWorkspaceUser ? (isAr ? "تصفح طلبات المشترين وأرسل سعرك من عرضك المعتمد." : "Browse buyer requests and send your price from an approved listing.") : (isAr ? "انشر المبلغ المطلوب وراجع ردود البائعين المعتمدين." : "Post the amount you need and review responses from approved sellers.")}</p>
         </div> : null}
         {sessionUser && hasBuyerRole ? <MarketplacePriceAlertPanel key={sessionUser.id} userId={sessionUser.id} isAr={isAr} /> : null}
         <div id="buyer-marketplace-listings" tabIndex={desktopBuyerNavigation ? -1 : undefined} className={cn("mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-2 min-[1440px]:grid-cols-3", desktopBuyerNavigation && "scroll-mt-24")}>

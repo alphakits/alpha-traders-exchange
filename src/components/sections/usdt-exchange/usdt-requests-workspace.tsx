@@ -233,7 +233,7 @@ export function UsdtRequestsWorkspace({ locale, actorId, demandId }: { locale: "
   function renderOffer(o: DemandView["offers"][number]) {
     const confirming = confirmation?.kind === "withdraw" && confirmation.id === o.id;
     const status = o.state === "accepted" ? text("Selected", "تم اختياره") : o.state === "withdrawn" ? text("Withdrawn", "مسحوب") : o.state === "superseded" ? text("Replaced", "تم استبداله") : text("Unavailable", "غير متاح");
-    return <article id={"offer-" + o.id} data-testid="offer-card" key={o.id} className={panel + " scroll-mt-24 " + (selectedOfferId === o.id ? "ring-2 ring-amber-300" : "")}>
+    return <article id={"offer-" + o.id} data-testid="offer-card" key={o.id} className={panel + " scroll-mt-24 " + (selectedOfferId === o.id ? "ring-2 ring-blue-400" : "")}>
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div className="min-w-0 max-w-full">{o.seller ? <RequestCounterpartyIdentity identity={o.seller} locale={locale} audience="seller" /> : <p className="font-medium">{o.sellerName}</p>}<p className="mt-2 text-xl font-semibold tabular-nums text-emerald-300"><bdi dir="ltr">₪{formatIls(o.price)}</bdi> <span className="text-sm text-gray-400">/ USDT</span></p>
           <p className="mt-2 text-sm text-gray-300">{text("Total incl. 1% buyer fee", "الإجمالي شامل رسوم المشتري 1%")}: <bdi dir="ltr" className="font-semibold tabular-nums text-emerald-300">₪{formatIls(calculateTradePaymentTotal(current!.amount, o.price, true))}</bdi></p>
@@ -241,7 +241,7 @@ export function UsdtRequestsWorkspace({ locale, actorId, demandId }: { locale: "
         <div className="flex flex-wrap items-center gap-3">
           {!o.available && <span className="rounded-full bg-white/5 px-3 py-1 text-xs text-gray-400">{status}</span>}
           {o.available && current?.isMine && <button className={primary} disabled={busy} onClick={() => chooseOffer(o)}>{text("Review response", "مراجعة الرد")}</button>}
-          {o.available && o.isMine && <span className="text-sm text-amber-200">{text("Waiting for buyer", "بانتظار المشتري")}</span>}
+          {o.available && o.isMine && <span className="text-sm text-blue-200">{text("Waiting for buyer", "بانتظار المشتري")}</span>}
           {o.isMine && o.state === "open" && !confirming && <button className={secondary} disabled={busy} onClick={() => setConfirmation({ kind: "withdraw", id: o.id, revision: o.revision })}>{text("Withdraw response", "سحب الرد")}</button>}
         </div>
       </div>
@@ -249,19 +249,19 @@ export function UsdtRequestsWorkspace({ locale, actorId, demandId }: { locale: "
     </article>;
   }
   if (!accountMatches) return <main className="mx-auto max-w-4xl space-y-4 p-6"><p role="alert">{text("Your session changed. Reload this page to continue with your current account.", "تغيّرت جلستك. أعد تحميل هذه الصفحة للمتابعة بحسابك الحالي.")}</p><button className={secondary} onClick={() => window.location.reload()}>{text("Reload page", "إعادة تحميل الصفحة")}</button></main>;
-  return <main dir={ar ? "rtl" : "ltr"} className="mx-auto min-h-screen max-w-5xl space-y-6 px-4 py-8 pb-28 text-white sm:px-6">
+  return <main dir={ar ? "rtl" : "ltr"} className="mx-auto min-h-screen max-w-5xl space-y-5 px-4 py-6 pb-28 text-white sm:space-y-6 sm:px-6 sm:py-8 sm:pb-28">
     <header className="space-y-4">
       <Link href={demandId ? "/usdt-exchange/requests?scope=" + (current && !current.isMine && data?.canRespond ? "available" : "mine") : "/usdt-exchange"} className="inline-flex min-h-11 items-center text-sm text-sky-300 underline underline-offset-4">{demandId ? text("Back to requests", "العودة إلى الطلبات") : text("Back to Alpha Exchange", "العودة إلى Alpha Exchange")}</Link>
-      <p className="text-xs font-bold uppercase tracking-[0.2em] text-amber-300">ALPHA EXCHANGE</p>
-      <h1 className="text-3xl font-semibold sm:text-4xl">{text("Request", "اطلب")} <span className="text-emerald-400">USDT</span></h1>
-      <p className="max-w-2xl leading-7 text-gray-300">{selling ? text("Choose a buyer request, send your price, and continue together in the Trade Room.", "اختر طلب مشتري وأرسل سعرك ثم تابعا معًا في غرفة الصفقة.") : text("Choose how much to buy. Compare seller responses, then review the total before opening your Trade Room.", "حدّد الكمية التي تريد شراءها. قارن ردود البائعين ثم راجع الإجمالي قبل فتح غرفة الصفقة.")}</p>
+      <p className="text-xs font-bold uppercase tracking-[0.2em] text-blue-300">ALPHA EXCHANGE</p>
+      <h1 className="text-2xl font-semibold sm:text-3xl">{text("Request", "اطلب")} <span className="text-emerald-400">USDT</span></h1>
+      <p className="max-w-2xl text-sm leading-6 text-gray-300 sm:text-base">{selling ? text("Choose a buyer request, send your price, and continue together in the Trade Room.", "اختر طلب مشتري وأرسل سعرك ثم تابعا معًا في غرفة الصفقة.") : text("Choose how much to buy. Compare seller responses, then review the total before opening your Trade Room.", "حدّد الكمية التي تريد شراءها. قارن ردود البائعين ثم راجع الإجمالي قبل فتح غرفة الصفقة.")}</p>
     </header>
     {!demandId && <nav aria-label={text("Request views", "عرض الطلبات")} className="flex flex-wrap gap-3">
       <button className={scope === "mine" ? primary : secondary} aria-pressed={scope === "mine"} onClick={() => changeScope("mine")}>{text("My buying requests", "طلبات الشراء الخاصة بي")}</button>
       {data?.canRespond && <button className={scope === "available" ? primary : secondary} aria-pressed={scope === "available"} onClick={() => changeScope("available")}>{text("Buyer requests · Sell USDT", "طلبات المشترين · بيع USDT")}</button>}
     </nav>}
     <RequestSteps selling={selling} ar={ar} step={current?.purchaseRequestId || reviewOffer ? 2 : current ? 1 : 0} />
-    <section aria-label={text("Price reference", "مرجع السعر")} className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-white/10 bg-black/20 p-5">
+    <section aria-label={text("Price reference", "مرجع السعر")} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-[#111318] p-4 sm:p-5">
       <div className="min-w-0"><p className="text-xs text-gray-400">{text("USD/ILS reference", "مرجع USD/ILS")}</p><p className="mt-1 text-xl font-semibold tabular-nums text-emerald-300 [overflow-wrap:anywhere]"><bdi dir="ltr">{reference ? "₪" + formatPriceReference(reference.price) : "—"}</bdi></p></div>
       <div><p className="text-xs text-gray-400"><RequestMoneyText>{text("Allowed price per USDT · ±₪0.35", "السعر المسموح لكل USDT · ±₪0.35")}</RequestMoneyText></p><p className="mt-1 font-medium text-emerald-300">{reference ? <bdi dir="ltr">₪{formatIls(reference.minimum)} – ₪{formatIls(reference.maximum)}</bdi> : text("Waiting for a fresh quote", "بانتظار سعر حديث")}</p></div>
       <button className={secondary} disabled={busy} onClick={() => void run(async () => { await load(); })}>{text("Refresh", "تحديث")}</button>
@@ -308,7 +308,7 @@ export function UsdtRequestsWorkspace({ locale, actorId, demandId }: { locale: "
       {activeOffers.map(renderOffer)}
       {pastOffers.length > 0 && <details open={pastOffers.some(o => o.id === selectedOfferId)} className="space-y-4"><summary className="min-h-12 cursor-pointer py-3 text-sm text-gray-400">{text("Response history", "سجل الردود")} ({pastOffers.length})</summary>{pastOffers.map(renderOffer)}</details>}
     </section>}
-    {current && reviewOffer && <form id="trade-review" aria-label={text("Trade review", "مراجعة الصفقة")} className={panel + " scroll-mt-24 border-amber-300/40"} onSubmit={e => {
+    {current && reviewOffer && <form id="trade-review" aria-label={text("Trade review", "مراجعة الصفقة")} className={panel + " scroll-mt-24 border-blue-400/40"} onSubmit={e => {
       e.preventDefault(); if (!e.currentTarget.reportValidity() || !reviewReady) return;
       void run(async isCurrent => {
         const result = await api<{ destination: string }>("/api/alpha-exchange/purchase-requests", { method: "POST", body: JSON.stringify({
@@ -321,7 +321,7 @@ export function UsdtRequestsWorkspace({ locale, actorId, demandId }: { locale: "
         if (isCurrent()) router.push(result.destination);
       });
     }}>
-      <fieldset disabled={busy} className="space-y-5">
+      <fieldset disabled={busy} className="min-w-0 space-y-5">
         <legend className="mb-4 text-xl font-semibold" tabIndex={-1}>{text("Review and open trade", "راجع وافتح الصفقة")}</legend>
         {reviewedIdentity ? <RequestCounterpartyIdentity identity={reviewedIdentity} locale={locale} audience="seller" /> : <p className="font-medium">{reviewOffer.sellerName}</p>}
         <p className="text-sm text-gray-300 [overflow-wrap:anywhere]">{paymentLabel(current.paymentMethod, ar)} · {current.network}{current.city ? " · " + current.city : ""}</p>
@@ -332,9 +332,9 @@ export function UsdtRequestsWorkspace({ locale, actorId, demandId }: { locale: "
         <p id="wallet-help" className={"text-sm " + (walletError ? "text-red-200" : "text-gray-400")}>{walletError ? text("Enter a valid wallet address for " + current.network + ".", "أدخل عنوان محفظة صالحًا لشبكة " + current.network + ".") : text("Use your own receiving address on " + current.network + ". The network must match your wallet.", "استخدم عنوان محفظتك المستلمة على " + current.network + ". يجب أن تتطابق الشبكة مع محفظتك.")}</p>
         {current.paymentMethod === "Cardless ATM Withdrawal" && <>
           <label className="block">{text("Issuing bank", "البنك المصدر")}<select required className={field} value={bank} onChange={e => setBank(e.target.value)}><option value="">{text("Select your bank", "اختر بنكك")}</option>{getCardlessWithdrawalBankOptions().map(b => <option key={b.code} value={b.name}>{ar ? b.nameAr : b.name}</option>)}</select></label>
-          <CardlessWithdrawalFields isAr={ar} phase="request" disabled={busy} code={code} verificationKind={kind} verificationValue={verification} onCodeChange={setCode} onKindChange={setKind} onValueChange={setVerification} />
+          <CardlessWithdrawalFields isAr={ar} phase="request" tone="exchange" disabled={busy} code={code} verificationKind={kind} verificationValue={verification} onCodeChange={setCode} onKindChange={setKind} onValueChange={setVerification} />
         </>}
-        <label className="flex items-start gap-3 text-sm leading-6 text-gray-300"><input type="checkbox" required className="mt-1 h-5 w-5 shrink-0 accent-amber-300" checked={safety} onChange={e => setSafety(e.target.checked)} /><span>{text("I checked the amount, price, payment method and wallet network. I will follow the instructions in the Trade Room.", "راجعت المبلغ والسعر وطريقة الدفع وشبكة المحفظة. سألتزم بتعليمات غرفة الصفقة.")}</span></label>
+        <label className="flex items-start gap-3 text-sm leading-6 text-gray-300"><input type="checkbox" required className="mt-1 h-5 w-5 shrink-0 accent-blue-600" checked={safety} onChange={e => setSafety(e.target.checked)} /><span>{text("I checked the amount, price, payment method and wallet network. I will follow the instructions in the Trade Room.", "راجعت المبلغ والسعر وطريقة الدفع وشبكة المحفظة. سألتزم بتعليمات غرفة الصفقة.")}</span></label>
         <p className="rounded-xl bg-white/5 p-4 text-sm leading-6 text-gray-300">{text("Opening the Trade Room does not send a payment. The seller reviews the trade there, and the room shows you what to do next.", "فتح غرفة الصفقة لا يرسل دفعة. يراجع البائع الصفقة هناك، وتوضح لك الغرفة الخطوة التالية.")}</p>
         {!reviewReady && <p className="text-sm text-amber-200">{reviewHelp}</p>}
         <div className="flex flex-wrap gap-3"><button className={primary} disabled={busy || !reviewReady}>{busy ? text("Opening trade…", "جارٍ فتح الصفقة…") : text("Open Trade Room", "فتح غرفة الصفقة")}</button><button type="button" className={secondary} disabled={busy} onClick={clearReview}>{text("Back to responses", "العودة إلى الردود")}</button></div>

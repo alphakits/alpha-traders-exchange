@@ -67,8 +67,8 @@ export function SellerResponseForm({ ar, current, listings, reference, listingId
     </p>
     <p className="mt-2 text-xs leading-5 text-gray-400 [overflow-wrap:anywhere]">{paymentLabel(current.paymentMethod, ar)} · <bdi>{current.network}</bdi>{current.city ? <> · {current.city}</> : null}</p>
 
-    {listings.length === 0 ? <div className="mt-5 space-y-4 rounded-xl border border-amber-300/20 bg-amber-300/[0.04] p-4">
-      <h3 className="font-semibold text-amber-100">{text("No eligible listing yet", "لا يوجد عرض مؤهل بعد")}</h3>
+    {listings.length === 0 ? <div className="mt-5 space-y-4 rounded-xl border border-blue-400/25 bg-blue-400/[0.06] p-4">
+      <h3 className="font-semibold text-blue-200">{text("No eligible listing yet", "لا يوجد عرض مؤهل بعد")}</h3>
       <p className="text-sm leading-6 text-gray-300">{text(
         "Use an approved listing with enough unreserved USDT and trade limits that cover the full amount. Its network and payment method must match; an in-person trade also needs the same city. Your account must be eligible and have capacity for another trade.",
         "استخدم عرضًا معتمدًا بكمية USDT غير محجوزة كافية وحدود تداول تشمل كامل المبلغ. يجب تطابق الشبكة ووسيلة الدفع، والمدينة أيضًا عند اللقاء الشخصي. يجب أن يكون حسابك مؤهلًا ولديك سعة لصفقة أخرى.",
@@ -79,7 +79,7 @@ export function SellerResponseForm({ ar, current, listings, reference, listingId
       </div>
       <p className="text-xs leading-5 text-gray-400">{text("New listings require owner approval. Return here after approval to send your response.", "تحتاج العروض الجديدة إلى موافقة المالك. عد إلى هنا بعد الموافقة لإرسال ردك.")}</p>
     </div> : <form aria-label="Seller response" aria-busy={busy} onSubmit={submit} className="mt-5 space-y-5">
-      <fieldset disabled={busy} className="space-y-5">
+      <fieldset disabled={busy} className="min-w-0 space-y-5">
         <div>
           <label htmlFor={`${id}-listing`} className="text-sm font-medium">{text("Your listing", "عرضك")}</label>
           <select id={`${id}-listing`} required value={listingId} onChange={event => onListingChange(event.target.value)} className={requestMoneyField} aria-describedby={`${id}-stock`}>
