@@ -116,7 +116,7 @@ function accountSection(user: InterfaceSessionUser | null): FooterSection {
       en: access.administration ? "Admin Dashboard" : access.sellerWorkspace ? "Seller Dashboard" : "Buyer Dashboard",
       ar: access.administration ? "لوحة الإدارة" : access.sellerWorkspace ? "لوحة البائع" : "لوحة المشتري", icon: Activity }] : []),
     ...(access.trading ? [{ href: access.administration ? "/admin/alpha-exchange?section=purchase-requests" : "/trades", en: "My Trades", ar: "صفقاتي", icon: MessageCircle }] : []),
-    ...(access.sellerWorkspace && !access.administration ? [{ href: "/dashboard/seller/compliance-payment", en: "My Commission", ar: "عمولتي", icon: Landmark }] : []),
+    ...(access.sellerWorkspace && !access.administration ? [{ href: "/seller/commission-checkout", en: "My Commission", ar: "عمولتي", icon: Landmark }] : []),
     ...(access.canApplyToSell || access.pendingSeller ? [{ href: "/dashboard#seller-application", en: access.pendingSeller ? "Seller Application Status" : "Apply as Approved Seller", ar: access.pendingSeller ? "حالة طلب اعتماد البائع" : "التقديم كبائع معتمد", icon: ShieldCheck }] : []),
     { href: "/settings", en: "Settings", ar: "الإعدادات", icon: Settings },
     { href: "/notifications", en: "Notifications", ar: "الإشعارات", icon: Bell },

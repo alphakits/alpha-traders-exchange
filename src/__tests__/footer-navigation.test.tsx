@@ -20,6 +20,14 @@ import { SiteFooterContent } from "@/components/layout/site-footer-content";
 afterEach(() => { cleanup(); session.user = null; });
 
 describe("role-appropriate footer", () => {
+  it.each(["en", "ar"] as const)("routes both seller commission links to checkout in %s", (locale) => {
+    session.user = { role: "approved_seller", roles: ["approved_seller"], sellerStatus: "approved_seller" };
+    const { getAllByRole } = render(<SiteFooterContent locale={locale} />);
+    const links = getAllByRole("link", { name: locale === "ar" ? "عمولتي" : "My Commission" });
+    expect(links).toHaveLength(2);
+    for (const link of links) expect(link.getAttribute("href")).toBe(`/${locale}/seller/commission-checkout`);
+  });
+
   for (const locale of ["en", "ar"] as const) {
     it.each(["buyer", "approved_seller"])(`preserves allowed protected sections in ${locale} for %s`, async (role) => {
       session.user = { role, roles: [role], sellerStatus: role };
@@ -37,7 +45,7 @@ describe("role-appropriate footer", () => {
       expect(links.find(link => link.getAttribute("href") === `/${locale}/help-center#faq`)?.dataset.clientNavigation).toBe("true");
       expect(container.querySelector(`a[href='/${locale}/login']`)).toBeNull();
       expect(container.querySelector(`a[href='/${locale}/register']`)).toBeNull();
-      expect(Boolean(container.querySelector(`a[href='/${locale}/dashboard/seller/compliance-payment']`))).toBe(role === "approved_seller");
+      expect(Boolean(container.querySelector(`a[href='/${locale}/seller/commission-checkout']`))).toBe(role === "approved_seller");
     });
 
     it(`shows only public links and account entry for anonymous visitors in ${locale}`, async () => {
@@ -77,7 +85,7 @@ describe("role-appropriate footer", () => {
     expect(has("/usdt-exchange?mode=sell#create-listing")).toBe(true);
     session.user.sellerStatus = "suspended";
     rerender(<SiteFooterContent locale="en" />);
-    expect(has("/dashboard/seller/compliance-payment")).toBe(true);
+    expect(has("/seller/commission-checkout")).toBe(true);
     expect(has("/usdt-exchange?mode=sell#create-listing")).toBe(false);
     session.user = { role: "owner", roles: ["owner"] };
     rerender(<SiteFooterContent locale="en" />);

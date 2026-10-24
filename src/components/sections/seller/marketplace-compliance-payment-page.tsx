@@ -3,7 +3,8 @@
 import { currencyText } from "@/components/ui/currency-text";
 
 import { ActionFeedback, useActionFeedbackState } from "@/components/ui/action-feedback";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { AlertTriangle, CheckCircle2, Copy, ShieldCheck, Wallet } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -31,23 +32,34 @@ export function MarketplaceCompliancePaymentPage({ locale }: { locale: "ar" | "e
 
   const activeRecord = status?.activeRecord;
 
-  useEffect(() => {
-    void (async () => {
-      try {
-        const response = await fetch("/api/alpha-exchange/seller/compliance-payment", { cache: "no-store" });
-        const data = (await response.json()) as Payload & { error?: string };
-        if (!response.ok) {
-          setError(isAr ? "تعذر تحميل تفاصيل دفع الامتثال." : (data.error ?? "Failed to load compliance payment details."));
-          return;
-        }
-        setStatus(data.enforcement);
-      } catch {
-        setError(isAr ? "تعذر تحميل تفاصيل دفع الامتثال." : "Failed to load compliance payment details.");
-      } finally {
-        setLoading(false);
+  const readVersion = useRef(0);
+  const refresh = useCallback(async () => {
+    const version = ++readVersion.current;
+    setLoading(true);
+    setError(null);
+    setStatus(null);
+    try {
+      const response = await fetch("/api/alpha-exchange/seller/compliance-payment", { cache: "no-store" });
+      const data = (await response.json()) as Payload;
+      const next = data?.enforcement;
+      if (!response.ok || !next || typeof next.restricted !== "boolean"
+        || (next.restricted && (!next.activeRecord || !Number.isFinite(next.activeRecord.feeAmount)))) {
+        throw new Error("Unavailable compliance status");
       }
-    })();
+      if (version === readVersion.current) setStatus(next);
+    } catch {
+      if (version === readVersion.current) {
+        setError(isAr ? "تعذر تحميل تفاصيل دفع الامتثال." : "Failed to load compliance payment details.");
+      }
+    } finally {
+      if (version === readVersion.current) setLoading(false);
+    }
   }, [isAr, setError]);
+
+  useEffect(() => {
+    void refresh();
+    return () => { readVersion.current += 1; };
+  }, [refresh]);
 
   useEffect(() => {
     if (!activeRecord?.recoveryPaymentQrPayload) {
@@ -69,17 +81,6 @@ export function MarketplaceCompliancePaymentPage({ locale }: { locale: "ar" | "e
     if (statusValue === "confirmed_paid") return isAr ? "تم التأكيد" : "Confirmed";
     return isAr ? "بانتظار الدفع" : "Pending Payment";
   }, [activeRecord?.recoveryPaymentStatus, isAr]);
-
-  async function refresh() {
-    try {
-      const response = await fetch("/api/alpha-exchange/seller/compliance-payment", { cache: "no-store" });
-      const data = (await response.json()) as Payload & { error?: string };
-      if (!response.ok) throw new Error(data.error ?? "Failed to refresh compliance state.");
-      setStatus(data.enforcement);
-    } catch {
-      setError(isAr ? "تعذر تحديث حالة الامتثال." : "Failed to refresh compliance state.");
-    }
-  }
 
   async function handleSubmitPayment() {
     if (!activeRecord) return;
@@ -147,13 +148,29 @@ export function MarketplaceCompliancePaymentPage({ locale }: { locale: "ar" | "e
   }
 
   if (!status?.restricted || !activeRecord) {
+    if (!status || status.restricted) {
+      return (
+        <Card className="border-red-500/25 bg-[#0B0B0B]/95">
+          <CardContent className="space-y-3 pt-6">
+            <ActionFeedback revealKey={errorFeedbackKey} as="p" role="alert" className="text-sm text-red-300">
+              {error ?? (isAr ? "تعذر تحميل تفاصيل دفع الامتثال." : "Failed to load compliance payment details.")}
+            </ActionFeedback>
+            <Button type="button" variant="secondary" onClick={() => void refresh()}>{isAr ? "تحديث الحالة" : "Refresh Status"}</Button>
+          </CardContent>
+        </Card>
+      );
+    }
+
     return (
       <Card className="border-emerald-500/25 bg-[#0B0B0B]/95">
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-emerald-200"><ShieldCheck className="h-5 w-5" />{isAr ? "لا توجد قيود نشطة" : "No Active Compliance Restriction"}</CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="text-sm text-[#D1D5DB]">{isAr ? "كل صلاحيات البائع مفعلة حاليًا." : "Seller marketplace privileges are currently active."}</p>
+          <p className="text-sm text-[#D1D5DB]">{isAr ? "لا توجد قيود امتثال نشطة مسجّلة. تتم متابعة أرصدة العمولات بشكل منفصل." : "No active marketplace enforcement restriction is recorded. Commission balances are checked separately."}</p>
+          <Link href={`/${locale}/seller/commission-checkout`} className="mt-3 inline-flex min-h-11 items-center text-[#D4AF37] underline">
+            {isAr ? "عمولتي" : "My Commission"}
+          </Link>
         </CardContent>
       </Card>
     );
