@@ -1,6 +1,6 @@
-# Docker Official Image, pinned to the previously verified image.
-# Docker Hub serves the same digest without the ECR Public download quota.
-FROM docker.io/library/node:22.18.0-alpine@sha256:1b2479dd35a99687d6638f5976fd235e26c5b37e8122f786fcd5fe231d63de5b AS build
+# Docker Official Image, pinned to the 22.23.4 security release.
+# Both stages use the same verified multi-platform image index.
+FROM docker.io/library/node:22.23.4-alpine@sha256:fe4f6d74e20370acb04ad889077d14d0f64a9c8ea6a42bc60cddf1e844699914 AS build
 
 WORKDIR /app/discord-worker
 COPY discord-worker/package.json discord-worker/package-lock.json ./
@@ -12,7 +12,7 @@ COPY src/lib /app/src/lib
 COPY packages/contracts/src /app/packages/contracts/src
 RUN npm run build && npm prune --omit=dev
 
-FROM docker.io/library/node:22.18.0-alpine@sha256:1b2479dd35a99687d6638f5976fd235e26c5b37e8122f786fcd5fe231d63de5b AS runtime
+FROM docker.io/library/node:22.23.4-alpine@sha256:fe4f6d74e20370acb04ad889077d14d0f64a9c8ea6a42bc60cddf1e844699914 AS runtime
 
 RUN apk add --no-cache python3 curl
 ENV NODE_ENV=production
