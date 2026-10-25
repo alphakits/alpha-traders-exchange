@@ -31,7 +31,7 @@ export function getIlsReferencePriceBounds(rate: number) {
   // can permit a cent outside the band; floating-point epsilon can do so too.
   const [whole, fraction = ""] = String(rate).split(".");
   const scale = BigInt(10) ** BigInt(fraction.length);
-  const reference = (BigInt(whole) * scale + BigInt(fraction || "0")) * BigInt(100);
+  const reference = (BigInt(whole!) * scale + BigInt(fraction || "0")) * BigInt(100);
   const variance = BigInt(Math.round(MAX_ILS_PRICE_OVER_MARKET * 100)) * scale;
   const minimumCents = (reference - variance + scale - BigInt(1)) / scale;
   const maximumCents = (reference + variance) / scale;

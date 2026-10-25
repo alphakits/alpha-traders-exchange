@@ -17,7 +17,7 @@ for (const locale of ["en", "ar"] as const) {
     const footer = page.locator("footer");
     await expect(footer.locator(`a[href='/${locale}/login']`)).toHaveCount(2);
     await expect(footer.locator(`a[href='/${locale}/register']`)).toHaveCount(2);
-    await expect(footer.locator("a[href*='/dashboard'],a[href*='/profile'],a[href*='/settings'],a[href*='/trade-room'],a[href*='/notifications']")).toHaveCount(0);
+    await expect(footer.locator("a[href*='/dashboard'],a[href*='/profile'],a[href*='/settings'],a[href*='/trade-room'],a[href*='/notifications'],a[href*='/seller/commission-checkout']")).toHaveCount(0);
     const account = footer.locator("summary").filter({ hasText: locale === "ar" ? /^الحساب$/ : /^Account$/ });
     await account.click();
     await expect(footer.getByRole("link", { name: locale === "ar" ? "تسجيل الدخول" : "Login", exact: true })).toBeVisible();
@@ -54,7 +54,8 @@ for (const locale of ["en", "ar"] as const) {
         const footer = page.locator("footer");
         await expect(footer.locator(`a[href='/${locale}/login'],a[href='/${locale}/register']`)).toHaveCount(0);
         await expect(footer.locator(`a[href='/${locale}${dashboard}']`)).toHaveCount(2);
-        await expect(footer.locator(`a[href='/${locale}/dashboard/seller/compliance-payment']`)).toHaveCount(role === "SELLER" ? 2 : 0);
+        await expect(footer.locator(`a[href='/${locale}/seller/commission-checkout']`)).toHaveCount(role === "SELLER" ? 2 : 0);
+        await expect(footer.locator(`a[href='/${locale}/dashboard/seller/compliance-payment']`)).toHaveCount(0);
         await expect(page.getByText(locale === "ar" ? "جديد في Alpha Traders؟" : "New to Alpha Traders?", { exact: true })).toHaveCount(0);
         if (role === "BUYER") await expect(footer.locator("a[href*='mode=sell']")).toHaveCount(0);
       }
@@ -112,7 +113,7 @@ for (const locale of ["en", "ar"] as const) {
       await page.locator("header").getByRole("button", { name: locale === "ar" ? "تسجيل الخروج" : "Sign out", exact: true }).click();
       await expect(page).toHaveURL(/\/en\/?$/);
       await expect(page.locator("footer a[href='/en/login']")).toHaveCount(2);
-      await expect(page.locator("footer a[href*='/dashboard'],footer a[href*='/profile']")).toHaveCount(0);
+      await expect(page.locator("footer a[href*='/dashboard'],footer a[href*='/profile'],footer a[href*='/seller/commission-checkout']")).toHaveCount(0);
       if (role === "ADMIN") expect(privateDashboardReads).toEqual([]);
     });
   }

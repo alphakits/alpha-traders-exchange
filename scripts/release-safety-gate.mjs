@@ -39,6 +39,11 @@ const steps = [
     arguments: ["scripts/check-dependency-advisories.mjs"],
   },
   {
+    label: "Fresh standalone worker dependency advisories",
+    executable: process.execPath,
+    arguments: ["scripts/check-worker-dependency-advisories.mjs"],
+  },
+  {
     label: "Unit and integration tests",
     executable: process.execPath,
     arguments: ["./node_modules/vitest/vitest.mjs", "run"],

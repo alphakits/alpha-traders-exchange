@@ -189,3 +189,23 @@ describe("notification batch privacy", () => {
     expect((await getNotificationsForUser({ userId: USER_ID })).notifications[0].message).toBe(publicAccountId(second.users[1]));
   });
 });
+
+describe("notification financial values with colliding member names", () => {
+  it.each(["en", "ar"] as const)("keeps amounts and units while masking the participant (%s)", async (locale) => {
+    const seed = seedDb();
+    seed.users[1].fullName = "Amir Hassan";
+    seed.users.push(...["USDT", "13,000", "3.42", "BEP20", "ILS"].map((fullName, index) => ({
+      ...user("financial-alias-" + index), fullName,
+    })));
+    const title = locale === "ar" ? "عرض USDT جديد" : "New USDT Listing Available";
+    const suffix = locale === "ar"
+      ? " نشر 13,000 USDT على BEP20 بسعر 3.42 ILS/USDT."
+      : " published 13,000 USDT on BEP20 at 3.42 ILS/USDT.";
+    seed.notifications = [{ ...seed.notifications[0], title, message: "Amir Hassan" + suffix }];
+    install(seed);
+    const result = await getNotificationsForUser({ userId: USER_ID, includeActivity: false });
+    expect(result.notifications).toHaveLength(1);
+    expect(result.notifications[0].title).toBe(title);
+    expect(result.notifications[0].message).toBe(publicAccountId(seed.users[1]) + suffix);
+  });
+});

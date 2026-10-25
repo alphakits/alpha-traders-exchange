@@ -3,7 +3,7 @@
 
 const { createServer } = require("node:http");
 const { join } = require("node:path");
-const { assertContainerNodeRuntime, resolveContainerOrigin, validateContainerRequest } = require("./container-origin.cjs");
+const { assertContainerNodeRuntime, resolveContainerOrigin, validateContainerRequest, containerCanonicalRedirect } = require("./container-origin.cjs");
 
 async function startContainerServer() {
   assertContainerNodeRuntime();
@@ -14,10 +14,16 @@ async function startContainerServer() {
   const next = require("next");
   let handle;
   const server = createServer((request, response) => {
+    const canonicalRedirect = containerCanonicalRedirect(request, expected);
     const denied = validateContainerRequest(request, expected);
     if (denied) {
       response.writeHead(denied, { "Content-Type": "application/json", "Cache-Control": "private, no-store", Connection: "close" });
       response.end(JSON.stringify({ error: "Invalid request origin." }));
+      return;
+    }
+    if (canonicalRedirect) {
+      response.writeHead(308, { Location: canonicalRedirect, "Cache-Control": "private, no-store" });
+      response.end();
       return;
     }
     Promise.resolve(handle(request, response)).catch(() => {

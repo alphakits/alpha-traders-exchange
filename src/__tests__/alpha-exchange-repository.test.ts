@@ -1113,7 +1113,7 @@ describe("AlphaExchangeRepository", () => {
     expect((fallback as AlphaExchangeDb & { __runtimeVersion?: number }).__runtimeVersion).toBe(1);
   });
 
-  it("drops orphan auth sessions before full snapshot writes", async () => {
+  it("leaves auth session persistence to the dedicated methods during full snapshot writes", async () => {
     const client = {
       query: vi.fn((sql: string) => {
         if (typeof sql === "string" && sql.includes("select payload from alpha_exchange.sessions")) {
@@ -1143,11 +1143,8 @@ describe("AlphaExchangeRepository", () => {
 
     const sessionInserts = (client.query.mock.calls as unknown[][])
       .filter(([sql]) => typeof sql === "string" && sql.toLowerCase().includes("insert into alpha_exchange.sessions"));
-    expect(sessionInserts).toHaveLength(1);
-    const firstInsertArgs = (Array.isArray(sessionInserts[0]?.[1]) ? sessionInserts[0]?.[1] : []) as unknown[];
-    expect(firstInsertArgs[0]).toEqual(expect.arrayContaining(["good-token"]));
-    expect(firstInsertArgs[1]).toEqual(expect.arrayContaining(["user-1"]));
-    expect(JSON.stringify(sessionInserts)).not.toContain("orphan-token");
+    expect(sessionInserts).toHaveLength(0);
+    expect(client.query.mock.calls.some(([sql]) => /delete from alpha_exchange\.sessions/i.test(sql))).toBe(false);
   });
 
   it("keeps partial user writes scoped without rewriting listings", async () => {

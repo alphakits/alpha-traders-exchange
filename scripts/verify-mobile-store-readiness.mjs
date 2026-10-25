@@ -142,8 +142,8 @@ check(rootPackage.scripts?.["mobile:review-rehearsal"] === "node ./node_modules/
 check(rootPackage.scripts?.["mobile:scale-rehearsal"] === "node ./node_modules/vitest/vitest.mjs run src/__tests__/marketplace-concurrency-scale.test.ts", "The fifteen-seller Exchange scale rehearsal is not wired into the root package.");
 check(rootPackage.scripts?.["mobile:review-surface"] === "node scripts/verify-mobile-review-surface.mjs", "The public App Review preflight is not wired into the root package.");
 check(rootPackage.scripts?.["mobile:verify"]?.includes("mobile:store-readiness"), "Mobile verification does not run the store source-readiness gate.");
-check(releaseSafetyGate.includes('label: "Full Exchange App Review rehearsal"') && releaseSafetyGate.includes('arguments: ["run", "mobile:review-rehearsal"]'), "The full release gate does not run the named Exchange reviewer rehearsal.");
-check(releaseSafetyGate.includes('label: "Fifteen-seller Exchange scale rehearsal"') && releaseSafetyGate.includes('arguments: ["run", "mobile:scale-rehearsal"]'), "The full release gate does not run the named fifteen-seller scale rehearsal.");
+check(releaseSafetyGate.includes('label: "Full Exchange App Review rehearsal"') && releaseSafetyGate.includes('arguments: [...npmCommand.prefixArgs, "run", "mobile:review-rehearsal"]'), "The full release gate does not run the named Exchange reviewer rehearsal.");
+check(releaseSafetyGate.includes('label: "Fifteen-seller Exchange scale rehearsal"') && releaseSafetyGate.includes('arguments: [...npmCommand.prefixArgs, "run", "mobile:scale-rehearsal"]'), "The full release gate does not run the named fifteen-seller scale rehearsal.");
 check(appConfig.name.length <= 30, "The App Store name exceeds 30 characters.");
 check(/^\d+\.\d+\.\d+$/.test(appConfig.version), "The Expo version must use strict major.minor.patch format.");
 check(mobilePackage.version === appConfig.version, "The Expo and mobile-package versions do not match.");

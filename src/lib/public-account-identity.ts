@@ -58,15 +58,18 @@ export function publicAccountId(user: IdentityUser) {
 /** Redacts known identities in historical free text without touching trade amounts or credentials. */
 export function identityTextRedactor(users: readonly IdentityUser[], includeNameParts = false) {
   const aliases = new Map<string, string>();
-  const reserved = /^(buyer|seller|owner|admin|member|trader|alpha|test|user|system)$/i;
+  // Standalone financial labels and numeric aliases are ambiguous in historical text.
+  const reserved = /^(buyer|seller|owner|admin|member|trader|alpha|test|user|system|USDT|USD|ILS|BTC|ETH|TRC20|BEP20|ERC20|SOL)$/i;
+  const isIdentityAlias = (name: string) => /\p{L}/u.test(name) && !normalizePublicAccountId(name) && !reserved.test(name);
   for (const user of users) {
     if (isPublicOwnerIdentity(user)) continue;
     const identity = publicAccountId(user);
     for (const name of [user.fullName, user.buyerDisplayName]) {
-      if (!name?.trim() || normalizePublicAccountId(name) || reserved.test(name.trim())) continue;
-      aliases.set(name.trim().normalize("NFKC"), identity);
-      for (const part of includeNameParts ? name.trim().split(/\s+/) : []) {
-        if (part.length >= 3 && !reserved.test(part)) aliases.set(part.normalize("NFKC"), identity);
+      const normalized = name?.trim().normalize("NFKC") ?? "";
+      if (!isIdentityAlias(normalized)) continue;
+      aliases.set(normalized, identity);
+      for (const part of includeNameParts ? normalized.split(/\s+/) : []) {
+        if (part.length >= 3 && isIdentityAlias(part)) aliases.set(part, identity);
       }
     }
   }

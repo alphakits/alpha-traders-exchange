@@ -31,6 +31,7 @@ async function execute(operation: string, input: unknown) {
   if (operation === "cms-media") return addMediaItem(input as Parameters<typeof addMediaItem>[0]);
   if (operation === "cms-snapshot") return (await getAdminContentRepository()).loadSnapshot();
   if (operation === "auth-session") { await repository.upsertAuthSession(input as AuthSession); return { saved: true }; }
+  if (operation === "auth-session-delete") { await repository.deleteAuthSession(input as string); return { deleted: true }; }
   if (operation === "snapshot") return repository.loadSnapshot();
   if (operation === "save-history") {
     const snapshot = await repository.loadSnapshot();
@@ -69,9 +70,10 @@ async function execute(operation: string, input: unknown) {
   }
   if (operation === "query-timings") return getAuditQueryTimings();
   if (operation === "runtime-diagnostics") return getAuditRuntimeDiagnostics();
-  if (operation === "inspect-acceptance-scope") {
+  if (operation === "inspect-acceptance-scope" || operation === "inspect-receipt-scope") {
     const action = input as { requestId: string; actorUserId: string };
-    const transaction = await repository.beginTradeLifecycleTransaction(["users", "purchase_requests"], action.requestId, "accepted", action.actorUserId);
+    const transaction = await repository.beginTradeLifecycleTransaction(["users", "purchase_requests"], action.requestId,
+      operation === "inspect-acceptance-scope" ? "accepted" : undefined, action.actorUserId);
     if (!transaction) throw new Error("The scope check requires durable PostgreSQL.");
     try {
       return { userIds: transaction.snapshot.users.map(user => user.id).sort(), requestIds: transaction.snapshot.purchaseRequests.map(request => request.id).sort() };

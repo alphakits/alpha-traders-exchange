@@ -8,3 +8,7 @@ public/files/**/*.mp4
 
 # Vercel's default upload ignore list omits Docker build-context rules.
 !.dockerignore
+
+# Keep Docker and Buildah web-specific context rules in the exact upload.
+!Dockerfile.vercel.dockerignore
+!Dockerfile.vercel.containerignore

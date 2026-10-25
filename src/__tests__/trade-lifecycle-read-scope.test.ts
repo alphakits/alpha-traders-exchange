@@ -48,7 +48,7 @@ describe("PostgreSQL lifecycle request dependencies", () => {
     await tx.close();
     expect((await db.query("select id from alpha_exchange.purchase_requests order by sort_index")).rows).toHaveLength(4);
   });
-  it.each(participantScopedStatuses)("%s retains the whole request collection and its participants while legacy numbering is incomplete", async nextStatus => {
+  it.each([...participantScopedStatuses, undefined])("%s retains the whole request collection and its participants while legacy numbering is incomplete", async nextStatus => {
     await db.exec("update alpha_exchange.purchase_requests set payload = payload - 'displayNumber' where id='unrelated'");
     const accounts = ["seller-a", "buyer-a", "seller-b", "buyer-b", "seller-c", "buyer-c", "caller"];
     for (const [index, id] of accounts.entries()) {
@@ -66,6 +66,17 @@ describe("PostgreSQL lifecycle request dependencies", () => {
     expect(tx.snapshot.purchaseRequests.map(request => request.id)).toEqual(["target"]);
     await expect(tx.commit(tx.snapshot, { selectedTables: ["purchase_requests"] })).rejects.toThrow("read-only lifecycle retry");
     await tx.close();
+  });
+  it.each(["accepted", "payment_sent", "usdt_release_pending", "usdt_sent"])("receipt reads at %s retain related history without using a status-only retry", async status => {
+    await db.query("update alpha_exchange.purchase_requests set status=$1, payload=jsonb_set(payload,'{status}',to_jsonb($1::text)) where id='target'", [status]);
+    const tx = (await repository.beginTradeLifecycleTransaction(["purchase_requests"], "target", undefined, "buyer-a"))!;
+    try {
+      expect(tx.snapshot.purchaseRequests.map(request => request.id)).toEqual(["target", "seller-capacity", "buyer-other-seller"]);
+      // Even an already-advanced status must leave the locked transaction
+      // available for the receipt store to validate content identity itself.
+      await expect(tx.commit(tx.snapshot, { selectedTables: ["purchase_requests"] })).resolves.toBeUndefined();
+    } finally { await tx.close(); }
+    expect((await db.query("select id from alpha_exchange.purchase_requests order by sort_index")).rows).toHaveLength(4);
   });
   it.each(participantScopedStatuses)("%s retries mask unrelated account names in retained trade text", async status => {
     const accounts = [
@@ -129,7 +140,7 @@ describe("PostgreSQL lifecycle request dependencies", () => {
     expect((await db.query("select id from alpha_exchange.users")).rows).toHaveLength(4);
   });
 
-  it.each(participantScopedStatuses)("%s retains related counterparties and every canonical admin/owner without unrelated account payloads", async nextStatus => {
+  it.each([...participantScopedStatuses, undefined])("%s retains related counterparties and every canonical admin/owner without unrelated account payloads", async nextStatus => {
     const accounts = [
       { id: "seller-a", role: "approved_seller" },
       { id: "buyer-a", role: "buyer" },

@@ -2508,8 +2508,12 @@ export class AlphaExchangeRepository {
         evidence: "where purchase_request_id = $1",
       } : {};
       const retryProjection = Boolean(requestId && nextStatus);
-      const scopedRetryUsers = retryProjection && Boolean(actorUserId) && selectedNames.includes("users");
-      const scopedParticipantUsers = scopedRetryUsers && ["accepted", "payment_sent", "funds_received", "usdt_release_pending", "usdt_sent", "completed"].includes(nextStatus ?? "");
+      // Receipt uploads have an actor but no requested status: they need the
+      // same canonical dependency scope, while still reading under the lock
+      // and validating the exact file before deciding whether this is a retry.
+      const lifecycleProjection = Boolean(requestId && (nextStatus || actorUserId));
+      const scopedAuthorityUsers = lifecycleProjection && Boolean(actorUserId) && selectedNames.includes("users");
+      const scopedParticipantUsers = scopedAuthorityUsers && (!nextStatus || ["accepted", "payment_sent", "funds_received", "usdt_release_pending", "usdt_sent", "completed"].includes(nextStatus));
       // A terminal retry still goes through every store permission/credential
       // guard, but cannot write. Its response needs the canonical request,
       // identities, evidence and disputes, not unrelated financial/history rows.
@@ -2517,7 +2521,7 @@ export class AlphaExchangeRepository {
       const retryModeSql = trustReconciliation ? `with lifecycle_mode as materialized (select exists (
         select 1 from alpha_exchange.purchase_requests where payload->'trustReconciliation'->>'requestedAt' is not null
           and payload->'trustReconciliation'->>'reconciledAt' is null
-      ) as has_pending_trust) ` : retryProjection ? `with target_trade as materialized (
+      ) as has_pending_trust) ` : lifecycleProjection ? `with target_trade as materialized (
         select id, seller_id, buyer_id, status, payload from alpha_exchange.purchase_requests where id = $1
       ), lifecycle_mode as materialized (select exists (
         select 1 from target_trade
@@ -2533,7 +2537,7 @@ export class AlphaExchangeRepository {
       ) ` : "";
       const retryReadTables = new Set<SnapshotTableName>(["users", "seller_applications", "purchase_requests", "evidence", "disputes"]);
       const columns = (onlyCommittedRetry = false) => selectedNames.filter(name => !onlyCommittedRetry || retryReadTables.has(name)).map(name => {
-        const filter = scopedRetryUsers && name === "users"
+        const filter = scopedAuthorityUsers && name === "users"
             ? `where id = $3
                 or id in (select seller_id from target_trade union select buyer_id from target_trade)
                 or (not (select read_only_retry from lifecycle_mode)${scopedParticipantUsers ? ` and (
@@ -2546,7 +2550,7 @@ export class AlphaExchangeRepository {
         // Compute the canonical request dependency set once per statement.
         // Both account authorization and request state consume that same set,
         // instead of rescanning histories separately for each participant side.
-        const source = retryProjection && name === "purchase_requests" ? "lifecycle_requests" : `alpha_exchange.${name}`;
+        const source = lifecycleProjection && name === "purchase_requests" ? "lifecycle_requests" : `alpha_exchange.${name}`;
         const aggregate = `coalesce((select json_agg(json_build_object('payload', payload, 'sort_index', sort_index) order by sort_index asc) from ${source} ${filter}), '[]'::json)`;
         const projection = trustReconciliation ? `case when (select has_pending_trust from lifecycle_mode) then ${aggregate} else '[]'::json end`
           : retryProjection && !retryReadTables.has(name) ? `case when (select read_only_retry from lifecycle_mode) then '[]'::json else ${aggregate} end` : aggregate;
@@ -2558,7 +2562,7 @@ export class AlphaExchangeRepository {
       // every related counterparty and all canonical admin/owner recipients,
       // including the legacy owner-email rule. Other mutations retain the full
       // authority collection; a committed retry needs only its participants.
-      const parameters = retryProjection ? [requestId, nextStatus, ...(scopedRetryUsers ? [actorUserId, ALPHA_EXCHANGE_OWNER_EMAIL] : [])] : scopedNames.some(name => filters[name]?.includes("$1")) ? [requestId] : undefined;
+      const parameters = lifecycleProjection ? [requestId, nextStatus ?? null, ...(scopedAuthorityUsers ? [actorUserId, ALPHA_EXCHANGE_OWNER_EMAIL] : [])] : scopedNames.some(name => filters[name]?.includes("$1")) ? [requestId] : undefined;
       type ReadRow = { version: string; read_only_retry?: boolean; has_pending_trust?: boolean; identity_directory?: SnapshotIdentity[]; sort_bounds?: Partial<Record<SnapshotTableName, LifecycleSortBounds>> } & Partial<Record<SnapshotTableName, IndexedPayload[]>>;
       const readSql = (onlyCommittedRetry = false) => {
         const selected = columns(onlyCommittedRetry);
@@ -2568,10 +2572,10 @@ export class AlphaExchangeRepository {
         // A changing action's optimistic probe skips this scan; its locked
         // read below supplies it. Compact rows never become authority users.
         const identities = canonicalIdentityDirectorySql(4);
-        const identityColumn = !scopedRetryUsers ? "" : `, ${onlyCommittedRetry || !scopedParticipantUsers
+        const identityColumn = !scopedAuthorityUsers ? "" : `, ${onlyCommittedRetry || !scopedParticipantUsers
           ? `case when (select read_only_retry from lifecycle_mode) then ${identities} else '[]'::json end` : identities} as identity_directory`;
         return `${retryModeSql}select
-          (select version::text from alpha_exchange.runtime_meta where singleton = true) as version${trustReconciliation ? ", (select has_pending_trust from lifecycle_mode) as has_pending_trust" : retryProjection ? ", (select read_only_retry from lifecycle_mode) as read_only_retry" : ""}${selected.length ? `,\n${selected.join(",\n")}` : ""}${identityColumn}${onlyCommittedRetry ? "" : boundsSql}`;
+          (select version::text from alpha_exchange.runtime_meta where singleton = true) as version${trustReconciliation ? ", (select has_pending_trust from lifecycle_mode) as has_pending_trust" : lifecycleProjection ? ", (select read_only_retry from lifecycle_mode) as read_only_retry" : ""}${selected.length ? `,\n${selected.join(",\n")}` : ""}${identityColumn}${onlyCommittedRetry ? "" : boundsSql}`;
       };
       let row: ReadRow | undefined;
       // A retry of committed state is one atomic read, still followed by every
@@ -3942,19 +3946,18 @@ export class AlphaExchangeRepository {
       await runSchema(pool);
     }
 
-    const selectedTables = options?.selectedTables?.length
+    // Sessions belong to the dedicated login/revocation methods. Rewriting a
+    // session collection read earlier can erase a concurrent login or restore
+    // a revoked token: those methods do not take the snapshot advisory lock.
+    // Retained users are upserted, and actual user deletion already cascades
+    // to that account's sessions through the database foreign key.
+    const selectedTables = (options?.selectedTables?.length
       ? Array.from(new Set(options.selectedTables))
-      : [...SNAPSHOT_TABLE_NAMES];
-    const selectedTableSet = new Set<SnapshotTableName>(selectedTables);
+      : [...SNAPSHOT_TABLE_NAMES]).filter(table => table !== "sessions");
     if (options?.rebaseTables && !options.rebaseOnLatest) {
       throw new Error("Scoped snapshot rebasing requires a canonical mutation.");
     }
-    // When writing the 'users' table, also write 'sessions' to preserve active auth sessions.
-    // PostgreSQL's ON DELETE CASCADE on sessions.user_id can evict auth sessions if a user is deleted.
-    if (selectedTableSet.has("users") && !selectedTableSet.has("sessions")) {
-      selectedTables.push("sessions");
-      selectedTableSet.add("sessions");
-    }
+    if (selectedTables.length === 0) return;
     const rebaseTables = options?.rebaseTables
       ? Array.from(new Set([...options.rebaseTables, ...selectedTables]))
       : SNAPSHOT_TABLE_NAMES;
@@ -4031,13 +4034,9 @@ export class AlphaExchangeRepository {
             const nextVersion = currentVersion + 1;
             // Existing receipt bytes stay in PostgreSQL. Only explicit binary
             // overrides cross the connection; metadata-only upserts retain them.
-            // When sessions are being written, use the sessions from the current full DB read
-            // (latestSnapshot) rather than the potentially-stale sessions in the incoming db.
-            // This prevents the deferred trust write from overwriting sessions created after
-            // the initial db snapshot was loaded.
-            const snapshotForMergeWrite = selectedTableSet.has("sessions")
-              ? pruneOrphanAuthSessions({ ...mergedSnapshot, authSessions: latestSnapshot.authSessions })
-              : pruneOrphanAuthSessions(mergedSnapshot);
+            const snapshotForMergeWrite = pruneOrphanAuthSessions({
+              ...mergedSnapshot, authSessions: latestSnapshot.authSessions,
+            });
             const persistedSnapshot = attachVersion(snapshotForMergeWrite, nextVersion);
             options?.validateBeforeCommit?.(persistedSnapshot);
             // A concurrent reconciliation may already have consumed every
@@ -4084,18 +4083,7 @@ export class AlphaExchangeRepository {
             return;
           }
 
-          // Snapshot writes should not evict active auth sessions managed by dedicated session methods.
-          let persistedSnapshot: AlphaExchangeDb = pruneOrphanAuthSessions(db);
-          if (selectedTableSet.has("sessions")) {
-            const currentSessions = await queryWithLogging(client, "select payload from alpha_exchange.sessions order by sort_index asc") as { rows?: Array<{ payload: unknown }> };
-            logProfile("load_sessions");
-            perf?.step("load_sessions");
-            const currentSessionRows = (currentSessions.rows ?? []) as Array<{ payload: AuthSession }>;
-            persistedSnapshot = pruneOrphanAuthSessions({
-              ...db,
-              authSessions: fromPayloadRows(currentSessionRows),
-            });
-          }
+          const persistedSnapshot = pruneOrphanAuthSessions(db);
           options?.validateBeforeCommit?.(persistedSnapshot);
           for (const tableName of selectedTables) {
             await replaceTableContents(client, tableName, persistedSnapshot, {

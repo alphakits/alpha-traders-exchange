@@ -6,6 +6,12 @@ COPY . .
 RUN node -e "if (process.versions.node !== '24.22.1') process.exit(1)"
 RUN npm ci --include=dev
 
+# Unit/rehearsal checks have no credentials or external network, before public build inputs.
+RUN --network=none env -i PATH=/usr/local/bin:/usr/bin:/bin CI=1 NODE_ENV=test NO_COLOR=1 \
+    node --test scripts/test-container-web-tests.mjs
+RUN --network=none env -i PATH=/usr/local/bin:/usr/bin:/bin CI=1 NODE_ENV=test NO_COLOR=1 \
+    node scripts/check-container-web-tests.mjs
+
 # Consume public build inputs only. Deployment tooling must blank private
 # project variables in build.env while preserving their runtime configuration.
 ARG NEXT_PUBLIC_SUPABASE_URL

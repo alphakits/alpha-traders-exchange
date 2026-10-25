@@ -186,6 +186,52 @@ try {
     assert.deepEqual(localeSnapshot.authSessions.find(candidate => candidate.token === session.token), session);
   }
   passed("Concurrent locale updates preserve password changes and existing/new sessions", { independentProcesses: 4, accounts: 2, sessions: 2 });
+
+  // Pause the actual snapshot writer after it has read its collections and
+  // before it changes any account rows. An independent process can then finish
+  // a login/logout in the exact window that used to lose or resurrect sessions.
+  // This trigger exists only in the guarded disposable loopback database.
+  const sessionPauseKey = 20261024;
+  await pool.query(`create function alpha_exchange.audit_pause_account_write() returns trigger language plpgsql as $$
+    begin perform pg_advisory_xact_lock(${sessionPauseKey}); return null; end $$`);
+  await pool.query("create trigger audit_pause_account_write before delete on alpha_exchange.users for each statement execute function alpha_exchange.audit_pause_account_write()");
+  let sessionRaces = 0;
+  try {
+    for (const scope of ["users", "full"]) {
+      for (const action of ["login", "logout"]) {
+        const racingSession = { ...localeSession, userId: "audit-buyer-0-2", token: `synthetic-controlled-${scope}-${action}` };
+        if (action === "logout") requireOk(await workers[1].call("auth-session", racingSession));
+        const blocker = await pool.connect();
+        let writing;
+        try {
+          await blocker.query("select pg_advisory_lock($1)", [sessionPauseKey]);
+          writing = scope === "full" ? workers[0].call("seed", {})
+            : workers[0].call("auth-locale", { userId: authAccounts[0], preferredLocale: action === "login" ? "en" : "ar" });
+          const deadline = Date.now() + 10_000;
+          let paused = false;
+          while (Date.now() < deadline) {
+            const waits = await pool.query(`select 1 from pg_locks l join pg_stat_activity a on a.pid=l.pid
+              where l.locktype='advisory' and l.objid=$1::oid and not l.granted and a.application_name='alpha-audit-worker-0'`, [sessionPauseKey]);
+            if (waits.rowCount) { paused = true; break; }
+            await new Promise(resolve => setTimeout(resolve, 20));
+          }
+          assert(paused, "Snapshot must reach the controlled account-write barrier");
+          requireOk(await workers[1].call(action === "login" ? "auth-session" : "auth-session-delete", action === "login" ? racingSession : racingSession.token));
+        } finally {
+          await blocker.query("select pg_advisory_unlock($1)", [sessionPauseKey]);
+          blocker.release();
+          if (writing) requireOk(await writing);
+        }
+        const canonical = await pool.query("select payload from alpha_exchange.sessions where token_hash=$1", [racingSession.token]);
+        assert.deepEqual(canonical.rows.map(row => row.payload), action === "login" ? [racingSession] : [], `${scope} snapshot must preserve a completed ${action}`);
+        sessionRaces++;
+      }
+    }
+  } finally {
+    await pool.query("drop trigger audit_pause_account_write on alpha_exchange.users");
+    await pool.query("drop function alpha_exchange.audit_pause_account_write()");
+  }
+  passed("Controlled snapshot interleavings preserve new logins and completed logouts", { independentProcesses: 2, schedules: sessionRaces });
   const bankInput = { sellerId: "audit-seller-0", actorUserId: "audit-seller-0", accountHolderName: "Synthetic Seller",
     bankName: "Synthetic Bank", branchNumber: "123", accountNumber: "1234567890" };
   const bankChanges = await batch([
@@ -345,6 +391,15 @@ try {
   (await Promise.all(workers.map(worker => worker.call("ready")))).forEach(requireOk);
   assert.equal(requireOk(await workers[0].call("snapshot")).purchaseRequests.filter(request => request.status === "accepted").length, 45);
   passed("Application process restart preserves all accepted trades", { trades: 45 });
+  const receiptTarget = active.find(request => request.paymentMethod === "Bank Transfer");
+  assert(receiptTarget, "Receipt dependency verification needs an active bank transfer");
+  const receiptScope = requireOk(await workers[0].call("inspect-receipt-scope", { requestId: receiptTarget.id, actorUserId: receiptTarget.buyerId }));
+  const receiptRelatedRequests = snapshot.purchaseRequests.filter(request => request.sellerId === receiptTarget.sellerId || request.buyerId === receiptTarget.buyerId);
+  const receiptAuthorityIds = snapshot.users.filter(user => [user.role, ...(user.roles ?? [])].some(role => role === "owner" || role === "admin")).map(user => user.id);
+  assert.deepEqual(receiptScope.requestIds, receiptRelatedRequests.map(request => request.id).sort());
+  assert.deepEqual(receiptScope.userIds, [...new Set([receiptTarget.buyerId, ...receiptAuthorityIds, ...receiptRelatedRequests.flatMap(request => [request.sellerId, request.buyerId])])].sort());
+  assert(receiptScope.userIds.length < snapshot.users.length, "Receipt reads must exclude unrelated account payloads");
+  passed("Receipt uploads retain canonical counterparties and authorities without unrelated history", { retainedAccounts: receiptScope.userIds.length, totalAccounts: snapshot.users.length });
   const forbidden = await batch(active.map(request => buyerCommand(request, "completed")));
   assert(forbidden.every(result => !result.ok && result.code === "seller-completion-required"));
   passed("Buyer cannot complete any payment method", { rejected: forbidden.length });

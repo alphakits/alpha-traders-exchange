@@ -4,3 +4,4 @@ public/files/course/pdfs/*.pdf binary
 
 supabase/migrations/*commission*.sql text eol=lf
 scripts/*commission*.sql text eol=lf
+src/__tests__/fixtures/decode-uri-component-0.2.2.txt text eol=lf

@@ -1,9 +1,11 @@
 /* Local preview only. Loaded before Next and inherited by its worker processes. */
+/* eslint-disable @typescript-eslint/no-require-imports -- Node --require loads this CommonJS guard synchronously. */
 const net = require("node:net");
 const http = require("node:http");
 const fs = require("node:fs");
 const path = require("node:path");
 const { syncBuiltinESMExports } = require("node:module");
+/* eslint-enable @typescript-eslint/no-require-imports */
 
 if (process.env.ALPHA_USDT_OFFLINE_PREVIEW !== "1" || process.env.VERCEL || process.env.VERCEL_ENV) {
   throw new Error("The offline network guard requires the isolated local preview launcher.");

@@ -74,7 +74,9 @@ describe("USDT request API boundary", () => {
     expect(correlationId).toMatch(/^[0-9a-f-]{36}$/);
     expect(mocks.log).toHaveBeenCalledExactlyOnceWith("error", {
       event: "usdt_demand_request", outcome: "failed", reason: "REQUEST_UNAVAILABLE",
-      metadata: { correlationId, operation: "write", status: 503, durationMs: expect.any(Number) },
+      metadata: { correlationId, operation: "write", status: 503, durationMs: expect.any(Number),
+        nodeVersion: process.versions.node,
+        runtimeInstanceId: expect.stringMatching(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/) },
     });
     expect(JSON.stringify(mocks.log.mock.calls)).not.toMatch(/private-person|private-request-id|withdrawalCode|wallet-and-bank/);
     expect(response.headers.get("cache-control")).toContain("no-store");

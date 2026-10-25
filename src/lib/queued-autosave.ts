@@ -13,6 +13,7 @@ export function createQueuedAutosave<T extends Identified>(options: {
   timeoutMs?: number;
 }) {
   const dirty = new Map<string, { revision: number; value: T }>();
+  const acknowledged = new Map<string, T>();
   const queued = new Set<string>();
   const failed = new Set<string>();
   let revision = 0, active = false, disposed = false;
@@ -42,6 +43,7 @@ export function createQueuedAutosave<T extends Identified>(options: {
       if (saved.id !== id) throw new Error("The save response did not match this lesson.");
       const latest = dirty.get(id);
       if (!disposed && latest) {
+        acknowledged.set(id, saved);
         options.onAcknowledged?.(saved);
         if (latest.revision === entry.revision) {
           dirty.delete(id); failed.delete(id); options.onSaved(saved);
@@ -62,10 +64,13 @@ export function createQueuedAutosave<T extends Identified>(options: {
   return {
     enqueue(value: T) { dirty.set(value.id, { revision: ++revision, value }); queued.add(value.id); failed.delete(value.id); emit(); schedule(); },
     retry() { for (const id of dirty.keys()) queued.add(id); failed.clear(); emit(); schedule(0); },
-    remove(id: string) { dirty.delete(id); queued.delete(id); failed.delete(id); emit(); },
+    remove(id: string) { dirty.delete(id); acknowledged.delete(id); queued.delete(id); failed.delete(id); emit(); },
     getDraft(id: string) { return dirty.get(id)?.value; },
+    // An input can arrive after acknowledgement but before its UI render.
+    // Keep the accepted value available without treating it as an unsaved edit.
+    getAcknowledged(id: string) { return acknowledged.get(id); },
     hasDraft(id: string) { return dirty.has(id); },
     merge(server: T[]) { const merged = new Map(server.map(value => [value.id, value])); for (const [id, entry] of dirty) merged.set(id, entry.value); return [...merged.values()]; },
-    dispose() { disposed = true; if (timer) clearTimeout(timer); controller?.abort(); },
+    dispose() { disposed = true; acknowledged.clear(); if (timer) clearTimeout(timer); controller?.abort(); },
   };
 }

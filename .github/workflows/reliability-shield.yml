@@ -111,6 +111,8 @@ jobs:
       - name: Verify the packaged continuous monitor worker
         run: |
           docker build -f Dockerfile.discord-worker -t alpha-discord-worker:ci .
+          docker run --rm --entrypoint node alpha-discord-worker:ci -e 'const assert = require("node:assert/strict"); assert.equal(process.version, "v22.23.4"); assert.equal(process.versions.undici, "6.29.1"); console.log(JSON.stringify({ node: process.version, undici: process.versions.undici }));'
+          docker run --rm --entrypoint node alpha-discord-worker:ci --check dist/discord-worker.js
           docker run --rm --entrypoint sh alpha-discord-worker:ci -c 'python3 --version && curl --version && test -r scripts/production_health.py'
 
   critical-browser-flows:

@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import vm from 'node:vm';
 import ts from 'typescript';
 const require = createRequire(import.meta.url);
-const { assertContainerNodeRuntime, resolveContainerOrigin, validateContainerRequest } = require('./container-origin.cjs');
+const { assertContainerNodeRuntime, resolveContainerOrigin, validateContainerRequest, containerCanonicalRedirect } = require('./container-origin.cjs');
 const Server = require('next/dist/server/next-server').default;
 const { NextRequestAdapter } = require('next/dist/server/web/spec-extension/adapters/next-request');
 const { NextRequest } = require('next/server');
@@ -43,7 +43,7 @@ for(const config of [null,{distDir:'elsewhere'},{distDir:'.next',output:'standal
 }
 
 test('Preview pins the deployment environment hostname, independent of site URL',()=>{
-  assert.deepEqual(resolveContainerOrigin({...preview,NEXT_PUBLIC_SITE_URL:'https://different-site.example'}),{origin:'https://reviewed-preview.vercel.app',hostname:'reviewed-preview.vercel.app',port:443});
+  assert.deepEqual(resolveContainerOrigin({...preview,NEXT_PUBLIC_SITE_URL:'https://different-site.example'}),{origin:'https://reviewed-preview.vercel.app',hostname:'reviewed-preview.vercel.app',port:443,production:false,ingressHostnames:['reviewed-preview.vercel.app']});
 });
 for (const [key,value] of [['NODE_ENV','development'],['VERCEL','0'],['VERCEL_ENV','development'],['PORT','80'],['VERCEL_URL',''],['VERCEL_URL','https://reviewed-preview.vercel.app'],['VERCEL_URL','evil.example'],['VERCEL_URL','good.vercel.app/evil'],['VERCEL_URL','good.vercel.app:443'],['VERCEL_URL','good.vercel.app,evil.example'],['VERCEL_URL','good.vercel.app@evil.example'],['VERCEL_URL','good.vercel.app\n']]) {
   test(`rejects invalid server-owned Preview setting ${key}=${JSON.stringify(value)}`,()=>assert.throws(()=>resolveContainerOrigin({...preview,[key]:value})));
@@ -91,4 +91,86 @@ test('normalized middleware logical URL has the pinned public origin and safe re
   const req=new NextRequest(`https://${expected.hostname}:${expected.port}/en/protected`,{headers:{host:'attacker.example'}});
   assert.equal(req.nextUrl.origin,expected.origin);
   assert.equal(new URL('/en/login',req.url).origin,expected.origin);
+});
+
+const production = resolveContainerOrigin({...preview,VERCEL_ENV:'production',NEXT_PUBLIC_SITE_URL:'https://www.example.com',VERCEL_PROJECT_PRODUCTION_URL:'example.com',ALPHA_CONTAINER_PRODUCTION_ALIAS:'reviewed-project.vercel.app'});
+const productionRequest = (host, overrides={}) => ({method:'GET',url:'/api/cron/marketplace-email-delivery',...overrides,headers:{host,'x-forwarded-host':host,'x-forwarded-proto':'https',...overrides.headers},rawHeaders:['Host',host]});
+test('production accepts exact server-owned hosts and freezes the allowlist',()=>{
+  assert.deepEqual(production.ingressHostnames,['www.example.com','reviewed-preview.vercel.app','example.com','reviewed-project.vercel.app']);
+  assert.equal(Object.isFrozen(production.ingressHostnames),true);
+  for(const host of production.ingressHostnames) assert.equal(validateContainerRequest(productionRequest(host),production),null);
+});
+test('production accepts a generated deployment cron request without changing its authentication inputs',()=>{
+  const req=productionRequest(preview.VERCEL_URL,{headers:{authorization:'Bearer synthetic-test-secret','user-agent':'vercel-cron/1.0','x-vercel-cron-schedule':'* * * * *'}});
+  assert.equal(containerCanonicalRedirect(req,production),null);
+  assert.equal(validateContainerRequest(req,production),null);
+  assert.equal(req.headers.host,'www.example.com');
+  assert.equal(req.headers.authorization,'Bearer synthetic-test-secret');
+  assert.equal(req.headers['user-agent'],'vercel-cron/1.0');
+  assert.equal(req.headers['x-vercel-cron-schedule'],'* * * * *');
+  assert.equal(req.headers.origin,undefined);
+});
+test('two known but different Host and forwarded hosts still fail closed',()=>{
+  assert.equal(validateContainerRequest(productionRequest('www.example.com',{headers:{'x-forwarded-host':preview.VERCEL_URL}}),production),421);
+  assert.equal(validateContainerRequest(productionRequest(preview.VERCEL_URL,{headers:{'x-forwarded-host':'www.example.com'}}),production),421);
+});
+for(const host of ['other-project.vercel.app','www.example.com.attacker.com','example.com:8080','example.com.','example.com,reviewed-preview.vercel.app']) {
+  test(`production rejects unconfigured or ambiguous ingress ${host}`,()=>assert.equal(validateContainerRequest(productionRequest(host),production),421));
+}
+for(const value of ['',undefined,'https://reviewed-preview.vercel.app','other-project.example.com','reviewed-preview.vercel.app:443','reviewed-preview.vercel.app\n']) {
+  test(`production rejects malformed generated deployment configuration ${JSON.stringify(value)}`,()=>assert.throws(()=>resolveContainerOrigin({...preview,VERCEL_ENV:'production',NEXT_PUBLIC_SITE_URL:'https://www.example.com',VERCEL_URL:value})));
+}
+for(const value of ['','https://example.com','example.com/path','example.com:443','example.com,evil.com','localhost','127.0.0.1','host.invalid','example.com.','bad..example.com','-bad.example.com','example.com\n']) {
+  test(`production rejects malformed project domain configuration ${JSON.stringify(value)}`,()=>assert.throws(()=>resolveContainerOrigin({...preview,VERCEL_ENV:'production',NEXT_PUBLIC_SITE_URL:'https://www.example.com',VERCEL_PROJECT_PRODUCTION_URL:value})));
+}
+test('production permits an absent optional project hostname and deduplicates its canonical hostname',()=>{
+  assert.deepEqual(resolveContainerOrigin({...preview,VERCEL_ENV:'production',NEXT_PUBLIC_SITE_URL:'https://www.example.com'}).ingressHostnames,['www.example.com',preview.VERCEL_URL]);
+  assert.deepEqual(resolveContainerOrigin({...preview,VERCEL_ENV:'production',NEXT_PUBLIC_SITE_URL:'https://www.example.com',VERCEL_PROJECT_PRODUCTION_URL:'www.example.com'}).ingressHostnames,['www.example.com',preview.VERCEL_URL]);
+});
+for(const value of ['','*.vercel.app','https://reviewed-project.vercel.app','reviewed-project.example.com','reviewed-project.vercel.app:443','reviewed-project.vercel.app/path','reviewed-project.vercel.app,evil.com','reviewed-project.vercel.app\n']) {
+  test(`production rejects invalid configured production alias ${JSON.stringify(value)}`,()=>assert.throws(()=>resolveContainerOrigin({...preview,VERCEL_ENV:'production',NEXT_PUBLIC_SITE_URL:'https://www.example.com',ALPHA_CONTAINER_PRODUCTION_ALIAS:value})));
+}
+test('observed production canonical, apex, generated host and explicitly configured project alias are supported',()=>{
+  const actual=resolveContainerOrigin({...preview,VERCEL_ENV:'production',NEXT_PUBLIC_SITE_URL:'https://www.alphatraders.co.il',VERCEL_URL:'alpha-traders-exchange-jjbdk05hj-alpha-kits.vercel.app',VERCEL_PROJECT_PRODUCTION_URL:'alphatraders.co.il',ALPHA_CONTAINER_PRODUCTION_ALIAS:'alpha-traders-exchange.vercel.app'});
+  assert.deepEqual(actual.ingressHostnames,['www.alphatraders.co.il','alpha-traders-exchange-jjbdk05hj-alpha-kits.vercel.app','alphatraders.co.il','alpha-traders-exchange.vercel.app']);
+  for(const host of actual.ingressHostnames) {
+    const cron=productionRequest(host);assert.equal(containerCanonicalRedirect(cron,actual),null);assert.equal(validateContainerRequest(cron,actual),null);
+    const page=productionRequest(host,{url:'/en/login?redirectTo=%2Fen%2Fusdt-exchange%2Frequests'});
+    assert.equal(containerCanonicalRedirect(page,actual),host===actual.hostname?null:'https://www.alphatraders.co.il/en/login?redirectTo=%2Fen%2Fusdt-exchange%2Frequests');
+  }
+});
+test('Preview never trusts the production canonical or project domains',()=>{
+  const isolated=resolveContainerOrigin({...preview,NEXT_PUBLIC_SITE_URL:'https://www.example.com',VERCEL_PROJECT_PRODUCTION_URL:'example.com',ALPHA_CONTAINER_PRODUCTION_ALIAS:'reviewed-project.vercel.app'});
+  assert.equal(validateContainerRequest(productionRequest('www.example.com'),isolated),421);
+  assert.equal(validateContainerRequest(productionRequest('example.com'),isolated),421);
+  assert.equal(validateContainerRequest(productionRequest('reviewed-project.vercel.app'),isolated),421);
+  assert.equal(containerCanonicalRedirect(productionRequest(preview.VERCEL_URL,{url:'/en/login'}),isolated),null);
+});
+test('alternate production GET and HEAD pages redirect to the canonical origin with path and query intact',()=>{
+  for(const method of ['GET','HEAD']) for(const host of [preview.VERCEL_URL,'example.com']) {
+    const req=productionRequest(host,{method,url:'/ar/login?redirectTo=%2Far%2Fusdt-exchange%2Frequests'});
+    assert.equal(containerCanonicalRedirect(req,production),'https://www.example.com/ar/login?redirectTo=%2Far%2Fusdt-exchange%2Frequests');
+    assert.equal(validateContainerRequest(req,production),null);
+  }
+});
+for(const pathname of ['/api','/api/cron/marketplace-email-delivery','/api/alpha-exchange/usdt-requests?scope=mine']) {
+  test(`alternate production API ${pathname} is never redirected`,()=>assert.equal(containerCanonicalRedirect(productionRequest(preview.VERCEL_URL,{url:pathname}),production),null));
+}
+test('canonical pages, mutation methods and hostile redirect targets are never redirected',()=>{
+  assert.equal(containerCanonicalRedirect(productionRequest('www.example.com',{url:'/en/login'}),production),null);
+  for(const method of ['POST','PUT','PATCH','DELETE','OPTIONS']) assert.equal(containerCanonicalRedirect(productionRequest(preview.VERCEL_URL,{method,url:'/en/login'}),production),null);
+  for(const url of ['https://attacker.example/path','//attacker.example/path','/\\attacker.example/path','//[invalid']) assert.equal(containerCanonicalRedirect(productionRequest(preview.VERCEL_URL,{url}),production),null);
+  assert.equal(containerCanonicalRedirect(productionRequest('attacker.example',{url:'/en/login'}),production),null);
+});
+test('production ingress aliases do not broaden the application same-origin mutation policy',()=>{
+  for(const [origin,site,allowed] of [[production.origin,'same-origin',true],['https://reviewed-preview.vercel.app','same-origin',false],['https://attacker.example','same-origin',false],[production.origin,'cross-site',false]]) {
+    const req=productionRequest(preview.VERCEL_URL,{method:'POST',url:'/api/check',headers:{origin,'sec-fetch-site':site}});
+    assert.equal(validateContainerRequest(req,production),null);
+    Server.prototype.attachRequestMeta.call({fetchHostname:production.hostname,port:production.port,nextConfig:{experimental:{}}},req,{query:{}},true);
+    const adapted=NextRequestAdapter.fromNodeNextRequest(req,new AbortController().signal);
+    assert.equal(adapted.nextUrl.origin,production.origin);
+    assert.equal(hasTrustedSameOrigin(adapted),allowed);
+    assert.equal(req.headers.origin,origin);
+    assert.equal(req.headers['sec-fetch-site'],site);
+  }
 });
