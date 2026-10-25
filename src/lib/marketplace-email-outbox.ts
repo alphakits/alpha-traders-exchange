@@ -67,7 +67,12 @@ async function ensureSchema(pool: Pool) {
   if (!ready) {
     ready = (async () => {
       const result = await pool.query("select to_regclass('alpha_exchange.idx_marketplace_email_due') as ready");
-      if (result.rows[0]?.ready) return;
+      if (result.rows[0]?.ready) {
+        // Schema-only restores include the index but not the singleton row.
+        // Seed it once per pool without shortening an existing provider cooldown.
+        await pool.query("insert into alpha_exchange.marketplace_email_gate(singleton) values (true) on conflict do nothing");
+        return;
+      }
       const client = await pool.connect();
       let destroy = false;
 

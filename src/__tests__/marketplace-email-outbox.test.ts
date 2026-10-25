@@ -1,5 +1,6 @@
 // @vitest-environment node
 import { PGlite } from "@electric-sql/pglite";
+import { readFile } from "node:fs/promises";
 import type { Pool } from "pg";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -59,6 +60,66 @@ afterEach(() => { vi.unstubAllEnvs(); });
 afterAll(async () => { await db.close(); });
 
 describe("durable marketplace email delivery", () => {
+  it("recovers a frozen pending job when migrated tables and index have no gate singleton", async () => {
+    const baseline = await readFile("supabase/migrations/20261017003000_runtime_table_baseline.sql", "utf8");
+    const gateStart = baseline.indexOf('create table if not exists alpha_exchange."marketplace_email_gate"');
+    const nextTable = baseline.indexOf('create table if not exists alpha_exchange."notification_analytics"');
+    expect(gateStart).toBeGreaterThan(-1); expect(nextTable).toBeGreaterThan(gateStart);
+    await db.exec("drop table alpha_exchange.marketplace_email_outbox, alpha_exchange.marketplace_email_gate");
+    await db.exec(baseline.slice(gateStart, nextTable));
+    expect((await db.query("select * from alpha_exchange.marketplace_email_gate")).rows).toHaveLength(0);
+    expect((await db.query("select to_regclass('alpha_exchange.idx_marketplace_email_due') as ready")).rows[0]).toMatchObject({ ready: "alpha_exchange.idx_marketplace_email_due" });
+    await db.query(`insert into alpha_exchange.marketplace_email_outbox
+      (id,recipient_id,event,recipient_email,request_body,idempotency_key)
+      values ('original-job','buyer',$1,$2,$3,$4)`, [email.event, email.recipientEmail, email.body, email.idempotencyKey]);
+    mocks.pool = { query: pool.query.bind(pool), connect: pool.connect.bind(pool) } as Pool;
+    const send = sender();
+    expect(await enqueueMarketplaceEmail({ ...email, body: "must not replace the stored body" }, send)).toMatchObject({ ok: true });
+    expect(send).toHaveBeenCalledExactlyOnceWith(email);
+    expect((await db.query("select id,status,attempts,idempotency_key,request_body from alpha_exchange.marketplace_email_outbox")).rows)
+      .toEqual([{ id: "original-job", status: "sent", attempts: 1, idempotency_key: email.idempotencyKey, request_body: null }]);
+    expect((await db.query("select singleton from alpha_exchange.marketplace_email_gate")).rows).toEqual([{ singleton: true }]);
+  });
+
+  it("preserves an existing future cooldown when a cold pool initializes", async () => {
+    await db.exec("update alpha_exchange.marketplace_email_gate set available_at = now() + interval '2 hours'");
+    const before = (await db.query("select available_at::text from alpha_exchange.marketplace_email_gate")).rows;
+    mocks.pool = { query: pool.query.bind(pool), connect: pool.connect.bind(pool) } as Pool;
+    const send = sender();
+    expect(await enqueueMarketplaceEmail(email, send)).toMatchObject({ ok: true, queued: true });
+    expect(send).not.toHaveBeenCalled();
+    expect((await db.query("select available_at::text from alpha_exchange.marketplace_email_gate")).rows).toEqual(before);
+    expect((await rows()).rows[0]).toMatchObject({ status: "pending", attempts: 0, request_body: email.body });
+  });
+
+  it("seeds one gate across concurrent cold pools and sends a shared job once", async () => {
+    await db.exec("delete from alpha_exchange.marketplace_email_gate");
+    const send = sender();
+    const results = await Promise.all(Array.from({ length: 4 }, () => {
+      mocks.pool = { query: pool.query.bind(pool), connect: pool.connect.bind(pool) } as Pool;
+      return enqueueMarketplaceEmail(email, send);
+    }));
+    expect(results.every(result => result?.ok)).toBe(true);
+    expect(send).toHaveBeenCalledExactlyOnceWith(email);
+    expect((await rows()).rows).toHaveLength(1);
+    expect((await rows()).rows[0]).toMatchObject({ status: "sent", attempts: 1 });
+    expect((await db.query("select singleton from alpha_exchange.marketplace_email_gate")).rows).toEqual([{ singleton: true }]);
+  });
+
+  it("the singleton migration is idempotent and preserves an existing cooldown and pending job", async () => {
+    const migration = await readFile("supabase/migrations/20261025114000_marketplace_email_gate_seed.sql", "utf8");
+    await db.exec("delete from alpha_exchange.marketplace_email_gate");
+    await db.exec(migration);
+    expect((await db.query("select singleton from alpha_exchange.marketplace_email_gate")).rows).toEqual([{ singleton: true }]);
+    await db.exec("update alpha_exchange.marketplace_email_gate set available_at = now() + interval '2 hours'");
+    await enqueueMarketplaceEmail(email, sender());
+    const beforeGate = (await db.query("select * from alpha_exchange.marketplace_email_gate")).rows;
+    const beforeJobs = (await rows()).rows;
+    await db.exec(migration);
+    expect((await db.query("select * from alpha_exchange.marketplace_email_gate")).rows).toEqual(beforeGate);
+    expect((await rows()).rows).toEqual(beforeJobs);
+  });
+
   it("refuses preview enqueue without consent or for a different mailbox before writing a job", async () => {
     vi.stubEnv("VERCEL_ENV", "preview");
     vi.stubEnv("ALPHA_EMAIL_STAGING_ALLOWLIST", "");
