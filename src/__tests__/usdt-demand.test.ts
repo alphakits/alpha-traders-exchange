@@ -3,9 +3,9 @@ import { randomUUID } from "node:crypto";
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import { calculateCardlessUsdtAmount } from "@alpha-traders/contracts";
 import { demandTestDb, demandTestMarket, demandTestTerms, DEMAND_TEST_WALLET } from "@/test-utils/usdt-demand-fixtures";
-import { assertDemandActor, assertDemandListing, assertDemandPrice, assertDemandTerms, canRespond, commitDemandMatch, demandState, validateDemandMatch } from "@/lib/usdt-demand-policy";
+import { assertDemandActor, assertDemandListing, assertDemandPrice, assertDemandTerms, canRespond, commitDemandMatch, DEMAND_TTL_MS, DEMAND_PUBLICATION_WINDOW_MS, demandState, validateDemandMatch } from "@/lib/usdt-demand-policy";
 import { createDemand, changeDemand, respondToDemand, readDemandWorkspace, withdrawDemandOffer } from "@/lib/usdt-demand-engine";
-import { publishDemand, offerDemand } from "@/lib/usdt-demand-store";
+import { publishDemand, offerDemand, editDemand } from "@/lib/usdt-demand-store";
 import { createPurchaseRequest, invalidateAlphaExchangeStoreCache } from "@/lib/alpha-exchange-store";
 import { getAlphaExchangeRepository } from "@/lib/alpha-exchange-repository";
 import type { PurchaseRequest } from "@/types/alpha-exchange";
@@ -62,8 +62,8 @@ describe("request rules", () => {
     seller.sellerStatus = "approved_seller"; seller.availabilityStatus = "vacation"; publish(); expect(db.notifications).toHaveLength(1);
   });
   it("pauses changing prices without rewriting terms", () => { const d = publish(); expect(demandState(db, d, demandTestMarket(4))).toBe("paused"); expect(d.price).toBe("3.20"); });
-  it("expires after 24h and requires manual renewal", () => {
-    const d = publish(); vi.useFakeTimers(); vi.setSystemTime(Date.now() + 86400_001);
+  it("expires after 12h and requires manual renewal", () => {
+    const d = publish(); vi.useFakeTimers(); vi.setSystemTime(Date.now() + DEMAND_TTL_MS);
     expect(demandState(db, d, demandTestMarket())).toBe("expired");
     changeDemand(db, "buyer", d.id, { action: "renew", revision: 1, terms: demandTestTerms() }, demandTestMarket());
     expect(d.revision).toBe(2); expect(demandState(db, d, demandTestMarket())).toBe("open");
@@ -74,8 +74,9 @@ describe("request rules", () => {
     expect(() => changeDemand(db, "buyer", d.id, { action: "renew", revision: 1, terms: demandTestTerms() }, demandTestMarket())).toThrow(/changed/);
   });
   it("limits re-publication and never reopens an active trade", () => {
-    const d = publish(); expect(() => changeDemand(db, "buyer", d.id, { action: "renew", revision: 1, terms: demandTestTerms() }, demandTestMarket())).toThrow(/five minutes/);
-    d.state = "matched"; expect(() => changeDemand(db, "buyer", d.id, { action: "cancel", revision: 1 }, demandTestMarket())).toThrow(/Trade Room/);
+    const d = publish(); changeDemand(db, "buyer", d.id, { action: "cancel", revision: 1 }, demandTestMarket());
+    expect(() => changeDemand(db, "buyer", d.id, { action: "renew", revision: 2, terms: demandTestTerms() }, demandTestMarket())).toThrow(/five minutes/);
+    d.state = "matched"; expect(() => changeDemand(db, "buyer", d.id, { action: "cancel", revision: 2 }, demandTestMarket())).toThrow(/Trade Room/);
   });
   it("requires an exact ATM cash total including the buyer fee", () => {
     const terms = { ...demandTestTerms(), paymentMethod: "Cardless ATM Withdrawal" as const };
@@ -93,30 +94,86 @@ describe("request rules", () => {
     expect(checkEligibility).not.toHaveBeenCalled();
     expect(() => createDemand(db, "buyer", { ...body, terms: { ...body.terms, amount: "2000" } }, demandTestMarket())).toThrow(/key/);
   });
-  it("retains accepted response and trade history when a cancelled trade is manually reopened", () => {
+  it("permanently locks accepted terms and preserves history after its trade is cancelled", () => {
     const d = publish(); const o = offer(d.id);
     const trade = { id: "cancelled-match", buyerId: "buyer", sellerId: "seller", listingId: o.listingId, status: "cancelled", usdtAmount: d.amount, pricePerUsdt: o.price, feePolicyVersion: "buyer_seller_1pct_v1" } as PurchaseRequest;
     const input = { buyerId: "buyer", demandId: d.id, offerId: o.id, revision: d.revision, listingId: o.listingId, amount: d.amount, paymentMethod: d.paymentMethod, network: d.network };
     commitDemandMatch(db, input, demandTestMarket(), trade); db.purchaseRequests.push(trade);
     vi.useFakeTimers(); vi.setSystemTime(Date.now() + 300_001);
-    changeDemand(db, "buyer", d.id, { action: "renew", revision: 1, terms: demandTestTerms() }, demandTestMarket());
-    expect(d).toMatchObject({ state: "open", revision: 2 });
-    expect(d.purchaseRequestId).toBeUndefined(); expect(d.acceptedOfferId).toBeUndefined();
+    for (const action of ["edit", "renew", "cancel"]) {
+      const terms = action === "cancel" ? {} : { terms: demandTestTerms() };
+      expect(() => changeDemand(db, "buyer", d.id, { action, revision: 1, ...terms }, demandTestMarket())).toThrow(/locked/);
+    }
+    expect(d).toMatchObject({ state: "matched", revision: 1, purchaseRequestId: trade.id, acceptedOfferId: o.id });
     expect(o.state).toBe("accepted");
     expect(d.history).toEqual(expect.arrayContaining([
       expect.objectContaining({ action: "matched", revision: 1, purchaseRequestId: trade.id, offerId: o.id }),
-      expect.objectContaining({ action: "renewed", revision: 2, purchaseRequestId: trade.id, offerId: o.id }),
     ]));
     expect(readDemandWorkspace(db, "buyer", demandTestMarket(), { id: d.id }).requests[0].offers[0].available).toBe(false);
   });
-  it("enforces the five-publication rolling limit across manual renewals", () => {
+  it("enforces two publications per rolling 24h across manual renewals without cancellation refunds", () => {
     const d = publish(); vi.useFakeTimers();
-    for (let i = 0; i < 4; i += 1) {
-      vi.setSystemTime(Date.now() + 300_001);
-      changeDemand(db, "buyer", d.id, { action: "renew", revision: d.revision, terms: demandTestTerms() }, demandTestMarket());
-    }
+    changeDemand(db, "buyer", d.id, { action: "cancel", revision: d.revision }, demandTestMarket());
     vi.setSystemTime(Date.now() + 300_001);
-    expect(() => changeDemand(db, "buyer", d.id, { action: "renew", revision: d.revision, terms: demandTestTerms() }, demandTestMarket())).toThrow(/five requests per day/);
+    changeDemand(db, "buyer", d.id, { action: "renew", revision: d.revision, terms: demandTestTerms() }, demandTestMarket());
+    changeDemand(db, "buyer", d.id, { action: "cancel", revision: d.revision }, demandTestMarket());
+    vi.setSystemTime(Date.now() + 300_001);
+    expect(() => changeDemand(db, "buyer", d.id, { action: "renew", revision: d.revision, terms: demandTestTerms() }, demandTestMarket())).toThrow(/two requests in any 24 hours/);
+    expect(() => publish()).toThrow(/two requests in any 24 hours/);
+  });
+  it("edits immediately without extending the original 12-hour expiry or using another publication", () => {
+    vi.useFakeTimers();
+    const d = publish(); const expiresAt = d.expiresAt;
+    expect(Date.parse(expiresAt) - Date.parse(d.createdAt)).toBe(12 * 60 * 60 * 1000);
+    const o = offer(d.id); const notices = structuredClone(db.notifications);
+    const publishing = readDemandWorkspace(db, "buyer", demandTestMarket()).publishing;
+    changeDemand(db, "buyer", d.id, { action: "edit", revision: 1, terms: { ...demandTestTerms(), amount: "2000" } }, demandTestMarket());
+    expect(d).toMatchObject({ amount: "2000", revision: 2, expiresAt });
+    expect(o.state).toBe("superseded");
+    expect(d.history.at(-1)).toMatchObject({ action: "edited", revision: 2 });
+    expect(readDemandWorkspace(db, "buyer", demandTestMarket()).publishing).toEqual(publishing);
+    expect(db.notifications).toEqual(notices);
+    expect(() => respondToDemand(db, "seller-two", d.id, { listingId: "listing-seller-two", revision: 1, price: "3.20", operationId: randomUUID() }, demandTestMarket())).toThrow(/no longer open/);
+  });
+  it("treats a legacy renew action on a live request as an edit, including when both slots are used", () => {
+    vi.useFakeTimers(); const d = publish();
+    changeDemand(db, "buyer", d.id, { action: "cancel", revision: d.revision });
+    vi.setSystemTime(Date.now() + 300_000);
+    changeDemand(db, "buyer", d.id, { action: "renew", revision: d.revision, terms: demandTestTerms() }, demandTestMarket());
+    const expiresAt = d.expiresAt;
+    const publishing = readDemandWorkspace(db, "buyer", demandTestMarket()).publishing;
+    expect(publishing?.remaining).toBe(0);
+    for (const action of ["edit", "renew"]) {
+      changeDemand(db, "buyer", d.id, { action, revision: d.revision, terms: { ...demandTestTerms(), amount: action === "edit" ? "2000" : "3000" } }, demandTestMarket());
+      expect(d.expiresAt).toBe(expiresAt);
+      expect(readDemandWorkspace(db, "buyer", demandTestMarket()).publishing).toEqual(publishing);
+    }
+    expect(d.history.filter(h => ["created", "renewed"].includes(h.action))).toHaveLength(2);
+  });
+  it("keeps responses and revision when saving unchanged terms", () => {
+    const d = publish(); offer(d.id);
+    const before = structuredClone(db);
+    changeDemand(db, "buyer", d.id, { action: "edit", revision: 1, terms: demandTestTerms() }, demandTestMarket());
+    expect(db).toEqual(before);
+  });
+  it("cannot use edit to reopen expired or cancelled requests", () => {
+    vi.useFakeTimers(); const d = publish();
+    vi.setSystemTime(Date.parse(d.expiresAt) - 1);
+    changeDemand(db, "buyer", d.id, { action: "edit", revision: d.revision, terms: { ...demandTestTerms(), amount: "2000" } }, demandTestMarket());
+    vi.setSystemTime(Date.parse(d.expiresAt));
+    expect(() => changeDemand(db, "buyer", d.id, { action: "edit", revision: d.revision, terms: demandTestTerms() }, demandTestMarket())).toThrow(/closed/);
+    expect(d.state).toBe("expired");
+    changeDemand(db, "buyer", d.id, { action: "cancel", revision: d.revision });
+    expect(() => changeDemand(db, "buyer", d.id, { action: "edit", revision: d.revision, terms: demandTestTerms() }, demandTestMarket())).toThrow(/closed/);
+  });
+  it("allows editing a price-paused request only with current valid terms", () => {
+    const d = publish(); const expiresAt = d.expiresAt;
+    const market = demandTestMarket(3.6);
+    expect(demandState(db, d, market)).toBe("paused");
+    expect(() => changeDemand(db, "buyer", d.id, { action: "edit", revision: 1, terms: demandTestTerms() }, market)).toThrow(/between/);
+    changeDemand(db, "buyer", d.id, { action: "edit", revision: 1, terms: { ...demandTestTerms(), price: "3.60" } }, market);
+    expect(d).toMatchObject({ price: "3.60", expiresAt, revision: 2 });
+    expect(demandState(db, d, market)).toBe("open");
   });
 });
 
@@ -189,6 +246,53 @@ describe("canonical trade integration", () => {
     expect(results.filter(r => r.status === "fulfilled").length).toBeGreaterThan(0);
     const stored = await (await getAlphaExchangeRepository()).loadSnapshot();
     expect(stored.purchaseRequests).toHaveLength(1); expect(stored.usdtDemands?.[0].offers.filter(o => o.state === "accepted")).toHaveLength(1);
+  });
+  it("does not combine an edit with a trade accepted from the prior terms", async () => {
+    const { d, input } = await prepare();
+    const outcomes = await Promise.allSettled([
+      editDemand("buyer", d.id, { action: "edit", revision: d.revision, terms: { ...demandTestTerms(), amount: "2000" } }),
+      createPurchaseRequest(input),
+    ]);
+    expect(outcomes.filter(result => result.status === "fulfilled")).toHaveLength(1);
+    const stored = await (await getAlphaExchangeRepository()).loadSnapshot();
+    const final = stored.usdtDemands![0];
+    if (final.state === "matched") {
+      expect(final).toMatchObject({ amount: "1000", revision: 1 });
+      expect(stored.purchaseRequests).toHaveLength(1);
+      expect(stored.purchaseRequests[0].usdtAmount).toBe("1000");
+    } else {
+      expect(final).toMatchObject({ state: "open", amount: "2000", revision: 2, expiresAt: d.expiresAt });
+      expect(stored.purchaseRequests).toHaveLength(0);
+      expect(final.offers.every(o => o.state === "superseded")).toBe(true);
+    }
+  });
+  it("serializes competing edits so a stale form cannot overwrite newer terms", async () => {
+    const { d } = await prepare();
+    const outcomes = await Promise.allSettled(["2000", "3000"].map(amount => editDemand("buyer", d.id, {
+      action: "edit", revision: d.revision, terms: { ...demandTestTerms(), amount },
+    })));
+    expect(outcomes.filter(result => result.status === "fulfilled")).toHaveLength(1);
+    expect(outcomes.filter(result => result.status === "rejected")).toMatchObject([{ reason: { code: "REQUEST_CHANGED" } }]);
+    const stored = await (await getAlphaExchangeRepository()).loadSnapshot();
+    expect(stored.usdtDemands![0]).toMatchObject({ revision: 2, expiresAt: d.expiresAt });
+    expect(stored.usdtDemands![0].history.filter(h => h.action === "edited")).toHaveLength(1);
+  });
+  it("cannot exceed the daily allowance by racing publications for the last slot", async () => {
+    vi.useFakeTimers();
+    const d = await publishDemand("buyer", { terms: demandTestTerms(), operationId: randomUUID() });
+    await editDemand("buyer", d.id, { action: "cancel", revision: d.revision });
+    vi.setSystemTime(Date.now() + 300_000);
+    const outcomes = await Promise.allSettled(Array.from({ length: 2 }, () => publishDemand("buyer", { terms: demandTestTerms(), operationId: randomUUID() })));
+    expect(outcomes.filter(result => result.status === "fulfilled")).toHaveLength(1);
+    const stored = await (await getAlphaExchangeRepository()).loadSnapshot();
+    expect(stored.usdtDemands).toHaveLength(2);
+    expect(readDemandWorkspace(stored, "buyer", demandTestMarket()).publishing?.remaining).toBe(0);
+    const current = stored.usdtDemands!.find(demand => demand.state === "open")!;
+    await editDemand("buyer", current.id, { action: "cancel", revision: current.revision });
+    vi.setSystemTime(Date.now() + 300_000);
+    await expect(publishDemand("buyer", { terms: demandTestTerms(), operationId: randomUUID() })).rejects.toMatchObject({ code: "DAILY_LIMIT" });
+    vi.setSystemTime(Date.parse(d.createdAt) + DEMAND_PUBLICATION_WINDOW_MS);
+    await expect(publishDemand("buyer", { terms: demandTestTerms(), operationId: randomUUID() })).resolves.toMatchObject({ state: "open" });
   });
   it("replays a published request after its trade was created while blocking a new publication", async () => {
     const { d, input } = await prepare(); await createPurchaseRequest(input);

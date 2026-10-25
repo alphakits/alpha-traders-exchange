@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PurchaseRequest } from "@/types/alpha-exchange";
 import { changeDemand, createDemand, readDemandWorkspace, respondToDemand } from "@/lib/usdt-demand-engine";
-import { DEMAND_COOLDOWN_MS, DEMAND_TTL_MS, validateDemandMatch } from "@/lib/usdt-demand-policy";
+import { DEMAND_COOLDOWN_MS, DEMAND_TTL_MS, DEMAND_PUBLICATION_WINDOW_MS, validateDemandMatch } from "@/lib/usdt-demand-policy";
 import { demandTestDb, demandTestMarket, demandTestTerms } from "@/test-utils/usdt-demand-fixtures";
 
 let db = demandTestDb();
@@ -19,33 +19,34 @@ afterEach(() => vi.useRealTimers());
 describe("request workspace action metadata", () => {
   it("reports only the signed-in requester's publication allowance", () => {
     const d = publish();
-    expect(workspace().publishing).toEqual({ remaining: 4, nextAllowedAt: new Date(Date.now() + DEMAND_COOLDOWN_MS).toISOString(), openRequestId: d.id });
-    expect(workspace("seller", d.id).publishing).toEqual({ remaining: 5, nextAllowedAt: null, openRequestId: null });
-    expect(workspace("buyer-two").publishing).toEqual({ remaining: 5, nextAllowedAt: null, openRequestId: null });
+    expect(workspace().publishing).toEqual({ remaining: 1, nextAllowedAt: new Date(Date.now() + DEMAND_COOLDOWN_MS).toISOString(), openRequestId: d.id });
+    expect(workspace("seller", d.id).publishing).toEqual({ remaining: 2, nextAllowedAt: null, openRequestId: null });
+    expect(workspace("buyer-two").publishing).toEqual({ remaining: 2, nextAllowedAt: null, openRequestId: null });
   });
 
   it("clears the cooldown exactly when a renewal becomes allowed", () => {
     const d = publish();
+    const firstAt = Date.now();
+    changeDemand(db, "buyer", d.id, { action: "cancel", revision: d.revision });
     vi.setSystemTime(Date.now() + DEMAND_COOLDOWN_MS - 1);
     expect(workspace().publishing?.nextAllowedAt).not.toBeNull();
     expect(() => changeDemand(db, "buyer", d.id, { action: "renew", revision: d.revision, terms: demandTestTerms() }, demandTestMarket())).toThrow(/five minutes/);
     vi.setSystemTime(Date.now() + 1);
-    expect(workspace().publishing).toMatchObject({ remaining: 4, nextAllowedAt: null });
+    expect(workspace().publishing).toMatchObject({ remaining: 1, nextAllowedAt: null });
     changeDemand(db, "buyer", d.id, { action: "renew", revision: d.revision, terms: demandTestTerms() }, demandTestMarket());
-    expect(workspace().publishing).toMatchObject({ remaining: 3, nextAllowedAt: new Date(Date.now() + DEMAND_COOLDOWN_MS).toISOString() });
+    expect(workspace().publishing).toMatchObject({ remaining: 0, nextAllowedAt: new Date(firstAt + DEMAND_PUBLICATION_WINDOW_MS).toISOString() });
   });
 
-  it("reports the rolling daily reset after the fifth publication, including cancellation", () => {
+  it("reports the rolling daily reset after the second publication, including cancellation", () => {
     const d = publish();
     const firstAt = Date.now();
-    for (let i = 0; i < 4; i += 1) {
-      vi.setSystemTime(Date.now() + DEMAND_COOLDOWN_MS);
-      changeDemand(db, "buyer", d.id, { action: "renew", revision: d.revision, terms: demandTestTerms() }, demandTestMarket());
-    }
+    changeDemand(db, "buyer", d.id, { action: "cancel", revision: d.revision });
+    vi.setSystemTime(Date.now() + DEMAND_COOLDOWN_MS);
+    changeDemand(db, "buyer", d.id, { action: "renew", revision: d.revision, terms: demandTestTerms() }, demandTestMarket());
     changeDemand(db, "buyer", d.id, { action: "cancel", revision: d.revision }, demandTestMarket());
-    expect(workspace().publishing).toEqual({ remaining: 0, nextAllowedAt: new Date(firstAt + DEMAND_TTL_MS).toISOString(), openRequestId: null });
-    vi.setSystemTime(firstAt + DEMAND_TTL_MS - 1);
-    expect(() => publish()).toThrow(/five requests per day/);
+    expect(workspace().publishing).toEqual({ remaining: 0, nextAllowedAt: new Date(firstAt + DEMAND_PUBLICATION_WINDOW_MS).toISOString(), openRequestId: null });
+    vi.setSystemTime(firstAt + DEMAND_PUBLICATION_WINDOW_MS - 1);
+    expect(() => publish()).toThrow(/two requests in any 24 hours/);
     vi.setSystemTime(Date.now() + 1);
     expect(workspace().publishing).toEqual({ remaining: 1, nextAllowedAt: null, openRequestId: null });
     expect(publish().state).toBe("open");

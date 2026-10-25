@@ -16,7 +16,8 @@ export type RequestFormProps = {
   reference: DemandWorkspace["reference"];
   publishing?: DemandWorkspace["publishing"];
   busy: boolean;
-  renewing: boolean;
+  mode: "create" | "edit" | "renew";
+  expiresAt?: string;
   stale: boolean;
   now: number;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
@@ -45,7 +46,7 @@ function countdown(milliseconds: number) {
     : `${minutes}:${String(seconds % 60).padStart(2, "0")}`;
 }
 
-export function RequestForm({ ar, terms, setTerms, cash, setCash, reference, publishing, busy, renewing, stale, now, onSubmit, onClose, onReload }: RequestFormProps) {
+export function RequestForm({ ar, terms, setTerms, cash, setCash, reference, publishing, busy, mode, expiresAt, stale, now, onSubmit, onClose, onReload }: RequestFormProps) {
   const [submissionError, setSubmissionError] = useState("");
   const [amountKey, setAmountKey] = useState(0);
   const [priceKey, setPriceKey] = useState(0);
@@ -76,12 +77,15 @@ export function RequestForm({ ar, terms, setTerms, cash, setCash, reference, pub
   const nextAllowed = publishing?.nextAllowedAt ? Date.parse(publishing.nextAllowedAt) : 0;
   const wait = Number.isFinite(nextAllowed) ? Math.max(0, nextAllowed - now) : 0;
   const waitLabel = countdown(wait);
+  const editing = mode === "edit";
+  const expired = editing && !(expiresAt && Date.parse(expiresAt) > now);
   const disabledReason = stale ? text("This request changed. Reload the latest details before saving.", "تغيّر هذا الطلب. أعد تحميل أحدث التفاصيل قبل الحفظ.")
     : busy ? text("Saving your request…", "جارٍ حفظ طلبك…")
-      : !quoteAvailable ? text("Waiting for a fresh price reference. Please try again shortly.", "بانتظار مرجع سعر حديث. حاول مجددًا بعد قليل.")
-        : !renewing && publishing?.openRequestId ? text("You already have an open request. Update or cancel it before creating another.", "لديك طلب مفتوح بالفعل. حدّثه أو ألغِه قبل إنشاء طلب آخر.")
-          : wait > 0 ? text(`You can publish or renew again in ${waitLabel}.`, `يمكنك النشر أو التجديد مجددًا خلال ${waitLabel}.`)
-            : publishing?.remaining === 0 ? text("You have used all 5 publishes or renewals in the last 24 hours. Wait for your limit to reset.", "استخدمت عمليات النشر أو التجديد الخمس خلال آخر 24 ساعة. انتظر حتى يتجدد الحد.")
+      : expired ? text("This request expired while you were editing. Close this form and choose Publish again to use a new slot.", "انتهت صلاحية الطلب أثناء التعديل. أغلق النموذج واختر النشر مجددًا لاستخدام فرصة نشر جديدة.")
+        : !quoteAvailable ? text("Waiting for a fresh price reference. Please try again shortly.", "بانتظار مرجع سعر حديث. حاول مجددًا بعد قليل.")
+        : !editing && publishing?.openRequestId ? text("You already have an open request. Edit or cancel it before publishing another.", "لديك طلب مفتوح بالفعل. عدّله أو ألغِه قبل نشر طلب آخر.")
+          : !editing && wait > 0 ? text(`You can publish again in ${waitLabel}.`, `يمكنك النشر مجددًا خلال ${waitLabel}.`)
+            : !editing && publishing?.remaining === 0 ? text("You have used both request slots in the last 24 hours. Your current open request can still be edited.", "استخدمت فرصتي النشر خلال آخر 24 ساعة. لا يزال بإمكانك تعديل طلبك المفتوح الحالي.")
               : amountError || priceError || cityError
                 || (totalCents === null || totalCents < BigInt(1) ? text("The payment total must be at least ₪0.01.", "يجب أن يكون إجمالي الدفع ₪0.01 على الأقل.") : "")
                 || (atm && (!parseCardlessCashAmount(cash) || parseCardlessCashAmount(total) !== parseCardlessCashAmount(cash))
@@ -99,7 +103,7 @@ export function RequestForm({ ar, terms, setTerms, cash, setCash, reference, pub
     onInput={() => setSubmissionError("")} onChange={() => setSubmissionError("")}
     onInvalidCapture={event => setSubmissionError(ar ? "صحّح الحقل المحدد قبل المتابعة." : (event.target as HTMLInputElement).validationMessage)}>
     <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
-      <div><h2 className="text-xl font-semibold">{renewing ? text("Update and renew", "تحديث وتجديد") : text("Your request", "طلبك")}</h2>
+      <div><h2 className="text-xl font-semibold">{editing ? text("Edit your request", "تعديل طلبك") : mode === "renew" ? text("Publish your request again", "نشر طلبك مجددًا") : text("Your request", "طلبك")}</h2>
         <p className="mt-2 text-sm leading-6 text-gray-400">{text("Set the amount and price you want. Sellers can respond with their prices.", "حدّد الكمية والسعر المطلوبين. يمكن للبائعين الرد بأسعارهم.")}</p></div>
       <span className="rounded-full bg-emerald-400/10 px-3 py-1.5 text-xs font-medium text-emerald-300">{text("Free to post", "النشر مجاني")}</span>
     </div>
@@ -141,12 +145,12 @@ export function RequestForm({ ar, terms, setTerms, cash, setCash, reference, pub
       <FeeBreakdown amount={amountValid ? formTerms.amount : ""} price={priceValid ? terms.price : ""} ar={ar} title={text("Estimated payment", "الدفع المتوقع")} />
     </fieldset>
     <div className="mt-6 rounded-xl border border-white/10 bg-black/20 p-4 text-xs leading-6 text-gray-400">
-      <p>{text("Posting is free. Requests expire after 24 hours and do not guarantee a match. Keep one open request at a time.", "النشر مجاني. تنتهي الطلبات بعد 24 ساعة ولا تضمن إيجاد بائع. يمكنك الاحتفاظ بطلب مفتوح واحد في كل مرة.")}</p>
-      <p>{text("Wait 5 minutes between publishing or renewing. Maximum 5 publishes or renewals in 24 hours.", "انتظر 5 دقائق بين النشر أو التجديد. الحد الأقصى 5 عمليات نشر أو تجديد خلال 24 ساعة.")}</p>
-      {publishing && <p className="mt-2 font-medium text-gray-200">{text(`${Math.max(0, publishing.remaining)} of 5 publishes or renewals remaining in this 24-hour window.`, `متبقٍ ${Math.max(0, publishing.remaining)} من أصل 5 عمليات نشر أو تجديد خلال فترة 24 ساعة الحالية.`)}</p>}
+      {editing ? <><p className="font-medium text-gray-200">{text("Editing is free and keeps your original expiry time. It does not use another request slot.", "التعديل مجاني ويحافظ على وقت الانتهاء الأصلي، ولا يستخدم فرصة نشر أخرى.")}</p><p>{text("Sellers must respond to the updated terms. Once you select a response and open a trade, the request is locked.", "يجب على البائعين الرد على الشروط المعدّلة. عند اختيار رد وفتح صفقة، يُقفل الطلب.")}</p></> : <><p>{text("Free to post · 12 hours per request · One open request at a time. A match is not guaranteed.", "النشر مجاني · 12 ساعة لكل طلب · طلب مفتوح واحد في كل مرة. إيجاد بائع غير مضمون.")}</p><p>{text("Two publications in any 24 hours, with 5 minutes between them. Publishing again uses a slot; cancelling does not return it.", "عمليتا نشر خلال أي 24 ساعة، مع 5 دقائق بينهما. النشر مجددًا يستخدم فرصة، والإلغاء لا يعيدها.")}</p></>}
+      {publishing && <p className="mt-2 font-medium text-gray-200">{text(`${Math.max(0, Math.min(2, publishing.remaining))} of 2 request slots remaining in the last 24 hours.`, `متبقٍ ${Math.max(0, Math.min(2, publishing.remaining))} من أصل فرصتي نشر خلال آخر 24 ساعة.`)}</p>}
+      {editing && expiresAt && <p className="mt-2">{text("Original expiry", "وقت الانتهاء الأصلي")}: <time dateTime={expiresAt}>{new Date(expiresAt).toLocaleString(ar ? "ar" : "en", { dateStyle: "medium", timeStyle: "short" })}</time></p>}
     </div>
     <div className="mt-6 flex flex-col gap-3 sm:flex-row">
-      <button type="submit" className={primary} disabled={Boolean(disabledReason)} aria-describedby={disabledReason || submissionError ? "request-submit-help" : undefined}>{busy ? text("Saving…", "جارٍ الحفظ…") : renewing ? text("Save and renew", "حفظ وتجديد") : text("Publish request", "نشر الطلب")}</button>
+      <button type="submit" className={primary} disabled={Boolean(disabledReason)} aria-describedby={disabledReason || submissionError ? "request-submit-help" : undefined}>{busy ? text("Saving…", "جارٍ الحفظ…") : editing ? text("Save changes", "حفظ التغييرات") : mode === "renew" ? text("Publish again", "النشر مجددًا") : text("Publish request", "نشر الطلب")}</button>
       <button type="button" className={secondary} onClick={onClose} disabled={busy}>{text("Close", "إغلاق")}</button>
     </div>
     {(disabledReason || submissionError) && <p id="request-submit-help" role={submissionError ? "alert" : undefined} className="mt-3 text-sm leading-6 text-amber-200"><RequestMoneyText>{disabledReason || submissionError}</RequestMoneyText></p>}

@@ -10,8 +10,27 @@ import { isVerified } from "@/lib/verification-bypass";
 import { hasRole } from "@/lib/roles";
 import { hasSellerOperationalAccess } from "@/lib/seller-approval-verification";
 
-export const DEMAND_TTL_MS = 24 * 60 * 60 * 1000;
+export const DEMAND_TTL_MS = 12 * 60 * 60 * 1000;
+export const DEMAND_PUBLICATION_WINDOW_MS = 24 * 60 * 60 * 1000;
+export const DEMAND_PUBLICATION_LIMIT = 2;
 export const DEMAND_COOLDOWN_MS = 5 * 60 * 1000;
+/** Legacy rows may store a 24-hour expiry. Terms/response edits are not a new
+ * publication and cannot restart the current twelve-hour lifetime. */
+export function demandExpiresAtMs(demand: UsdtDemand) {
+  const publicationTimes = demand.history.filter(h => ["created", "renewed"].includes(h.action))
+    .map(h => Date.parse(h.at)).filter(Number.isFinite);
+  const publishedAt = publicationTimes.length ? Math.max(...publicationTimes) : Date.parse(demand.createdAt);
+  const storedExpiry = Date.parse(demand.expiresAt);
+  return Number.isFinite(publishedAt) && Number.isFinite(storedExpiry)
+    ? Math.min(storedExpiry, publishedAt + DEMAND_TTL_MS) : 0;
+}
+/** Preserve the acceptance lock for rows reopened by the previous policy. */
+export function demandAcceptedMatch(demand: UsdtDemand) {
+  const matched = demand.history.findLast(h => h.action === "matched");
+  if (demand.state !== "matched" && !matched) return null;
+  return { purchaseRequestId: demand.purchaseRequestId ?? matched?.purchaseRequestId,
+    offerId: demand.acceptedOfferId ?? matched?.offerId };
+}
 export class DemandError extends Error {
   constructor(public code: string, message: string, public status = 409) { super(message); this.name = "DemandError"; }
 }
@@ -27,6 +46,7 @@ export const demandTermsSchema = z.object({
 export const demandCreateSchema = z.object({ terms: demandTermsSchema, operationId: z.string().uuid() }).strict();
 export const demandChangeSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("cancel"), revision: z.number().int().positive() }).strict(),
+  z.object({ action: z.literal("edit"), revision: z.number().int().positive(), terms: demandTermsSchema }).strict(),
   z.object({ action: z.literal("renew"), revision: z.number().int().positive(), terms: demandTermsSchema }).strict(),
 ]);
 export const demandOfferSchema = z.object({ revision: z.number().int().positive(), listingId: z.string().min(1).max(100), price: demandPriceSchema, operationId: z.string().uuid() }).strict();
@@ -77,14 +97,15 @@ export function demandListingAvailableAmount(db: AlphaExchangeDb, listing: Marke
     .reduce((remaining, t) => subtractTradeAmounts(remaining, t.usdtAmount) ?? "0", listing.availableAmount);
 }
 export function demandState(db: AlphaExchangeDb, demand: UsdtDemand, market: MarketSnapshot, now = Date.now()) {
-  if (demand.state === "matched") {
-    const trade = db.purchaseRequests.find(t => t.id === demand.purchaseRequestId);
+  const accepted = demandAcceptedMatch(demand);
+  if (accepted) {
+    const trade = db.purchaseRequests.find(t => t.id === accepted.purchaseRequestId);
     if (trade && ["completed", "review_open", "locked"].includes(trade.status)) return "fulfilled" as const;
     if (trade && ["cancelled", "declined"].includes(trade.status)) return "trade_cancelled" as const;
     return "matched" as const;
   }
   if (demand.state !== "open") return demand.state;
-  if (Date.parse(demand.expiresAt) <= now) return "expired" as const;
+  if (demandExpiresAtMs(demand) <= now) return "expired" as const;
   try { assertDemandPrice(demand.price, market, now); } catch { return "paused" as const; }
   return "open" as const;
 }
@@ -114,7 +135,7 @@ export function validateDemandMatch(db: AlphaExchangeDb, input: DemandMatchInput
   assertDemandActor(db.users.find(u => u.id === input.buyerId));
   const demand = (db.usdtDemands ?? []).find(d => d.id === input.demandId && d.requesterId === input.buyerId);
   if (!demand) throw new DemandError("NOT_FOUND", "Request not found.", 404);
-  if (demand.state !== "open" || demand.revision !== input.revision || Date.parse(demand.expiresAt) <= Date.now()) throw new DemandError("REQUEST_CHANGED", "This request changed or closed. Refresh before continuing.");
+  if (demandAcceptedMatch(demand) || demand.state !== "open" || demand.revision !== input.revision || demandExpiresAtMs(demand) <= Date.now()) throw new DemandError("REQUEST_CHANGED", "This request changed or closed. Refresh before continuing.");
   const offer = demand.offers.find(o => o.id === input.offerId);
   if (!offer || offer.state !== "open" || offer.revision !== demand.revision || offer.listingId !== input.listingId) throw new DemandError("OFFER_CHANGED", "This response is no longer available.");
   if (input.amount !== demand.amount || input.paymentMethod !== demand.paymentMethod || input.network !== demand.network) throw new DemandError("TERMS_CHANGED", "Review the current request amount, payment method and network.");

@@ -253,7 +253,7 @@ describe("USDT request workspace", () => {
     actor = "different-account"; fireEvent.focus(window);
     expect((await screen.findByRole("alert")).textContent).toContain("session changed");
     expect(screen.queryByText("AT-100")).toBeNull();
-    expect(screen.queryByRole("button", { name: "Update / renew" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Edit request" })).toBeNull();
   });
   it("blocks opening a trade at request expiry before the next server poll", async () => {
     let time = Date.now();
@@ -269,10 +269,10 @@ describe("USDT request workspace", () => {
     time += 1000;
     await waitFor(() => expect((screen.getByRole("button", { name: "Open Trade Room" }) as HTMLButtonElement).disabled).toBe(true), { timeout: 2000 });
   });
-  it("keeps the ATM cash value selected when renewing a request", async () => {
+  it("keeps the ATM cash value selected when editing a request", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ ...base, requests: [demand()] })));
     render(<UsdtRequestsWorkspace locale="en" actorId="buyer" demandId="demand-one" />);
-    fireEvent.click(await screen.findByRole("button", { name: "Update / renew" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Edit request" }));
     expect((screen.getByLabelText("ATM cash total incl. 1% fee (ILS)") as HTMLSelectElement).value).toBe("1000");
   });
   it("requires a fresh quote before publishing", async () => {
@@ -285,14 +285,14 @@ describe("USDT request workspace", () => {
   it("hides private request data when the signed-in account changes", async () => {
     vi.stubGlobal("fetch", vi.fn().mockImplementation(async () => Response.json({ ...base, requests: [demand()] })));
     const view = render(<UsdtRequestsWorkspace locale="en" actorId="buyer" demandId="demand-one" />);
-    fireEvent.click(await screen.findByRole("button", { name: "Update / renew" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Edit request" }));
     mocks.session = { user: { id: "different-account" } };
     view.rerender(<UsdtRequestsWorkspace locale="en" actorId="buyer" demandId="demand-one" />);
     expect(screen.getByRole("alert").textContent).toContain("session changed");
     expect(screen.queryByText("AT-100")).toBeNull();
     mocks.session = { user: { id: "buyer" } };
     view.rerender(<UsdtRequestsWorkspace locale="en" actorId="buyer" demandId="demand-one" />);
-    await screen.findByRole("button", { name: "Update / renew" });
+    await screen.findByRole("button", { name: "Edit request" });
     expect(screen.queryByRole("button", { name: "Publish request" })).toBeNull();
   });
   it("displays load failures without enabling publication", async () => {
@@ -309,18 +309,18 @@ describe("USDT request workspace", () => {
       : Response.json({ ...base, requests: [latest] }));
     vi.stubGlobal("fetch", fetcher);
     render(<UsdtRequestsWorkspace locale="en" actorId="buyer" demandId="demand-one" />);
-    fireEvent.click(await screen.findByRole("button", { name: "Update / renew" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Edit request" }));
     latest = { ...latest, revision: 2, state: "cancelled", amount: "2000" };
     fireEvent.focus(window);
     await screen.findByRole("heading", { name: /2,000 USDT/ });
     expect((screen.getByLabelText("Amount (USDT)") as HTMLInputElement).value).toBe("1,000");
-    expect((screen.getByRole("button", { name: "Save and renew" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Save changes" }) as HTMLButtonElement).disabled).toBe(true);
     fireEvent.submit(screen.getByRole("form", { name: "Request details" }));
     expect(fetcher.mock.calls.some(([, options]) => options?.method === "PATCH")).toBe(false);
     fireEvent.click(screen.getByRole("button", { name: "Reload latest details" }));
     expect((screen.getByLabelText("Amount (USDT)") as HTMLInputElement).value).toBe("2,000");
   });
-  it("clears the editor on navigation and starts a fresh revision after a successful renewal", async () => {
+  it("clears the editor on navigation and submits explicit edits with the current revision", async () => {
     let second = { ...demand(), id: "demand-two", requesterName: "AT-200", revision: 7 };
     const fetcher = vi.fn(async (url: string, options?: RequestInit) => {
       if (options?.method === "PATCH") { second = { ...second, revision: second.revision + 1 }; return Response.json({ ok: true }); }
@@ -328,19 +328,65 @@ describe("USDT request workspace", () => {
     });
     vi.stubGlobal("fetch", fetcher);
     const view = render(<UsdtRequestsWorkspace locale="en" actorId="buyer" demandId="demand-one" />);
-    fireEvent.click(await screen.findByRole("button", { name: "Update / renew" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Edit request" }));
     view.rerender(<UsdtRequestsWorkspace locale="en" actorId="buyer" demandId="demand-two" />);
     await screen.findByText("AT-200");
-    expect(screen.queryByRole("button", { name: "Save and renew" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Save changes" })).toBeNull();
     for (let attempt = 0; attempt < 2; attempt += 1) {
-      fireEvent.click(screen.getByRole("button", { name: "Update / renew" }));
-      fireEvent.submit(screen.getByRole("button", { name: "Save and renew" }).closest("form")!);
-      await waitFor(() => expect(screen.queryByRole("button", { name: "Save and renew" })).toBeNull());
-      await waitFor(() => expect((screen.getByRole("button", { name: "Update / renew" }) as HTMLButtonElement).disabled).toBe(false));
+      fireEvent.click(screen.getByRole("button", { name: "Edit request" }));
+      fireEvent.submit(screen.getByRole("button", { name: "Save changes" }).closest("form")!);
+      await waitFor(() => expect(screen.queryByRole("button", { name: "Save changes" })).toBeNull());
+      await waitFor(() => expect((screen.getByRole("button", { name: "Edit request" }) as HTMLButtonElement).disabled).toBe(false));
     }
     const mutations = fetcher.mock.calls.filter(([, options]) => options?.method === "PATCH");
     expect(mutations.map(([url]) => url)).toEqual(Array(2).fill("/api/alpha-exchange/usdt-requests/demand-two"));
     expect(mutations.map(([, options]) => JSON.parse(String(options?.body)).revision)).toEqual([7, 8]);
+    expect(mutations.map(([, options]) => JSON.parse(String(options?.body)).action)).toEqual(["edit", "edit"]);
+  });
+  it("requires an explicit new publication for a cancelled request", async () => {
+    let latest: DemandView = { ...demand(), state: "cancelled" };
+    const fetcher = vi.fn(async (_url: string, options?: RequestInit) => {
+      if (options?.method === "PATCH") { latest = { ...latest, revision: 2, state: "open" }; return Response.json({ ok: true }); }
+      return Response.json({ ...base, requests: [latest], publishing: { remaining: 1, nextAllowedAt: null } });
+    });
+    vi.stubGlobal("fetch", fetcher);
+    render(<UsdtRequestsWorkspace locale="en" actorId="buyer" demandId="demand-one" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Publish again" }));
+    expect(screen.getByRole("heading", { name: "Publish your request again" })).toBeTruthy();
+    fireEvent.submit(screen.getByRole("form", { name: "Request details" }));
+    await screen.findByText("Your request is published again for 12 hours. One request slot was used.");
+    expect(JSON.parse(String(fetcher.mock.calls.find(([, options]) => options?.method === "PATCH")![1]?.body))).toMatchObject({ action: "renew", revision: 1 });
+  });
+  it.each(["matched", "fulfilled"] as const)("locks %s requests and explains where to find the accepted terms", async state => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ ...base, requests: [{ ...demand(), state, purchaseRequestId: "trade-one" }] })));
+    render(<UsdtRequestsWorkspace locale="en" actorId="buyer" demandId="demand-one" />);
+    await screen.findByText(/Accepted requests are locked/);
+    expect(screen.queryByRole("button", { name: "Edit request" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Publish again" })).toBeNull();
+    expect(screen.getByRole("link", { name: "Open Trade Room" }).getAttribute("href")).toBe("/trade-room/trade-one");
+  });
+  it("blocks an open editor when the request is accepted elsewhere and closes it on reload", async () => {
+    vi.spyOn(document, "hidden", "get").mockReturnValue(false);
+    let latest = demand();
+    const fetcher = vi.fn(async () => Response.json({ ...base, requests: [latest] }));
+    vi.stubGlobal("fetch", fetcher);
+    render(<UsdtRequestsWorkspace locale="en" actorId="buyer" demandId="demand-one" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Edit request" }));
+    latest = { ...latest, state: "matched", purchaseRequestId: "trade-one", revision: 2 };
+    fireEvent.focus(window);
+    await screen.findByText(/Accepted requests are locked/);
+    expect((screen.getByRole("button", { name: "Save changes" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Reload latest details" }));
+    expect(screen.queryByRole("form", { name: "Request details" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Edit request" })).toBeNull();
+  });
+  it("shows the new quota and expiry policy in the Arabic buyer workspace", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ ...base, publishing: { remaining: 1, nextAllowedAt: null } })));
+    render(<UsdtRequestsWorkspace locale="ar" actorId="buyer" />);
+    const allowance = await screen.findByRole("region", { name: "فرص نشر طلباتك" });
+    expect(allowance.textContent).toContain("من أصل 2");
+    expect(allowance.textContent).toContain("12 ساعة");
+    expect(allowance.textContent).toContain("عدّل حتى القبول");
   });
   it("requires a new seller selection when the buyer changes the request revision", async () => {
     vi.spyOn(document, "hidden", "get").mockReturnValue(false);
@@ -390,12 +436,13 @@ describe("USDT request workspace", () => {
     expect(screen.queryByText("AT-100")).toBeNull();
     expect(screen.queryByRole("button", { name: "Refresh" })).toBeNull();
   });
-  it("guides a cancelled trade back to renewal while retaining its previous trade link", async () => {
+  it("keeps an accepted request locked after trade cancellation while retaining its trade link", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => Response.json({ ...base, requests: [{ ...demand(), state: "trade_cancelled", purchaseRequestId: "old-trade" }] })));
     render(<UsdtRequestsWorkspace locale="en" actorId="buyer" demandId="demand-one" />);
     expect(await screen.findByRole("heading", { name: "This request is closed" })).toBeTruthy();
     expect(screen.getByRole("link", { name: "View previous Trade Room" }).getAttribute("href")).toBe("/trade-room/old-trade");
-    expect(screen.getByRole("button", { name: "Update / renew" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Edit request" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Publish again" })).toBeNull();
     expect(screen.queryByRole("heading", { name: "Continue in your Trade Room" })).toBeNull();
   });
   it("does not tell a seller to edit a paused buyer request", async () => {
@@ -403,7 +450,7 @@ describe("USDT request workspace", () => {
     vi.stubGlobal("fetch", vi.fn(async () => Response.json({ ...base, actorId: "seller", canRespond: true, requests: [{ ...demand(), isMine: false, state: "paused" }] })));
     render(<UsdtRequestsWorkspace locale="en" actorId="seller" demandId="demand-one" />);
     expect(await screen.findByText(/Refresh later or browse other open requests/)).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Update / renew" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Edit request" })).toBeNull();
   });
   it("ignores a completed submission after the account context changes", async () => {
     let finish: (response: Response) => void = () => {};

@@ -15,7 +15,7 @@ function Harness(props: Partial<RequestFormProps> & { initialTerms?: DemandTerms
   const [terms, setTerms] = useState(props.initialTerms ?? initial);
   const [cash, setCash] = useState("1000");
   return <><RequestForm ar={false} terms={terms} setTerms={setTerms} cash={cash} setCash={setCash}
-    reference={reference} busy={false} renewing={false} stale={false} now={now} onSubmit={() => {}}
+    reference={reference} busy={false} mode="create" stale={false} now={now} onSubmit={() => {}}
     onClose={() => {}} onReload={() => {}} {...props} /><output data-testid="terms">{JSON.stringify(terms)}</output></>;
 }
 function form() { return screen.getByRole("form", { name: "Request details" }) as HTMLFormElement; }
@@ -58,7 +58,7 @@ describe("buyer USDT request form", () => {
     expect(document.getElementById("request-submit-help")?.textContent).toContain("between ₪2.75 and ₪3.45");
   });
   it("shows grouped amounts, exact payment detail, limits and clear field labels", () => {
-    render(<Harness publishing={{ nextAllowedAt: null, remaining: 4 }} />);
+    render(<Harness publishing={{ nextAllowedAt: null, remaining: 1 }} />);
     expect(form().id).toBe("request-form");
     expect(amountInput().value).toBe("5,000");
     expect(amountInput().getAttribute("pattern")).toBeNull();
@@ -66,7 +66,7 @@ describe("buyer USDT request form", () => {
     const estimate = screen.getByRole("region", { name: "Estimated payment" });
     expect(within(estimate).getByText("₪16,665.00")).toBeTruthy();
     expect(within(estimate).getByText("₪165.00")).toBeTruthy();
-    expect(screen.getByText(/4 of 5 publishes or renewals remaining/)).toBeTruthy();
+    expect(screen.getByText(/1 of 2 request slots remaining/)).toBeTruthy();
     expect(submitButton().disabled).toBe(false);
   });
 
@@ -208,7 +208,7 @@ describe("buyer USDT request form", () => {
   });
 
   it("uses the supplied clock for a publishing cooldown and enables when it ends", () => {
-    const publishing = { nextAllowedAt: new Date(now + 125_000).toISOString(), remaining: 4 };
+    const publishing = { nextAllowedAt: new Date(now + 125_000).toISOString(), remaining: 1 };
     const view = render(<Harness publishing={publishing} />);
     expect(submitButton().disabled).toBe(true);
     expect(document.getElementById("request-submit-help")?.textContent).toContain("2:05");
@@ -216,22 +216,39 @@ describe("buyer USDT request form", () => {
     expect(submitButton().disabled).toBe(false);
   });
 
-  it("allows renewal of an existing open request while still enforcing the daily limit", () => {
-    const publishing = { nextAllowedAt: null, remaining: 2, openRequestId: "own-request" };
+  it("allows editing the open request even when both slots are used and the next publication is blocked", () => {
+    const publishing = { nextAllowedAt: new Date(now + 86400000).toISOString(), remaining: 0, openRequestId: "own-request" };
     const view = render(<Harness publishing={publishing} />);
     expect(submitButton().disabled).toBe(true);
     expect(document.getElementById("request-submit-help")?.textContent).toContain("already have an open request");
-    view.rerender(<Harness publishing={publishing} renewing />);
-    expect(submitButton("Save and renew").disabled).toBe(false);
-    view.rerender(<Harness publishing={{ ...publishing, remaining: 0 }} renewing />);
-    expect(submitButton("Save and renew").disabled).toBe(true);
-    expect(document.getElementById("request-submit-help")?.textContent).toContain("used all 5");
+    view.rerender(<Harness publishing={publishing} mode="edit" expiresAt={new Date(now + 3600000).toISOString()} />);
+    expect(submitButton("Save changes").disabled).toBe(false);
+    expect(screen.getByText(/Editing is free and keeps your original expiry time/)).toBeTruthy();
+    expect(screen.getByText(/0 of 2 request slots remaining/)).toBeTruthy();
+  });
+
+  it("blocks republishing at the daily limit while explaining that current requests can still be edited", () => {
+    render(<Harness publishing={{ nextAllowedAt: null, remaining: 0 }} mode="renew" />);
+    expect(submitButton("Publish again").disabled).toBe(true);
+    expect(document.getElementById("request-submit-help")?.textContent).toContain("used both request slots");
+    expect(screen.getByText(/12 hours per request/)).toBeTruthy();
+  });
+
+  it("does not silently turn an expired edit into a new publication", () => {
+    const onSubmit = vi.fn();
+    const view = render(<Harness mode="edit" expiresAt={new Date(now + 1000).toISOString()} onSubmit={onSubmit} />);
+    expect(submitButton("Save changes").disabled).toBe(false);
+    view.rerender(<Harness mode="edit" expiresAt={new Date(now + 1000).toISOString()} now={now + 1000} onSubmit={onSubmit} />);
+    expect(submitButton("Save changes").disabled).toBe(true);
+    fireEvent.submit(form());
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(document.getElementById("request-submit-help")?.textContent).toContain("expired while you were editing");
   });
 
   it("blocks stale editing and offers an explicit reload action", () => {
     const onReload = vi.fn(); const onSubmit = vi.fn(); const onClose = vi.fn();
-    render(<Harness stale renewing onReload={onReload} onSubmit={onSubmit} onClose={onClose} />);
-    expect(submitButton("Save and renew").disabled).toBe(true);
+    render(<Harness stale mode="edit" expiresAt={new Date(now + 3600000).toISOString()} onReload={onReload} onSubmit={onSubmit} onClose={onClose} />);
+    expect(submitButton("Save changes").disabled).toBe(true);
     expect(amountInput().closest("fieldset")?.disabled).toBe(true);
     fireEvent.submit(form());
     expect(onSubmit).not.toHaveBeenCalled();

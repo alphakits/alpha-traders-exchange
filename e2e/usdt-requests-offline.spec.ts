@@ -1116,7 +1116,7 @@ test("buyer form stays readable without horizontal overflow from 320 to 1920 pix
   } finally { await seller.close(); }
 });
 
-test("buyer can keep or cancel a request and then renew it after the cooldown", async ({ page, context }) => {
+test("buyer can keep or cancel a request and then publish it again after the cooldown", async ({ page, context }) => {
   await blockExternalBrowserRequests(context); await login(page.request, "buyer");
   const demand = await createDemand(page.request, "5000");
   await page.goto(`/en/usdt-exchange/requests/${demand.id}`);
@@ -1127,13 +1127,83 @@ test("buyer can keep or cancel a request and then renew it after the cooldown", 
   await page.getByRole("button", { name: "Confirm cancellation", exact: true }).click();
   expect((await state(page.request)).usdtDemands?.[0].state).toBe("cancelled");
   await ageDemandPastCooldown(page.request, demand.id); await page.reload();
-  await page.getByRole("button", { name: "Update / renew", exact: true }).click();
+  await page.getByRole("button", { name: "Publish again", exact: true }).click();
   const form = page.getByRole("form", { name: "Request details" });
   await expect(form.getByLabel("Amount (USDT)", { exact: true })).toHaveValue("5,000");
   await form.getByLabel("Requested price per USDT (ILS)", { exact: true }).fill("3.10");
-  await form.getByRole("button", { name: "Save and renew", exact: true }).click();
+  await form.getByRole("button", { name: "Publish again", exact: true }).click();
   await expect(page.getByTestId("request-card")).toContainText("3.10");
   expect((await state(page.request)).usdtDemands?.[0]).toMatchObject({ state: "open", revision: 3, amount: "5000", price: "3.10" });
+});
+
+test("12-hour requests allow free edits, enforce two publications, and lock after acceptance", async ({ page, context, playwright, baseURL }, info) => {
+  await blockExternalBrowserRequests(context); await login(page.request, "buyer");
+  const seller = await playwright.request.newContext({ baseURL });
+  try {
+    await login(seller, "seller");
+    const demand = await createDemand(page.request);
+    const initial = (await state(page.request)).usdtDemands!.find(item => item.id === demand.id)!;
+    expect(Date.parse(initial.expiresAt) - Date.parse(initial.createdAt)).toBe(12 * 60 * 60_000);
+    const offerResponse = await seller.post(`${root}/${demand.id}/offers`, { data: { revision: 1, listingId: "listing-offline-seller", price: "3.30", operationId: randomUUID() } });
+    expect(offerResponse.ok(), await offerResponse.text()).toBe(true);
+    const originalOffer = await offerResponse.json();
+    await page.goto(`/en/usdt-exchange/requests/${demand.id}`);
+    await page.getByRole("button", { name: "Edit request", exact: true }).click();
+    const form = page.getByRole("form", { name: "Request details" });
+    await form.getByLabel("Requested price per USDT (ILS)", { exact: true }).fill("3.25");
+    await form.getByRole("button", { name: "Save changes", exact: true }).click();
+    await expect(page.getByTestId("request-card")).toContainText("3.25");
+    let saved = (await state(page.request)).usdtDemands!.find(item => item.id === demand.id)!;
+    expect(saved).toMatchObject({ expiresAt: initial.expiresAt, revision: 2, state: "open" });
+    expect(saved.offers.find(item => item.id === originalOffer.id)?.state).toBe("superseded");
+    expect((await (await page.request.get(root)).json()).publishing.remaining).toBe(1);
+    const staleMatch = await matchDemand(page.request, demand.id, originalOffer.id);
+    expect(staleMatch.ok()).toBe(false);
+    expect((await state(page.request)).purchaseRequests).toHaveLength(0);
+    const cancelled = await page.request.patch(`${root}/${demand.id}`, { data: { action: "cancel", revision: 2 } });
+    expect(cancelled.ok(), await cancelled.text()).toBe(true);
+    await ageDemandPastCooldown(page.request, demand.id);
+    const renewed = await page.request.patch(`${root}/${demand.id}`, { data: { action: "renew", revision: 3, terms } });
+    expect(renewed.ok(), await renewed.text()).toBe(true);
+    expect((await (await page.request.get(root)).json()).publishing.remaining).toBe(0);
+    // Quota exhaustion must not prevent editing the currently open request.
+    const edit = await page.request.patch(`${root}/${demand.id}`, { data: { action: "edit", revision: 4, terms: { ...terms, price: "3.20" } } });
+    expect(edit.ok(), await edit.text()).toBe(true);
+    const expiredCancel = await page.request.patch(`${root}/${demand.id}`, { data: { action: "cancel", revision: 5 } });
+    expect(expiredCancel.ok(), await expiredCancel.text()).toBe(true);
+    await ageDemandPastCooldown(page.request, demand.id);
+    const third = await page.request.post(root, { data: { terms, operationId: randomUUID() } });
+    expect(third.status()).toBe(429); expect((await third.json()).code).toBe("DAILY_LIMIT");
+
+    // Start a fresh isolated account for the accepted-request lock assertion.
+    const buyerTwo = await playwright.request.newContext({ baseURL });
+    try {
+      await login(buyerTwo, "otherBuyer");
+      const other = await createDemand(buyerTwo);
+      const offered = await seller.post(`${root}/${other.id}/offers`, { data: { revision: 1, listingId: "listing-offline-seller", price: "3.30", operationId: randomUUID() } });
+      expect(offered.ok(), await offered.text()).toBe(true);
+      const matched = await matchDemand(buyerTwo, other.id, (await offered.json()).id);
+      expect(matched.status(), await matched.text()).toBe(201);
+      const trade = (await matched.json()).purchase;
+      saved = (await state(buyerTwo)).usdtDemands!.find(item => item.id === other.id)!;
+      for (const action of ["edit", "renew"]) {
+        const rejected = await buyerTwo.patch(`${root}/${other.id}`, { data: { action, revision: saved.revision, terms } });
+        // Existing buyer eligibility blocks writes before the request-specific lock.
+        expect(rejected.status()).toBe(409); expect((await rejected.json()).code).toBe("ACTIVE_TRADE_EXISTS");
+      }
+      const tradeCancelled = await buyerTwo.patch(`/api/alpha-exchange/purchase-requests/${trade.id}`, { data: { status: "cancelled" } });
+      expect(tradeCancelled.ok(), await tradeCancelled.text()).toBe(true);
+      for (const action of ["edit", "renew"]) {
+        const rejected = await buyerTwo.patch(`${root}/${other.id}`, { data: { action, revision: saved.revision, terms } });
+        expect(rejected.status()).toBe(409); expect((await rejected.json()).code).toBe("TRADE_EXISTS");
+      }
+      expect((await state(buyerTwo)).purchaseRequests).toHaveLength(1);
+      expect((await state(buyerTwo)).usdtDemands!.find(item => item.id === other.id)).toEqual(saved);
+    } finally { await buyerTwo.dispose(); }
+    await page.goto(`/en/usdt-exchange/requests/${demand.id}`);
+    await expect(page.getByTestId("request-card")).toBeVisible();
+    await page.screenshot({ path: info.outputPath("two-request-policy.png"), fullPage: true });
+  } finally { await seller.dispose(); }
 });
 
 test("a demand-origin Bank Transfer completes through payment proof, release and seller completion", async ({ page, context, playwright, baseURL }) => {

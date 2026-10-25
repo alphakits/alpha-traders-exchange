@@ -5,14 +5,24 @@ import type { MarketSnapshot } from "@/types/market";
 import { hasSellerOperationalAccess } from "@/lib/seller-approval-verification";
 import { formatIls, formatUsdt } from "@/lib/usdt-demand-format";
 import { demandIdentityProjector } from "@/lib/usdt-demand-identity";
-import { assertDemandActor, assertDemandListing, assertDemandTerms, canRespond, DEMAND_COOLDOWN_MS, DEMAND_TTL_MS, demandChangeSchema, demandCreateSchema, DemandError, demandListingAvailableAmount, demandOfferSchema, demandReference, demandState } from "./usdt-demand-policy";
+import { demandAcceptedMatch, demandExpiresAtMs } from "./usdt-demand-policy";
+import { assertDemandActor, assertDemandListing, assertDemandTerms, canRespond, DEMAND_COOLDOWN_MS, DEMAND_TTL_MS, DEMAND_PUBLICATION_WINDOW_MS, DEMAND_PUBLICATION_LIMIT, demandChangeSchema, demandCreateSchema, DemandError, demandListingAvailableAmount, demandOfferSchema, demandReference, demandState } from "./usdt-demand-policy";
 
 function actor(db: AlphaExchangeDb, id: string) {
   const user = db.users.find(u => u.id === id); assertDemandActor(user); return user;
 }
 function expire(db: AlphaExchangeDb, now: number) {
-  for (const d of db.usdtDemands ?? []) if (d.state === "open" && Date.parse(d.expiresAt) <= now) {
-    d.state = "expired"; d.updatedAt = new Date(now).toISOString();
+  for (const d of db.usdtDemands ?? []) {
+    const accepted = demandAcceptedMatch(d);
+    // Close legacy reopened rows under the same lock as a new publication,
+    // preserving their original trade pointer and the one-open SQL invariant.
+    if (accepted && d.state !== "matched") {
+      d.state = accepted.purchaseRequestId ? "matched" : "cancelled";
+      d.purchaseRequestId = accepted.purchaseRequestId; d.acceptedOfferId = accepted.offerId;
+      d.updatedAt = new Date(now).toISOString();
+    } else if (d.state === "open" && demandExpiresAtMs(d) <= now) {
+      d.state = "expired"; d.updatedAt = new Date(now).toISOString();
+    }
   }
 }
 function notice(db: AlphaExchangeDb, user: AlphaExchangeUser, d: UsdtDemand, offerId?: string) {
@@ -41,17 +51,17 @@ function publicationLimits(db: AlphaExchangeDb, userId: string, now: number) {
   const times = (db.usdtDemands ?? []).filter(d => d.requesterId === userId)
     .flatMap(d => d.history.filter(h => ["created", "renewed"].includes(h.action)).map(h => Date.parse(h.at)))
     .filter(Number.isFinite).sort((a, b) => a - b);
-  const recent = times.filter(at => now - at < DEMAND_TTL_MS);
+  const recent = times.filter(at => now - at < DEMAND_PUBLICATION_WINDOW_MS);
   const cooldownUntil = (times.at(-1) ?? 0) + DEMAND_COOLDOWN_MS;
-  const dailyUntil = recent.length >= 5 ? recent[recent.length - 5] + DEMAND_TTL_MS : 0;
+  const dailyUntil = recent.length >= DEMAND_PUBLICATION_LIMIT ? recent[recent.length - DEMAND_PUBLICATION_LIMIT] + DEMAND_PUBLICATION_WINDOW_MS : 0;
   const nextAt = Math.max(cooldownUntil, dailyUntil);
-  const openRequestId = db.usdtDemands?.find(d => d.requesterId === userId && d.state === "open" && Date.parse(d.expiresAt) > now)?.id ?? null;
-  return { cooldownUntil, dailyUntil, publishing: { remaining: Math.max(0, 5 - recent.length), nextAllowedAt: nextAt > now ? new Date(nextAt).toISOString() : null, openRequestId } };
+  const openRequestId = db.usdtDemands?.find(d => d.requesterId === userId && d.state === "open" && !demandAcceptedMatch(d) && demandExpiresAtMs(d) > now)?.id ?? null;
+  return { cooldownUntil, dailyUntil, publishing: { remaining: Math.max(0, DEMAND_PUBLICATION_LIMIT - recent.length), nextAllowedAt: nextAt > now ? new Date(nextAt).toISOString() : null, openRequestId } };
 }
 function assertPostRate(db: AlphaExchangeDb, userId: string, now: number) {
   const limits = publicationLimits(db, userId, now);
   if (limits.cooldownUntil > now) throw new DemandError("REQUEST_COOLDOWN", "Wait five minutes between publishing or renewing requests.", 429);
-  if (limits.dailyUntil > now) throw new DemandError("DAILY_LIMIT", "You can publish or renew up to five requests per day.", 429);
+  if (limits.dailyUntil > now) throw new DemandError("DAILY_LIMIT", "You can publish up to two requests in any 24 hours. Editing an open request does not use a publication.", 429);
 }
 export function createDemand(db: AlphaExchangeDb, userId: string, body: unknown, market: MarketSnapshot, assertCanPublish: () => void = () => {}) {
   const input = demandCreateSchema.parse(body); actor(db, userId);
@@ -76,26 +86,36 @@ export function changeDemand(db: AlphaExchangeDb, userId: string, id: string, bo
   const demand = (db.usdtDemands ?? []).find(d => d.id === id && d.requesterId === userId);
   if (!demand) throw new DemandError("NOT_FOUND", "Request not found.", 404);
   if (demand.revision !== input.revision) throw new DemandError("REQUEST_CHANGED", "This request changed. Refresh before trying again.");
-  // Cancellation never depends on a market provider. Only a cancelled or
-  // declined matched trade can be reopened or cancelled from this workspace.
-  if (demand.state === "matched") {
-    const trade = db.purchaseRequests.find(t => t.id === demand.purchaseRequestId);
-    if (!trade || !["cancelled", "declined"].includes(trade.status)) throw new DemandError("TRADE_EXISTS", "Continue in the existing Trade Room.");
+  // A selected response permanently locks its request, including after the
+  // resulting trade closes. A later purchase needs a separate publication.
+  if (demandAcceptedMatch(demand)) {
+    throw new DemandError("TRADE_EXISTS", "This accepted request is locked. Continue in the existing Trade Room.");
   }
   const now = Date.now(); expire(db, now);
   if (input.action === "cancel" && demand.state === "cancelled") return demand;
-  if (input.action === "renew") {
+  // Older clients used renew for both editing and publishing again. A request
+  // that is still open always follows edit rules, so retries/old clients cannot
+  // extend its lifetime or consume an additional publication by editing it.
+  const editing = input.action !== "cancel" && demand.state === "open";
+  if (input.action === "edit" && !editing) throw new DemandError("REQUEST_CHANGED", "This request has closed. Publish it again to receive new responses.");
+  if (input.action !== "cancel") {
     if (!market) throw new DemandError("QUOTE_UNAVAILABLE", "A fresh USD/ILS reference is required. Please try again shortly.");
-    assertSingleOpen(db, userId, id); assertPostRate(db, userId, now); assertDemandTerms(input.terms, market, now);
+    assertSingleOpen(db, userId, id);
+    if (!editing) assertPostRate(db, userId, now);
+    assertDemandTerms(input.terms, market, now);
+    if (editing && (Object.keys(input.terms) as Array<keyof DemandTerms>).every(key => demand[key] === input.terms[key])) return demand;
     demand.createTerms ??= { amount: demand.amount, price: demand.price, network: demand.network, paymentMethod: demand.paymentMethod, city: demand.city };
-    Object.assign(demand, input.terms); demand.state = "open"; demand.expiresAt = new Date(now + DEMAND_TTL_MS).toISOString();
+    Object.assign(demand, input.terms); demand.state = "open";
+    if (!editing) demand.expiresAt = new Date(now + DEMAND_TTL_MS).toISOString();
   } else demand.state = "cancelled";
   demand.revision += 1; demand.updatedAt = new Date(now).toISOString();
   const priorTrade = { purchaseRequestId: demand.purchaseRequestId, offerId: demand.acceptedOfferId };
   delete demand.purchaseRequestId; delete demand.acceptedOfferId;
   for (const offer of demand.offers) if (offer.state === "open") offer.state = "superseded";
-  demand.history.push({ action: input.action === "renew" ? "renewed" : "cancelled", actorId: userId, at: demand.updatedAt, revision: demand.revision, ...priorTrade });
-  if (input.action === "renew") notifySellers(db, demand);
+  demand.history.push({ action: input.action === "cancel" ? "cancelled" : editing ? "edited" : "renewed", actorId: userId, at: demand.updatedAt, revision: demand.revision, ...priorTrade });
+  // Editing is unrestricted by publication quota, so it must not rebroadcast
+  // a new-request notice to every seller. Existing cards refresh by revision.
+  if (input.action === "renew" && !editing) notifySellers(db, demand);
   return demand;
 }
 export function respondToDemand(db: AlphaExchangeDb, userId: string, id: string, body: unknown, market: MarketSnapshot) {
@@ -157,11 +177,12 @@ export function readDemandWorkspace(db: AlphaExchangeDb, userId: string, market:
       return { id: o.id, listingId: o.listingId, price: o.price, revision: o.revision, state: o.state, createdAt: o.createdAt,
         sellerName: identity(o.sellerId).displayName, seller: identity(o.sellerId), isMine: o.sellerId === userId, available };
     });
-    const canSeeTrade = d.requesterId === userId || d.offers.some(o => o.id === d.acceptedOfferId && o.sellerId === userId);
+    const accepted = demandAcceptedMatch(d);
+    const canSeeTrade = d.requesterId === userId || d.offers.some(o => o.id === accepted?.offerId && o.sellerId === userId);
     return { id: d.id, amount: d.amount, price: d.price, network: d.network, paymentMethod: d.paymentMethod, city: d.city,
-      revision: d.revision, state, updatedAt: d.updatedAt, expiresAt: d.expiresAt, isMine: d.requesterId === userId,
+      revision: d.revision, state, updatedAt: d.updatedAt, expiresAt: new Date(demandExpiresAtMs(d)).toISOString(), isMine: d.requesterId === userId,
       requesterName: identity(d.requesterId).displayName, requester: identity(d.requesterId),
-      purchaseRequestId: canSeeTrade ? d.purchaseRequestId : undefined, offers };
+      purchaseRequestId: canSeeTrade ? accepted?.purchaseRequestId : undefined, offers };
   });
   const selected = input.id ? page[0] : undefined;
   const listings = selected && selected.requesterId !== userId ? db.marketplaceListings.filter(l => {

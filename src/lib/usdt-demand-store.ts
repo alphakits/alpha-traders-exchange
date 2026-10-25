@@ -45,7 +45,7 @@ export async function publishDemand(userId: string, body: unknown) {
 export async function editDemand(userId: string, id: string, body: unknown) {
   if ((body as { action?: string })?.action === "cancel") return mutateDemands(db => changeDemand(db, userId, id, body));
   return mutateAtCurrentReference((db, market) => {
-    if ((body as { action?: string })?.action === "renew") assertBuyerEligibleForDemand(db, userId);
+    if (["edit", "renew"].includes((body as { action?: string })?.action ?? "")) assertBuyerEligibleForDemand(db, userId);
     return changeDemand(db, userId, id, body, market);
   });
 }

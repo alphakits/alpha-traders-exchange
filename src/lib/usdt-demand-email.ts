@@ -2,7 +2,7 @@ import "server-only";
 import { getAlphaExchangeRepository } from "./alpha-exchange-repository";
 import { sendMarketplaceEmail } from "./marketplace-email-delivery";
 import { getMarketSnapshot } from "./market-service";
-import { canRespond, demandEnabled, demandReference, assertDemandActor, assertDemandListing, assertDemandTerms } from "./usdt-demand-policy";
+import { canRespond, demandEnabled, demandReference, assertDemandActor, assertDemandListing, assertDemandTerms, demandExpiresAtMs, demandAcceptedMatch } from "./usdt-demand-policy";
 import { DEMAND_TABLES, mutateDemands } from "./usdt-demand-store";
 import type { AlphaExchangeDb, AlphaExchangeNotification } from "@/types/alpha-exchange";
 import type { MarketSnapshot } from "@/types/market";
@@ -16,8 +16,8 @@ function eligibleNotice(db: AlphaExchangeDb, notice: AlphaExchangeNotification, 
   const d = db.usdtDemands?.find(candidate => candidate.id === intent?.demandId);
   const user = db.users.find(candidate => candidate.id === notice.userId);
   if (!intent || intent.state === "suppressed" || !d || !user || user.notificationPreferences?.email !== true
-    || intent.revision !== d.revision || d.state !== "open"
-    || !Number.isFinite(Date.parse(d.expiresAt)) || Date.parse(d.expiresAt) <= Date.now()
+    || intent.revision !== d.revision || d.state !== "open" || demandAcceptedMatch(d)
+    || demandExpiresAtMs(d) <= Date.now()
     || !Number.isFinite(Date.parse(notice.createdAt))
     || Date.now() - Date.parse(notice.createdAt) >= 23 * 60 * 60 * 1000) return false;
   try {

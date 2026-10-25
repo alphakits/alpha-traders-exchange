@@ -89,8 +89,14 @@ describe("demand email eligibility at durable delivery", () => {
     ["buyer disabled", () => { state.db!.users[0].disabled = true; }],
     ["request cancelled", () => { state.db!.usdtDemands![0].state = "cancelled"; }],
     ["request matched", () => { state.db!.usdtDemands![0].state = "matched"; }],
+    ["legacy accepted request reopened", () => { state.db!.usdtDemands![0].history.push({ action: "matched", actorId: "buyer", at: new Date().toISOString(), revision: 1, purchaseRequestId: "prior-trade", offerId: "prior-offer" }); }],
     ["request renewed", () => { state.db!.usdtDemands![0].revision += 1; }],
     ["request expired", () => { state.db!.usdtDemands![0].expiresAt = new Date(Date.now() - 1).toISOString(); }],
+    ["legacy 24-hour request exceeds the 12-hour lifetime", () => {
+      const demand = state.db!.usdtDemands![0];
+      demand.createdAt = new Date(Date.now() - 13 * 3600_000).toISOString(); demand.history[0].at = demand.createdAt;
+      demand.expiresAt = new Date(Date.now() + 11 * 3600_000).toISOString();
+    }],
     ["price outside new band", () => { state.market = demandTestMarket(4); }],
     ["feature disabled", () => { vi.stubEnv("ALPHA_USDT_REQUESTS_ENABLED", "0"); }],
     ["delivery disabled", () => { vi.stubEnv("ALPHA_USDT_REQUEST_EMAIL_DELIVERY_ENABLED", "0"); }],
