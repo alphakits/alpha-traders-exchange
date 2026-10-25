@@ -31,6 +31,40 @@ async function openFocusForm(locale: "en" | "ar" = "en") {
 beforeEach(() => { vi.clearAllMocks(); mocks.query = ""; mocks.session = { user: { id: "buyer" } }; });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 describe("USDT request workspace", () => {
+  it("translates a server publication denial in Arabic and keeps the entered amount", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, options?: RequestInit) => options?.method === "POST"
+      ? Response.json({ code: "DAILY_LIMIT", error: "raw English diagnostic" }, { status: 429 }) : Response.json(base)));
+    render(<UsdtRequestsWorkspace locale="ar" actorId="buyer" />);
+    fireEvent.click(await screen.findByRole("button", { name: "إنشاء طلب" }));
+    fireEvent.change(screen.getByLabelText("المبلغ (USDT)"), { target: { value: "5,000" } });
+    fireEvent.submit(screen.getByRole("form", { name: "تفاصيل الطلب" }));
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("يمكنك نشر طلبين خلال أي 24 ساعة");
+    expect(alert.textContent).not.toContain("raw English diagnostic");
+    expect((screen.getByLabelText("المبلغ (USDT)") as HTMLInputElement).value).toBe("5,000");
+    expect(mocks.push).not.toHaveBeenCalled();
+  });
+  it.each(["en", "ar"] as const)("does not expose unknown API diagnostics in the %s workspace", async locale => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ code: "UNEXPECTED_INTERNAL", error: "private server diagnostic", message: "private fallback diagnostic" }, { status: 503 })));
+    render(<UsdtRequestsWorkspace locale={locale} actorId="buyer" />);
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain(locale === "ar" ? "تعذر تأكيد النتيجة" : "Could not confirm the result");
+    expect(alert.textContent).not.toContain("diagnostic");
+  });
+  it.each(["en", "ar"] as const)("does not recalculate historical response totals using edited request terms in %s", async locale => {
+    const row: DemandView = { ...demand(), revision: 2, amount: "5000", paymentMethod: "Bank Transfer", offers: [
+      { id: "old-offer", listingId: "listing-one", price: "3.20", revision: 1, state: "superseded", sellerName: "AT-200", isMine: false, available: false },
+      { id: "current-offer", listingId: "listing-two", price: "3.25", revision: 2, state: "open", sellerName: "AT-300", isMine: false, available: true },
+    ] };
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ ...base, requests: [row] })));
+    render(<UsdtRequestsWorkspace locale={locale} actorId="buyer" demandId="demand-one" />);
+    await screen.findByText("AT-200");
+    const oldCard = document.getElementById("offer-old-offer")!;
+    expect(oldCard.textContent).toContain("₪3.20");
+    expect(oldCard.textContent).not.toContain("₪16,160.00");
+    expect(oldCard.textContent).toContain(locale === "ar" ? "رد على شروط طلب سابقة" : "Response to earlier request terms");
+    expect(document.getElementById("offer-current-offer")?.textContent).toContain("₪16,412.50");
+  });
   it("keeps amount typing and the submitted value intact when the reveal frame runs late", async () => {
     const frames: FrameRequestCallback[] = [];
     vi.stubGlobal("requestAnimationFrame", vi.fn((callback: FrameRequestCallback) => frames.push(callback)));
@@ -229,7 +263,7 @@ describe("USDT request workspace", () => {
   it("shows a useful recovery message for a non-JSON server failure", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response("<html>Unavailable</html>", { status: 503 })));
     render(<UsdtRequestsWorkspace locale="en" actorId="buyer" />);
-    expect((await screen.findByRole("alert")).textContent).toContain("Please refresh and try again");
+    expect((await screen.findByRole("alert")).textContent).toContain("Refresh the request and check its status");
     expect(screen.queryByRole("button", { name: "Create a request" })).toBeNull();
   });
   it("stops using a quote at its provider expiry without waiting for the next poll", async () => {
@@ -296,9 +330,9 @@ describe("USDT request workspace", () => {
     expect(screen.queryByRole("button", { name: "Publish request" })).toBeNull();
   });
   it("displays load failures without enabling publication", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ error: "Your account needs verification." }, { status: 403 })));
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ error: "Your account needs verification.", code: "VERIFICATION_REQUIRED" }, { status: 403 })));
     render(<UsdtRequestsWorkspace locale="en" actorId="buyer" />);
-    await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("needs verification"));
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("Complete your account verification"));
     expect(screen.queryByRole("button", { name: "Create a request" })).toBeNull();
   });
   it("blocks a stale editor until the buyer explicitly reloads the latest details", async () => {

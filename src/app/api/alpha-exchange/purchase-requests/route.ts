@@ -2,7 +2,7 @@ import { PrivateContactError } from "@/lib/buyer-contact";
 import { resolveSupportedRequestLocale } from "@/lib/request-locale";
 import { after, NextRequest, NextResponse } from "next/server";
 import { createPurchaseRequest, getMyPurchaseRequests, sanitizePurchaseRequestForActor, TradeBlockedError } from "@/lib/alpha-exchange-store";
-import { DemandError } from "@/lib/usdt-demand-policy";
+import { DemandError, parseDemandMatchBinding } from "@/lib/usdt-demand-policy";
 import { commissionPaymentDestination } from "@/lib/commission-payment-destination";
 import { getWalletAddressValidationError } from "@/lib/wallet-address";
 import { requireApiUser, requireMarketplaceVerificationForTrading } from "@/lib/api-auth";
@@ -142,6 +142,7 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     demandOrigin = Boolean(body && typeof body === "object" && ["usdtDemandId", "usdtDemandOfferId", "usdtDemandRevision"].some(key => Object.hasOwn(body, key)));
+    const demandBinding = demandOrigin ? parseDemandMatchBinding(body) : null;
     const listingId = String(body.listingId ?? "").trim();
     if (!listingId) {
       return denied("Listing ID is required.", 400, "LISTING_ID_REQUIRED");
@@ -176,9 +177,9 @@ export async function POST(request: NextRequest) {
     if (body?.feePolicyVersion !== "buyer_seller_1pct_v1") return denied("Refresh and review the 1% buyer fee before confirming your trade.", 409, "FEE_POLICY_REVIEW_REQUIRED");
 
     const created = await createPurchaseRequest({
-      usdtDemandId: typeof body.usdtDemandId === "string" ? body.usdtDemandId : undefined,
-      usdtDemandOfferId: typeof body.usdtDemandOfferId === "string" ? body.usdtDemandOfferId : undefined,
-      usdtDemandRevision: typeof body.usdtDemandRevision === "number" ? body.usdtDemandRevision : undefined,
+      usdtDemandId: demandBinding?.usdtDemandId,
+      usdtDemandOfferId: demandBinding?.usdtDemandOfferId,
+      usdtDemandRevision: demandBinding?.usdtDemandRevision,
       feePolicyVersion: "buyer_seller_1pct_v1",
       buyerId: user.id,
       listingId,

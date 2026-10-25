@@ -59,12 +59,12 @@ import { POST } from "@/app/api/alpha-exchange/purchase-requests/route";
 import { TradeBlockedError } from "@/lib/alpha-exchange-store";
 import { DemandError } from "@/lib/usdt-demand-policy";
 
-function demandMatchRequest() {
+function demandMatchRequest(overrides: Record<string, unknown> = {}) {
   return new NextRequest("http://localhost/api/alpha-exchange/purchase-requests", {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ feePolicyVersion: "buyer_seller_1pct_v1", listingId: "listing-1", usdtAmount: "500",
       buyerReceivingWalletAddress: "TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE",
-      usdtDemandId: "demand-1", usdtDemandOfferId: "offer-1", usdtDemandRevision: 1 }),
+      usdtDemandId: "demand-1", usdtDemandOfferId: "offer-1", usdtDemandRevision: 1, ...overrides }),
   });
 }
 
@@ -105,6 +105,30 @@ describe("purchase request route", () => {
       delete sanitized.sellerBankAccountId;
       return sanitized;
     });
+  });
+
+  it.each([
+    { usdtDemandId: null, usdtDemandOfferId: null, usdtDemandRevision: "1" },
+    { usdtDemandId: 123, usdtDemandOfferId: 456, usdtDemandRevision: "1" },
+    { usdtDemandId: "", usdtDemandOfferId: "", usdtDemandRevision: 0 },
+    { usdtDemandId: undefined },
+    { usdtDemandOfferId: undefined },
+    { usdtDemandRevision: undefined },
+    { usdtDemandId: " " },
+    { usdtDemandOfferId: "x".repeat(101) },
+    { usdtDemandRevision: -1 },
+    { usdtDemandRevision: 1.5 },
+    { usdtDemandRevision: Number.MAX_SAFE_INTEGER + 1 },
+  ])("rejects a malformed demand binding instead of silently creating an ordinary purchase: %j", async overrides => {
+    mocks.createPurchaseRequest.mockResolvedValue({
+      request: { id: "ordinary-purchase", paymentMethod: "Bank Transfer" },
+      metrics: { totalMs: 1, readDbMs: 0, validationMs: 0, businessMs: 0, writeDbMs: 1, sseMs: 0 },
+    });
+    const response = await POST(demandMatchRequest(overrides));
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ code: "INVALID_DEMAND_MATCH" });
+    expect(mocks.createPurchaseRequest).not.toHaveBeenCalled();
+    expect(mocks.after).not.toHaveBeenCalled();
   });
 
   it("preserves purchaseRequestId in details for pending buyer feedback blockers", async () => {

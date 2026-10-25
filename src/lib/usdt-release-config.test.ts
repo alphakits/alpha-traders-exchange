@@ -37,8 +37,24 @@ describe("Buy Requests release configuration", () => {
     expect(errors).toHaveLength(3);
   });
   it("requires the requested rollout state and stops demand email during rollback", () => {
-    expect(validateUsdtReleaseState({ ...release, ALPHA_USDT_REQUESTS_ENABLED: "1", ALPHA_USDT_REQUEST_EMAIL_DELIVERY_ENABLED: "1" }, "off")).toHaveLength(2);
+    expect(validateUsdtReleaseState({ ...release, ALPHA_USDT_REQUESTS_ENABLED: "1", ALPHA_USDT_REQUEST_EMAIL_DELIVERY_ENABLED: "1" }, "off")).toHaveLength(4);
     expect(validateUsdtReleaseState(release, "on")).toHaveLength(2);
     expect(validateUsdtReleaseState({ ...release, NODE_ENV: "development" }, "off")[0]).toContain("NODE_ENV");
+  });
+  it("keeps email-off releases valid without provider configuration", () => {
+    expect(validateUsdtReleaseConfig({ VERCEL_ENV: "preview", ALPHA_USDT_REQUEST_EMAIL_DELIVERY_ENABLED: "0" })).toEqual([]);
+  });
+  it.each(["RESEND_API_KEY", "EMAIL_FROM"])("requires %s only when email is enabled without exposing values", key => {
+    const env = { ALPHA_USDT_REQUEST_EMAIL_DELIVERY_ENABLED: "1", RESEND_API_KEY: "private-provider-credential", EMAIL_FROM: "private-sender@example.com", [key]: " " };
+    expect(validateUsdtReleaseConfig(env)).toEqual([`Buy Requests email delivery requires ${key}.`]);
+  });
+  it.each([undefined, "", "*", "allowed@example.com,*", "@example.com"])("blocks enabled preview email with invalid allowlist %s", allowlist => {
+    expect(validateUsdtReleaseConfig({ VERCEL_ENV: "preview", ALPHA_USDT_REQUEST_EMAIL_DELIVERY_ENABLED: "1", RESEND_API_KEY: "configured", EMAIL_FROM: "sender@example.com", ALPHA_EMAIL_STAGING_ALLOWLIST: allowlist }))
+      .toEqual(["Preview email delivery requires ALPHA_EMAIL_STAGING_ALLOWLIST with exact, comma-separated approved email addresses."]);
+  });
+  it("accepts configured preview email and does not constrain production recipients", () => {
+    const env = { ALPHA_USDT_REQUEST_EMAIL_DELIVERY_ENABLED: "1", RESEND_API_KEY: "configured", EMAIL_FROM: "sender@example.com" };
+    expect(validateUsdtReleaseConfig({ ...env, VERCEL_ENV: "preview", ALPHA_EMAIL_STAGING_ALLOWLIST: "approved@example.com" })).toEqual([]);
+    expect(validateUsdtReleaseConfig({ ...env, VERCEL_ENV: "production" })).toEqual([]);
   });
 });

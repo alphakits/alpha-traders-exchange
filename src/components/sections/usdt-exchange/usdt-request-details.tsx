@@ -51,7 +51,7 @@ export function FeeBreakdown({ amount, price, ar, title, seller = false }: { amo
       <p className="[overflow-wrap:anywhere]"><bdi dir="ltr" className="font-medium tabular-nums text-emerald-300">{exactAmount} USDT</bdi></p>
       <p className="mt-1">{ar ? "تُقرّب الكمية المعروضة لتسهيل القراءة. تُستخدم الكمية الدقيقة في الصفقة، ولا يتغير إجمالي الدفع." : "The main amount is rounded for readability. The trade uses this exact amount; your payment total stays unchanged."}</p>
     </details>}
-    <p className="mt-3 text-xs leading-5 text-gray-400">{ar ? "يشمل الإجمالي رسوم المشتري. يستلم المشتري كامل كمية USDT الموضحة." : "The total includes the buyer fee. The buyer receives the full USDT amount shown."}</p>
+    <p className="mt-3 text-xs leading-5 text-gray-400">{ar ? "يشمل الإجمالي رسوم المشتري. يستلم المشتري كامل كمية USDT الدقيقة المطلوبة." : "The total includes the buyer fee. The buyer receives the full exact USDT amount requested."}</p>
   </section>;
 }
 

@@ -1,3 +1,5 @@
+import { parseStagingEmailAllowlist } from "./email-preview-safety";
+
 type Environment = Readonly<Record<string, string | undefined>>;
 
 export function validateUsdtReleaseRuntime(version = process.versions.node): string[] {
@@ -28,6 +30,14 @@ export function validateUsdtReleaseConfig(env: Environment): string[] {
   for (const key of ["ALPHA_USDT_REQUESTS_ENABLED", "ALPHA_USDT_REQUEST_EMAIL_DELIVERY_ENABLED"] as const) {
     if (env[key] !== undefined && env[key] !== "" && env[key] !== "0" && env[key] !== "1") {
       errors.push(`${key} must be exactly 0 or 1; unset means disabled.`);
+    }
+  }
+  if (env.ALPHA_USDT_REQUEST_EMAIL_DELIVERY_ENABLED === "1") {
+    for (const key of ["RESEND_API_KEY", "EMAIL_FROM"] as const) {
+      if (!env[key]?.trim()) errors.push(`Buy Requests email delivery requires ${key}.`);
+    }
+    if (env.VERCEL_ENV === "preview" && !parseStagingEmailAllowlist(env.ALPHA_EMAIL_STAGING_ALLOWLIST)) {
+      errors.push("Preview email delivery requires ALPHA_EMAIL_STAGING_ALLOWLIST with exact, comma-separated approved email addresses.");
     }
   }
   for (const key of USDT_OFFLINE_FLAGS) {

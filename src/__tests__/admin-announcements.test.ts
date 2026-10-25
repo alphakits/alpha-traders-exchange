@@ -127,6 +127,8 @@ describe("admin announcement email", () => {
   });
 
   it("pauses for transient provider failures but not permanent rejections", () => {
+    expect(isRetryableAnnouncementDeliveryFailure({ reason: "email_preview_not_configured" })).toBe(true);
+    expect(isRetryableAnnouncementDeliveryFailure({ reason: "email_preview_recipient_blocked" })).toBe(false);
     expect(isRetryableAnnouncementDeliveryFailure({ reason: "resend_network_failed" })).toBe(true);
     expect(isRetryableAnnouncementDeliveryFailure({ reason: "resend_request_failed", providerStatus: 429 })).toBe(true);
     expect(isRetryableAnnouncementDeliveryFailure({ reason: "resend_request_failed", providerStatus: 503 })).toBe(true);

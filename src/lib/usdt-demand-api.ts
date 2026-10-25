@@ -8,6 +8,9 @@ import { queueDemandEmails } from "./usdt-demand-email";
 import { logEvent } from "./structured-logging";
 
 const headers = { "Cache-Control": "private, no-store, max-age=0", Pragma: "no-cache" };
+// Server-only provenance lets operators correlate concurrent requests to a
+// process and verify the actual hosted runtime without logging user data.
+const runtimeInstanceId = randomUUID();
 export async function demandApi(request: NextRequest, mutation: boolean, run: (userId: string) => Promise<unknown>) {
   const started = performance.now();
   const correlationId = randomUUID();
@@ -21,7 +24,8 @@ export async function demandApi(request: NextRequest, mutation: boolean, run: (u
       logEvent(status >= 500 ? "error" : status >= 400 ? "warn" : "info", {
         event: "usdt_demand_request", outcome: status >= 500 ? "failed" : status >= 400 ? "denied" : "success",
         reason: /^[A-Z_]{1,64}$/.test(reason) ? reason : "DOMAIN_REJECTED",
-        metadata: { correlationId, operation: mutation ? "write" : "read", status, durationMs: Math.round(performance.now() - started) },
+        metadata: { correlationId, operation: mutation ? "write" : "read", status, durationMs: Math.round(performance.now() - started),
+          nodeVersion: process.versions.node, runtimeInstanceId },
       });
     } catch { /* Telemetry availability must never change a financial action's response. */ }
     return response;

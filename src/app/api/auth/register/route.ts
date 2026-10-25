@@ -7,6 +7,7 @@ import { logEvent } from "@/lib/structured-logging";
 import { assertNoDirectContactContent } from "@/lib/privacy-redaction";
 import { academyLoginPath, mentorshipLoginPath } from "@/lib/academy-entry";
 import { AUTH_WEAK_PASSWORD_COPY, authProviderLogMetadata, isAuthProviderRateLimitError, isWeakPasswordError } from "@/lib/auth-provider-errors";
+import { previewEmailRecipientFailure } from "@/lib/email-preview-safety";
 
 const AUTH_RESPONSE_HEADERS = { "Cache-Control": "no-store, max-age=0" };
 const REGISTRATION_RESPONSE_FLOOR_MS = 450;
@@ -201,6 +202,10 @@ export async function POST(request: NextRequest) {
       });
     }
 
+    // Supabase signup may send its own confirmation email before Resend runs.
+    if (previewEmailRecipientFailure([email])) {
+      return registrationErrorResponse(locale, "REGISTRATION_FAILED", 503);
+    }
     validRegistrationStartedAt = Date.now();
     const existingUser = await findUserByEmail(email);
     if (existingUser) {

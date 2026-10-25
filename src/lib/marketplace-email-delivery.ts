@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { previewEmailSubject, previewPreparedEmailFailure } from "./email-preview-safety";
 import { enqueueMarketplaceEmail, runMarketplaceEmailSweep, type PreparedMarketplaceEmail, type EmailProviderResult } from "@/lib/marketplace-email-outbox";
 import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -334,14 +335,14 @@ export async function sendMarketplaceEmail(
     idempotencyKey: input.idempotencyKey ?? `marketplace:${randomUUID()}`,
     ...(requestId && requiredStatuses[input.event] ? { requestId, requiredTradeStatuses: requiredStatuses[input.event] } : {}),
     body: JSON.stringify({
-      from, to: [input.to], subject: email.subject, html: email.html, text: email.text,
+      from, to: [input.to], subject: previewEmailSubject(email.subject), html: email.html, text: email.text,
       headers: buildBrandedEmailHeaders(), attachments: [buildBrandedEmailLogoAttachment()],
     }),
   };
   const queued = await enqueueMarketplaceEmail(prepared, (message) => sendPreparedMarketplaceEmail(message, { maxAttempts: 1 }));
   if (queued) return queued;
   const result = await sendPreparedMarketplaceEmail(prepared, input);
-  if (result.ok) return result;
+  if (result.ok) return { ok: true as const };
   // Keep the established local/test transport contract; recovery metadata is
   // server-internal and is consumed only by the durable worker.
   return { ok: false as const, reason: result.reason,
@@ -367,6 +368,8 @@ async function sendPreparedMarketplaceEmail(
     = { ok: false, reason: "resend_network_failed", providerMessage: "Email request did not run.", retryable: true };
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const previewFailure = previewPreparedEmailFailure(prepared);
+    if (previewFailure) return previewFailure;
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
     let retryable = true;
@@ -383,7 +386,15 @@ async function sendPreparedMarketplaceEmail(
         signal: controller.signal,
       });
 
-      if (response.ok) return { ok: true as const };
+      if (response.ok) {
+        let receipt: unknown;
+        try { receipt = await response.json(); } catch { /* Ambiguous acceptance is retried with the same key. */ }
+        const id = typeof receipt === "object" && receipt !== null && "id" in receipt ? receipt.id : undefined;
+        if (typeof id === "string" && /^[a-zA-Z0-9_-]{1,256}$/.test(id)) {
+          return { ok: true, providerReceiptId: id };
+        }
+        return { ok: false, reason: "resend_invalid_response", providerStatus: response.status, retryable: true };
+      }
 
       const responseBody = await response.text();
       let providerMessage = responseBody;

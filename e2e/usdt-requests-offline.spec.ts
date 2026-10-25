@@ -680,6 +680,7 @@ for (const locale of ["en", "ar"] as const) {
 
       const demand = await createDemand(buyer.request);
       await sellerPage.goto(`/${locale}/usdt-exchange/requests/${demand.id}`);
+      await expect(sellerPage.getByRole("form", { name: ar ? "رد البائع" : "Seller response", exact: true })).toBeVisible();
       await sellerPage.getByLabel(ar ? "عرضك" : "Your listing", { exact: true }).selectOption("listing-offline-seller");
       const sellerPrice = sellerPage.getByLabel(ar ? "سعر ردك (شيكل)" : "Your response price (ILS)", { exact: true });
       await sellerPrice.fill("3.25");

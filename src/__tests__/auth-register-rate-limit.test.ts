@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 
 const mocks = vi.hoisted(() => ({
@@ -36,6 +36,7 @@ vi.mock("@/lib/alpha-exchange-store", () => ({
 import { POST } from "@/app/api/auth/register/route";
 
 describe("auth register route", () => {
+  afterEach(() => vi.unstubAllEnvs());
   beforeEach(() => {
     mocks.checkRateLimit.mockReset();
     mocks.resolveClientIp.mockReset();
@@ -79,6 +80,26 @@ describe("auth register route", () => {
       }),
     });
   }
+
+  it.each(["", "approved@example.test"])("blocks preview signup before any account preparation with allowlist %j", async allowlist => {
+    vi.stubEnv("VERCEL_ENV", "preview");
+    vi.stubEnv("ALPHA_EMAIL_STAGING_ALLOWLIST", allowlist);
+    const response = await POST(makeRequest("unapproved@example.test"));
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({ code: "REGISTRATION_FAILED" });
+    expect(mocks.findUserByEmail).not.toHaveBeenCalled();
+    expect(mocks.assertRegistrationPhoneAvailable).not.toHaveBeenCalled();
+    expect(mocks.signUp).not.toHaveBeenCalled();
+    expect(mocks.upsertUserProfileForAuth).not.toHaveBeenCalled();
+  });
+
+  it.each(["preview", "production"])("preserves normal signup for permitted %s recipients", async environment => {
+    vi.stubEnv("VERCEL_ENV", environment);
+    vi.stubEnv("ALPHA_EMAIL_STAGING_ALLOWLIST", environment === "preview" ? "BUYER@EXAMPLE.TEST" : "");
+    const response = await POST(makeRequest("buyer@example.test"));
+    expect(response.status).toBe(200);
+    expect(mocks.signUp).toHaveBeenCalledWith(expect.objectContaining({ email: "buyer@example.test" }));
+  });
 
   it.each(["en", "ar"])("rejects a reused phone before provider signup in %s", async locale => {
     mocks.inferLocaleFromRequest.mockReturnValue(locale);

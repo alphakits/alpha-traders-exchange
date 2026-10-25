@@ -50,6 +50,18 @@ export const demandChangeSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("renew"), revision: z.number().int().positive(), terms: demandTermsSchema }).strict(),
 ]);
 export const demandOfferSchema = z.object({ revision: z.number().int().positive(), listingId: z.string().min(1).max(100), price: demandPriceSchema, operationId: z.string().uuid() }).strict();
+const demandMatchBindingSchema = z.object({
+  usdtDemandId: z.string().min(1).max(100).regex(/^[A-Za-z0-9_-]+$/),
+  usdtDemandOfferId: z.string().min(1).max(100).regex(/^[A-Za-z0-9_-]+$/),
+  usdtDemandRevision: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+});
+/** Any supplied request binding commits this command to the demand flow.
+ * Invalid/partial bindings must never fall back to a listing-price purchase. */
+export function parseDemandMatchBinding(input: unknown) {
+  const parsed = demandMatchBindingSchema.safeParse(input);
+  if (!parsed.success) throw new DemandError("INVALID_DEMAND_MATCH", "Refresh the buy request and select a current seller response.", 400);
+  return parsed.data;
+}
 export function demandEnabled() { return process.env.ALPHA_USDT_REQUESTS_ENABLED === "1"; }
 export function assertDemandEnabled() {
   if (!demandEnabled()) throw new DemandError("FEATURE_UNAVAILABLE", "USDT requests are unavailable.", 404);

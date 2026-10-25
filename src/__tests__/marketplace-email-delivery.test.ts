@@ -102,7 +102,7 @@ describe("marketplace email delivery", () => {
   it("sends the rendered email through Resend", async () => {
     vi.stubEnv("RESEND_API_KEY", "test-api-key");
     vi.stubEnv("EMAIL_FROM", "Alpha Exchange <notifications@example.com>");
-    const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ id: "receipt-1" }) });
     vi.stubGlobal("fetch", fetchMock);
 
     await expect(sendMarketplaceEmail({ ...payload, to: "mark@example.com", recipientLocale: "en" })).resolves.toEqual({ ok: true });
@@ -166,7 +166,7 @@ describe("marketplace email delivery", () => {
         status: 503,
         text: vi.fn().mockResolvedValue(JSON.stringify({ message: "temporarily unavailable" })),
       })
-      .mockResolvedValueOnce({ ok: true });
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ id: "receipt-1" }) });
     vi.stubGlobal("fetch", fetchMock);
 
     const delivery = sendMarketplaceEmail({
@@ -233,7 +233,7 @@ describe("marketplace email delivery", () => {
         status,
         headers: header ? { "Retry-After": header } : {},
       }))
-      .mockResolvedValueOnce(new Response("{}", { status: 200 }));
+      .mockResolvedValueOnce(new Response('{"id":"receipt-1"}', { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
 
     const delivery = sendMarketplaceEmail({
@@ -285,9 +285,18 @@ describe("marketplace email delivery", () => {
     vi.stubEnv("EMAIL_FROM", "Alpha <notifications@example.com>");
     const send = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify({ name }), { status: 409 }))
-      .mockResolvedValueOnce(new Response("{}", { status: 200 }));
+      .mockResolvedValueOnce(new Response('{"id":"receipt-1"}', { status: 200 }));
     vi.stubGlobal("fetch", send);
     expect(await sendMarketplaceEmail({ ...payload, to: "mark@example.com", recipientLocale: "en", retryDelayMs: 0 })).toMatchObject({ ok });
     expect(send).toHaveBeenCalledTimes(attempts);
+  });
+  it.each(["{}", "not json", '{"id":""}', '{"id":42}', '{"id":"recipient@example.test"}'])("does not report ambiguous 2xx acceptance as success: %s", async response => {
+    vi.stubEnv("RESEND_API_KEY", "test-api-key");
+    vi.stubEnv("EMAIL_FROM", "Alpha <notifications@example.com>");
+    const send = vi.fn().mockResolvedValue(new Response(response, { status: 200 }));
+    vi.stubGlobal("fetch", send);
+    expect(await sendMarketplaceEmail({ ...payload, to: "mark@example.com", recipientLocale: "en" }))
+      .toEqual({ ok: false, reason: "resend_invalid_response", providerStatus: 200 });
+    expect(send).toHaveBeenCalledTimes(1);
   });
 });

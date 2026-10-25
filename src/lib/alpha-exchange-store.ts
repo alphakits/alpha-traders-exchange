@@ -1,4 +1,4 @@
-import { assertDemandActor, assertDemandEnabled, commitDemandMatch, isDemandReservedTrade, validateDemandMatch } from "@/lib/usdt-demand-policy";
+import { assertDemandActor, assertDemandEnabled, commitDemandMatch, isDemandReservedTrade, parseDemandMatchBinding, validateDemandMatch } from "@/lib/usdt-demand-policy";
 import { isRequestableMarketplaceListing, MAX_SELLER_ACTIVE_TRADES, minimumRequestableListingAmount } from "@/lib/requestable-listing";
 import { getMarketSnapshot as getDemandMarket } from "@/lib/market-service";
 import { materializeCommissionShortfalls } from "./commission-shortfall-ledger";
@@ -10690,7 +10690,8 @@ export async function createPurchaseRequest(input: {
 }) {
   const startedAt = Date.now();
   const dbReadStartedAt = Date.now();
-  const demandMode = Boolean(input.usdtDemandId || input.usdtDemandOfferId || input.usdtDemandRevision);
+  const demandMode = [input.usdtDemandId, input.usdtDemandOfferId, input.usdtDemandRevision].some(value => value !== undefined);
+  if (demandMode) parseDemandMatchBinding(input);
   if (demandMode) assertDemandEnabled();
   const { db, fromFullCache } = await readDbForCriticalTradeMutation(demandMode ? [...PURCHASE_REQUEST_FAST_READ_TABLES, "usdt_demands"] : PURCHASE_REQUEST_FAST_READ_TABLES);
   const demandInput = demandMode ? { buyerId: input.buyerId, demandId: input.usdtDemandId ?? "", offerId: input.usdtDemandOfferId ?? "",
@@ -17436,6 +17437,8 @@ export async function deliverAdminAnnouncementBatch(input: {
     reason: batchResult.reason,
     providerStatus,
   });
+  const needsConfiguration = !batchResult.ok
+    && ["resend_not_configured", "email_preview_not_configured"].includes(batchResult.reason);
   const providerAttempts = "attempts" in batchResult && typeof batchResult.attempts === "number"
     ? batchResult.attempts
     : 1;
@@ -17467,7 +17470,7 @@ export async function deliverAdminAnnouncementBatch(input: {
       recipient.providerEmailId = batchResult.deliveries.find((delivery) => delivery.userId === recipient.userId)?.providerEmailId;
       continue;
     }
-    const retryBudgetRemaining = batchResult.reason === "resend_not_configured"
+    const retryBudgetRemaining = needsConfiguration
       || (recipient.attemptCount ?? 0) < ANNOUNCEMENT_MAX_RECIPIENT_ATTEMPTS;
     const willRetry = retryable && retryBudgetRemaining;
     recipient.status = willRetry ? "pending" : "failed";
@@ -17476,8 +17479,8 @@ export async function deliverAdminAnnouncementBatch(input: {
       : batchResult.reason;
     recipient.providerStatus = providerStatus;
     hasRetryableFailure ||= willRetry;
-    requiresManualConfiguration ||= batchResult.reason === "resend_not_configured";
-    if (willRetry && batchResult.reason !== "resend_not_configured") {
+    requiresManualConfiguration ||= needsConfiguration;
+    if (willRetry && !needsConfiguration) {
       automaticRetryDelayMs = Math.max(
         automaticRetryDelayMs,
         providerRetryAfterMs,

@@ -240,6 +240,21 @@ describe("canonical trade integration", () => {
     expect(stored.purchaseRequests).toHaveLength(1); expect(stored.usdtDemands?.[0]).toMatchObject({ state: "matched", purchaseRequestId: first.request.id });
     expect(stored.usdtDemands?.[0].offers[0].state).toBe("accepted");
   });
+  it.each([
+    { usdtDemandId: "", usdtDemandOfferId: "", usdtDemandRevision: 0 },
+    { usdtDemandId: undefined, usdtDemandOfferId: undefined, usdtDemandRevision: 0 },
+    { usdtDemandId: undefined },
+    { usdtDemandOfferId: undefined },
+    { usdtDemandRevision: undefined },
+    { usdtDemandRevision: Number.NaN },
+    { usdtDemandRevision: 1.5 },
+  ])("rejects malformed internal demand bindings without opening an ordinary trade: %j", async overrides => {
+    const { input } = await prepare();
+    await expect(createPurchaseRequest({ ...input, ...overrides })).rejects.toMatchObject({ code: "INVALID_DEMAND_MATCH" });
+    const stored = await (await getAlphaExchangeRepository()).loadSnapshot();
+    expect(stored.purchaseRequests).toHaveLength(0);
+    expect(stored.usdtDemands![0].state).toBe("open");
+  });
   it("allows only one winner for simultaneous accept taps", async () => {
     const { input } = await prepare();
     const results = await Promise.allSettled([createPurchaseRequest(input), createPurchaseRequest(input)]);

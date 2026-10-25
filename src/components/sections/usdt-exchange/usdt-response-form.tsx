@@ -78,7 +78,7 @@ export function SellerResponseForm({ ar, current, listings, reference, listingId
         <Link href="/usdt-exchange#my-listings-section" className={requestSecondary}>{text("Manage listings", "إدارة العروض")}</Link>
       </div>
       <p className="text-xs leading-5 text-gray-400">{text("New listings require owner approval. Return here after approval to send your response.", "تحتاج العروض الجديدة إلى موافقة المالك. عد إلى هنا بعد الموافقة لإرسال ردك.")}</p>
-    </div> : <form aria-label="Seller response" aria-busy={busy} onSubmit={submit} className="mt-5 space-y-5">
+    </div> : <form aria-label={text("Seller response", "رد البائع")} aria-busy={busy} onSubmit={submit} className="mt-5 space-y-5">
       <fieldset disabled={busy} className="min-w-0 space-y-5">
         <div>
           <label htmlFor={`${id}-listing`} className="text-sm font-medium">{text("Your listing", "عرضك")}</label>

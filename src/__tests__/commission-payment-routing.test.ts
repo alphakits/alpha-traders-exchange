@@ -1573,7 +1573,7 @@ describe("commission wallet payment routing", () => {
     const emailFetch = vi.fn(async (request: RequestInfo | URL, init?: RequestInit) => {
       void request;
       void init;
-      return { ok: true, status: 200 } as Response;
+      return { ok: true, status: 200, json: async () => ({ id: "receipt-1" }) } as Response;
     });
     vi.stubGlobal("fetch", emailFetch);
 

@@ -59,6 +59,43 @@ afterEach(() => { vi.unstubAllEnvs(); });
 afterAll(async () => { await db.close(); });
 
 describe("durable marketplace email delivery", () => {
+  it("refuses preview enqueue without consent or for a different mailbox before writing a job", async () => {
+    vi.stubEnv("VERCEL_ENV", "preview");
+    vi.stubEnv("ALPHA_EMAIL_STAGING_ALLOWLIST", "");
+    const send = sender();
+    expect(await enqueueMarketplaceEmail(email, send)).toMatchObject({ ok: false, reason: "email_preview_not_configured" });
+    vi.stubEnv("ALPHA_EMAIL_STAGING_ALLOWLIST", "someone-else@example.com");
+    expect(await enqueueMarketplaceEmail(email, send)).toMatchObject({ ok: false, reason: "email_delivery_terminal" });
+    expect((await rows()).rows).toHaveLength(0);
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it("rechecks the preview allowlist on recovery and suppresses a removed recipient", async () => {
+    vi.stubEnv("VERCEL_ENV", "preview");
+    vi.stubEnv("ALPHA_EMAIL_STAGING_ALLOWLIST", email.recipientEmail);
+    const prepared = { ...email, body: JSON.stringify({ ...JSON.parse(email.body), subject: "[STAGING] Accepted" }) };
+    await db.exec("update alpha_exchange.marketplace_email_gate set available_at = now() + interval '2 minutes'");
+    const send = sender();
+    expect(await enqueueMarketplaceEmail(prepared, send)).toMatchObject({ ok: true, queued: true });
+    vi.stubEnv("ALPHA_EMAIL_STAGING_ALLOWLIST", "someone-else@example.com");
+    await openGate();
+    expect(await runMarketplaceEmailSweep(send)).toMatchObject({ suppressed: 1, sent: 0 });
+    expect(send).not.toHaveBeenCalled();
+    expect((await rows()).rows[0]).toMatchObject({ status: "suppressed", request_body: null, last_reason: "email_preview_recipient_blocked" });
+  });
+
+  it("keeps an ambiguous acceptance retryable with the frozen key and logs its eventual receipt", async () => {
+    const send = sender().mockResolvedValueOnce({ ok: false, reason: "resend_invalid_response", providerStatus: 200, retryable: true })
+      .mockResolvedValueOnce({ ok: true, providerReceiptId: "receipt-1" });
+    await enqueueMarketplaceEmail(email, send);
+    expect((await rows()).rows[0]).toMatchObject({ status: "pending", request_body: email.body });
+    await db.exec("update alpha_exchange.marketplace_email_outbox set available_at = now() - interval '1 second'");
+    await openGate();
+    expect(await runMarketplaceEmailSweep(send)).toMatchObject({ sent: 1 });
+    expect(send.mock.calls.map(call => call[0].idempotencyKey)).toEqual([email.idempotencyKey, email.idempotencyKey]);
+    expect(mocks.log).toHaveBeenCalledWith("info", expect.objectContaining({ reason: "provider_accepted", metadata: expect.objectContaining({ providerReceiptId: "receipt-1" }) }));
+  });
+
   it("persists before sending, deduplicates concurrent submissions and erases sent contents", async () => {
     const send = sender().mockImplementation(async () => {
       expect((await rows()).rows[0]).toMatchObject({ status: "processing", request_body: email.body, attempts: 1 });

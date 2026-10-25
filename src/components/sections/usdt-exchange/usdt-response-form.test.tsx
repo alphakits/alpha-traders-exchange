@@ -127,6 +127,8 @@ describe("seller response form", () => {
 
   it("provides Arabic controls and left-to-right grouped monetary values", () => {
     render(<SellerResponseForm {...props()} ar />);
+    expect(screen.getByRole("form", { name: "رد البائع" })).toBeTruthy();
+    expect(screen.queryByRole("form", { name: "Seller response" })).toBeNull();
     expect(screen.getByRole("button", { name: "إرسال الرد" })).toBeTruthy();
     expect(screen.getByLabelText("سعر ردك (شيكل)").getAttribute("dir")).toBe("ltr");
     expect(screen.getByRole("region", { name: "معاينة دفعة المشتري" }).textContent).toContain("₪16,160.00");

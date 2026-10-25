@@ -13,17 +13,15 @@ import { FeeBreakdown, NextStep, RequestMoneyText, RequestStatus, RequestSteps, 
 import { RequestForm } from "./usdt-request-form";
 import { SellerResponseForm } from "./usdt-response-form";
 import { RequestCounterpartyIdentity } from "./request-counterparty-identity";
+import { RequestClientError, requestErrorMessage } from "./usdt-request-errors";
 
 const root = "/api/alpha-exchange/usdt-requests";
 const initial: DemandTerms = { amount: "", price: "", network: "TRC20", paymentMethod: "Bank Transfer", city: "" };
 async function api<T>(url: string, options: RequestInit = {}) {
-  const { response, payload: body } = await fetchClientJson<T & { error?: string; message?: string }>(url, {
+  const { response, payload: body } = await fetchClientJson<T & { code?: unknown }>(url, {
     cache: "no-store", ...options, headers: { "Content-Type": "application/json", ...options.headers },
-  }, 25_000).catch(error => {
-    if (error instanceof SyntaxError || error instanceof TypeError) throw new Error("Could not load the current details. Please refresh and try again.");
-    throw error;
-  });
-  if (!response.ok) throw new Error(body.error ?? body.message ?? "Please refresh and try again.");
+  }, 25_000);
+  if (!response.ok) throw new RequestClientError(typeof body?.code === "string" ? body.code : response.status === 401 ? "UNAUTHENTICATED" : "REQUEST_UNAVAILABLE");
   return body as T;
 }
 function reveal(id: string) {
@@ -169,12 +167,12 @@ export function UsdtRequestsWorkspace({ locale, actorId, demandId }: { locale: "
     const controller = new AbortController();
     if (!accountMatches) return;
     const refresh = () => {
-      if (!busyRef.current && !document.hidden) void load(controller.signal).catch(e => { if (!controller.signal.aborted) setError(e.message); });
+      if (!busyRef.current && !document.hidden) void load(controller.signal).catch(e => { if (!controller.signal.aborted) setError(requestErrorMessage(e, ar)); });
     };
     refresh();
     const timer = window.setInterval(refresh, 20_000); window.addEventListener("focus", refresh);
     return () => { controller.abort(); clearInterval(timer); window.removeEventListener("focus", refresh); invalidateLoads(); };
-  }, [load, accountMatches, clearReview, invalidateLoads]);
+  }, [load, accountMatches, clearReview, invalidateLoads, ar]);
   useEffect(() => { const timer = window.setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(timer); }, []);
   useEffect(() => {
     // A changed amount/network must be reviewed before the seller responds again.
@@ -195,7 +193,7 @@ export function UsdtRequestsWorkspace({ locale, actorId, demandId }: { locale: "
     const isCurrent = () => activeContext.current === key;
     busyRef.current = true; ++sequence.current; setBusy(true); setError(""); setSuccess("");
     try { await action(isCurrent); } catch (e) {
-      if (isCurrent()) { setError(e instanceof Error ? e.message : text("Please try again.", "يرجى المحاولة مجددًا.")); reveal("request-feedback"); }
+      if (isCurrent()) { setError(requestErrorMessage(e, ar)); reveal("request-feedback"); }
     } finally { if (isCurrent()) { busyRef.current = false; setBusy(false); } }
   }
   function operation(body: unknown) {
@@ -257,7 +255,7 @@ export function UsdtRequestsWorkspace({ locale, actorId, demandId }: { locale: "
     event.preventDefault();
     if (!event.currentTarget.reportValidity()) return;
     await run(async isCurrent => {
-      if (!current || !responseRequest || responseRequest.id !== current.id || responseRequest.revision !== current.revision) throw new Error(text("This request changed. Review it and select your listing again.", "تغيّر هذا الطلب. راجعه واختر عرضك مجددًا."));
+      if (!current || !responseRequest || responseRequest.id !== current.id || responseRequest.revision !== current.revision) throw new RequestClientError("REQUEST_CHANGED");
       const body = { listingId, price: offerPrice, revision: responseRequest.revision };
       await api(root + "/" + encodeURIComponent(responseRequest.id) + "/offers", { method: "POST", body: JSON.stringify({ ...body, operationId: operation(body) }) });
       if (!isCurrent()) return;
@@ -281,11 +279,15 @@ export function UsdtRequestsWorkspace({ locale, actorId, demandId }: { locale: "
   }
   function renderOffer(o: DemandView["offers"][number]) {
     const confirming = confirmation?.kind === "withdraw" && confirmation.id === o.id;
+    // Responses retain their price/revision, but not their original quantity.
+    // Never combine a historical price with the buyer's subsequently edited amount.
+    const currentTerms = o.revision === current?.revision;
     const status = o.state === "accepted" ? text("Selected", "تم اختياره") : o.state === "withdrawn" ? text("Withdrawn", "مسحوب") : o.state === "superseded" ? text("Replaced", "تم استبداله") : text("Unavailable", "غير متاح");
     return <article id={"offer-" + o.id} data-testid="offer-card" key={o.id} className={panel + " scroll-mt-24 " + (selectedOfferId === o.id ? "ring-2 ring-blue-400" : "")}>
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div className="min-w-0 max-w-full">{o.seller ? <RequestCounterpartyIdentity identity={o.seller} locale={locale} audience="seller" /> : <p className="font-medium">{o.sellerName}</p>}<p className="mt-2 text-xl font-semibold tabular-nums text-emerald-300"><bdi dir="ltr">₪{formatIls(o.price)}</bdi> <span className="text-sm text-gray-400">/ USDT</span></p>
-          <p className="mt-2 text-sm text-gray-300">{text("Total incl. 1% buyer fee", "الإجمالي شامل رسوم المشتري 1%")}: <bdi dir="ltr" className="font-semibold tabular-nums text-emerald-300">₪{formatIls(calculateTradePaymentTotal(current!.amount, o.price, true))}</bdi></p>
+          {currentTerms ? <p className="mt-2 text-sm text-gray-300">{text("Total incl. 1% buyer fee", "الإجمالي شامل رسوم المشتري 1%")}: <bdi dir="ltr" className="font-semibold tabular-nums text-emerald-300">₪{formatIls(calculateTradePaymentTotal(current!.amount, o.price, true))}</bdi></p>
+            : <p className="mt-2 text-sm leading-6 text-gray-400">{text("Response to earlier request terms. Its total is not shown because the request has changed.", "رد على شروط طلب سابقة. لا يُعرض إجماليه لأن الطلب تغيّر.")}</p>}
         </div>
         <div className="flex flex-wrap items-center gap-3">
           {!o.available && <span className="rounded-full bg-white/5 px-3 py-1 text-xs text-gray-400">{status}</span>}

@@ -34,6 +34,7 @@ describe("buyer USDT request form", () => {
     expect(within(estimate).getByText("₪2,201.98")).toBeTruthy();
     expect(within(estimate).getByText("View exact USDT amount").closest("details")?.open).toBe(false);
     expect(within(estimate).getByText("660.6607 USDT")).toBeTruthy();
+    expect(within(estimate).getByText(/full exact USDT amount requested/)).toBeTruthy();
     expect(JSON.parse(screen.getByTestId("terms").textContent!).amount).toBe("660.6607");
   });
   it.each([["2.74", true], ["2.75", false], ["3.45", false], ["3.46", true]])("enforces the live 3.10 band for requested price %s", (price, disabled) => {

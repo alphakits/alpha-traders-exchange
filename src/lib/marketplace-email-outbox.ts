@@ -5,6 +5,7 @@ import { getRuntimePostgresPool } from "@/lib/postgres-runtime";
 import { rollbackFailedTransaction } from "@/lib/postgres-transaction";
 import { isProductionSecurityRuntime } from "@/lib/runtime-safety";
 import { logEvent } from "@/lib/structured-logging";
+import { previewPreparedEmailFailure } from "./email-preview-safety";
 
 export type PreparedMarketplaceEmail = {
   event: string;
@@ -15,7 +16,7 @@ export type PreparedMarketplaceEmail = {
   requiredTradeStatuses?: string[];
 };
 
-export type EmailProviderResult = { ok: true } | {
+export type EmailProviderResult = { ok: true; providerReceiptId?: string } | {
   ok: false;
   reason: string;
   providerStatus?: number;
@@ -135,7 +136,7 @@ async function claim(pool: Pool, id?: string): Promise<{ job?: Job; waitMs?: num
   }
 }
 
-async function finish(pool: Pool, job: Job, status: "sent" | "failed" | "suppressed" | "pending", reason: string, delayMs = 0) {
+async function finish(pool: Pool, job: Job, status: "sent" | "failed" | "suppressed" | "pending", reason: string, delayMs = 0, providerReceiptId?: string) {
   const result = await pool.query(
     `update alpha_exchange.marketplace_email_outbox
      set status = $3, last_reason = $4, available_at = now() + $5::double precision * interval '1 millisecond',
@@ -148,7 +149,7 @@ async function finish(pool: Pool, job: Job, status: "sent" | "failed" | "suppres
   if (result.rowCount === 1) logEvent(status === "failed" ? "error" : "info", {
     event: "marketplace_email_outbox", resourceId: job.id,
     outcome: status === "failed" ? "failed" : "success", reason,
-    metadata: { status, emailEvent: job.event, attempts: job.attempts },
+    metadata: { status, emailEvent: job.event, attempts: job.attempts, ...(providerReceiptId ? { providerReceiptId } : {}) },
   });
 }
 
@@ -179,10 +180,16 @@ async function attempt(pool: Pool, job: Job, send: MarketplaceEmailTransport) {
       return "suppressed" as const;
     }
   }
-  const result = await send({ event: job.event, recipientEmail: job.recipient_email,
-    body: job.request_body, idempotencyKey: job.idempotency_key });
+  const prepared = { event: job.event, recipientEmail: job.recipient_email,
+    body: job.request_body, idempotencyKey: job.idempotency_key };
+  const previewFailure = previewPreparedEmailFailure(prepared);
+  if (previewFailure && !previewFailure.retryable) {
+    await finish(pool, job, "suppressed", previewFailure.reason);
+    return "suppressed" as const;
+  }
+  const result: EmailProviderResult = previewFailure ?? await send(prepared);
   if (result.ok) {
-    await finish(pool, job, "sent", "provider_accepted");
+    await finish(pool, job, "sent", "provider_accepted", 0, result.providerReceiptId);
     return "sent" as const;
   }
   const retryable = result.retryable !== false || result.quotaExceeded
@@ -206,6 +213,9 @@ async function attempt(pool: Pool, job: Job, send: MarketplaceEmailTransport) {
 }
 
 export async function enqueueMarketplaceEmail(email: PreparedMarketplaceEmail, send: MarketplaceEmailTransport) {
+  const previewFailure = previewPreparedEmailFailure(email);
+  if (previewFailure) return { ok: false as const,
+    reason: previewFailure.retryable ? previewFailure.reason : "email_delivery_terminal" };
   try {
     const pool = getRuntimePostgresPool();
     // Explicit local/test runtimes preserve the existing transport test seam.

@@ -1,4 +1,5 @@
 import { getSiteUrl } from "@/lib/site-url";
+import { previewEmailRecipientFailure, previewEmailSubject } from "./email-preview-safety";
 import {
   BRAND_EMAIL_LOGO_URL,
   BRAND_NAME,
@@ -131,6 +132,7 @@ export function isRetryableAnnouncementDeliveryFailure(input: {
   providerStatus?: number;
 }) {
   return input.reason === "resend_not_configured"
+    || input.reason === "email_preview_not_configured"
     || input.reason === "resend_network_failed"
     || input.reason === "resend_timeout"
     || input.providerStatus === 429
@@ -341,6 +343,8 @@ export async function sendAdminAnnouncementBatch(input: AdminAnnouncementEmailCo
   const email = buildAdminAnnouncementEmail(input);
   let lastRetryAfterMs = 0;
   for (let attempt = 1; attempt <= RESEND_MAX_ATTEMPTS; attempt += 1) {
+    const previewFailure = previewEmailRecipientFailure(input.recipients.map(recipient => recipient.email));
+    if (previewFailure) return previewFailure;
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), RESEND_REQUEST_TIMEOUT_MS);
     try {
@@ -354,7 +358,7 @@ export async function sendAdminAnnouncementBatch(input: AdminAnnouncementEmailCo
         body: JSON.stringify(input.recipients.map((recipient) => ({
           from,
           to: [recipient.email],
-          subject: email.subject,
+          subject: previewEmailSubject(email.subject),
           html: email.html,
           text: email.text,
           headers: buildBrandedEmailHeaders(),

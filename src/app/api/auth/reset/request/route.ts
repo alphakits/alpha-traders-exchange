@@ -6,6 +6,7 @@ import { buildAuthEmail, sendAuthEmailViaResend } from "@/lib/auth-email-deliver
 import { logEvent } from "@/lib/structured-logging";
 import { randomBytes } from "node:crypto";
 import { findUserByEmail } from "@/lib/alpha-exchange-store";
+import { previewEmailRecipientFailure } from "@/lib/email-preview-safety";
 
 const AUTH_RESPONSE_HEADERS = { "Cache-Control": "no-store, max-age=0" };
 
@@ -88,6 +89,8 @@ export async function POST(request: NextRequest) {
       return resetFailureResponse(locale, ipEmailRate.retryAfterSeconds);
     }
 
+    // Guard Supabase's primary transport and any legacy-account preparation.
+    if (previewEmailRecipientFailure([email])) return resetFailureResponse(locale);
     const redirectTo = `${getSiteUrl()}/${locale}/reset-password`;
     const localUser = await findUserByEmail(email);
     if (localUser?.passwordHash && localUser.emailVerified === true) {
