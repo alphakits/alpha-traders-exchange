@@ -5,3 +5,6 @@ data/*.log
 
 # Oversized local media not supported by Vercel file limits
 public/files/**/*.mp4
+
+# Vercel's default upload ignore list omits Docker build-context rules.
+!.dockerignore
