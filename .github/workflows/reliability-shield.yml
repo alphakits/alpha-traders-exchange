@@ -421,6 +421,9 @@ jobs:
       - name: Install isolated browser runtime
         run: npx playwright install --with-deps ${{ matrix.browser }}
       - name: Build the release source
+        env:
+          ALPHA_E2E_TEST_SUPPORT: "1"
+          ALPHA_E2E_LOOPBACK_ONLY: "1"
         run: npm run build
       - name: Verify isolated Buy Requests flows without retries
         run: node ./node_modules/playwright/cli.js test --config=playwright.usdt-requests-offline.config.ts --reporter=list,json
