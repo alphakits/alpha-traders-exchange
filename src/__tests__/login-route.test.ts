@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { NextRequest } from "next/server";
 import { cookies } from "next/headers";
 import { createEmailVerificationTokenForUser, upsertUserProfileForAuth } from "@/lib/alpha-exchange-store";
@@ -6,6 +6,7 @@ import { authenticateLocalUser, createUserSession } from "@/lib/auth";
 import { checkRateLimit, checkSharedRateLimit } from "@/lib/rate-limit";
 import { getSiteUrl } from "@/lib/site-url";
 import { buildAuthEmail, sendAuthEmailViaResend } from "@/lib/auth-email-delivery";
+import { AUTH_PROVIDER_TIMEOUT_MS } from "@/lib/auth-request-deadline";
 
 const phoneVerificationMocks = vi.hoisted(() => ({
   isMarketplacePhoneVerificationDisabled: vi.fn(),
@@ -118,7 +119,68 @@ beforeEach(() => {
   phoneVerificationMocks.isVerified.mockReturnValue(false);
 });
 
+afterEach(() => {
+  vi.useRealTimers();
+});
+
 describe("POST /api/auth/login", () => {
+  it.each(["deadline", "caller"] as const)("returns a safe 503 for %s cancellation without sessions or cookies", async (cancellation) => {
+    vi.useFakeTimers();
+    const caller = new AbortController();
+    let finishProvider!: (value: unknown) => void;
+    supabaseAuthMocks.signInWithPassword.mockImplementationOnce(() => new Promise((resolve) => { finishProvider = resolve; }));
+    const responsePromise = POST(new Request("https://example.com/api/auth/login", {
+      method: "POST", headers: { "content-type": "application/json" }, signal: caller.signal,
+      body: JSON.stringify({ email: "buyer@example.test", password: "test-password" }),
+    }) as unknown as NextRequest);
+    await vi.advanceTimersByTimeAsync(0);
+    const providerSignal = supabaseAuthMocks.createClient.mock.calls[0]?.[0].signal as AbortSignal;
+    expect(providerSignal.aborted).toBe(false);
+    if (cancellation === "deadline") await vi.advanceTimersByTimeAsync(AUTH_PROVIDER_TIMEOUT_MS);
+    else caller.abort();
+    const response = await responsePromise;
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: "Unable to sign in. Please try again." });
+    expect(response.headers.get("cache-control")).toContain("no-store");
+    expect(providerSignal.aborted).toBe(true);
+    finishProvider({ data: { user: { email: "buyer@example.test", email_confirmed_at: "2026-01-01", user_metadata: {} } }, error: null });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(supabaseAuthMocks.signInWithPassword).toHaveBeenCalledTimes(1);
+    expect(mockUpsertUserProfileForAuth).not.toHaveBeenCalled();
+    expect(mockCreateUserSession).not.toHaveBeenCalled();
+    expect(setCookie).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it.each([
+    ["deadline", "error"], ["deadline", "success"], ["caller", "error"], ["caller", "success"],
+  ] as const)("does not let an SDK abort-to-%s/%s race authenticate or become an invalid-credentials response", async (cancellation, providerResult) => {
+    vi.useFakeTimers();
+    const caller = new AbortController();
+    supabaseAuthMocks.createClient.mockImplementationOnce(({ signal }: { signal: AbortSignal }) => ({
+      auth: { signInWithPassword: supabaseAuthMocks.signInWithPassword.mockImplementationOnce(() => new Promise((resolve) => {
+        signal.addEventListener("abort", () => resolve(providerResult === "error"
+          ? { data: null, error: { message: "private body abort", status: 400 } }
+          : { data: { user: { email: "buyer@example.test", email_confirmed_at: "2026-01-01", user_metadata: {} } }, error: null }), { once: true });
+      })) },
+    }));
+    const responsePromise = POST(new Request("https://example.com/api/auth/login", {
+      method: "POST", headers: { "content-type": "application/json" }, signal: caller.signal,
+      body: JSON.stringify({ email: "buyer@example.test", password: "test-password" }),
+    }) as unknown as NextRequest);
+    await vi.advanceTimersByTimeAsync(0);
+    if (cancellation === "deadline") await vi.advanceTimersByTimeAsync(AUTH_PROVIDER_TIMEOUT_MS);
+    else caller.abort();
+    const response = await responsePromise;
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: "Unable to sign in. Please try again." });
+    expect(supabaseAuthMocks.signInWithPassword).toHaveBeenCalledTimes(1);
+    expect(mockUpsertUserProfileForAuth).not.toHaveBeenCalled();
+    expect(mockCreateUserSession).not.toHaveBeenCalled();
+    expect(setCookie).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   it.each([
     ["application/json", '{"email":"buyer@example.test", "password": "NeverLogThisSecret"}'],
     ["application/json", '{"email":"buyer@example.test","password":"NeverLogThisSecret\\\\with\\\"quotes"}'],
