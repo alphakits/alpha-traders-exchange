@@ -1,98 +1,11 @@
 {
   "version": 1,
-  "verifiedAt": "2026-10-18T16:24:38Z",
-  "coverageStart": "2026-10-04T21:00:00Z",
-  "coverageEnd": "2026-11-15T22:00:00Z",
-  "weekStart": "2026-10-19",
-  "weekEnd": "2026-10-26",
+  "verifiedAt": "2026-10-25T17:52:08Z",
+  "coverageStart": "2026-10-11T21:00:00Z",
+  "coverageEnd": "2026-11-22T22:00:00Z",
+  "weekStart": "2026-10-26",
+  "weekEnd": "2026-11-02",
   "events": [
-    {
-      "id": "official-bea-trade-balance-20261006",
-      "agency": "bea",
-      "title": "U.S. trade balance (goods and services)",
-      "titleAr": "الميزان التجاري الأمريكي للسلع والخدمات",
-      "scheduledAt": "2026-10-06T12:30:00Z",
-      "timing": "exact",
-      "kind": "release",
-      "actual": "-105.6B",
-      "previous": "-88.6B",
-      "revised": "-92.8B",
-      "reference": "August 2026 · USD billions",
-      "publishedAt": "2026-10-06T12:30:00Z",
-      "sourceUrl": "https://www.bea.gov/news/2026/us-international-trade-goods-and-services-august-2026"
-    },
-    {
-      "id": "official-fed-bowman-regulation-supervision-20261006",
-      "agency": "fed",
-      "title": "Fed Vice Chair Bowman: Modernizing regulation and supervision",
-      "titleAr": "خطاب نائبة رئيس الفيدرالي بومان: تحديث التنظيم والرقابة",
-      "scheduledAt": "2026-10-06T14:45:00Z",
-      "timing": "exact",
-      "kind": "speech",
-      "actual": null,
-      "previous": null,
-      "revised": null,
-      "reference": null,
-      "publishedAt": "2026-10-06T14:45:00Z",
-      "sourceUrl": "https://www.federalreserve.gov/newsevents/speech/bowman20261006a.htm",
-      "outcome": {
-        "en": "Bowman outlined changes to bank regulation and supervision, including support for community banks and a stronger focus on financial risks. This was a regulatory speech, not an interest-rate decision.",
-        "ar": "عرضت بومان تغييرات في تنظيم البنوك والرقابة عليها، تشمل دعم البنوك المجتمعية وزيادة التركيز على المخاطر المالية. كان هذا خطابًا رقابيًا وليس قرارًا بشأن الفائدة."
-      }
-    },
-    {
-      "id": "official-fed-fomc-minutes-20261007",
-      "agency": "fed",
-      "title": "FOMC minutes",
-      "titleAr": "محضر اجتماع اللجنة الفيدرالية للسوق المفتوحة",
-      "scheduledAt": "2026-10-07T18:00:00Z",
-      "timing": "exact",
-      "kind": "speech",
-      "actual": null,
-      "previous": null,
-      "revised": null,
-      "reference": "Meeting of 15–16 Sep 2026",
-      "publishedAt": "2026-10-07T18:00:00Z",
-      "sourceUrl": "https://www.federalreserve.gov/monetarypolicy/files/fomcminutes20260916.pdf",
-      "outcome": {
-        "en": "The September meeting minutes explained the earlier rate increase to 3.75%–4.00%. Most participants saw another increase by year-end as likely appropriate, depending on incoming data. The minutes did not announce a new rate decision.",
-        "ar": "شرح محضر اجتماع سبتمبر رفع الفائدة السابق إلى 3.75%–4.00%. رأى معظم المشاركين أن زيادة أخرى قبل نهاية العام قد تكون مناسبة، بحسب البيانات القادمة. المحضر لم يعلن قرار فائدة جديدًا."
-      }
-    },
-    {
-      "id": "official-fed-waller-economic-outlook-20261008",
-      "agency": "fed",
-      "title": "Fed Governor Waller: Economic outlook",
-      "titleAr": "خطاب محافظ الفيدرالي والر: التوقعات الاقتصادية",
-      "scheduledAt": "2026-10-08T08:30:00Z",
-      "timing": "exact",
-      "kind": "speech",
-      "actual": null,
-      "previous": null,
-      "revised": null,
-      "reference": null,
-      "publishedAt": "2026-10-08T08:30:00Z",
-      "sourceUrl": "https://www.federalreserve.gov/newsevents/speech/files/waller20261008a.pdf",
-      "outcome": {
-        "en": "Waller said the labour market remained stable and inflation was still too high. He explained his support for September’s rate increase and said the near-term policy focus was inflation.",
-        "ar": "قال والر إن سوق العمل بقي مستقرًا وإن التضخم لا يزال مرتفعًا. وشرح دعمه لرفع الفائدة في سبتمبر، موضحًا أن تركيز السياسة النقدية في المدى القريب ينصبّ على التضخم."
-      }
-    },
-    {
-      "id": "official-dol-initial-claims-20261008",
-      "agency": "dol",
-      "title": "Initial jobless claims",
-      "titleAr": "طلبات إعانة البطالة الأولية",
-      "scheduledAt": "2026-10-08T12:30:00Z",
-      "timing": "exact",
-      "kind": "release",
-      "actual": "197K",
-      "previous": "197K",
-      "revised": "199K",
-      "reference": "Week ending 3 Oct 2026",
-      "publishedAt": "2026-10-08T12:30:00Z",
-      "sourceUrl": "https://www.dol.gov/ui/data.pdf"
-    },
     {
       "id": "official-fed-waller-ai-discussion-20261013",
       "agency": "fed",
@@ -640,7 +553,67 @@
       "reference": "October 2026",
       "publishedAt": null,
       "sourceUrl": "https://www.bls.gov/schedule/2026/11_sched.htm"
+    },
+    {
+      "id": "official-census-core-retail-sales-mom-20261117",
+      "agency": "census",
+      "title": "Retail sales excluding autos (MoM)",
+      "titleAr": "مبيعات التجزئة باستثناء السيارات — شهري",
+      "scheduledAt": "2026-11-17T13:30:00Z",
+      "timing": "exact",
+      "kind": "release",
+      "actual": null,
+      "previous": "0.9%",
+      "revised": null,
+      "reference": "October 2026",
+      "publishedAt": null,
+      "sourceUrl": "https://www.census.gov/economic-indicators/calendar-listview-2026.html"
+    },
+    {
+      "id": "official-census-retail-sales-mom-20261117",
+      "agency": "census",
+      "title": "Retail sales (MoM)",
+      "titleAr": "مبيعات التجزئة — شهري",
+      "scheduledAt": "2026-11-17T13:30:00Z",
+      "timing": "exact",
+      "kind": "release",
+      "actual": null,
+      "previous": "0.8%",
+      "revised": null,
+      "reference": "October 2026",
+      "publishedAt": null,
+      "sourceUrl": "https://www.census.gov/economic-indicators/calendar-listview-2026.html"
+    },
+    {
+      "id": "official-fed-fomc-minutes-20261118",
+      "agency": "fed",
+      "title": "FOMC minutes",
+      "titleAr": "محضر اجتماع اللجنة الفيدرالية للسوق المفتوحة",
+      "scheduledAt": "2026-11-18T19:00:00Z",
+      "timing": "exact",
+      "kind": "speech",
+      "actual": null,
+      "previous": null,
+      "revised": null,
+      "reference": "Meeting of 27–28 Oct 2026",
+      "publishedAt": null,
+      "sourceUrl": "https://www.federalreserve.gov/newsevents/2026-november.htm"
+    },
+    {
+      "id": "official-dol-initial-claims-20261119",
+      "agency": "dol",
+      "title": "Initial jobless claims",
+      "titleAr": "طلبات إعانة البطالة الأولية",
+      "scheduledAt": "2026-11-19T13:30:00Z",
+      "timing": "exact",
+      "kind": "release",
+      "actual": null,
+      "previous": null,
+      "revised": null,
+      "reference": "Week ending 14 Nov 2026",
+      "publishedAt": null,
+      "sourceUrl": "https://www.dol.gov/newsroom/releases/opa/opa20200701"
     }
   ],
-  "resultsVerifiedAt": "2026-10-22T13:00:03Z"
+  "resultsVerifiedAt": "2026-10-25T17:52:08Z"
 }
