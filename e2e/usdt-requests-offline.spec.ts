@@ -638,6 +638,12 @@ for (const locale of ["en", "ar"] as const) {
     const audit = async (page: import("@playwright/test").Page, stage: string) => {
       await expect(page.getByRole("main").first()).toBeVisible();
       await expectFocusedControlUnobscured(page.locator("input:focus, select:focus, textarea:focus, button:focus, [tabindex='-1']:focus"));
+      // Let the reveal and native-focus visibility frames finish before the
+      // scan's deliberate scroll, then verify keyboard focus remains usable.
+      await page.evaluate(() => new Promise<void>(resolve => {
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+      }));
+      await expectFocusedControlUnobscured(page.locator("input:focus, select:focus, textarea:focus, button:focus, [tabindex='-1']:focus"));
       // Scan a deterministic document position, not a non-focused control
       // partly passing beneath the sticky header after form navigation.
       await page.evaluate(() => window.scrollTo({ top: 0, behavior: "instant" }));
