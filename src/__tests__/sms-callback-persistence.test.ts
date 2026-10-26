@@ -4,7 +4,7 @@ import { readFile } from "node:fs/promises";
 import { PGlite } from "@electric-sql/pglite";
 import { NextRequest } from "next/server";
 import type { Pool } from "pg";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { POST } from "@/app/api/twilio/status/route";
 import { AlphaExchangeRepository } from "@/lib/alpha-exchange-repository";
 import { getAuditLogsForAdmin, invalidateAlphaExchangeStoreCache, updateSmsDeliveryStatus } from "@/lib/alpha-exchange-store";
@@ -60,6 +60,13 @@ async function commitWhileWaiting(change: (snapshot: AlphaExchangeDb) => void) {
   });
 }
 
+beforeAll(async () => {
+  // Bound cold WASM compilation separately; each test still gets a fresh database.
+  // PGlite caches compiled modules across instances, including after close().
+  const warmup = await PGlite.create();
+  await warmup.close();
+}, 30_000);
+
 beforeEach(async () => {
   vi.stubEnv("NODE_ENV", "production");
   vi.stubEnv("ALPHA_EXCHANGE_TWILIO_SEND_ENABLED", "true");
@@ -70,6 +77,7 @@ beforeEach(async () => {
   database = new PGlite();
   await database.exec(await readFile("supabase/migrations/20260720160000_alpha_exchange_runtime.sql", "utf8"));
   await database.exec(await readFile("supabase/migrations/20260905223000_alpha_exchange_runtime_schema_parity.sql", "utf8"));
+  await database.exec(await readFile("supabase/migrations/20261024024258_usdt_buy_requests.sql", "utf8"));
   const client = { query: async (sql: string, values?: unknown[]) => { beforeQuery?.(sql); return database.query(sql, values); }, release() {} };
   repository = new AlphaExchangeRepository({ ...client, connect: async () => client, on() {} } as unknown as Pool);
   vi.spyOn(repository, "ensureReady").mockResolvedValue();

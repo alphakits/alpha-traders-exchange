@@ -3,6 +3,7 @@
 !discord-worker/
 !discord-worker/package.json
 !discord-worker/package-lock.json
+!discord-worker/verify-dependency-security.mjs
 !src/
 !src/workers/
 !src/workers/discord-worker.ts

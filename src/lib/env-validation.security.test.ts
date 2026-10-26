@@ -3,6 +3,16 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { runEnvValidation, validateEnv } from "@/lib/env-validation";
 
 describe("production environment safety validation", () => {
+  it("rejects Buy Requests offline fixtures in deployed production", () => {
+    vi.stubEnv("NODE_ENV", "production"); vi.stubEnv("VERCEL", "1");
+    vi.stubEnv("ALPHA_USDT_OFFLINE_PREVIEW", "1");
+    vi.stubEnv("ALPHA_USDT_OFFLINE_QUOTE_SCENARIOS", "1");
+    vi.stubEnv("ALPHA_FX_REFERENCE_URL", "https://usdt-offline.invalid/quote");
+    vi.stubEnv("ALPHA_EXCHANGE_CARDLESS_CREDENTIAL_SECRET", "offline-preview-synthetic-credentials-only");
+    const message = validateEnv().errors.join("\n");
+    for (const key of ["ALPHA_USDT_OFFLINE_PREVIEW", "ALPHA_USDT_OFFLINE_QUOTE_SCENARIOS", "ALPHA_FX_REFERENCE_URL", "ALPHA_EXCHANGE_CARDLESS_CREDENTIAL_SECRET"]) expect(message).toContain(key);
+    expect(message).not.toContain("offline-preview-synthetic-credentials-only");
+  });
   it("rejects a mandatory requirement without enabled phone verification", () => {
     vi.stubEnv("NODE_ENV", "production");
     vi.stubEnv("VERCEL", "1");

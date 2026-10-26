@@ -225,7 +225,7 @@ describe("AlphaExchangeRepository", () => {
     expect(query).toHaveBeenNthCalledWith(
       1,
       "select to_regclass($1) is not null as ready",
-      ["alpha_exchange.idx_alpha_exchange_audit_logs_request_sort"],
+      ["alpha_exchange.idx_usdt_demands_owner"],
     );
     expect(query.mock.calls.some(([sql]) => String(sql).includes("create schema"))).toBe(false);
   });
@@ -355,7 +355,8 @@ describe("AlphaExchangeRepository", () => {
       }
       return Promise.resolve({ rows: [] });
     });
-    const pool = { query, connect: vi.fn(), on: vi.fn() } as unknown as Pool;
+    const release = vi.fn();
+    const pool = { query, connect: vi.fn().mockResolvedValue({ query, release }), on: vi.fn() } as unknown as Pool;
 
     const repository = new AlphaExchangeRepository(pool);
     await repository.ensureReady();
@@ -369,6 +370,22 @@ describe("AlphaExchangeRepository", () => {
     expect(query.mock.calls.some(([sql]) => String(sql).includes("idx_alpha_exchange_evidence_blobs_updated"))).toBe(true);
     expect(query.mock.calls.some(([sql]) => String(sql).includes("idx_alpha_exchange_commissions_unpaid_seller"))).toBe(true);
     expect(query.mock.calls.some(([sql]) => String(sql).includes("idx_alpha_exchange_audit_logs_request_sort"))).toBe(true);
+    expect(query).toHaveBeenCalledWith("begin");
+    expect(query).toHaveBeenCalledWith("select pg_advisory_xact_lock(61422920)");
+    expect(query).toHaveBeenCalledWith("commit");
+    expect(release).toHaveBeenCalledWith(false);
+  });
+
+  it("rechecks bootstrap readiness after another process wins the migration lock", async () => {
+    const query = vi.fn(async () => ({ rows: [{ ready: false }] }));
+    const clientQuery = vi.fn(async (sql: string) => ({ rows: [{ ready: sql.includes("to_regclass") }] }));
+    const release = vi.fn();
+    vi.stubEnv("NODE_ENV", "production");
+    const repo = new AlphaExchangeRepository({ query, connect: vi.fn().mockResolvedValue({ query: clientQuery, release }) } as unknown as Pool);
+    await repo.ensureReady();
+    expect(clientQuery.mock.calls.some(([sql]) => String(sql).includes("create table"))).toBe(false);
+    expect(clientQuery).toHaveBeenCalledWith("commit");
+    expect(release).toHaveBeenCalledWith(false);
   });
 
   it("loads unpaid commission seller IDs with one targeted canonical query", async () => {
@@ -956,6 +973,7 @@ describe("AlphaExchangeRepository", () => {
     } as unknown as Pool;
 
     const repository = new AlphaExchangeRepository(pool);
+    vi.spyOn(repository, "ensureReady").mockResolvedValue();
     const loaded = await repository.loadSnapshot();
     expect(loaded.marketplaceListings).toEqual([expect.objectContaining({ id: "listing-1", availableAmount: "700" })]);
     expect((loaded as AlphaExchangeDb & { __runtimeVersion?: number }).__runtimeVersion).toBe(7);
@@ -1008,6 +1026,7 @@ describe("AlphaExchangeRepository", () => {
     } as unknown as Pool;
 
     const firstRepository = new AlphaExchangeRepository(successPool);
+    vi.spyOn(firstRepository, "ensureReady").mockResolvedValue();
     const loaded = await firstRepository.loadSnapshot();
     expect(loaded.marketplaceListings).toEqual([expect.objectContaining({ id: "listing-shared" })]);
 
@@ -1736,6 +1755,7 @@ describe("AlphaExchangeRepository", () => {
     } as unknown as Pool;
 
     const repository = new AlphaExchangeRepository(pool);
+    vi.spyOn(repository, "ensureReady").mockResolvedValue();
 
     await expect(repository.upsertAuthSession({
       token: "session-token",
@@ -1775,6 +1795,7 @@ describe("AlphaExchangeRepository", () => {
     } as unknown as Pool;
 
     const repository = new AlphaExchangeRepository(pool);
+    vi.spyOn(repository, "ensureReady").mockResolvedValue();
 
     await expect(repository.saveSnapshot(createEmptyDb())).resolves.toBeUndefined();
 
@@ -1799,6 +1820,7 @@ describe("AlphaExchangeRepository", () => {
     } as unknown as Pool;
 
     const repository = new AlphaExchangeRepository(pool);
+    vi.spyOn(repository, "ensureReady").mockResolvedValue();
 
     await expect(repository.saveSnapshot(createEmptyDb())).resolves.toBeUndefined();
 
@@ -1820,6 +1842,7 @@ describe("AlphaExchangeRepository", () => {
     const repository = new AlphaExchangeRepository({
       query: vi.fn().mockResolvedValue({ rows: [] }), connect: vi.fn().mockResolvedValue(client), on: vi.fn(),
     } as unknown as Pool);
+    vi.spyOn(repository, "ensureReady").mockResolvedValue();
     await expect(repository.saveSnapshot(db, { selectedTables: ["purchase_requests"] })).rejects.toThrow("Query read timeout");
     expect(client.release).toHaveBeenCalledExactlyOnceWith(true);
     expect(client.query.mock.calls.some(([sql]) => sql === "rollback")).toBe(false);

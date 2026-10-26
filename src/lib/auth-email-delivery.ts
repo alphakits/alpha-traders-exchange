@@ -1,3 +1,4 @@
+import { previewEmailRecipientFailure, previewEmailSubject } from "./email-preview-safety";
 import {
   BRAND_EMAIL_LOGO_SRC,
   BRAND_NAME,
@@ -116,6 +117,8 @@ export async function sendAuthEmailViaResend(input: {
   }
 
   try {
+    const previewFailure = previewEmailRecipientFailure([input.to]);
+    if (previewFailure) return previewFailure;
     const response = await fetch("https://api.resend.com/emails", {
       method: "POST",
       signal: AbortSignal.timeout(10_000),
@@ -126,7 +129,7 @@ export async function sendAuthEmailViaResend(input: {
       body: JSON.stringify({
         from,
         to: [input.to],
-        subject: input.subject,
+        subject: previewEmailSubject(input.subject),
         html: input.html,
         text: input.text,
         headers: buildBrandedEmailHeaders(),

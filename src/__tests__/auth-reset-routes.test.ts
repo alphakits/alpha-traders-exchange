@@ -122,6 +122,33 @@ describe("auth reset routes", () => {
     mocks.signOut.mockResolvedValue({ error: null });
   });
 
+  it.each(["", "approved@example.test"])("blocks preview reset and legacy migration with allowlist %j", async allowlist => {
+    vi.stubEnv("VERCEL_ENV", "preview");
+    vi.stubEnv("ALPHA_EMAIL_STAGING_ALLOWLIST", allowlist);
+    mocks.findUserByEmail.mockResolvedValue({ passwordHash: "legacy-hash", emailVerified: true });
+    vi.stubGlobal("fetch", vi.fn());
+    const response = await requestReset(new NextRequest("http://localhost/api/auth/reset/request", {
+      method: "POST", body: JSON.stringify({ email: "unapproved@example.test" }),
+    }));
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: "We could not send a password reset email right now. Please try again shortly." });
+    expect(mocks.findUserByEmail).not.toHaveBeenCalled();
+    expect(mocks.generateLink).not.toHaveBeenCalled();
+    expect(mocks.createUser).not.toHaveBeenCalled();
+    expect(mocks.resetPasswordForEmail).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it.each(["preview", "production"])("preserves normal reset for permitted %s recipients", async environment => {
+    vi.stubEnv("VERCEL_ENV", environment);
+    vi.stubEnv("ALPHA_EMAIL_STAGING_ALLOWLIST", environment === "preview" ? "BUYER@EXAMPLE.TEST" : "");
+    const response = await requestReset(new NextRequest("http://localhost/api/auth/reset/request", {
+      method: "POST", body: JSON.stringify({ email: "buyer@example.test" }),
+    }));
+    expect(response.status).toBe(200);
+    expect(mocks.resetPasswordForEmail).toHaveBeenCalledWith("buyer@example.test", expect.any(Object));
+  });
+
   it("returns the generic success message for valid reset requests", async () => {
     const request = new NextRequest("http://localhost/api/auth/reset/request", {
       method: "POST",

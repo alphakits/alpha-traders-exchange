@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { getNpmCommand } from "./npm-command.mjs";
 
 // These exact upstream advisories have source-verified local backports.
 // Do not broaden this list to silence a new advisory or severity change.
@@ -86,13 +87,14 @@ function transientAuditFailure(report) {
 }
 
 export function readFreshDependencyAudit({ cwd } = {}) {
+  const npm = getNpmCommand();
   const deadline = performance.now() + auditBudgetMs;
   let lastReason = "DEADLINE_EXCEEDED";
   for (let attempt = 1; attempt <= maxAuditAttempts; attempt++) {
     const remainingMs = Math.floor(deadline - performance.now());
     if (remainingMs <= 0) break;
-    const result = spawnSync(process.platform === "win32" ? "npm.cmd" : "npm",
-      ["audit", "--omit=dev", "--json", "--fetch-timeout=10000", "--fetch-retries=0"], {
+    const result = spawnSync(npm.command,
+      [...npm.prefixArgs, "audit", "--omit=dev", "--json", "--fetch-timeout=10000", "--fetch-retries=0"], {
         cwd,
         encoding: "utf8", timeout: Math.min(auditAttemptMs, remainingMs),
         killSignal: "SIGKILL", maxBuffer: 8 * 1024 * 1024,

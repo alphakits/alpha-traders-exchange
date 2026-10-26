@@ -1,13 +1,49 @@
 import { PrivateContactError } from "@/lib/buyer-contact";
 import { resolveSupportedRequestLocale } from "@/lib/request-locale";
 import { after, NextRequest, NextResponse } from "next/server";
-import { createPurchaseRequest, getMyPurchaseRequests, sanitizePurchaseRequestForActor } from "@/lib/alpha-exchange-store";
+import { createPurchaseRequest, getMyPurchaseRequests, sanitizePurchaseRequestForActor, TradeBlockedError } from "@/lib/alpha-exchange-store";
+import { DemandError, parseDemandMatchBinding } from "@/lib/usdt-demand-policy";
+import { commissionPaymentDestination } from "@/lib/commission-payment-destination";
+import { getWalletAddressValidationError } from "@/lib/wallet-address";
 import { requireApiUser, requireMarketplaceVerificationForTrading } from "@/lib/api-auth";
 import { hasRole } from "@/lib/roles";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { logEvent } from "@/lib/structured-logging";
 import { prepareTradeEventEmails } from "@/lib/marketplace-email-events";
 import { tradeDestination } from "@/lib/action-destinations";
+
+// These are deliberately fixed messages for typed canonical trade blockers.
+// Do not expose arbitrary error.details or storage/driver exception text.
+const demandTradeBlockMessages: Record<string, string> = {
+  AWAITING_BUYER_CONFIRMATION: "Your previous trade is waiting for the seller to complete it. Open the Trade Room to continue.",
+  ACTIVE_TRADE_EXISTS: "Complete or cancel your current trade before starting another purchase.",
+  PURCHASE_REQUEST_ALREADY_SUBMITTED: "Continue this purchase in the existing Trade Room.",
+  PENDING_BUYER_FEEDBACK: "Complete your previous trade feedback before starting a new purchase.",
+  SELLER_COMMISSION_DUE: "Pay your pending seller commission before starting another purchase.",
+  USER_INTERACTION_BLOCKED: "A user block prevents this new trade.",
+  LISTING_SELLER_LOCKED: "This seller is temporarily unavailable for new purchases.",
+  LISTING_BANK_ACCOUNT_UNAVAILABLE: "This listing no longer has a valid payout account. Choose another listing.",
+  LISTING_CHANGED: "This listing changed. Refresh the request and review the latest terms.",
+  LISTING_AMOUNT_CHANGED: "The available amount or trade limits changed. Refresh the request and review the latest terms.",
+  LISTING_UNAVAILABLE: "This listing is no longer available for a new buyer.",
+  SELLER_TRADE_LIMIT: "This seller has 3 active trades. Wait for a trade to finish.",
+  "listing-amount-unavailable": "This amount is reserved by other active trades. Choose an available amount.",
+  "trade-commission-precision": "Trade quantity must produce a positive 1% fee at six-decimal USDT precision and remain within supported amount limits.",
+  CARDLESS_BANK_REQUIRED: "Choose the bank that issued your withdrawal code.",
+  CARDLESS_PAYMENT_AMOUNT_MISMATCH: "ATM code amount must match the full payment total shown in your review.",
+  CARDLESS_DETAILS_REQUIRED: "Enter the withdrawal code, ID number or birth date, and exact ILS withdrawal amount matching this trade.",
+};
+const demandValidationMessages = new Set([
+  "Buyer identity mismatch.", "Listing not found.", "Unsupported receiving network.",
+  "Selected payment method is invalid.", "Selected payment method is not available for this listing.",
+  "Please acknowledge the Face-to-Face privacy and safety notice before continuing.",
+  "Listing is not available for a new buyer right now.", "You cannot submit a purchase request to your own listing.",
+  "Seller is currently unavailable for new buyer matches.",
+  "Trade amount must be a valid positive USDT amount with no more than six decimal places.",
+  "Requested amount exceeds the remaining listing quantity.", "Listing price is invalid.",
+  "Trade amount must produce a payment total of at least 0.01 in the listing currency.",
+  ...(["TRC20", "BEP20", "ERC20", "SOL"] as const).map(network => getWalletAddressValidationError(network, "invalid")),
+]);
 
 export async function GET() {
   const { user, unauthorized } = await requireApiUser();
@@ -26,7 +62,7 @@ export async function POST(request: NextRequest) {
   const requestId = crypto.randomUUID();
   const { user, unauthorized } = await requireApiUser();
   if (!user) return unauthorized;
-  const withRequestIdHeaders = (headers?: HeadersInit) => ({ ...(headers ?? {}), "X-Request-Id": requestId });
+  const withRequestIdHeaders = (headers?: HeadersInit) => ({ "Cache-Control": "private, no-store, max-age=0", Pragma: "no-cache", ...(headers ?? {}), "X-Request-Id": requestId });
   const denied = (
     message: string,
     status: number,
@@ -53,7 +89,7 @@ export async function POST(request: NextRequest) {
       { status, headers: withRequestIdHeaders(headers) },
     );
   };
-  const failed = (error: string, metadata?: Record<string, unknown>) => {
+  const failed = (error: string, metadata?: Record<string, unknown>, status = 500) => {
     logEvent("error", {
       event: "exchange_purchase_request_create",
       actorUserId: user.id,
@@ -62,7 +98,7 @@ export async function POST(request: NextRequest) {
       reason: error,
       metadata: { requestId, ...metadata },
     });
-    return NextResponse.json({ code: "PURCHASE_REQUEST_FAILED", message: error, details: null, requestId }, { status: 500, headers: withRequestIdHeaders() });
+    return NextResponse.json({ code: "PURCHASE_REQUEST_FAILED", message: error, details: null, requestId }, { status, headers: withRequestIdHeaders() });
   };
   const verificationRequired = requireMarketplaceVerificationForTrading(user);
   if (verificationRequired) {
@@ -102,8 +138,11 @@ export async function POST(request: NextRequest) {
       { retryAfterSeconds: rate.retryAfterSeconds },
     );
   }
+  let demandOrigin = false;
   try {
     const body = await request.json();
+    demandOrigin = Boolean(body && typeof body === "object" && ["usdtDemandId", "usdtDemandOfferId", "usdtDemandRevision"].some(key => Object.hasOwn(body, key)));
+    const demandBinding = demandOrigin ? parseDemandMatchBinding(body) : null;
     const listingId = String(body.listingId ?? "").trim();
     if (!listingId) {
       return denied("Listing ID is required.", 400, "LISTING_ID_REQUIRED");
@@ -138,6 +177,9 @@ export async function POST(request: NextRequest) {
     if (body?.feePolicyVersion !== "buyer_seller_1pct_v1") return denied("Refresh and review the 1% buyer fee before confirming your trade.", 409, "FEE_POLICY_REVIEW_REQUIRED");
 
     const created = await createPurchaseRequest({
+      usdtDemandId: demandBinding?.usdtDemandId,
+      usdtDemandOfferId: demandBinding?.usdtDemandOfferId,
+      usdtDemandRevision: demandBinding?.usdtDemandRevision,
       feePolicyVersion: "buyer_seller_1pct_v1",
       buyerId: user.id,
       listingId,
@@ -158,7 +200,7 @@ export async function POST(request: NextRequest) {
     });
     const { request: purchase, metrics } = created;
     const responsePurchase = sanitizePurchaseRequestForActor(purchase, user.id, user.role);
-    after(async () => {
+    if (!created.replayed) after(async () => {
       try {
         const deliverTradeEmails = await prepareTradeEventEmails({ event: "new_buy_request", request: purchase });
         await deliverTradeEmails();
@@ -211,6 +253,24 @@ export async function POST(request: NextRequest) {
         ? "أضف رقم هاتف أو واتساب صالحًا في ملفك الشخصي حتى يتمكن المالك من التواصل معك عند الحاجة. الرقم خاص بك وبالمالك فقط."
         : error.message;
       return denied(message, 400, error.code);
+    }
+    if (demandOrigin) {
+      if (error instanceof DemandError) return denied(error.message, 400, error.code);
+      if (error instanceof TradeBlockedError && Object.hasOwn(demandTradeBlockMessages, error.code)) {
+        const details: Record<string, unknown> = { errorName: "TradeBlockedError" };
+        const safeId = (value: unknown): value is string => typeof value === "string" && /^[a-zA-Z0-9_-]{1,128}$/.test(value);
+        if (safeId(error.purchaseRequestId)) details.purchaseRequestId = error.purchaseRequestId;
+        if (error.code === "SELLER_COMMISSION_DUE" && safeId(error.details?.commissionId)) {
+          details.commissionId = error.details.commissionId;
+          details.actionHref = commissionPaymentDestination(error.details.commissionId);
+        }
+        return denied(demandTradeBlockMessages[error.code], 400, error.code, undefined, undefined, details);
+      }
+      if (error instanceof Error && (demandValidationMessages.has(error.message)
+        || /^(Minimum|Maximum) trade for this listing is \d{1,12}(?:\.\d{1,6})? USDT\.$/.test(error.message))) {
+        return denied(error.message, 400, "PURCHASE_REQUEST_VALIDATION_FAILED");
+      }
+      return failed("The trade could not be opened. Refresh the request and try again.", { demandOrigin: true }, 503);
     }
     if (error instanceof Error && error.message.trim()) {
       const blocked = error as Error & { code?: string; purchaseRequestId?: string; details?: Record<string, unknown> };

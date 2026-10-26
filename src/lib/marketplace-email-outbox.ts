@@ -5,6 +5,7 @@ import { getRuntimePostgresPool } from "@/lib/postgres-runtime";
 import { rollbackFailedTransaction } from "@/lib/postgres-transaction";
 import { isProductionSecurityRuntime } from "@/lib/runtime-safety";
 import { logEvent } from "@/lib/structured-logging";
+import { previewPreparedEmailFailure } from "./email-preview-safety";
 
 export type PreparedMarketplaceEmail = {
   event: string;
@@ -15,7 +16,7 @@ export type PreparedMarketplaceEmail = {
   requiredTradeStatuses?: string[];
 };
 
-export type EmailProviderResult = { ok: true } | {
+export type EmailProviderResult = { ok: true; providerReceiptId?: string } | {
   ok: false;
   reason: string;
   providerStatus?: number;
@@ -66,7 +67,12 @@ async function ensureSchema(pool: Pool) {
   if (!ready) {
     ready = (async () => {
       const result = await pool.query("select to_regclass('alpha_exchange.idx_marketplace_email_due') as ready");
-      if (result.rows[0]?.ready) return;
+      if (result.rows[0]?.ready) {
+        // Schema-only restores include the index but not the singleton row.
+        // Seed it once per pool without shortening an existing provider cooldown.
+        await pool.query("insert into alpha_exchange.marketplace_email_gate(singleton) values (true) on conflict do nothing");
+        return;
+      }
       const client = await pool.connect();
       let destroy = false;
 
@@ -88,7 +94,7 @@ async function ensureSchema(pool: Pool) {
 }
 
 type Job = {
-  id: string; event: string; recipient_email: string; request_body: string;
+  id: string; event: string; recipient_id: string; recipient_email: string; request_body: string;
   idempotency_key: string; attempts: number; lease_token: string;
 };
 
@@ -135,7 +141,7 @@ async function claim(pool: Pool, id?: string): Promise<{ job?: Job; waitMs?: num
   }
 }
 
-async function finish(pool: Pool, job: Job, status: "sent" | "failed" | "suppressed" | "pending", reason: string, delayMs = 0) {
+async function finish(pool: Pool, job: Job, status: "sent" | "failed" | "suppressed" | "pending", reason: string, delayMs = 0, providerReceiptId?: string) {
   const result = await pool.query(
     `update alpha_exchange.marketplace_email_outbox
      set status = $3, last_reason = $4, available_at = now() + $5::double precision * interval '1 millisecond',
@@ -148,7 +154,7 @@ async function finish(pool: Pool, job: Job, status: "sent" | "failed" | "suppres
   if (result.rowCount === 1) logEvent(status === "failed" ? "error" : "info", {
     event: "marketplace_email_outbox", resourceId: job.id,
     outcome: status === "failed" ? "failed" : "success", reason,
-    metadata: { status, emailEvent: job.event, attempts: job.attempts },
+    metadata: { status, emailEvent: job.event, attempts: job.attempts, ...(providerReceiptId ? { providerReceiptId } : {}) },
   });
 }
 
@@ -172,10 +178,23 @@ async function attempt(pool: Pool, job: Job, send: MarketplaceEmailTransport) {
     await finish(pool, job, "suppressed", "recipient_no_longer_eligible");
     return "suppressed" as const;
   }
-  const result = await send({ event: job.event, recipientEmail: job.recipient_email,
-    body: job.request_body, idempotencyKey: job.idempotency_key });
+  if (job.event === "usdt_demand_published" || job.event === "usdt_demand_response") {
+    const { canDeliverDemandEmail } = await import("./usdt-demand-email");
+    if (!await canDeliverDemandEmail(job.recipient_id, job.recipient_email, job.idempotency_key, job.event)) {
+      await finish(pool, job, "suppressed", "demand_no_longer_eligible");
+      return "suppressed" as const;
+    }
+  }
+  const prepared = { event: job.event, recipientEmail: job.recipient_email,
+    body: job.request_body, idempotencyKey: job.idempotency_key };
+  const previewFailure = previewPreparedEmailFailure(prepared);
+  if (previewFailure && !previewFailure.retryable) {
+    await finish(pool, job, "suppressed", previewFailure.reason);
+    return "suppressed" as const;
+  }
+  const result: EmailProviderResult = previewFailure ?? await send(prepared);
   if (result.ok) {
-    await finish(pool, job, "sent", "provider_accepted");
+    await finish(pool, job, "sent", "provider_accepted", 0, result.providerReceiptId);
     return "sent" as const;
   }
   const retryable = result.retryable !== false || result.quotaExceeded
@@ -199,6 +218,9 @@ async function attempt(pool: Pool, job: Job, send: MarketplaceEmailTransport) {
 }
 
 export async function enqueueMarketplaceEmail(email: PreparedMarketplaceEmail, send: MarketplaceEmailTransport) {
+  const previewFailure = previewPreparedEmailFailure(email);
+  if (previewFailure) return { ok: false as const,
+    reason: previewFailure.retryable ? previewFailure.reason : "email_delivery_terminal" };
   try {
     const pool = getRuntimePostgresPool();
     // Explicit local/test runtimes preserve the existing transport test seam.
@@ -269,7 +291,18 @@ export async function runMarketplaceEmailSweep(send: MarketplaceEmailTransport) 
       break;
     }
     work += 1;
-    const outcome = await attempt(pool, job, send);
+    let outcome: Awaited<ReturnType<typeof attempt>>;
+    try {
+      outcome = await attempt(pool, job, send);
+    } catch {
+      // A temporary eligibility/provider failure belongs to this job. Keep
+      // its frozen body/key for recovery and continue unrelated deliveries.
+      // A storage failure here still rejects the sweep for operator visibility.
+      await finish(pool, job, "pending", "attempt_interrupted_retry_preserved", 30_000);
+      logEvent("error", { event: "marketplace_email_outbox", resourceId: job.id,
+        outcome: "failed", reason: "attempt_interrupted_retry_preserved" });
+      outcome = "pending";
+    }
     summary[outcome] += 1;
   }
   const counts = await pool.query<{ pending: number; failed: number }>(

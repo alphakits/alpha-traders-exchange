@@ -56,7 +56,7 @@ describe("Responsive site header", () => {
       const { container } = render(await SiteHeader({ locale, sessionUser: session.user }));
       const header = container.querySelector("header")!;
       const row = header.querySelector(":scope > .section-container")!;
-      const desktopNav = header.querySelector("nav[aria-label]")!;
+      const desktopNav = header.querySelector(":scope > nav[aria-label]")!;
       const accountControls = header.querySelector("[data-header-account-controls]")!;
 
       // A fixed-height, non-wrapping row or flex-shrinking account group hid

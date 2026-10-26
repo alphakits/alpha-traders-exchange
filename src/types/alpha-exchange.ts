@@ -638,6 +638,7 @@ export type WhatsAppNotificationEvent =
   | "trade_cancelled";
 
 export interface AlphaExchangeNotification {
+  demandEmail?: { demandId: string; offerId?: string; revision: number; state: "pending" | "queued" | "suppressed" };
   id: string;
   userId: string;
   category: NotificationCategory;
@@ -854,6 +855,8 @@ export interface AdminAnnouncementRun {
 }
 
 export interface PurchaseRequest {
+  usdtDemandId?: string;
+  usdtDemandOfferId?: string;
   feePolicyVersion?: "buyer_seller_1pct_v1";
   /** Set by the server when submitted; legacy requests retain their existing rounding. */
   commissionCalculationVersion?: "usdt_6dp_v2";
@@ -1226,6 +1229,7 @@ export interface SmsDeliveryRecord {
 }
 
 export interface AlphaExchangeDb {
+  usdtDemands?: import("./usdt-demand").UsdtDemand[];
   users: AlphaExchangeUser[];
   sellerApplications: SellerApplication[];
   marketplaceListings: MarketplaceListing[];

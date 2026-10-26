@@ -1,3 +1,7 @@
 *.mp4 filter=lfs diff=lfs merge=lfs -text
 *.pack filter=lfs diff=lfs merge=lfs -text
 public/files/course/pdfs/*.pdf binary
+
+supabase/migrations/*commission*.sql text eol=lf
+scripts/*commission*.sql text eol=lf
+src/__tests__/fixtures/decode-uri-component-0.2.2.txt text eol=lf

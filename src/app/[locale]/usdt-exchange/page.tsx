@@ -1,3 +1,4 @@
+import { demandEnabled } from "@/lib/usdt-demand-policy";
 import { buildPageMetadata } from "@/lib/seo";
 import { UsdtExchangePage } from "@/components/sections/usdt-exchange/usdt-exchange-page";
 import { toClientSessionUser } from "@/lib/client-session-user";
@@ -40,5 +41,5 @@ export default async function UsdtExchangeRoute({ params, searchParams }: {
     const search = query.toString();
     redirect(getSignedOutPageDestination(`/${locale}/usdt-exchange${search ? `?${search}` : ""}`));
   }
-  return <UsdtExchangePage locale={locale as "ar" | "en"} initialSessionUser={toClientSessionUser(user)} />;
+  return <UsdtExchangePage locale={locale as "ar" | "en"} usdtRequestsEnabled={demandEnabled()} initialSessionUser={toClientSessionUser(user)} />;
 }

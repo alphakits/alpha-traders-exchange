@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { checkSharedRateLimit } from "@/lib/rate-limit";
 import { createSupabaseAuthClient, getSupabaseEmailRedirectUrl, inferLocaleFromRequest } from "@/lib/supabase-auth-provider";
 import { logEvent } from "@/lib/structured-logging";
+import { previewEmailRecipientFailure } from "@/lib/email-preview-safety";
 
 const AUTH_RESPONSE_HEADERS = { "Cache-Control": "no-store, max-age=0" };
 
@@ -47,6 +48,12 @@ export async function POST(request: NextRequest) {
     const email = String(body?.email ?? "").trim();
     if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       return NextResponse.json({ error: validEmailRequiredMessage(locale) }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
+    }
+    if (previewEmailRecipientFailure([email])) {
+      return NextResponse.json(
+        { error: verificationDeliveryFailedMessage(locale) },
+        { status: 503, headers: AUTH_RESPONSE_HEADERS },
+      );
     }
     const supabase = createSupabaseAuthClient({ requestHeaders: request.headers });
     let resendError: { message?: string } | null = null;

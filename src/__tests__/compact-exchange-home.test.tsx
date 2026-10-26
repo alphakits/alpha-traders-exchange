@@ -82,6 +82,68 @@ afterEach(async () => {
 });
 
 describe("compact Exchange home", () => {
+  it.each([
+    ["buyer", 1440, "en"], ["buyer", 390, "ar"],
+    ["seller", 1440, "ar"], ["seller", 390, "en"],
+  ] as const)("opens the correct Buy Requests workspace from the %s welcome dashboard at %dpx (%s)", async (side, width, locale) => {
+    viewportWidth = width;
+    const isAr = locale === "ar";
+    user = { ...buyer, emailVerified: true, isPhotoVerified: true, adultConfirmed: true,
+      ...(side === "seller" ? { role: "approved_seller" as const, roles: ["approved_seller", "buyer"] as ClientSessionUser["roles"], sellerStatus: "approved_seller" as const, sellerApprovalVerified: true } : {}),
+    };
+    requests = [{ ...trade, ...(side === "seller" ? { sellerId: user.id, buyerId: "another-buyer" } : {}) }];
+    const { container } = render(<UsdtExchangePage locale={locale} initialSessionUser={user} workspaceMode={side} usdtRequestsEnabled />);
+    const shortcut = await screen.findByTestId("welcome-buy-requests");
+    const welcome = container.querySelector(`[data-account-role="${side === "seller" ? "approved_seller" : "buyer"}"]`) as HTMLElement;
+    expect(welcome.contains(shortcut)).toBe(true);
+    expect(within(welcome).getByRole("link", { name: isAr ? "طلبات الشراء" : "Buy Requests" })).toBe(shortcut);
+    expect(shortcut.getAttribute("href")).toBe(`/usdt-exchange/requests?scope=${side === "seller" ? "available" : "mine"}`);
+    expect(screen.getAllByTestId("welcome-buy-requests")).toHaveLength(1);
+    await waitFor(() => expect(container.querySelectorAll("#workspace-summary")).toHaveLength(1));
+
+    // Adding the new shortcut must preserve the current trade/listing actions
+    // in each responsive welcome layout, including the compact phone branch.
+    if (width >= 1024) {
+      expect(welcome.querySelector("#workspace-summary")).toBeTruthy();
+      await waitFor(() => expect(document.getElementById(side === "seller" ? "create-listing" : "my-trade-requests-section")).toBeTruthy());
+      fireEvent.click(within(welcome).getByRole("button", { name: side === "seller"
+        ? (isAr ? "إنشاء عرض" : "Create Listing")
+        : (isAr ? "طلبات صفقاتي" : "My Trade Requests") }));
+      await waitFor(() => expect(document.activeElement?.id).toBe(side === "seller" ? "create-listing" : "my-trade-requests-section"));
+    } else {
+      expect(welcome.querySelector("#workspace-summary")).toBeNull();
+      expect(within(welcome).getByRole("link", { name: isAr ? "تصفح البائعين" : "Browse Sellers" }).getAttribute("href")).toBe("/usdt-exchange#marketplace");
+      const workspace = within(container.querySelector("#workspace-summary") as HTMLElement);
+      if (side === "seller") {
+        await waitFor(() => expect(document.getElementById("purchase-requests-section")).toBeTruthy());
+        fireEvent.click(workspace.getByRole("button", { name: isAr ? /^طلبات الشراء:/ : /^Purchase Requests:/ }));
+        await waitFor(() => expect(document.activeElement?.id).toBe("purchase-requests-section"));
+      } else {
+        fireEvent.click(workspace.getByRole("button", { name: isAr ? /^الصفقات النشطة:/ : /^Active Trades:/ }));
+        await waitFor(() => expect(push).toHaveBeenLastCalledWith("/trade-room/home-active-trade"));
+      }
+    }
+  });
+
+  it.each(["buyer", "seller"] as const)("hides the %s welcome Buy Requests shortcut when the feature is disabled", async side => {
+    user = { ...buyer, emailVerified: true, isPhotoVerified: true, adultConfirmed: true,
+      ...(side === "seller" ? { role: "approved_seller" as const, roles: ["approved_seller", "buyer"] as ClientSessionUser["roles"], sellerStatus: "approved_seller" as const, sellerApprovalVerified: true } : {}),
+    };
+    const { container } = render(<UsdtExchangePage locale="en" initialSessionUser={user} workspaceMode={side} usdtRequestsEnabled={false} />);
+    await waitFor(() => expect(container.querySelector("#workspace-summary")).toBeTruthy());
+    expect(screen.queryByTestId("welcome-buy-requests")).toBeNull();
+    expect(screen.queryByRole("link", { name: "Buy Requests" })).toBeNull();
+    const welcome = container.querySelector(`[data-account-role="${side === "seller" ? "approved_seller" : "buyer"}"]`) as HTMLElement;
+    expect(within(welcome).getByRole("button", { name: side === "seller" ? "Create Listing" : "My Trade Requests" })).toBeTruthy();
+  });
+
+  it.each(["emailVerified", "isPhotoVerified", "adultConfirmed"] as const)("does not expose the welcome Buy Requests shortcut without %s", async required => {
+    user = { ...buyer, emailVerified: true, isPhotoVerified: true, adultConfirmed: true, [required]: false };
+    const { container } = render(<UsdtExchangePage locale="en" initialSessionUser={user} workspaceMode="buyer" usdtRequestsEnabled />);
+    await waitFor(() => expect(container.querySelector("#workspace-summary")).toBeTruthy());
+    expect(screen.queryByTestId("welcome-buy-requests")).toBeNull();
+  });
+
   it.each([[1440, "en"], [390, "ar"]] as const)("keeps server workspace controls inert until the final viewport is ready (%s px, %s)", async (width, locale) => {
     viewportWidth = width;
     user = { ...buyer, role: "approved_seller", roles: ["approved_seller", "buyer"], sellerStatus: "approved_seller", sellerApprovalVerified: true };

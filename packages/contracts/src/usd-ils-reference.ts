@@ -24,8 +24,21 @@ export function isFxPairUsable(pair: FxReferenceQuote | undefined, now = Date.no
   return pair.quoteStatus === "closed" && now - quotedAt <= FX_MAX_CLOSED_AGE_MS && validUntil <= quotedAt + FX_MAX_CLOSED_AGE_MS;
 }
 
+/** Whole-cent settlement prices strictly inside the unrounded reference band. */
+export function getIlsReferencePriceBounds(rate: number) {
+  if (!Number.isFinite(rate) || rate < 2 || rate > 10) return null;
+  // Treat the provider's decimal quote exactly. Rounding the reference first
+  // can permit a cent outside the band; floating-point epsilon can do so too.
+  const [whole, fraction = ""] = String(rate).split(".");
+  const scale = BigInt(10) ** BigInt(fraction.length);
+  const reference = (BigInt(whole!) * scale + BigInt(fraction || "0")) * BigInt(100);
+  const variance = BigInt(Math.round(MAX_ILS_PRICE_OVER_MARKET * 100)) * scale;
+  const minimumCents = (reference - variance + scale - BigInt(1)) / scale;
+  const maximumCents = (reference + variance) / scale;
+  return { minimumPrice: (Number(minimumCents) / 100).toFixed(2), maximumPrice: (Number(maximumCents) / 100).toFixed(2) };
+}
+
 /** Settlement is in cents. Never round the permitted ceiling upward. */
 export function maximumIlsListingPrice(rate: number) {
-  if (!Number.isFinite(rate) || rate < 2 || rate > 10) return 0;
-  return Math.floor((rate + MAX_ILS_PRICE_OVER_MARKET + Number.EPSILON * 4) * 100) / 100;
+  return Number(getIlsReferencePriceBounds(rate)?.maximumPrice ?? 0);
 }

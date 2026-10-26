@@ -11,7 +11,7 @@ describe("Zod dependency security and integration compatibility", () => {
   it("resolves the reviewed security release for the app, Expo and Vercel", () => {
     for (const resolver of [require, expoRequire, vercelRequire]) {
       const manifest = resolver("zod/package.json") as { version: string };
-      expect(manifest.version).toBe("4.6.6");
+      expect(manifest.version).toBe("4.6.7");
       expect(resolver.resolve("zod")).toBe(require.resolve("zod"));
     }
     const lock = JSON.parse(readFileSync(require.resolve("../../package-lock.json"), "utf8")) as {
@@ -19,7 +19,7 @@ describe("Zod dependency security and integration compatibility", () => {
     };
     const copies = Object.entries(lock.packages).filter(([name]) => name.endsWith("node_modules/zod"));
     expect(copies).toHaveLength(1);
-    expect(copies[0][1].version).toBe("4.6.6");
+    expect(copies[0][1].version).toBe("4.6.7");
   });
 
   it.each(["max", "length"] as const)("rejects an oversized array before walking its elements (%s)", bound => {

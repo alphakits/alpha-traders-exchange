@@ -3,6 +3,7 @@
  * Called once at module load time in production to fail fast on missing config.
  */
 import { isProductionSecurityRuntime } from "@/lib/runtime-safety";
+import { validateUsdtReleaseConfig } from "@/lib/usdt-release-config";
 import { getTwilioSmsSender } from "@/lib/notification-platform";
 import { getTwilioWhatsAppConfigurationStatus } from "@/lib/twilio-whatsapp";
 import { WHATSAPP_AUTHENTICATION_TEMPLATE_NAME, WHATSAPP_EVENT_TEMPLATES } from "@/lib/whatsapp-platform";
@@ -195,6 +196,7 @@ export function validateEnv(): { warnings: string[]; errors: string[] } {
   }
 
   if (isProduction) {
+    if (isProductionSecurityRuntime()) errors.push(...validateUsdtReleaseConfig(process.env));
     if (process.env.SUPABASE_DB_SSL === "false") {
       errors.push(
         "SECURITY: SUPABASE_DB_SSL=false is forbidden in production because PostgreSQL TLS identity verification is required.",

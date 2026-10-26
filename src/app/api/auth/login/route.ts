@@ -4,6 +4,7 @@ import { createEmailVerificationTokenForUser, upsertUserProfileForAuth } from "@
 import { AUTH_COOKIE_NAME, AUTH_PHONE_VERIFIED_COOKIE_NAME, AUTH_VERIFIED_COOKIE_NAME, authenticateLocalUser, createUserSession } from "@/lib/auth";
 import { shouldUseSecureAuthCookie } from "@/lib/auth-cookie";
 import { checkRateLimit, checkSharedRateLimit, resolveClientIp } from "@/lib/rate-limit";
+import { withAuthProviderDeadline } from "@/lib/auth-request-deadline";
 import { createSupabaseAuthClient, inferLocaleFromRequest } from "@/lib/supabase-auth-provider";
 import { isMarketplacePhoneVerificationDisabled } from "@/lib/phone-verification";
 import { isVerified } from "@/lib/verification-bypass";
@@ -311,9 +312,11 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    const supabase = createSupabaseAuthClient({ requestHeaders: request.headers });
     const supabaseAuthStartedAt = Date.now();
-    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    const { data, error } = await withAuthProviderDeadline(request.signal, (signal) => {
+      const supabase = createSupabaseAuthClient({ requestHeaders: request.headers, signal });
+      return supabase.auth.signInWithPassword({ email, password });
+    });
     const supabaseAuthEndedAt = Date.now();
     const supabaseAuthMs = supabaseAuthEndedAt - supabaseAuthStartedAt;
     pushTimelineStep(timeline, "Password hashing / verification", supabaseAuthStartedAt, supabaseAuthEndedAt, { provider: "supabase" });

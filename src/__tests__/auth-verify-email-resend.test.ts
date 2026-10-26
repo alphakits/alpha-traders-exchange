@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 import { resolveSupportedRequestLocale } from "@/lib/request-locale";
 
@@ -28,6 +28,7 @@ vi.mock("@/lib/supabase-auth-provider", () => ({
 import { POST } from "@/app/api/auth/verify-email/resend/route";
 
 describe("verify email resend route", () => {
+  afterEach(() => vi.unstubAllEnvs());
   beforeEach(() => {
     mocks.checkSharedRateLimit.mockReset();
     mocks.resolveClientIp.mockReset();
@@ -40,6 +41,27 @@ describe("verify email resend route", () => {
     mocks.inferLocaleFromRequest.mockReturnValue("en");
     mocks.getSupabaseEmailRedirectUrl.mockReturnValue("https://www.alphatraders.co.il/en/login");
     mocks.resend.mockResolvedValue({ error: null });
+  });
+
+  it.each(["", "approved@example.test"])("blocks preview provider resend with allowlist %j", async allowlist => {
+    vi.stubEnv("VERCEL_ENV", "preview");
+    vi.stubEnv("ALPHA_EMAIL_STAGING_ALLOWLIST", allowlist);
+    const response = await POST(new NextRequest("http://localhost/api/auth/verify-email/resend", {
+      method: "POST", body: JSON.stringify({ email: "unapproved@example.test" }),
+    }));
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: "We could not send a verification email right now. Please try again shortly." });
+    expect(mocks.resend).not.toHaveBeenCalled();
+  });
+
+  it.each(["preview", "production"])("preserves normal verification resend for permitted %s recipients", async environment => {
+    vi.stubEnv("VERCEL_ENV", environment);
+    vi.stubEnv("ALPHA_EMAIL_STAGING_ALLOWLIST", environment === "preview" ? "BUYER@EXAMPLE.TEST" : "");
+    const response = await POST(new NextRequest("http://localhost/api/auth/verify-email/resend", {
+      method: "POST", body: JSON.stringify({ email: "buyer@example.test" }),
+    }));
+    expect(response.status).toBe(200);
+    expect(mocks.resend).toHaveBeenCalledWith(expect.objectContaining({ email: "buyer@example.test" }));
   });
 
   it("returns success only when supabase resend accepts", async () => {

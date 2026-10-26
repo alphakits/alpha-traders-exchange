@@ -2,7 +2,7 @@
 import { readFile } from "node:fs/promises";
 import { PGlite } from "@electric-sql/pglite";
 import type { Pool } from "pg";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { AlphaExchangeRepository } from "@/lib/alpha-exchange-repository";
 import type { AlphaExchangeDb, AuthSession } from "@/types/alpha-exchange";
 
@@ -21,11 +21,19 @@ async function storedSessions() {
   return (await database.query<{ payload: AuthSession }>("select payload from alpha_exchange.sessions order by token_hash")).rows.map(row => row.payload);
 }
 
+beforeAll(async () => {
+  // Bound cold WASM compilation separately; each test still gets a fresh database.
+  // PGlite caches compiled modules across instances, including after close().
+  const warmup = await PGlite.create();
+  await warmup.close();
+}, 30_000);
+
 beforeEach(async () => {
   vi.stubEnv("NODE_ENV", "production");
   database = new PGlite();
   await database.exec(await readFile("supabase/migrations/20260720160000_alpha_exchange_runtime.sql", "utf8"));
   await database.exec(await readFile("supabase/migrations/20260905223000_alpha_exchange_runtime_schema_parity.sql", "utf8"));
+  await database.exec(await readFile("supabase/migrations/20261024024258_usdt_buy_requests.sql", "utf8"));
   const client = {
     query: async (sql: string, values?: unknown[]) => {
       // Force an auth change after the snapshot's session read but before its
