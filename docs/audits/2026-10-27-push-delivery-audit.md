@@ -4,7 +4,7 @@ Date: 27 October 2026. Base: `e7a6b8f5978fea1aca70eccbd9580eb0d7e6168b`.
 
 This change recovers the unfinished browser-push/reminder draft and fixes important buyer/seller delivery gaps. It contains no Wise feature changes or financial decision changes. Software checks do not establish that a device displayed a notification.
 
-Status: implementation and local verification complete. The review patch contains 57 notification implementation, migration, test and audit files. Remote CI and preview results are tracked in the associated pull request. Production deployment, configuration and physical-device acceptance remain separate release requirements; no real notifications were sent during this audit.
+Status: implementation and local verification complete. The review patch contains 58 notification implementation, migration, test and audit files. Remote CI and preview results are tracked in the associated pull request. Production deployment, configuration and physical-device acceptance remain separate release requirements; no real notifications were sent during this audit.
 
 ## Findings fixed
 
@@ -34,6 +34,7 @@ All sends in automated tests use isolated mocks; database behavior uses disposab
 | Browser sender, service worker, registration, reminder database and route security | 7 files, 74 tests passed, including overlaps with the wider run |
 | Native delivery, recovery, registration, concurrency and cron | 5 files, 60 tests passed; included in the wider run |
 | Browser setup, settings, native bridge and contracts | 6 files, 38 tests passed; overlaps with the wider run |
+| Profile navigation and notification session integration | Full CI exposed four profile test fixtures missing the real session provider. Fixtures now match the production layout; all assertions and the production guard remain intact. Profile, preferences, native bridge and browser prompt rerun: 4 files, 51 tests passed, overlapping earlier checks. |
 | Buy Request and commission publication | 4 files, 56 tests passed; included in the wider run |
 | Final Buy Request cancellation, withdrawal, expiry and existing request journeys | 5 files, 116 tests passed, including 36 terminal-event tests; overlaps earlier runs |
 | Buy Request expiry scheduler | 9 tests passed: authentication, disabled feature, safe errors and successful sweep |
