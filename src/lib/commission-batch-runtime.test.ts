@@ -6,6 +6,10 @@ vi.mock("@/lib/postgres-runtime", () => ({ getRuntimePostgresPool: () => null })
 vi.mock("@/lib/commission-deposit-discovery", () => ({ verifyBinanceInternalCommissionDeposit: mocks.binance }));
 vi.mock("@/lib/bep20-commission-verifier", () => ({ verifyBep20Commission: mocks.bep20 }));
 vi.mock("@/lib/commission-batch-tron-verifier", () => ({ verifyCommissionBatchTronReceipt: mocks.tron }));
+vi.mock("@/lib/mobile-push", () => ({ scheduleMobilePushDelivery: vi.fn() }));
+vi.mock("@/lib/browser-push", () => ({ scheduleBrowserPushDelivery: vi.fn() }));
+import { scheduleMobilePushDelivery } from "./mobile-push";
+import { scheduleBrowserPushDelivery } from "./browser-push";
 import { getCommissionBatchRuntime } from "./commission-batch-runtime";
 import { getAlphaExchangeRepository } from "./alpha-exchange-repository";
 import { getSellerCommissionStatus, invalidateAlphaExchangeStoreCache } from "./alpha-exchange-store";
@@ -28,6 +32,7 @@ beforeEach(() => { vi.stubEnv("ALPHA_EXCHANGE_COMMISSION_BATCH_V1", "0"); vi.stu
   globalThis.__alphaExchangeRepositoryPromise = undefined as never;
   globalThis.__alphaExchangeMemorySnapshot = seed() as never; invalidateAlphaExchangeStoreCache();
   vi.clearAllMocks(); mocks.binance.mockResolvedValue({ verified: true, pending: false });
+  vi.mocked(scheduleMobilePushDelivery).mockReset();
 });
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllEnvs(); });
 describe("actual repository and batch runtime", () => {
@@ -68,6 +73,8 @@ describe("actual repository and batch runtime", () => {
     await Promise.all([runtime.reconcile({ deposits: [payment()], deadline: Date.now() + 60_000 }), runtime.reconcile({ deposits: [payment()], deadline: Date.now() + 60_000 })]);
     const snapshot = globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb;
     expect(snapshot.notifications.filter((item) => item.reason === "commission_payment_verified")).toHaveLength(1);
+    expect(vi.mocked(scheduleMobilePushDelivery).mock.calls.filter(([notice]) => notice.reason === "commission_payment_verified")).toHaveLength(1);
+    expect(scheduleBrowserPushDelivery).toHaveBeenCalledTimes(1);
     expect(snapshot.auditLogs.filter((entry) => entry.action === "commission_paid")).toHaveLength(1);
     const createdAt = new Date().toISOString();
     snapshot.commissionRecords.push({ id: "new-debt", sellerId: "seller", rate: .01, grossAmount: 4000,
@@ -79,6 +86,22 @@ describe("actual repository and batch runtime", () => {
     ]);
     await getSellerCommissionStatus("seller");
     expect((globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb).commissionRecords.filter(row => row.source === "tolerance_carry_forward")).toHaveLength(1);
+  });
+  it("publishes the seller's verified-payment notice only after commit, and never after failed storage", async () => {
+    const runtime = await getCommissionBatchRuntime(); await runtime.approve(input);
+    vi.mocked(scheduleMobilePushDelivery).mockImplementation(notification => {
+      const snapshot = globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb;
+      expect(snapshot.notifications.some(item => item.id === notification.id)).toBe(true);
+      expect(snapshot.commissionRecords.every(record => record.paymentStatus === "paid")).toBe(true);
+    });
+    const repository = await getAlphaExchangeRepository();
+    vi.spyOn(repository, "saveSnapshot").mockRejectedValueOnce(new Error("injected commit failure"));
+    expect(await runtime.reconcile({ deposits: [payment()], deadline: Date.now() + 60_000 })).toMatchObject({ verified: 0, errors: 1 });
+    expect(scheduleMobilePushDelivery).not.toHaveBeenCalled();
+    expect(scheduleBrowserPushDelivery).not.toHaveBeenCalled();
+    expect(await runtime.reconcile({ deposits: [payment()], deadline: Date.now() + 60_000 })).toMatchObject({ verified: 1 });
+    expect(scheduleMobilePushDelivery).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ userId: "seller", reason: "commission_payment_verified" }));
+    expect(scheduleBrowserPushDelivery).toHaveBeenCalledTimes(1);
   });
   it("independent receipt verification still blocks settlement after owner association", async () => {
     mocks.binance.mockResolvedValue({ verified: false, pending: true }); const runtime = await getCommissionBatchRuntime(); await runtime.approve(input);

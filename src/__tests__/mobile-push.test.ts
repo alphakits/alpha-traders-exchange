@@ -27,6 +27,23 @@ function notification(overrides: Partial<AlphaExchangeNotification> = {}): Alpha
 }
 
 describe("native lock-screen push payloads", () => {
+  it.each([
+    ["New USDT request", "New USDT request", "طلب USDT جديد"],
+    ["New response to your USDT request", "New response to your USDT request", "رد جديد على طلب USDT الخاص بك"],
+    ["USDT request cancelled", "USDT request cancelled", "تم إلغاء طلب USDT"],
+    ["Response to your USDT request withdrawn", "Response withdrawn", "تم سحب رد على طلبك"],
+    ["Your USDT request expired", "Your USDT request expired", "انتهت صلاحية طلب USDT الخاص بك"],
+  ])("explains %s with private bilingual request copy", (title, english, arabic) => {
+    for (const locale of ["en", "ar"] as const) {
+      const message = buildExpoPushMessage(notification({ category: "listing", title }), {
+        expoPushToken: "ExponentPushToken[abcdefghijklmnop]", locale,
+      });
+      expect(message.title).toBe(locale === "ar" ? arabic : english);
+      expect(message.body.length).toBeGreaterThan(20);
+      expect(JSON.stringify(message)).not.toContain("SENSITIVE_");
+    }
+  });
+
   it.each(["en", "ar"] as const)("announces seller approval in %s without exposing account details", (locale) => {
     const message = buildExpoPushMessage(notification({
       category: "application", title: "Seller application approved", relatedRequestId: undefined,

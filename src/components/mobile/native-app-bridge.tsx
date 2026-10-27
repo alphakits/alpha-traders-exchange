@@ -13,9 +13,18 @@ export function NativeAppBridge({ locale }: { locale: AppLocale }) {
   const { user, isResolving } = useCanonicalSession();
   const currentUserIdRef = useRef<string | null>(user?.id ?? null);
   const lastRegistrationRef = useRef<string | null>(null);
+  const lastSuccessfulRegistrationRef = useRef<string | null>(null);
+  const lastPushState = useRef<{ userId: string; state: "on" | "off" | "blocked" | "unavailable" } | null>(null);
+  currentUserIdRef.current = isResolving ? null : user?.id ?? null;
 
   useEffect(() => {
     let stopped = false;
+    let epoch = 0;
+    let controller = new AbortController();
+    const emitState = (userId: string, state: "on" | "off" | "blocked" | "unavailable") => {
+      lastPushState.current = { userId, state };
+      window.dispatchEvent(new CustomEvent("alpha-notification-push-state", { detail: lastPushState.current }));
+    };
     const wait = (delayMs: number) => new Promise<void>((resolve) => window.setTimeout(resolve, delayMs));
 
     const persistRegistration = async (
@@ -24,15 +33,18 @@ export function NativeAppBridge({ locale }: { locale: AppLocale }) {
       registrationKey: string,
     ) => {
       if (!message) return;
+      const startedEpoch = epoch;
+      const signal = controller.signal;
       const retryDelays = [0, 1_000, 3_000];
       for (let attempt = 0; attempt < retryDelays.length; attempt += 1) {
         if (retryDelays[attempt] > 0) await wait(retryDelays[attempt]);
-        if (stopped || currentUserIdRef.current !== userId) return;
+        if (stopped || signal.aborted || epoch !== startedEpoch || currentUserIdRef.current !== userId) return;
         try {
           const response = await fetch("/api/mobile/v1/push-subscriptions", {
             method: "POST",
             credentials: "include",
             cache: "no-store",
+            signal,
             headers: {
               "Content-Type": "application/json",
               "X-App-Version": message.appVersion,
@@ -41,6 +53,7 @@ export function NativeAppBridge({ locale }: { locale: AppLocale }) {
               "X-Platform": message.platform,
             },
             body: JSON.stringify({
+              expectedUserId: userId,
               expoPushToken: message.expoPushToken,
               installationId: message.installationId,
               platform: message.platform,
@@ -49,7 +62,9 @@ export function NativeAppBridge({ locale }: { locale: AppLocale }) {
             }),
           });
           if (response.ok) {
-            if (!stopped && currentUserIdRef.current === userId) {
+            if (!stopped && !signal.aborted && epoch === startedEpoch && currentUserIdRef.current === userId) {
+              lastSuccessfulRegistrationRef.current = registrationKey;
+              emitState(userId, "on");
               postToNativeApp({
                 type: "alpha.web.push-registration",
                 version: NATIVE_WEB_BRIDGE_VERSION,
@@ -70,7 +85,9 @@ export function NativeAppBridge({ locale }: { locale: AppLocale }) {
         // token, while the server upsert keeps that retry idempotent.
         lastRegistrationRef.current = null;
       }
-      if (!stopped && currentUserIdRef.current === userId) {
+      if (!stopped && !signal.aborted && epoch === startedEpoch && currentUserIdRef.current === userId) {
+        lastSuccessfulRegistrationRef.current = null;
+        emitState(userId, "off");
         postToNativeApp({
           type: "alpha.web.push-registration",
           version: NATIVE_WEB_BRIDGE_VERSION,
@@ -83,9 +100,16 @@ export function NativeAppBridge({ locale }: { locale: AppLocale }) {
 
     const handleMessage = (event: MessageEvent) => {
       const message = parseNativeToWebBridgeMessage(event.data);
-      if (!message || message.status !== "registered") return;
+      if (!message) return;
       const userId = currentUserIdRef.current;
-      if (!userId) return;
+      if (!userId || (message.userId && message.userId !== userId)) return;
+      if (message.status !== "registered") {
+        epoch++;
+        controller.abort(); controller = new AbortController();
+        lastRegistrationRef.current = null; lastSuccessfulRegistrationRef.current = null;
+        emitState(userId, message.status === "denied" ? "blocked" : message.status === "failed" ? "off" : "unavailable");
+        return;
+      }
       const registrationKey = [
         userId,
         message.installationId,
@@ -93,7 +117,10 @@ export function NativeAppBridge({ locale }: { locale: AppLocale }) {
         message.locale,
         message.appVersion,
       ].join(":");
-      if (lastRegistrationRef.current === registrationKey) return;
+      if (lastRegistrationRef.current === registrationKey) {
+        if (lastSuccessfulRegistrationRef.current === registrationKey) emitState(userId, "on");
+        return;
+      }
       lastRegistrationRef.current = registrationKey;
       void persistRegistration(message, userId, registrationKey);
     };
@@ -103,6 +130,8 @@ export function NativeAppBridge({ locale }: { locale: AppLocale }) {
       // the shell synchronously so it cannot retain the old session's Arabic.
       currentUserIdRef.current = null;
       lastRegistrationRef.current = null;
+      lastSuccessfulRegistrationRef.current = null; lastPushState.current = null;
+      epoch++; controller.abort(); controller = new AbortController();
       postToNativeApp({
         type: "alpha.web.session",
         version: NATIVE_WEB_BRIDGE_VERSION,
@@ -111,22 +140,32 @@ export function NativeAppBridge({ locale }: { locale: AppLocale }) {
       });
     };
 
+    const handleStateRequest = (event: Event) => {
+      const requested = (event as CustomEvent<{ userId?: string }>).detail?.userId;
+      const state = lastPushState.current;
+      if (state && requested === currentUserIdRef.current && state.userId === requested) emitState(state.userId, state.state);
+    };
+
     window.addEventListener("alpha-auth-signed-out", handleSignedOut);
+    window.addEventListener("alpha-notification-push-status-request", handleStateRequest);
     window.addEventListener("message", handleMessage);
     document.addEventListener("message", handleMessage as EventListener);
     return () => {
       stopped = true;
+      controller.abort();
       window.removeEventListener("alpha-auth-signed-out", handleSignedOut);
+      window.removeEventListener("alpha-notification-push-status-request", handleStateRequest);
       window.removeEventListener("message", handleMessage);
       document.removeEventListener("message", handleMessage as EventListener);
     };
   }, []);
 
   useEffect(() => {
-    currentUserIdRef.current = user?.id ?? null;
+    currentUserIdRef.current = isResolving ? null : user?.id ?? null;
     if (isResolving) return;
     if (!user) {
       lastRegistrationRef.current = null;
+      lastSuccessfulRegistrationRef.current = null; lastPushState.current = null;
       postToNativeApp({
         type: "alpha.web.session",
         version: NATIVE_WEB_BRIDGE_VERSION,

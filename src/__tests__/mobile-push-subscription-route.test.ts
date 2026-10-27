@@ -75,6 +75,12 @@ describe("POST /api/mobile/v1/push-subscriptions", () => {
     expect(mocks.registerMobilePushSubscription).not.toHaveBeenCalled();
   });
 
+  it("rejects a token response from a previous account", async () => {
+    const response = await POST(request({ ...validBody, expectedUserId: "previous-user" }));
+    expect(response.status).toBe(409);
+    expect(mocks.registerMobilePushSubscription).not.toHaveBeenCalled();
+  });
+
   it("requires the canonical signed-in website user", async () => {
     mocks.requireApiUser.mockResolvedValue({
       user: null,

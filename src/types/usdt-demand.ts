@@ -43,6 +43,8 @@ export type UsdtDemand = DemandTerms & {
   createdAt: string;
   updatedAt: string;
   expiresAt: string;
+  /** Notification delivery bookkeeping; independent of lifecycle decisions. */
+  expiryNotifiedRevision?: number;
   purchaseRequestId?: string;
   acceptedOfferId?: string;
   offers: DemandOffer[];

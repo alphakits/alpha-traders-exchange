@@ -4,6 +4,12 @@ export const NATIVE_WEB_BRIDGE_VERSION = 1 as const;
 
 export type WebToNativeBridgeMessage =
   | {
+      type: "alpha.web.push-settings" | "alpha.web.notification-reminders";
+      version: typeof NATIVE_WEB_BRIDGE_VERSION;
+      userId: string;
+      locale: MobileLocale;
+    }
+  | {
       type: "alpha.web.session";
       version: typeof NATIVE_WEB_BRIDGE_VERSION;
       authenticated: false;
@@ -41,6 +47,7 @@ export type WebToNativeBridgeMessage =
 
 export type NativeToWebBridgeMessage =
   | {
+      userId?: string;
       type: "alpha.native.push-registration";
       version: typeof NATIVE_WEB_BRIDGE_VERSION;
       status: "registered";
@@ -52,6 +59,7 @@ export type NativeToWebBridgeMessage =
     }
   | {
       type: "alpha.native.push-registration";
+      userId?: string;
       version: typeof NATIVE_WEB_BRIDGE_VERSION;
       status: "denied" | "unavailable" | "failed";
     };
@@ -146,6 +154,11 @@ export function parseWebToNativeBridgeMessage(raw: unknown): WebToNativeBridgeMe
     }
   }
 
+  if ((value.type === "alpha.web.push-settings" || value.type === "alpha.web.notification-reminders") && isLocale(value.locale)) {
+    const userId = boundedString(value.userId, 160);
+    if (userId) return { type: value.type, version: NATIVE_WEB_BRIDGE_VERSION, userId, locale: value.locale };
+  }
+
   if (value.type === "alpha.web.push-registration" && isLocale(value.locale)) {
     const userId = boundedString(value.userId, 160);
     if (userId && (value.status === "registered" || value.status === "failed")) {
@@ -170,8 +183,13 @@ export function parseNativeToWebBridgeMessage(raw: unknown): NativeToWebBridgeMe
     || value.version !== NATIVE_WEB_BRIDGE_VERSION
   ) return null;
 
+  const userId = boundedString(value.userId, 160);
+  if (value.userId !== undefined && !userId) return null;
+  const scope = userId ? { userId } : {};
+
   if (value.status === "denied" || value.status === "unavailable" || value.status === "failed") {
     return {
+      ...scope,
       type: "alpha.native.push-registration",
       version: NATIVE_WEB_BRIDGE_VERSION,
       status: value.status,
@@ -191,6 +209,7 @@ export function parseNativeToWebBridgeMessage(raw: unknown): NativeToWebBridgeMe
   ) {
     return {
       type: "alpha.native.push-registration",
+      ...scope,
       version: NATIVE_WEB_BRIDGE_VERSION,
       status: "registered",
       expoPushToken,
