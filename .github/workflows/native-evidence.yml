@@ -1,0 +1,47 @@
+name: Retrieve existing native audit evidence
+
+on:
+  push:
+    branches: [audit/native-evidence-20261028]
+    paths:
+      - .github/workflows/native-evidence.yml
+      - scripts/retrieve-native-audit-evidence.mjs
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-evidence-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  existing-evidence:
+    name: Download existing guest navigation failure evidence
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: 24
+      - name: Require existing Expo access
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: test -n "$EXPO_TOKEN"
+      - uses: expo/expo-github-action@c7b66a9c327a43a8fa7c0158e7f30d6040d2481e
+        with:
+          eas-version: 23.2.0
+          token: ${{ secrets.EXPO_TOKEN }}
+      - name: Retrieve completed workflow evidence without rebuilding or rerunning tests
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: node scripts/retrieve-native-audit-evidence.mjs
+      - name: Preserve screenshots, reports and sanitized provenance
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: native-failure-evidence-40736072495
+          path: native-failure-evidence/
+          if-no-files-found: error
+          retention-days: 14
+
