@@ -262,12 +262,12 @@
       "scheduledAt": "2026-10-28T18:00:00Z",
       "timing": "exact",
       "kind": "release",
-      "actual": null,
+      "actual": "3.75%–4.00%",
       "previous": "3.75%–4.00%",
       "revised": null,
       "reference": "Meeting of 27–28 Oct 2026",
-      "publishedAt": null,
-      "sourceUrl": "https://www.federalreserve.gov/newsevents/2026-october.htm"
+      "publishedAt": "2026-10-28T18:00:00Z",
+      "sourceUrl": "https://www.federalreserve.gov/newsevents/pressreleases/monetary20261028a.htm"
     },
     {
       "id": "official-fed-fomc-press-conference-20261028",
@@ -280,9 +280,13 @@
       "actual": null,
       "previous": null,
       "revised": null,
-      "reference": null,
-      "publishedAt": null,
-      "sourceUrl": "https://www.federalreserve.gov/newsevents/2026-october.htm"
+      "reference": "Opening statement · Meeting of 27–28 Oct 2026",
+      "publishedAt": "2026-10-28T18:30:00Z",
+      "sourceUrl": "https://www.federalreserve.gov/mediacenter/files/FOMCpresconf20261028.pdf",
+      "outcome": {
+        "en": "In his opening statement, Chair Warsh described strong economic growth and persistent inflation, and said incoming information would guide policy. He explained the already-announced hold at 3.75%–4.00%; this press conference was not a separate interest-rate decision.",
+        "ar": "وصف رئيس الفيدرالي وارش في كلمته الافتتاحية نموًا اقتصاديًا قويًا واستمرار ارتفاع التضخم، وقال إن المعلومات المقبلة ستوجّه السياسة النقدية. وشرح قرار تثبيت الفائدة المعلن سابقًا عند 3.75%–4.00%؛ ولم يكن المؤتمر الصحفي قرارًا منفصلًا بشأن الفائدة."
+      }
     },
     {
       "id": "official-bea-core-pce-mom-20261029",
@@ -615,5 +619,5 @@
       "sourceUrl": "https://www.dol.gov/newsroom/releases/opa/opa20200701"
     }
   ],
-  "resultsVerifiedAt": "2026-10-28T07:27:59Z"
+  "resultsVerifiedAt": "2026-10-28T21:13:48Z"
 }
