@@ -32,6 +32,8 @@ jobs:
         with:
           eas-version: 23.2.0
           token: ${{ secrets.EXPO_TOKEN }}
+      - name: Install locked project dependencies for Expo config plugins
+        run: npm ci
       - name: Retrieve completed workflow evidence without rebuilding or rerunning tests
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}

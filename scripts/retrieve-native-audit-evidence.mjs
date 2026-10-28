@@ -41,7 +41,7 @@ let downloadFailures = 0;
 for (const job of result.jobs.filter(job => expectedJobs.has(job.key))) {
   const jobRecord = { key: job.key, id: job.id, status: job.status, artifacts: [] };
   manifest.jobs.push(jobRecord);
-  const artifacts = job.turtleJobRun?.artifacts ?? [];
+  const artifacts = Array.isArray(job.artifacts) ? job.artifacts : (job.turtleJobRun?.artifacts ?? []);
   for (const [index, artifact] of artifacts.entries()) {
     const filename = artifact.filename;
     const selected = typeof filename === "string" && (
