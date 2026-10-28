@@ -37,12 +37,12 @@ jobs:
       - name: Retrieve completed workflow evidence without rebuilding or rerunning tests
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
-        run: node scripts/retrieve-native-audit-evidence.mjs
+        run: node scripts/native-audit-progress.mjs
       - name: Preserve screenshots, reports and sanitized provenance
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: native-failure-evidence-40736072495
+          name: native-progress-40769134505
           path: native-failure-evidence/
           if-no-files-found: error
           retention-days: 14
