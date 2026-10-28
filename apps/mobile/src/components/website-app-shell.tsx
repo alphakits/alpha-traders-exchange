@@ -48,6 +48,7 @@ import {
 import {
   ALPHA_TRADERS_WEB_ORIGIN,
   isTrustedWebsiteDocumentUrl,
+  isTrustedWebsiteTradeRoomUrl,
   trustedWebsiteReturnPath,
   websiteNavigationDecision,
   websiteRequestNavigationDecision,
@@ -202,6 +203,7 @@ export function WebsiteAppShell({ onNativeReady }: WebsiteAppShellProps) {
   } | null>(null);
   const pushRegistrationInFlightRef = useRef<Promise<void> | null>(null);
   const [source, setSource] = useState<WebsiteSource | null>(null);
+  const [isTradeRoomDocument, setIsTradeRoomDocument] = useState(false);
   const [locale, setLocale] = useState<MobileLocale>(DEFAULT_MOBILE_LOCALE);
   const [canGoBack, setCanGoBack] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -238,6 +240,7 @@ export function WebsiteAppShell({ onNativeReady }: WebsiteAppShellProps) {
         prepared.consumedPushUrl,
       );
       sourcePreparationInFlightRef.current = false;
+      setIsTradeRoomDocument(isTrustedWebsiteTradeRoomUrl(prepared.source.uri));
       setSource(prepared.source);
     } catch {
       const fallbackLocale = DEFAULT_MOBILE_LOCALE;
@@ -252,6 +255,7 @@ export function WebsiteAppShell({ onNativeReady }: WebsiteAppShellProps) {
         prepared.consumedPushUrl,
       );
       sourcePreparationInFlightRef.current = false;
+      setIsTradeRoomDocument(isTrustedWebsiteTradeRoomUrl(prepared.source.uri));
       setSource(prepared.source);
     }
   }, []);
@@ -371,6 +375,7 @@ export function WebsiteAppShell({ onNativeReady }: WebsiteAppShellProps) {
       loadErrorRef.current = false;
       setLoadFailed(false);
       setIsLoading(!hasLoadedContentRef.current);
+      setIsTradeRoomDocument(isTrustedWebsiteTradeRoomUrl(target));
       setSource({ uri: target });
     }
     const reviewReference = reviewReferenceFromPushData(data);
@@ -444,6 +449,7 @@ export function WebsiteAppShell({ onNativeReady }: WebsiteAppShellProps) {
     setCanGoBack(nextCanGoBack);
     const resumeUrl = trustedWebsiteReturnPath(url);
     if (!resumeUrl) return;
+    setIsTradeRoomDocument(isTrustedWebsiteTradeRoomUrl(url));
     const nextLocale: MobileLocale = resumeUrl.startsWith("/ar") ? "ar" : "en";
     localeRef.current = nextLocale;
     setLocale(nextLocale);
@@ -572,6 +578,7 @@ export function WebsiteAppShell({ onNativeReady }: WebsiteAppShellProps) {
       hasLoadedContentRef.current = false;
       setLoadFailed(false);
       setIsLoading(true);
+      setIsTradeRoomDocument(false);
       setSource({ uri: `${ALPHA_TRADERS_WEB_ORIGIN}/${locale}` });
     } catch {
       // The website remains responsible for rendering ordinary HTTP errors.
@@ -585,6 +592,7 @@ export function WebsiteAppShell({ onNativeReady }: WebsiteAppShellProps) {
       loadErrorRef.current = false;
       setLoadFailed(false);
       setIsLoading(!hasLoadedContentRef.current);
+      setIsTradeRoomDocument(isTrustedWebsiteTradeRoomUrl(targetUrl));
       setSource({ uri: targetUrl });
       return;
     }
@@ -691,7 +699,8 @@ export function WebsiteAppShell({ onNativeReady }: WebsiteAppShellProps) {
           javaScriptEnabled
           mediaPlaybackRequiresUserAction={false}
           mixedContentMode="never"
-          pullToRefreshEnabled
+          // Native iOS refresh can intercept gestures independently of CSS containment.
+          pullToRefreshEnabled={!isTradeRoomDocument}
           setSupportMultipleWindows={false}
           sharedCookiesEnabled
           thirdPartyCookiesEnabled={false}
@@ -1005,3 +1014,4 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
 });
+

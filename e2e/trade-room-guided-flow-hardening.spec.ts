@@ -1,4 +1,4 @@
-import { expect, request as pwRequest, type APIRequestContext, type Page } from "@playwright/test";
+import { expect, request as pwRequest, type APIRequestContext, type Page, type Locator } from "@playwright/test";
 import { test } from "./support/focus-diagnostics";
 import { randomBytes, randomUUID, scrypt as scryptCallback } from "node:crypto";
 import { promisify } from "node:util";
@@ -536,6 +536,36 @@ test.afterAll(async () => {
   await api.dispose();
 });
 
+async function wheelAndSettle(page: Page, target: Locator, deltaY: number) {
+  await target.hover();
+  const token = randomUUID();
+  await target.evaluate((element, id) => {
+    element.setAttribute("data-scroll-audit", `${id}:waiting`);
+    element.addEventListener("wheel", () => {
+      let previous = "";
+      let stable = 0;
+      let frames = 0;
+      const sample = () => {
+        const current = `${window.scrollY}:${element.scrollTop}`;
+        stable = current === previous ? stable + 1 : 0;
+        previous = current;
+        frames += 1;
+        if (stable >= 6) {
+          element.setAttribute("data-scroll-audit", `${id}:settled`);
+        } else if (frames < 180) {
+          requestAnimationFrame(sample);
+        } else {
+          element.setAttribute("data-scroll-audit", `${id}:unstable`);
+        }
+      };
+      requestAnimationFrame(sample);
+    }, { once: true });
+  }, token);
+  await page.mouse.wheel(0, deltaY);
+  await expect.poll(() => target.getAttribute("data-scroll-audit"), { timeout: 5_000 }).toBe(`${token}:settled`);
+  await target.evaluate(element => element.removeAttribute("data-scroll-audit"));
+}
+
 for (const locale of ["en", "ar"] as const) {
   for (const width of [390, 1440]) {
     test(`commission notices and mixed-language chat: ${locale}, ${width}px`, async ({ page }, testInfo) => {
@@ -551,10 +581,13 @@ for (const locale of ["en", "ar"] as const) {
       const draft = form.locator("textarea");
       await expect(draft).toHaveAttribute("dir", "auto");
       await expect(draft).toHaveCSS("unicode-bidi", "plaintext");
+      const messagePanel = page.getByTestId("trade-chat-messages");
+      const initialPanelHeight = await messagePanel.evaluate(element => element.clientHeight);
       for (const [message, direction] of [
         ["بدي كل المبلغ 1,500 USDT", "rtl"],
         ["Send 1,500 USDT تمام", "ltr"],
         ["عندي 80 ILS\nPlease confirm 80 ILS", "rtl"],
+        [Array.from({ length: 32 }, () => "Earlier conversation line.").join("\n"), "ltr"],
       ] as const) {
         await draft.fill(message);
         await expect(draft).toHaveValue(message);
@@ -572,6 +605,53 @@ for (const locale of ["en", "ar"] as const) {
         await expect(body).toHaveCSS("unicode-bidi", "plaintext");
         await expect(draft).toHaveValue("");
       }
+      expect(await messagePanel.evaluate(element => element.clientHeight)).toBe(initialPanelHeight);
+      await expect.poll(() => messagePanel.evaluate(element => element.scrollHeight - element.clientHeight)).toBeGreaterThan(300);
+      await messagePanel.hover();
+      // Both boundary probes need room for the document to move, otherwise
+      // an unconstrained scroller could appear to pass at a page boundary.
+      await page.evaluate(() => {
+        if (window.scrollY < 100) window.scrollTo({ top: 100, behavior: "instant" });
+      });
+      await messagePanel.hover();
+      const documentTop = await page.evaluate(() => window.scrollY);
+      expect(documentTop).toBeGreaterThan(30);
+      expect(await page.evaluate(() => document.documentElement.scrollHeight - window.innerHeight - window.scrollY)).toBeGreaterThan(30);
+
+      await messagePanel.evaluate(element => { element.scrollTop = (element.scrollHeight - element.clientHeight) / 2; });
+      const interiorTop = await messagePanel.evaluate(element => element.scrollTop);
+      await wheelAndSettle(page, messagePanel, 80);
+      expect(await messagePanel.evaluate(element => element.scrollTop)).toBeGreaterThan(interiorTop + 10);
+      expect(await page.evaluate(() => window.scrollY)).toBeCloseTo(documentTop, 0);
+
+      await messagePanel.evaluate(element => { element.scrollTop = 0; });
+      await wheelAndSettle(page, messagePanel, -600);
+      expect(await messagePanel.evaluate(element => element.scrollTop)).toBe(0);
+      expect(await page.evaluate(() => window.scrollY)).toBeCloseTo(documentTop, 0);
+
+      await messagePanel.evaluate(element => { element.scrollTop = element.scrollHeight; });
+      await wheelAndSettle(page, messagePanel, 600);
+      expect(await messagePanel.evaluate(element => Math.abs(element.scrollHeight - element.clientHeight - element.scrollTop))).toBeLessThanOrEqual(1);
+      expect(await page.evaluate(() => window.scrollY)).toBeCloseTo(documentTop, 0);
+
+      // Keyboard access must operate the list, without trapping page navigation.
+      await expect(messagePanel).toHaveAttribute("role", "region");
+      await expect(messagePanel).toHaveAttribute("aria-label", locale === "ar" ? "رسائل الدردشة" : "Chat messages");
+      await messagePanel.evaluate(element => { element.scrollTop = 0; });
+      await messagePanel.focus();
+      await expect(messagePanel).toBeFocused();
+      await messagePanel.press("ArrowDown");
+      await expect.poll(() => messagePanel.evaluate(element => element.scrollTop)).toBeGreaterThan(0);
+      expect(await page.evaluate(() => window.scrollY)).toBeCloseTo(documentTop, 0);
+
+      // Hover outside the list; the ordinary document must remain scrollable.
+      const outsideList = page.locator("#chat summary").first();
+      await outsideList.hover();
+      const beforeOutside = await page.evaluate(() => window.scrollY);
+      expect(beforeOutside).toBeGreaterThan(30);
+      await page.mouse.wheel(0, -120);
+      await expect.poll(() => page.evaluate(() => window.scrollY), { timeout: 5_000 }).toBeLessThan(beforeOutside - 10);
+
       await draft.fill("1,500.25");
       await expect(draft).toHaveValue("1,500.25");
       await expect(page.locator("#chat")).toBeVisible();
@@ -1347,3 +1427,4 @@ for (const paymentMethod of ["Bank Transfer", "Cardless ATM Withdrawal", "Face-t
     }
   });
 }
+

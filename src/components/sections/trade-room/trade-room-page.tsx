@@ -3841,7 +3841,15 @@ function TradeRoomPageSession({
                     <p><span className="text-[#9CA3AF]">{isAr ? "الإجراء" : "Action"}:</span> <bdi dir="auto">{currencyText(turn?.detail)}</bdi></p>
                   </div>
                 </details>
-                <div ref={chatScrollRef} onScroll={handleChatScroll} className="max-h-[420px] space-y-3 overflow-y-auto rounded-2xl border border-white/10 bg-black/30 p-3">
+                <div
+                  ref={chatScrollRef}
+                  onScroll={handleChatScroll}
+                  data-testid="trade-chat-messages"
+                  role="region"
+                  aria-label={isAr ? "رسائل الدردشة" : "Chat messages"}
+                  tabIndex={0}
+                  className="h-[min(420px,50dvh)] max-h-[420px] min-h-0 space-y-3 overflow-y-auto overscroll-y-contain rounded-2xl border border-white/10 bg-black/30 p-3 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#C9A227]"
+                >
                   {room.messages.length ? (
                     room.messages.map((message) => {
                       const ownMessage = message.senderUserId === actor.id;
@@ -3920,7 +3928,7 @@ function TradeRoomPageSession({
                     {isAr ? "عبّئ رمز السحب ورقم الهوية أو تاريخ الميلاد في قسم بيانات السحب أعلاه، ثم اضغط إرسال البيانات وتأكيدها." : "Enter the withdrawal code and ID number or date of birth in the withdrawal section above, then send and confirm both details."}
                   </div>
                 ) : (
-                <form className="sticky bottom-2 z-10 space-y-2 rounded-2xl border border-white/10 bg-[#101010]/95 p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] shadow-xl backdrop-blur-md" onSubmit={handleSendMessage}>
+                <form className="relative z-10 space-y-2 rounded-2xl border border-white/10 bg-[#101010]/95 p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] shadow-xl backdrop-blur-md" onSubmit={handleSendMessage}>
                   <Textarea
                     value={chatDraft}
                     dir="auto"

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { websiteNavigationDecision, websiteRequestNavigationDecision } from "./website-navigation";
+import { websiteNavigationDecision, websiteRequestNavigationDecision, isTrustedWebsiteTradeRoomUrl } from "./website-navigation";
 
 describe("native document and iframe navigation", () => {
   it.each(["https://s.tradingview.com/widgetembed/?symbol=BINANCE%3AETHUSDT", "https://www.tradingview.com/chart/", "https://tradingview.com/"])("blocks legacy chart links in every native navigation path: %s", (url) => {
@@ -35,3 +35,36 @@ describe("native document and iframe navigation", () => {
     expect(websiteRequestNavigationDecision({ url: "mailto:support@alphatraders.co.il", isTopFrame: true, navigationType: "click" })).toBe("external");
   });
 });
+
+describe("native Trade Room refresh gesture policy", () => {
+  it.each([
+    "https://www.alphatraders.co.il/en/trade-room",
+    "https://www.alphatraders.co.il/ar/trade-room/",
+    "https://www.alphatraders.co.il/en/trade-room/request-1",
+    "https://alphatraders.co.il/ar/trade-room/request-1/?action=open-trade#chat",
+  ])("identifies only a trusted Trade Room document: %s", (url) => {
+    expect(isTrustedWebsiteTradeRoomUrl(url)).toBe(true);
+  });
+
+  it.each([
+    null, undefined, "", "not a URL", "/en/trade-room/request-1",
+    "https://www.alphatraders.co.il/en/profile",
+    "https://www.alphatraders.co.il/en/trade-room-history",
+    "https://www.alphatraders.co.il/en/trade-room/request-1/other",
+    "https://www.alphatraders.co.il/en/login?redirectTo=/en/trade-room/request-1",
+    "https://www.alphatraders.co.il/en/profile#trade-room/request-1",
+    "https://www.alphatraders.co.il/api/mobile/v1/auth/web-session?returnTo=/en/trade-room/request-1",
+    "https://www.alphatraders.co.il/fr/trade-room/request-1",
+    "https://attacker.example/en/trade-room/request-1",
+    "https://www.alphatraders.co.il.attacker.example/en/trade-room/request-1",
+    "https://user:pass@www.alphatraders.co.il/en/trade-room/request-1",
+    "https://www.alphatraders.co.il:444/en/trade-room/request-1",
+    "http://www.alphatraders.co.il/en/trade-room/request-1",
+    "blob:https://www.alphatraders.co.il/en/trade-room/request-1",
+    "data:text/html,https://www.alphatraders.co.il/en/trade-room/request-1",
+    `https://www.alphatraders.co.il/en/trade-room/${"a".repeat(4096)}`,
+  ])("preserves refresh policy outside trusted Trade Room documents: %s", (url) => {
+    expect(isTrustedWebsiteTradeRoomUrl(url)).toBe(false);
+  });
+});
+

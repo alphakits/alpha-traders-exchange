@@ -114,3 +114,11 @@ export function trustedWebsiteReturnPath(rawUrl: string) {
     return null;
   }
 }
+
+/** Keep native refresh gestures from taking over the Trade Room chat scroller. */
+export function isTrustedWebsiteTradeRoomUrl(rawUrl: string | null | undefined) {
+  if (!rawUrl || !isTrustedWebsiteDocumentUrl(rawUrl)) return false;
+  const pathname = new URL(rawUrl).pathname;
+  return /^\/(?:ar|en)\/trade-room(?:\/[^/]+)?\/?$/.test(pathname);
+}
+
