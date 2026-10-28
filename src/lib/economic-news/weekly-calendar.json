@@ -262,12 +262,12 @@
       "scheduledAt": "2026-10-28T18:00:00Z",
       "timing": "exact",
       "kind": "release",
-      "actual": null,
+      "actual": "3.75%–4.00%",
       "previous": "3.75%–4.00%",
       "revised": null,
       "reference": "Meeting of 27–28 Oct 2026",
-      "publishedAt": null,
-      "sourceUrl": "https://www.federalreserve.gov/newsevents/2026-october.htm"
+      "publishedAt": "2026-10-28T18:00:00Z",
+      "sourceUrl": "https://www.federalreserve.gov/newsevents/pressreleases/monetary20261028a.htm"
     },
     {
       "id": "official-fed-fomc-press-conference-20261028",
@@ -615,5 +615,5 @@
       "sourceUrl": "https://www.dol.gov/newsroom/releases/opa/opa20200701"
     }
   ],
-  "resultsVerifiedAt": "2026-10-28T07:27:59Z"
+  "resultsVerifiedAt": "2026-10-28T19:29:48Z"
 }
