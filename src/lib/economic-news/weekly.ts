@@ -2,6 +2,7 @@ import "server-only";
 import snapshot from "./weekly-calendar.json";
 import { NEWS_CALENDAR_WINDOW_MS, WEEKLY_NEWS_STALE_AFTER_MS, type NewsFeed } from "./model";
 import { weeklyCalendarSchema, type WeeklyCalendar } from "./weekly-schema";
+import { readOfficialResults } from "./official-storage";
 
 const parsed = weeklyCalendarSchema.safeParse(snapshot);
 const sourceNames = { bls: "U.S. Bureau of Labor Statistics", bea: "U.S. Bureau of Economic Analysis",
@@ -37,4 +38,14 @@ export function weeklyNewsFeed(calendar: WeeklyCalendar, now: number, eventId?: 
 export function readWeeklyNewsFeed(now = Date.now(), eventId?: string): NewsFeed {
   return parsed.success ? weeklyNewsFeed(parsed.data, now, eventId)
     : { mode: "weekly", status: "unavailable", updatedAt: null, provider: null, events: [] };
+}
+
+export async function readOfficialWeeklyNewsFeed(now = Date.now(), eventId?: string): Promise<NewsFeed> {
+  if (!parsed.success) return readWeeklyNewsFeed(now, eventId);
+  const stored = await readOfficialResults(parsed.data, now);
+  const feed = weeklyNewsFeed(stored.calendar, now, eventId);
+  const healthy = stored.available && stored.checkedAt !== null && now - Date.parse(stored.checkedAt) < 180_000
+    && !stored.diagnostics?.failed?.length;
+  return { ...feed, officialUpdates: healthy ? "active" : "delayed", officialCheckedAt: stored.checkedAt,
+    officialStorageAvailable: stored.available };
 }

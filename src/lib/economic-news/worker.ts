@@ -4,6 +4,7 @@ import { fetchEconomicNews, newsProviderConfigured } from "./provider";
 import { newsPool, persistNewsSnapshot } from "./repository";
 import { newsResultSummary, type NewsEvent } from "./model";
 import { configuredNewsProvider, newsProviderPrefix } from "./config";
+import { runOfficialNewsSync } from "./official-worker";
 
 type Delivery = { id: string; user_id: string; channel: "inApp" | "email"; payload: NewsEvent; lease_token: string };
 
@@ -84,7 +85,7 @@ export async function drainNewsDeliveries(deadline: number) {
 }
 
 export async function runEconomicNewsSync() {
-  if (!newsProviderConfigured()) return { status: "not_configured", synced: false, releases: 0, sent: 0, failed: 0 };
+  if (!newsProviderConfigured()) return runOfficialNewsSync();
   const deadline = Date.now() + 45_000;
   const now = new Date();
   // Fetch first. A failed/stale provider must never dispatch old queued news as a new release.

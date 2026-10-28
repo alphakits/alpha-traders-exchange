@@ -1,5 +1,52 @@
 # USD News delivery
 
+## Official runtime results — 28 October 2026
+
+The approved News-only runtime path replaces a full Git/build/deploy for each
+structured result. The existing authenticated `/api/cron/economic-news` job
+(already scheduled every minute) checks due official publications. With no
+licensed feed configured it writes only the two isolated, RLS-enabled
+`economic_news_official_results` / `economic_news_official_sync` tables. There
+are no client policies, paid providers, alerts, user/preference writes or
+trade/payment changes. The existing server-only PostgreSQL connection is used;
+the tracked migration and idempotent runtime initialization have the same DDL.
+
+The target is visibility within 1–5 minutes **after the official publication is
+accessible and passes verification**, not a guaranteed deadline after its
+scheduled time. A due report is checked every minute, including delayed reports;
+already published results are rechecked each minute for 24 hours, then hourly
+through the previous full calendar week. The private API overlays persisted
+results on the curated schedule without redeployment. Visible pages refresh
+every 15 seconds with one request in flight; hidden tabs stop polling. Source
+failures retain saved results, and client storage failures retain displayed
+results with a delayed warning. A missed heartbeat or source failure is exposed
+as delayed, never an assurance that every release is live.
+
+Strict parsers cover the listed BLS CPI, PPI (core excludes food and energy,
+not trade services), employment and ECI; BEA PCE, advance GDP and trade; DOL
+initial claims; Census retail and durable goods; and dated Fed rate statements
+and minutes publication notices. They verify publication date/time/timezone,
+reference period, known series and units/adjustment before writing. Current
+pages/PDFs are rejected for older events. Unknown formats remain pending for
+editorial verification. In particular, unstructured Fed speeches and press
+conferences still need verified English/Arabic editorial outcomes: their
+scheduled time is not proof of publication, and no sentiment is invented.
+
+HTTPS source hosts are allowlisted; redirects are rejected, downloads and PDF
+page counts are bounded, documents are fetched once per URL per run, and a
+database lease prevents overlapping publication. Each stored result has a
+source-content hash/check time and an audit of factual revisions. Older writes
+cannot overwrite newer records. The immediately following same-series period
+gets its confirmed comparison. Newer editorial JSON results take precedence;
+new Sunday schedule metadata never erases a saved runtime result left blank in
+the JSON. All calendar IDs, schedules, weeks and longer future coverage remain.
+
+Sunday calendar preparation and the existing editorial result checks continue
+as schedule maintenance and fallback. This does not promise a complete economic
+calendar, consensus forecasts, an uninterrupted five-minute SLA, or automatic
+interpretation of every speech. The historical sections below describe the
+previous build-time-only path; this section supersedes its delivery cadence.
+
 ## Published results correction — 9 October 2026
 
 The three-week UI alone did not fix the missing results: the underlying free

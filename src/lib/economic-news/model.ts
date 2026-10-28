@@ -33,6 +33,9 @@ export type NewsFeed = {
   weekStart?: string;
   weekEnd?: string;
   resultsVerifiedAt?: string;
+  officialUpdates?: "active" | "delayed";
+  officialCheckedAt?: string | null;
+  officialStorageAvailable?: boolean;
 };
 
 export type NewsPreferences = { inApp: boolean; email: boolean };
