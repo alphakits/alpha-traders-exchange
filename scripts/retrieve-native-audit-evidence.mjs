@@ -102,3 +102,22 @@ if (downloadFailures || manifest.jobs.length !== expectedJobs.size || screenshot
 }
 console.log(`Retrieved ${downloaded.length} artifacts from the existing failed run. No tests were rerun.`);
 
+
+for (const entry of downloaded.filter(item => item.filename.startsWith("android_navigation-") && item.filename.endsWith(".tar.gz"))) {
+  const archivePath = path.join(outputDir, entry.filename);
+  const listing = spawnSync("tar", ["-tzf", archivePath], { encoding: "utf8", timeout: 15000, maxBuffer: 1024 * 1024 });
+  if (listing.status !== 0) throw new Error("Could not inspect the preserved Android trace archive.");
+  const names = listing.stdout.split("\n").filter(name => /public-navigation-(en|ar)/.test(name) && name.endsWith(".json") && !name.startsWith("/") && !name.split("/").includes(".."));
+  for (const name of names.slice(0, 20)) {
+    const file = spawnSync("tar", ["-xOf", archivePath, "--", name], { encoding: "utf8", timeout: 15000, maxBuffer: 12 * 1024 * 1024 });
+    if (file.status !== 0) throw new Error("Could not inspect a navigation trace.");
+    const data = JSON.stringify(JSON.parse(file.stdout));
+    console.log("Existing Android navigation trace: " + JSON.stringify({
+      file: name.split("/").at(-1),
+      englishFreeHeading: data.includes("Free Trading Course for Beginners"),
+      arabicFreeHeading: data.includes("دورة تداول مجانية للمبتدئين"),
+      englishCourseCta: data.includes("Start the Free Course"),
+      arabicCourseCta: data.includes("ابدأ الدورة المجانية")
+    }));
+  }
+}
