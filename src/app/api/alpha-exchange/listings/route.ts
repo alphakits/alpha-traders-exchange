@@ -76,6 +76,9 @@ export async function POST(request: NextRequest) {
     const resolvedPaymentMethods = resolveListingPaymentMethods(body.paymentMethods, body.paymentMethod);
     const paymentMethods = resolvedPaymentMethods.slice(0, MAX_LISTING_PAYMENT_METHODS);
     const bankAccountId = typeof body.bankAccountId === "string" ? body.bankAccountId.trim() : undefined;
+    const bankTransferProvider = body.bankTransferProvider;
+    if (bankTransferProvider !== undefined && bankTransferProvider !== "wise" && bankTransferProvider !== "israeli_bank") throw new Error("Invalid bank transfer provider.");
+    const wiseAccountId = typeof body.wiseAccountId === "string" ? body.wiseAccountId.trim() : undefined;
     const bankSelection = parseIsraeliBankSelection(String(body.bankName ?? ""));
     const rawMinimumTrade = String(body.minimumTrade ?? "0").trim();
     const rawMaximumTrade = String(body.maximumTrade ?? rawAvailableAmount).trim();
@@ -110,7 +113,7 @@ export async function POST(request: NextRequest) {
     if (resolvedPaymentMethods.length > MAX_LISTING_PAYMENT_METHODS) {
       return NextResponse.json({ error: `Select no more than ${MAX_LISTING_PAYMENT_METHODS} payment methods per listing.` }, { status: 400 });
     }
-    if (requiresIsraeliBankSelection(paymentMethods)) {
+    if (bankTransferProvider !== "wise" && requiresIsraeliBankSelection(paymentMethods)) {
       if (!bankSelection.length) {
         return NextResponse.json({ error: "Please choose one or two supported banks before publishing the listing." }, { status: 400 });
       }
@@ -149,7 +152,9 @@ export async function POST(request: NextRequest) {
       network,
       paymentMethods,
       bankAccountId,
-      bankName: requiresIsraeliBankSelection(paymentMethods) ? (serializeIsraeliBankSelection(bankSelection) || undefined) : undefined,
+      bankTransferProvider,
+      wiseAccountId,
+      bankName: bankTransferProvider !== "wise" && requiresIsraeliBankSelection(paymentMethods) ? (serializeIsraeliBankSelection(bankSelection) || undefined) : undefined,
       minimumTrade,
       maximumTrade,
       expiresAt: expiresAt || undefined,

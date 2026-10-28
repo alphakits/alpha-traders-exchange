@@ -47,6 +47,15 @@ function workspace(overrides: Partial<Workspace> = {}): Workspace {
 afterEach(cleanup);
 
 describe("compact seller trade requests", () => {
+  it.each(["en", "ar"] as const)("labels Wise trade detail prices in USD (%s)", locale => {
+    const request = trade({ currency: "USD", bankTransferProvider: "wise", pricePerUsdt: "1.02", fiatAmount: "102" });
+    render(<SellerTradeRequestCard request={request} workspace={workspace({ locale, isAr: locale === "ar" })} />);
+    fireEvent.click(screen.getByText(locale === "ar" ? "بيانات الصفقة" : "Trade details", { selector: "summary" }));
+    const label = screen.getByText((_, element) => element?.tagName === "DT" && element.textContent === (locale === "ar" ? "السعر لكل USDT" : "Price per USDT"));
+    expect(label.parentElement?.textContent).toContain("1.02 USD");
+    expect(label.parentElement?.textContent).not.toContain("₪");
+  });
+
   it.each([
     ["en", "listing_price", "Bank Leumi", "Withdrawal bank", "Bank Leumi", "Accept"],
     ["en", "buyer_offer", "Bank Hapoalim", "Withdrawal bank", "Bank Hapoalim", "Accept Price Offer"],

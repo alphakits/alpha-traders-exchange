@@ -59,7 +59,7 @@ describe("exact live-reference cent boundaries", () => {
     const o = respondToDemand(db, "seller", d.id, { listingId: "listing-seller", revision: d.revision, price, operationId: randomUUID() }, demandTestMarket(3.1));
     const input = { buyerId: "buyer", demandId: d.id, offerId: o.id, revision: d.revision, listingId: o.listingId, amount: d.amount, paymentMethod: d.paymentMethod, network: d.network };
     expect(validateDemandMatch(db, input, demandTestMarket(3.1)).offer.price).toBe(price);
-    commitDemandMatch(db, input, demandTestMarket(3.1), { id: "matched-trade", pricePerUsdt: price, feePolicyVersion: "buyer_seller_1pct_v1" } as PurchaseRequest);
+    commitDemandMatch(db, input, demandTestMarket(3.1), { id: "matched-trade", pricePerUsdt: price, feePolicyVersion: "buyer_seller_1pct_v1", currency: "ILS" } as PurchaseRequest);
     expect(d.state).toBe("matched");
   });
 

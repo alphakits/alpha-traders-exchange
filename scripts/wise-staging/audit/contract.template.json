@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "executionAuthorized": false,
+  "projectId": "prj_2ZrlYsszRDNyll1lkZ69BYs9tHpL",
+  "teamId": "team_RI4GCZrJfs5fCWqQKl06DYGS",
+  "targetRef": "ntnehgenzsooxwznrzzx",
+  "target": "preview",
+  "sourceCommit": null,
+  "deploymentId": null,
+  "url": null,
+  "runId": null,
+  "syntheticOnly": true,
+  "realFundsMoved": false,
+  "featureOffPhase": "DEFERRED_SECOND_DEPLOYMENT",
+  "repoPath": null,
+  "runtimeProof": { "file": "runtime-proof.json", "sha256": null },
+  "helpers": { "client": null, "database": null, "run": null, "adapters": null, "environment": null },
+  "fixtureHashes": {
+    "staging-final-accounts-20261025": { "manifest": null, "progress": null },
+    "staging-test-admin": { "manifest": null, "progress": null },
+    "staging-test-accounts": { "manifest": null, "progress": null }
+  }
+}

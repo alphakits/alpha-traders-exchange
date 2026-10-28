@@ -8,14 +8,14 @@ import { getWalletAddressValidationError } from "@/lib/wallet-address";
 import { getPurchaseMinimumTrade, calculateCardlessUsdtAmount, calculateFiatAmount, calculateTradeBuyerFiatFee, calculateTradePaymentTotal } from "@alpha-traders/contracts";
 type Props = ComponentProps<typeof PurchaseListingDialog>;
 const noop = () => {};
-type HarnessProps = Partial<Pick<Props, "locale" | "sellerProfileData" | "selectedMinTrade" | "selectedMaxTrade" | "selectedPrice" | "selectedPaymentMethod" | "priceMode" | "onClose" | "onSubmit" | "isSubmittingPurchase">> & { initialBuyerInfo?: Partial<Props["buyerInfo"]> };
-function Harness({ locale = "en", sellerProfileData = null, selectedMinTrade = 10, selectedMaxTrade = 1000, selectedPrice = 3.2, selectedPaymentMethod = "Cardless ATM Withdrawal", priceMode = "listing_price", onClose = noop, onSubmit = noop, isSubmittingPurchase = false, initialBuyerInfo = {} }: HarnessProps) {
+type HarnessProps = Partial<Pick<Props, "locale" | "sellerProfileData" | "selectedMinTrade" | "selectedMaxTrade" | "selectedPrice" | "selectedPaymentMethod" | "priceMode" | "onClose" | "onSubmit" | "isSubmittingPurchase" | "wiseEnabled" | "wiseAccounts" | "wiseAccountsLoading">> & { initialBuyerInfo?: Partial<Props["buyerInfo"]>; listing?: Partial<Props["listing"]> };
+function Harness({ locale = "en", sellerProfileData = null, selectedMinTrade = 10, selectedMaxTrade = 1000, selectedPrice = 3.2, selectedPaymentMethod = "Cardless ATM Withdrawal", priceMode = "listing_price", onClose = noop, onSubmit = noop, isSubmittingPurchase = false, initialBuyerInfo = {}, listing = {}, wiseEnabled, wiseAccounts, wiseAccountsLoading }: HarnessProps) {
   const [buyerInfo, setBuyerInfo] = useState<Props["buyerInfo"]>({ usdtAmount: "125", receivingNetwork: "TRC20", receivingWalletAddress: "TMDgWpi2huECqaoR6e71ttEiVyV34HUtr8", cardlessVerificationKind: "date_of_birth", ...initialBuyerInfo });
   const [offeredPrice, setOfferedPrice] = useState("3.20");
   const price = priceMode === "buyer_offer" ? Number(offeredPrice) : selectedPrice;
   const amount = Number(buyerInfo.usdtAmount);
   const invalid = Boolean(getWalletAddressValidationError(buyerInfo.receivingNetwork!, buyerInfo.receivingWalletAddress));
-  return <PurchaseListingDialog locale={locale} listing={{ id: "test", sellerId: "seller", sellerDisplayName: "Seller", bankName: "Bank Hapoalim, Bank Leumi", network: "TRC20" } as Props["listing"]}
+  return <PurchaseListingDialog locale={locale} listing={{ id: "test", sellerId: "seller", sellerDisplayName: "Seller", bankName: "Bank Hapoalim, Bank Leumi", network: "TRC20", currency: "ILS", ...listing } as Props["listing"]} wiseEnabled={wiseEnabled} wiseAccounts={wiseAccounts} wiseAccountsLoading={wiseAccountsLoading}
     sellerProfileData={sellerProfileData} isSellerProfileLoading={false} selectedAmount={selectedMaxTrade} selectedPrice={selectedPrice} estimatedTradeValue={Number(calculateFiatAmount(String(amount), price.toFixed(2)) ?? 0)} estimatedBuyerFee={Number(calculateTradeBuyerFiatFee(String(amount), price.toFixed(2)) ?? 0)} estimatedTotal={Number(calculateTradePaymentTotal(String(amount), price.toFixed(2), true) ?? 0)}
     purchaseSubmitted={false} buyerInfo={buyerInfo} onBuyerDetailsChange={(changes) => setBuyerInfo((current) => ({ ...current, ...changes }))}
     selectedPaymentMethods={[selectedPaymentMethod!]} selectedPaymentMethod={selectedPaymentMethod} buyerTradeAmount={amount} selectedMinTrade={selectedMinTrade} selectedMaxTrade={selectedMaxTrade} buyerTradeAmountInvalid={amount <= 0 || amount < getPurchaseMinimumTrade(selectedMinTrade, selectedPaymentMethod === "Cardless ATM Withdrawal") || amount > selectedMaxTrade}
@@ -30,6 +30,29 @@ function Harness({ locale = "en", sellerProfileData = null, selectedMinTrade = 1
 }
 const preparedBankCode = { cardlessBankName: "Bank Hapoalim", cardlessWithdrawalCode: "482913", cardlessVerificationValue: "1995-08-25" };
 afterEach(cleanup);
+describe("Wise USD purchase draft", () => {
+  const reviewed = { id: "own-wise", provider: "wise" as const, currency: "USD" as const, accountHolderName: "Draft Buyer", accountLast4: "0042", routingLast4: "0000", accountType: "checking" as const, ownershipReviewStatus: "manually_reviewed" as const };
+  it("requires a reviewed own sending account and displays the payment total in USD", () => {
+    render(<Harness selectedPaymentMethod="Bank Transfer" selectedPrice={1.02} listing={{ currency: "USD", bankTransferProvider: "wise" }} wiseEnabled wiseAccounts={[reviewed]} />);
+    const submit = screen.getByRole("button", { name: "Start Trade" }) as HTMLButtonElement;
+    expect(submit.disabled).toBe(true);
+    fireEvent.change(screen.getByLabelText("Your personal Wise account for sending USD"), { target: { value: reviewed.id } });
+    expect(submit.disabled).toBe(false);
+    expect(screen.getByRole("dialog").textContent).toContain("USD / USDT");
+    expect(screen.getByRole("dialog").textContent).toContain("128.78 USD");
+    expect(screen.getByRole("dialog").textContent).not.toContain("ILS / USDT");
+    expect(screen.queryByText(/Supported banks/)).toBeNull();
+    expect(screen.queryByLabelText(/transaction.*reason|purpose of transfer/i)).toBeNull();
+  });
+  it.each(["pending_review", "rejected"] as const)("cannot submit a %s sending account even if its ID is supplied", status => {
+    render(<Harness selectedPaymentMethod="Bank Transfer" listing={{ currency: "USD", bankTransferProvider: "wise" }} wiseEnabled wiseAccounts={[{ ...reviewed, ownershipReviewStatus: status }]} initialBuyerInfo={{ buyerWiseAccountId: reviewed.id }} />);
+    expect((screen.getByRole("button", { name: "Start Trade" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+  it("cannot submit when server availability is absent even with reviewed account data", () => {
+    render(<Harness selectedPaymentMethod="Bank Transfer" listing={{ currency: "USD", bankTransferProvider: "wise" }} wiseAccounts={[reviewed]} initialBuyerInfo={{ buyerWiseAccountId: reviewed.id }} />);
+    expect((screen.getByRole("button", { name: "Start Trade" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+});
 describe("prepared cardless purchase form", () => {
   it("requires code, typed birth date and cash; recalculates USDT and clears the wallet when changing network", () => {
     render(<Harness />);

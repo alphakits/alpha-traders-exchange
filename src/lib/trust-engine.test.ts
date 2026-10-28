@@ -9,6 +9,17 @@ const request = (status: PurchaseRequest["status"], overrides: Partial<PurchaseR
 }) as PurchaseRequest;
 
 describe("trust engine uses recorded seller facts", () => {
+  it("measures average trade size in USDT across ILS and USD settlement currencies", () => {
+    const snapshot = calculateSellerTrustSnapshot({ seller, listings: [], requests: [
+      request("completed", { id: "ils-trade", usdtAmount: "100", pricePerUsdt: "3.5", fiatAmount: "350", currency: "ILS" }),
+      request("completed", { id: "usd-trade", usdtAmount: "300", pricePerUsdt: "1.1", fiatAmount: "330", currency: "USD" }),
+      request("pending", { id: "pending-trade", usdtAmount: "5000", pricePerUsdt: "3.5", currency: "ILS" }),
+    ], commissions: [] });
+    expect(snapshot.totalUsdtVolume).toBe(400);
+    expect(snapshot.completedTrades).toBe(2);
+    expect(snapshot.averageTradeSize).toBe(200);
+  });
+
   it("does not invent reviews, view counters, growth or customer satisfaction", () => {
     const snapshot = calculateSellerTrustSnapshot({ seller, listings: [], requests: [], commissions: [] });
     expect(snapshot.rating).toBe(0);

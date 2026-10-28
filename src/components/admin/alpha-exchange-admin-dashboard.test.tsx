@@ -443,6 +443,51 @@ describe("AlphaExchangeAdminDashboard admin destinations", () => {
     expect(vi.mocked(fetch).mock.calls.every(([, init]) => !init?.method || init.method === "GET")).toBe(true);
   });
 
+  it("labels a Wise request price in USD in the queue and details", async () => {
+    navigationState.search = "section=purchase-requests";
+    const request = { id: "wise-request", buyerId: "buyer-1", buyerName: "Wise Buyer", sellerId: "seller-1", listingId: listing.id,
+      status: "pending", usdtAmount: "100", fiatAmount: "102", pricePerUsdt: "1.02", currency: "USD", bankTransferProvider: "wise", paymentMethod: "Bank Transfer", network: "TRC20",
+      timeline: [], createdAt: "2026-09-23T00:00:00.000Z", updatedAt: "2026-09-23T00:00:00.000Z" };
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ ...adminPayload(), purchaseRequests: [request] })));
+    render(<AlphaExchangeAdminDashboard isOwner />);
+    expect(await screen.findByText((_, element) => element?.tagName === "P" && element.textContent === "Price 1.02 USD", {}, { timeout: 10000 })).toBeTruthy();
+    expect(screen.queryByText("₪1.02")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "View Details" }));
+    const dialog = await screen.findByRole("dialog", { name: "Purchase Request Details" });
+    expect(within(dialog).getByText("1.02 USD")).toBeTruthy();
+  });
+
+  it("keeps commission trade currencies in the card and CSV without guessing an orphan's currency", async () => {
+    navigationState.search = "section=commissions";
+    const request = { id: "wise-request", buyerId: "buyer-1", buyerName: "Wise Buyer", sellerId: "seller-1", listingId: listing.id,
+      status: "completed", usdtAmount: "100", fiatAmount: "102", pricePerUsdt: "1.02", currency: "USD", bankTransferProvider: "wise", paymentMethod: "Bank Transfer", network: "TRC20",
+      timeline: [], createdAt: "2026-09-23T00:00:00.000Z", updatedAt: "2026-09-23T00:00:00.000Z" };
+    const record = { id: "wise-commission", source: "trade", purchaseRequestId: request.id, sellerId: request.sellerId, buyerId: request.buyerId, rate: 0.02, grossAmount: 102, commissionAmount: 2, paymentStatus: "pending", createdAt: request.createdAt, updatedAt: request.updatedAt };
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ ...adminPayload([listing], [], [record, { ...record, id: "orphan-commission", purchaseRequestId: "missing-request" }, { ...record, id: "snapshot-commission", purchaseRequestId: "pruned-request", grossCurrency: "USD" }]), purchaseRequests: [request] })));
+    const blobs: Blob[] = [];
+    vi.stubGlobal("URL", class extends URL {
+      static createObjectURL = vi.fn((blob: Blob) => { blobs.push(blob); return "blob:synthetic-export"; });
+      static revokeObjectURL = vi.fn();
+    });
+    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    try {
+      render(<AlphaExchangeAdminDashboard isOwner />);
+      const card = await screen.findByTestId("commission-card-wise-commission");
+      expect(within(card).getByText("102.00 USD")).toBeTruthy();
+      const orphan = screen.getByTestId("commission-card-orphan-commission");
+      expect(within(orphan).getByText("Currency unavailable")).toBeTruthy();
+      expect(orphan.textContent).not.toContain("₪");
+      expect(within(screen.getByTestId("commission-card-snapshot-commission")).getByText("102.00 USD")).toBeTruthy();
+      fireEvent.click(screen.getByRole("button", { name: "Export CSV" }));
+      const csv = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.onerror = reject; reader.readAsText(blobs[0]);
+      });
+      expect(csv.split("\n")[0]).toContain("Trade Currency");
+      expect(csv).toContain('"102.00","USD","2"');
+      expect(csv).toContain("Currency unavailable");
+    } finally { click.mockRestore(); }
+  });
+
   it.each([
     ["en", "purchase-requests"], ["ar", "purchase-requests"],
     ["en", "commissions"], ["ar", "commissions"],

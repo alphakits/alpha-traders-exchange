@@ -9,6 +9,8 @@ import { hasAdultConfirmation } from "@/lib/age-eligibility";
 import { isVerified } from "@/lib/verification-bypass";
 import { hasRole } from "@/lib/roles";
 import { hasSellerOperationalAccess } from "@/lib/seller-approval-verification";
+import { isWisePaymentsEnabled } from "@/lib/wise-payments-capability";
+import { getReviewedWiseAccount } from "@/lib/wise-store-policy";
 
 export const DEMAND_TTL_MS = 12 * 60 * 60 * 1000;
 export const DEMAND_PUBLICATION_WINDOW_MS = 24 * 60 * 60 * 1000;
@@ -36,13 +38,22 @@ export class DemandError extends Error {
 }
 const demandPriceSchema = z.string().regex(/^\d{1,4}(?:\.\d{1,2})?$/).refine(v => Number(v) > 0).transform(v => Number(v).toFixed(2));
 export const demandTermsSchema = z.object({
+  currency: z.enum(["ILS", "USD"]).optional(),
+  bankTransferProvider: z.enum(["israeli_bank", "wise"]).optional(),
   amount: z.string().regex(/^\d{1,9}(?:\.\d{1,6})?$/).refine(v => Number(v) > 0).transform(v => canonicalizeTradeAmount(v)!),
   price: demandPriceSchema,
   network: z.enum(["TRC20", "BEP20", "ERC20", "SOL"]),
   paymentMethod: z.enum(["Bank Transfer", "Cardless ATM Withdrawal", "Face-to-Face (Meet in Person)"]),
   city: z.string().trim().max(80).regex(/^[\p{L}\p{M}\s.,'’\-]*$/u).default(""),
 }).strict().refine(v => v.paymentMethod !== "Face-to-Face (Meet in Person)" || (v.city.length >= 2 && /\p{L}/u.test(v.city)), "Enter the meeting city.")
-  .transform(v => ({ ...v, city: v.paymentMethod === "Face-to-Face (Meet in Person)" ? v.city : "" }));
+  .refine(v => v.bankTransferProvider === "wise"
+    ? v.paymentMethod === "Bank Transfer" && v.currency === "USD"
+    : v.currency !== "USD", "Wise bank transfers require an explicit USD price and currency.")
+  .transform(v => {
+    const { currency, bankTransferProvider, ...legacy } = v;
+    return { ...legacy, city: v.paymentMethod === "Face-to-Face (Meet in Person)" ? v.city : "",
+      ...(bankTransferProvider === "wise" ? { currency: currency as "USD", bankTransferProvider } : {}) };
+  });
 export const demandCreateSchema = z.object({ terms: demandTermsSchema, operationId: z.string().uuid() }).strict();
 export const demandChangeSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("cancel"), revision: z.number().int().positive() }).strict(),
@@ -86,7 +97,17 @@ export function demandReference(market: MarketSnapshot, now = Date.now()) {
   const bounds = getIlsReferencePriceBounds(market.pairs.usdtIls.price);
   return bounds ? { price: String(market.pairs.usdtIls.price), minimum: bounds.minimumPrice, maximum: bounds.maximumPrice, quotedAt: market.pairs.usdtIls.quotedAt, validUntil: market.pairs.usdtIls.validUntil } : null;
 }
-export function assertDemandPrice(price: string, market: MarketSnapshot, now = Date.now()) {
+export function assertDemandPrice(price: string, market: MarketSnapshot, now = Date.now(), terms?: Pick<DemandTerms, "currency" | "bankTransferProvider" | "paymentMethod">) {
+  if (terms?.bankTransferProvider === "wise" || terms?.currency === "USD") {
+    if (!isWisePaymentsEnabled()) throw new DemandError("WISE_UNAVAILABLE", "Wise USD transfers are unavailable.", 404);
+    if (terms.bankTransferProvider !== "wise" || terms.currency !== "USD" || terms.paymentMethod !== "Bank Transfer") {
+      throw new DemandError("TERMS_CHANGED", "Wise requires Bank Transfer with an explicit USD price.");
+    }
+    const result = demandPriceSchema.safeParse(price);
+    if (!result.success) throw new DemandError("USD_PRICE_INVALID", "Enter a positive USD price with up to two decimal places.");
+    // This is an explicitly negotiated USD price, not a fabricated USDT/USD quote.
+    return result.data;
+  }
   const reference = demandReference(market, now);
   if (!reference) throw new DemandError("QUOTE_UNAVAILABLE", "A fresh USD/ILS reference is required. Please try again shortly.");
   const result = demandPriceSchema.safeParse(price);
@@ -94,9 +115,9 @@ export function assertDemandPrice(price: string, market: MarketSnapshot, now = D
   return result.data;
 }
 export function assertDemandTerms(terms: DemandTerms, market: MarketSnapshot, now = Date.now()) {
-  assertDemandPrice(terms.price, market, now);
+  assertDemandPrice(terms.price, market, now, terms);
   const total = calculateTradePaymentTotal(terms.amount, terms.price, true);
-  if (!total || Number(total) < 0.01) throw new DemandError("AMOUNT_INVALID", "The payment total must be at least ₪0.01.");
+  if (!total || Number(total) < 0.01) throw new DemandError(terms.currency === "USD" ? "USD_AMOUNT_INVALID" : "AMOUNT_INVALID", `The payment total must be at least ${terms.currency === "USD" ? "USD " : "₪"}0.01.`);
   if (terms.paymentMethod === "Cardless ATM Withdrawal" && !parseCardlessCashAmount(total)) throw new DemandError("ATM_AMOUNT_INVALID", "The total including the buyer fee must match an ATM cash amount in ₪100 steps.");
 }
 export function isDemandReservedTrade(trade: PurchaseRequest) {
@@ -118,18 +139,24 @@ export function demandState(db: AlphaExchangeDb, demand: UsdtDemand, market: Mar
   }
   if (demand.state !== "open") return demand.state;
   if (demandExpiresAtMs(demand) <= now) return "expired" as const;
-  try { assertDemandPrice(demand.price, market, now); } catch { return "paused" as const; }
+  try { assertDemandPrice(demand.price, market, now, demand); } catch { return "paused" as const; }
   return "open" as const;
 }
 export function assertDemandListing(db: AlphaExchangeDb, demand: UsdtDemand, listing: MarketplaceListing | undefined, excludingTrade?: string): asserts listing is MarketplaceListing {
   const seller = db.users.find(u => u.id === listing?.sellerId);
   if (!listing || !canRespond(db, seller, demand.requesterId) || !["active", "matched", "in_trade"].includes(listing.status)
     || (listing.approvalStatus !== undefined && listing.approvalStatus !== "approved")
-    || listing.currency !== "ILS" || listing.network !== demand.network
+    || listing.currency !== (demand.currency ?? "ILS") || listing.network !== demand.network
+    || (listing.bankTransferProvider ?? "israeli_bank") !== (demand.bankTransferProvider ?? "israeli_bank")
+    || (demand.bankTransferProvider === "wise" && !isWisePaymentsEnabled())
     || !(listing.paymentMethods ?? [listing.paymentMethod]).includes(demand.paymentMethod)
     || (demand.paymentMethod === "Face-to-Face (Meet in Person)"
       && normalizeDemandCity(seller?.city) !== normalizeDemandCity(demand.city))
     || (listing.expiresAt && Date.parse(listing.expiresAt) <= Date.now())) throw new DemandError("LISTING_UNAVAILABLE", "Choose an approved, available listing matching this request.");
+  if (demand.bankTransferProvider === "wise") {
+    try { getReviewedWiseAccount(seller, listing.wiseAccountId); }
+    catch { throw new DemandError("LISTING_UNAVAILABLE", "The seller must select a current ownership-reviewed Wise USD account matching their platform identity."); }
+  }
   const active = db.purchaseRequests.filter(t => t.id !== excludingTrade && t.sellerId === listing.sellerId && isDemandReservedTrade(t));
   if (active.length >= 3) throw new DemandError("SELLER_TRADE_LIMIT", "The seller already has three open trades.");
   const available = demandListingAvailableAmount(db, listing, excludingTrade);
@@ -141,7 +168,7 @@ export function assertDemandListing(db: AlphaExchangeDb, demand: UsdtDemand, lis
 function normalizeDemandCity(city: string | undefined) {
   return (city ?? "").normalize("NFKC").trim().replace(/\s+/gu, " ").toLowerCase();
 }
-export type DemandMatchInput = { buyerId: string; demandId: string; offerId: string; revision: number; listingId: string; amount: string; paymentMethod?: string; network?: string };
+export type DemandMatchInput = { buyerId: string; demandId: string; offerId: string; revision: number; listingId: string; amount: string; paymentMethod?: string; network?: string; currency?: string; bankTransferProvider?: string };
 export function validateDemandMatch(db: AlphaExchangeDb, input: DemandMatchInput, market: MarketSnapshot, excludingTrade?: string) {
   assertDemandEnabled();
   assertDemandActor(db.users.find(u => u.id === input.buyerId));
@@ -151,6 +178,9 @@ export function validateDemandMatch(db: AlphaExchangeDb, input: DemandMatchInput
   const offer = demand.offers.find(o => o.id === input.offerId);
   if (!offer || offer.state !== "open" || offer.revision !== demand.revision || offer.listingId !== input.listingId) throw new DemandError("OFFER_CHANGED", "This response is no longer available.");
   if (input.amount !== demand.amount || input.paymentMethod !== demand.paymentMethod || input.network !== demand.network) throw new DemandError("TERMS_CHANGED", "Review the current request amount, payment method and network.");
+  if ((input.currency ?? "ILS") !== (demand.currency ?? "ILS") || (input.bankTransferProvider ?? "israeli_bank") !== (demand.bankTransferProvider ?? "israeli_bank")) {
+    throw new DemandError("TERMS_CHANGED", "Review the request currency and bank-transfer provider.");
+  }
   assertDemandTerms(demand, market);
   assertDemandTerms({ ...demand, price: offer.price }, market);
   const listing = db.marketplaceListings.find(l => l.id === offer.listingId);
@@ -160,7 +190,8 @@ export function validateDemandMatch(db: AlphaExchangeDb, input: DemandMatchInput
 }
 export function commitDemandMatch(db: AlphaExchangeDb, input: DemandMatchInput, market: MarketSnapshot, trade: PurchaseRequest) {
   const { demand, offer } = validateDemandMatch(db, input, market, trade.id);
-  if (trade.pricePerUsdt !== offer.price || trade.feePolicyVersion !== "buyer_seller_1pct_v1") throw new DemandError("TERMS_CHANGED", "Review the seller price and buyer fee.");
+  if (trade.pricePerUsdt !== offer.price || trade.feePolicyVersion !== "buyer_seller_1pct_v1" || trade.currency !== (demand.currency ?? "ILS")
+    || (trade.bankTransferProvider ?? "israeli_bank") !== (demand.bankTransferProvider ?? "israeli_bank")) throw new DemandError("TERMS_CHANGED", "Review the seller price, currency, provider and buyer fee.");
   demand.state = "matched";
   demand.purchaseRequestId = trade.id;
   demand.acceptedOfferId = offer.id;

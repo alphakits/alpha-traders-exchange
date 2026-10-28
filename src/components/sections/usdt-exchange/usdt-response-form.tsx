@@ -36,8 +36,10 @@ export function SellerResponseForm({ ar, current, listings, reference, listingId
   const latestResponseAt = ownOffers.reduce((latest, offer) => Math.max(latest, Date.parse(offer.createdAt ?? "") || 0), 0);
   const cooldownSeconds = Math.max(0, Math.ceil((latestResponseAt + responseCooldownMs - now) / 1_000));
   const selectedListing = listings.find(listing => listing.id === listingId);
+  const wise = current.bankTransferProvider === "wise" && current.currency === "USD";
+  const prefix = wise ? "USD " : "₪";
   const priceSyntaxValid = /^\d{1,4}(?:\.\d{1,2})?$/.test(offerPrice) && Number(offerPrice) > 0;
-  const priceOutsideBand = priceSyntaxValid && reference !== null
+  const priceOutsideBand = !wise && priceSyntaxValid && reference !== null
     && (Number(offerPrice) < Number(reference.minimum) || Number(offerPrice) > Number(reference.maximum));
   const priceIssue = !priceSyntaxValid
     ? text("Enter a positive price with up to two decimal places.", "أدخل سعرًا موجبًا بمنزلتين عشريتين كحد أقصى.")
@@ -47,7 +49,7 @@ export function SellerResponseForm({ ar, current, listings, reference, listingId
   const requestClosed = current.state !== "open" || Date.parse(current.expiresAt) <= now;
   const disabledReason = busy ? text("Sending your response…", "جارٍ إرسال ردك…")
     : requestClosed ? text("This request is no longer open. Review its current status before responding.", "هذا الطلب لم يعد مفتوحًا. راجع حالته الحالية قبل الرد.")
-    : !reference ? text("Waiting for a fresh price reference. You can respond when it is available.", "بانتظار مرجع سعر حديث. يمكنك الرد عند توفره.")
+    : !wise && !reference ? text("Waiting for a fresh price reference. You can respond when it is available.", "بانتظار مرجع سعر حديث. يمكنك الرد عند توفره.")
     : !selectedListing || !ready ? text("Select an eligible listing for the current request to continue.", "اختر عرضًا مؤهلًا للطلب الحالي للمتابعة.")
     : priceIssue ?? (atmInvalid ? text("At this price, the total including the buyer fee must be ₪100–₪10,000 in ₪100 steps. Match the requested price or choose another compatible price.", "بهذا السعر، يجب أن يكون الإجمالي شاملًا رسوم المشتري بين ₪100 و₪10,000 وبمضاعفات ₪100. طابق السعر المطلوب أو اختر سعرًا آخر مناسبًا.")
       : cooldownSeconds > 0 ? text(`You can send another response in ${cooldownSeconds} seconds.`, `يمكنك إرسال رد آخر بعد ${cooldownSeconds} ثانية.`) : null);
@@ -65,7 +67,7 @@ export function SellerResponseForm({ ar, current, listings, reference, listingId
       {text("Offer the full requested amount:", "قدّم كامل الكمية المطلوبة:")} <bdi dir="ltr" className="font-semibold tabular-nums text-emerald-300">{formatUsdt(current.amount)} USDT</bdi>.
       {" "}{text("The buyer reviews your price before opening the Trade Room.", "يراجع المشتري سعرك قبل فتح غرفة الصفقة.")}
     </p>
-    <p className="mt-2 text-xs leading-5 text-gray-400 [overflow-wrap:anywhere]">{paymentLabel(current.paymentMethod, ar)} · <bdi>{current.network}</bdi>{current.city ? <> · {current.city}</> : null}</p>
+    <p className="mt-2 text-xs leading-5 text-gray-400 [overflow-wrap:anywhere]">{paymentLabel(current.paymentMethod, ar, current.bankTransferProvider)} · <bdi>{current.network}</bdi>{current.city ? <> · {current.city}</> : null}</p>
 
     {listings.length === 0 ? <div className="mt-5 space-y-4 rounded-xl border border-blue-400/25 bg-blue-400/[0.06] p-4">
       <h3 className="font-semibold text-blue-200">{text("No eligible listing yet", "لا يوجد عرض مؤهل بعد")}</h3>
@@ -84,27 +86,27 @@ export function SellerResponseForm({ ar, current, listings, reference, listingId
           <label htmlFor={`${id}-listing`} className="text-sm font-medium">{text("Your listing", "عرضك")}</label>
           <select id={`${id}-listing`} required value={listingId} onChange={event => onListingChange(event.target.value)} className={requestMoneyField} aria-describedby={`${id}-stock`}>
             <option value="">{text("Select a listing", "اختر عرضًا")}</option>
-            {listings.map(listing => <option key={listing.id} value={listing.id}>{formatUsdt(listing.amount)} USDT · ₪{formatIls(listing.price)} {text("per USDT", "لكل USDT")}</option>)}
+            {listings.map(listing => <option key={listing.id} value={listing.id}>{formatUsdt(listing.amount)} USDT · {prefix}{formatIls(listing.price)} {text("per USDT", "لكل USDT")}</option>)}
           </select>
           <p id={`${id}-stock`} className="mt-2 text-xs leading-5 text-gray-400">{text("The amount shown is available stock after active reservations.", "الكمية المعروضة هي الرصيد المتاح بعد خصم الحجوزات النشطة.")}</p>
         </div>
         <div>
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <label htmlFor={`${id}-price`} className="text-sm font-medium">{text("Your response price (ILS)", "سعر ردك (شيكل)")}</label>
+            <label htmlFor={`${id}-price`} className="text-sm font-medium">{wise ? text("Your response price (USD)", "سعر ردك (USD)") : text("Your response price (ILS)", "سعر ردك (شيكل)")}</label>
             <button type="button" onClick={() => { onPriceChange(current.price); resetPriceInput(); }} className={`${requestSecondary} min-h-11 px-3 py-2 text-xs`}>
-              {text("Match requested price", "مطابقة السعر المطلوب")} <bdi dir="ltr" className="tabular-nums text-emerald-300">₪{formatIls(current.price)}</bdi>
+              {text("Match requested price", "مطابقة السعر المطلوب")} <bdi dir="ltr" className="tabular-nums text-emerald-300">{prefix}{formatIls(current.price)}</bdi>
             </button>
           </div>
           <GroupedDecimalInput key={`${current.id}:${current.revision}:${listingId}:${priceInputRevision}`} id={`${id}-price`} value={offerPrice} onValueChange={onPriceChange} maxFractionDigits={2} maxIntegerDigits={4}
             required autoComplete="off" className={requestMoneyField}
             aria-invalid={Boolean(offerPrice && priceIssue)} aria-describedby={`${id}-price-help ${id}-reason`} />
           <p id={`${id}-price-help`} className="mt-2 text-xs leading-5 text-gray-400">
-            {reference ? <>{text("Allowed price:", "السعر المسموح:")} <bdi dir="ltr" className="font-medium tabular-nums text-emerald-300">₪{formatIls(reference.minimum)} – ₪{formatIls(reference.maximum)}</bdi></>
+            {wise ? text("Your offer is in USD. The buyer reviews the exact price and total before accepting.", "عرضك بالدولار. يراجع المشتري السعر والإجمالي الدقيقين قبل الموافقة.") : reference ? <>{text("Allowed price:", "السعر المسموح:")} <bdi dir="ltr" className="font-medium tabular-nums text-emerald-300">₪{formatIls(reference.minimum)} – ₪{formatIls(reference.maximum)}</bdi></>
               : text("A fresh reference is required before sending.", "يلزم مرجع سعر حديث قبل الإرسال.")}
           </p>
         </div>
       </fieldset>
-      {priceSyntaxValid ? <FeeBreakdown amount={current.amount} price={offerPrice} ar={ar} seller title={text("Buyer payment preview", "معاينة دفعة المشتري")} /> : null}
+      {priceSyntaxValid ? <FeeBreakdown amount={current.amount} price={offerPrice} currency={wise ? "USD" : "ILS"} ar={ar} seller title={text("Buyer payment preview", "معاينة دفعة المشتري")} /> : null}
       <div className="space-y-3">
         <p id={`${id}-reason`} className={"text-sm leading-6 " + (disabledReason ? "text-amber-200" : "text-gray-400")}>
           <RequestMoneyText>{disabledReason ?? text("Ready to send. Your response replaces any earlier open response from you.", "جاهز للإرسال. سيحل ردك محل أي رد مفتوح سابق منك.")}</RequestMoneyText>

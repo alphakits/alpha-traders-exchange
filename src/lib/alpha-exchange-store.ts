@@ -1,7 +1,11 @@
+import { isWisePaymentsEnabled } from "@/lib/wise-payments-capability";
 import { assertDemandActor, assertDemandEnabled, commitDemandMatch, isDemandReservedTrade, parseDemandMatchBinding, validateDemandMatch } from "@/lib/usdt-demand-policy";
 import { isRequestableMarketplaceListing, MAX_SELLER_ACTIVE_TRADES, minimumRequestableListingAmount } from "@/lib/requestable-listing";
 import { getMarketSnapshot as getDemandMarket } from "@/lib/market-service";
 import { materializeCommissionShortfalls } from "./commission-shortfall-ledger";
+import type { BankTransferProvider, WiseUsdAccount, WiseUsdAccountSnapshot } from "@/types/wise";
+import { parseWiseUsdAccountDetails, maskWiseUsdAccount, createWiseUsdAccountSnapshot, getWiseUsdAccountFingerprint } from "@/lib/wise-bank-transfer";
+import { assertWisePaymentsRuntime, assertWiseListingShape, getReviewedWiseAccount, wiseAccountHasActiveUsage, assertWiseTradeSnapshotCurrent } from "@/lib/wise-store-policy";
 import { calculateTradeTermsQuote } from "@alpha-traders/contracts";
 import { requireManualCommissionOperationId } from "@/lib/manual-commission-operation";
 import { priceAlertSchema, priceAlertMatchesListing, readMarketplacePriceAlert, type MarketplacePriceAlert } from "@/lib/marketplace-price-alert";
@@ -2190,7 +2194,7 @@ function publicMarketplaceListing(listing: MarketplaceListing): MarketplaceListi
   // active-trade metadata must not travel with public listings.
   const fields = [
     "id", "sellerId", "sellerDisplayName", "photos", "displayNumber", "originalAmount", "availableAmount", "price", "currency",
-    "network", "paymentMethod", "paymentMethods", "bankName", "minimumTrade", "maximumTrade", "expiresAt", "expiredAt",
+    "network", "paymentMethod", "paymentMethods", "bankTransferProvider", "bankName", "minimumTrade", "maximumTrade", "expiresAt", "expiredAt",
     "lastRenewedAt", "notes", "sellerDescription", "responseTime", "status", "approvalStatus", "completedAt", "cancelledAt",
     "closedAt", "createdAt", "updatedAt", "sellerProfile", "sellerReputation", "sellerActiveTradeCount", "newRequestBlockReason",
   ] as const satisfies readonly (keyof MarketplaceListing)[];
@@ -2224,6 +2228,7 @@ function enrichListingsWithSellerData(
       photos: (listing.photos ?? []).map((photo) => sanitizeCounterpartyMediaUrl(photo)).filter(Boolean),
     };
     delete publicListing.bankAccountId;
+    if (viewerUserId !== listing.sellerId || publicAvailability) delete publicListing.wiseAccountId;
     delete publicListing.sellerProfile;
     // Discard any historical embedded reputation before building the public projection.
     delete publicListing.sellerReputation;
@@ -4660,6 +4665,15 @@ async function writeDbForListingCreation(
   delta: ListingCreationWriteDelta,
   fromCache: boolean,
 ) {
+  if (delta.newListing.bankTransferProvider === "wise") {
+    const validate = (snapshot: AlphaExchangeDb) => {
+      assertWiseListingShape(delta.newListing);
+      getReviewedWiseAccount(snapshot.users.find(user => user.id === delta.newListing.sellerId), delta.newListing.wiseAccountId);
+    };
+    await writeDb(db, { selectedTables: ["listings", "audit_logs", "notifications", "activity_logs", "trust_snapshots", "trust_score_history"],
+      validateLatestBeforeCommit: validate, validateBeforeCommit: validate, cacheResult: false });
+    return;
+  }
   const writeTask = dbWriteInFlight.then(async () => {
     const repository = await getAlphaExchangeRepository();
     await repository.saveListingCreationSnapshotTargeted(delta);
@@ -6870,6 +6884,114 @@ export async function updateUserPassword(userId: string, passwordHash: string) {
   });
 }
 
+const WISE_ACCOUNT_READ_TABLES = [...USER_PROFILE_TABLES, "listings", "purchase_requests", "audit_logs"] as const;
+const WISE_ACCOUNT_WRITE_TABLES = [...USER_PROFILE_TABLES, "audit_logs"] as const;
+
+function assertWiseAccountOwner(db: AlphaExchangeDb, userId: string) {
+  assertWisePaymentsRuntime();
+  const user = db.users.find(candidate => candidate.id === userId);
+  if (!user || user.disabled || user.emailVerified !== true) throw new Error("An active verified platform account is required.");
+  return user;
+}
+
+export async function getWiseAccountsForUser(userId: string) {
+  assertWisePaymentsRuntime();
+  const repository = await getAlphaExchangeRepository();
+  const db = normalizeDb(await repository.loadAuthUserSnapshot({ userId }));
+  return (assertWiseAccountOwner(db, userId).wiseUsdAccounts ?? []).map(maskWiseUsdAccount);
+}
+
+export async function saveWiseAccount(input: { actorUserId: string; accountId?: string; details: unknown }) {
+  assertWisePaymentsRuntime();
+  const parsed = parseWiseUsdAccountDetails(input.details);
+  if (!parsed.success) throw new Error(Object.values(parsed.errors).join(" "));
+  const accountId = input.accountId || `wise-usd-${randomUUID()}`;
+  return mutateCanonicalAccountRecords(WISE_ACCOUNT_READ_TABLES, WISE_ACCOUNT_WRITE_TABLES, async db => {
+    const user = assertWiseAccountOwner(db, input.actorUserId);
+    const accounts = user.wiseUsdAccounts ?? [];
+    const current = accounts.find(account => account.id === input.accountId);
+    if (input.accountId && !current) throw new Error("Wise account not found.");
+    if (current && wiseAccountHasActiveUsage(db, user.id, current.id)) throw new Error("This Wise account is linked to a listing or active trade and cannot be changed.");
+    if (!current && accounts.length >= 2) throw new Error("You can save up to two Wise USD accounts.");
+    const now = nowIsoAfter(current?.updatedAt);
+    const account: WiseUsdAccount = { ...parsed.data, id: accountId, userId: user.id,
+      createdAt: current?.createdAt ?? now, updatedAt: now, ownershipReview: { status: "pending_review" } };
+    user.wiseUsdAccounts = [...accounts.filter(candidate => candidate.id !== accountId), account];
+    user.updatedAt = now;
+    await appendAuditLog(db, { action: "wise_account_saved", actorUserId: user.id, targetUserId: user.id,
+      details: "Wise USD account saved; manual ownership review required.",
+      newValue: { accountId, accountLast4: account.accountNumber.slice(-4), status: "pending_review" } });
+    return { changed: true, result: maskWiseUsdAccount(account) };
+  });
+}
+
+export async function deleteWiseAccount(input: { actorUserId: string; accountId: string }) {
+  assertWisePaymentsRuntime();
+  return mutateCanonicalAccountRecords(WISE_ACCOUNT_READ_TABLES, WISE_ACCOUNT_WRITE_TABLES, async db => {
+    const user = assertWiseAccountOwner(db, input.actorUserId);
+    const account = user.wiseUsdAccounts?.find(candidate => candidate.id === input.accountId);
+    if (!account) throw new Error("Wise account not found.");
+    if (wiseAccountHasActiveUsage(db, user.id, account.id)) throw new Error("This Wise account is linked to a listing or active trade and cannot be deleted.");
+    user.wiseUsdAccounts = user.wiseUsdAccounts?.filter(candidate => candidate.id !== account.id);
+    user.updatedAt = nowIso();
+    await appendAuditLog(db, { action: "wise_account_deleted", actorUserId: user.id, targetUserId: user.id,
+      details: "Wise USD account deleted.", oldValue: { accountId: account.id, accountLast4: account.accountNumber.slice(-4) } });
+    return { changed: true, result: true };
+  });
+}
+
+function wiseAccountReviewVersion(account: WiseUsdAccount) {
+  return createHash("sha256").update(JSON.stringify([account.id, account.userId, account.updatedAt, getWiseUsdAccountFingerprint(account)])).digest("hex");
+}
+
+export async function getWiseAccountReviewQueue(actorUserId: string) {
+  assertWisePaymentsRuntime();
+  const db = await readDbForSelectedTables(["users"]);
+  assertAccountAdministrationActor(db, actorUserId, false);
+  return db.users.flatMap(user => (user.wiseUsdAccounts ?? []).map(account => ({
+    ...maskWiseUsdAccount(account), userId: user.id, identityName: user.fullName,
+    reviewVersion: wiseAccountReviewVersion(account),
+    accountHolderType: account.accountHolderType, countryCode: account.countryCode,
+    bankName: account.bankName, bankAddress: account.bankAddress,
+    routingNumber: account.routingNumber, accountNumber: account.accountNumber,
+  })));
+}
+
+export async function reviewWiseAccount(input: { actorUserId: string; userId: string; accountId: string;
+  decision: "approve" | "reject"; evidenceReference: string; verifiedAccountHolderName?: string; identityMatched?: boolean; expectedReviewVersion: string }) {
+  assertWisePaymentsRuntime();
+  const evidenceReference = input.evidenceReference.trim();
+  if (evidenceReference.length < 8 || evidenceReference.length > 500) throw new Error("Record the private ownership evidence reference (8–500 characters).");
+  if (!["approve", "reject"].includes(input.decision)) throw new Error("Invalid ownership review decision.");
+  return mutateCanonicalAccountRecords(WISE_ACCOUNT_READ_TABLES, WISE_ACCOUNT_WRITE_TABLES, async db => {
+    assertWisePaymentsRuntime();
+    assertAccountAdministrationActor(db, input.actorUserId, false);
+    if (input.actorUserId === input.userId) throw new Error("You cannot review your own Wise account.");
+    const user = assertWiseAccountOwner(db, input.userId);
+    const account = user.wiseUsdAccounts?.find(candidate => candidate.id === input.accountId);
+    if (!account) throw new Error("Wise account not found.");
+    if (!input.expectedReviewVersion || input.expectedReviewVersion !== wiseAccountReviewVersion(account)) throw new Error("Wise account details changed. Reload and review the current evidence and account details.");
+    const normalizedName = (value: string) => value.normalize("NFKC").trim().replace(/\s+/g, " ").toLocaleLowerCase("en");
+    const verifiedAccountHolderName = input.verifiedAccountHolderName?.trim() ?? "";
+    if (input.decision === "approve" && (input.identityMatched !== true || !verifiedAccountHolderName
+      || normalizedName(account.accountHolderName) !== normalizedName(verifiedAccountHolderName)
+      || normalizedName(user.fullName) !== normalizedName(verifiedAccountHolderName))) {
+      throw new Error("The documented account holder must match this user's verified identity and account details.");
+    }
+    const now = nowIsoAfter(account.updatedAt);
+    account.ownershipReview = input.decision === "approve"
+      ? { status: "manually_reviewed", method: "document_review", reviewedAt: now, reviewedBy: input.actorUserId,
+          evidenceReference, verifiedAccountHolderName: account.accountHolderName, accountFingerprint: getWiseUsdAccountFingerprint(account) }
+      : { status: "rejected", reviewedAt: now, reviewedBy: input.actorUserId, evidenceReference };
+    account.updatedAt = now;
+    user.updatedAt = now;
+    await appendAuditLog(db, { action: "wise_account_reviewed", actorUserId: input.actorUserId, targetUserId: user.id,
+      details: "Wise USD account ownership manually reviewed.",
+      newValue: { accountId: account.id, accountLast4: account.accountNumber.slice(-4), status: account.ownershipReview.status } });
+    return { changed: true, result: maskWiseUsdAccount(account) };
+  });
+}
+
 function getSellerBankAccounts(user: AlphaExchangeUser) {
   return [...(user.sellerBankAccounts ?? [])].slice(0, MAX_SELLER_BANK_ACCOUNTS);
 }
@@ -8908,6 +9030,16 @@ export async function getMarketplaceListings(
           if (sellersBlockedByEnforcement.has(listing.sellerId)) return false;
           const seller = sellerById.get(listing.sellerId);
           if (!seller || seller.disabled === true || !canPublishListings(seller)) return false;
+          if (listing.bankTransferProvider === "wise") {
+            try {
+              assertWiseListingShape(listing);
+              getReviewedWiseAccount(seller, listing.wiseAccountId);
+            } catch {
+              // Revoked or changed payout ownership cannot advertise a new trade.
+              // Seller management and existing trades retain their private readers.
+              return false;
+            }
+          }
           if (isSellerUnavailableForNewBuyers(seller.availabilityStatus)) return false;
           const availableAmount = toNumber(listing.availableAmount);
           const minimumTrade = minimumRequestableListingAmount(listing);
@@ -9318,6 +9450,12 @@ function resolveSellerListingBankAccount(
 
 function canRevealTradeBankDetailsToActor(request: PurchaseRequest, actorUserId: string, actorRole: UserRole) {
   const participant = request.buyerId === actorUserId || request.sellerId === actorUserId;
+  if (request.bankTransferProvider === "wise") {
+    if (request.status === "pending" && !isWisePaymentsEnabled()) return false;
+    return participant && request.paymentMethod === "Bank Transfer" && request.currency === "USD"
+      && Boolean(request.sellerWiseAccountSnapshot && request.buyerWiseAccountSnapshot)
+      && isBankDetailsDisclosureStage(request.status);
+  }
   const elevated = actorRole === "admin" || actorRole === "owner";
   if (!participant && !elevated) return false;
   return Boolean(
@@ -9337,6 +9475,8 @@ export async function createMarketplaceListing(input: {
   paymentMethod?: string;
   paymentMethods?: string[];
   bankAccountId?: string;
+  bankTransferProvider?: BankTransferProvider;
+  wiseAccountId?: string;
   bankName?: string;
   minimumTrade?: string;
   maximumTrade?: string;
@@ -9348,6 +9488,7 @@ export async function createMarketplaceListing(input: {
   acceptedCommissionPolicy?: boolean;
   actorUserId: string;
 }) {
+  if (input.bankTransferProvider === "wise" || input.wiseAccountId) assertWisePaymentsRuntime();
   assertNoExchangeDirectContact(
     input.sellerDisplayName,
     input.notes,
@@ -9384,9 +9525,12 @@ export async function createMarketplaceListing(input: {
     throw new Error(`Select no more than ${MAX_LISTING_PAYMENT_METHODS} payment methods per listing.`);
   }
   const primaryPaymentMethod = listingPaymentMethods[0];
-  const selectedSellerBankAccount = resolveSellerListingBankAccount(db, input.sellerId, input.bankAccountId, listingPaymentMethods);
+  assertWiseListingShape({ ...input, currency: input.currency?.trim().toUpperCase() || "ILS", paymentMethods: listingPaymentMethods });
+  const wiseAccount = input.bankTransferProvider === "wise"
+    ? getReviewedWiseAccount(db.users.find(user => user.id === input.sellerId), input.wiseAccountId) : undefined;
+  const selectedSellerBankAccount = wiseAccount ? null : resolveSellerListingBankAccount(db, input.sellerId, input.bankAccountId, listingPaymentMethods);
   const listingBanks = parseIsraeliBankSelection(input.bankName);
-  if (requiresIsraeliBankSelection(listingPaymentMethods)) {
+  if (!wiseAccount && requiresIsraeliBankSelection(listingPaymentMethods)) {
     if (!listingBanks.length) {
       throw new Error("Please choose one or two supported banks before publishing the listing.");
     }
@@ -9405,12 +9549,14 @@ export async function createMarketplaceListing(input: {
     originalAmount: canonicalAvailableAmount,
     availableAmount: canonicalAvailableAmount,
     price: canonicalPrice,
-    currency: input.currency?.trim() || "ILS",
+    currency: wiseAccount ? "USD" : input.currency?.trim() || "ILS",
     network: input.network,
     paymentMethods: listingPaymentMethods,
     paymentMethod: primaryPaymentMethod,
     bankAccountId: selectedSellerBankAccount?.id,
-    bankName: requiresIsraeliBankSelection(listingPaymentMethods) ? serializeIsraeliBankSelection(listingBanks) || undefined : undefined,
+    bankTransferProvider: input.bankTransferProvider,
+    wiseAccountId: wiseAccount?.id,
+    bankName: wiseAccount ? "Wise" : requiresIsraeliBankSelection(listingPaymentMethods) ? serializeIsraeliBankSelection(listingBanks) || undefined : undefined,
     minimumTrade: canonicalMinimumTrade,
     maximumTrade: canonicalMaximumTrade,
     expiresAt,
@@ -9542,6 +9688,8 @@ export async function updateMarketplaceListingForSeller(input: {
   paymentMethod?: string;
   paymentMethods?: string[];
   bankAccountId?: string;
+  bankTransferProvider?: BankTransferProvider;
+  wiseAccountId?: string;
   bankName?: string;
   minimumTrade?: string;
   maximumTrade?: string;
@@ -9575,6 +9723,8 @@ export async function updateMarketplaceListingForSeller(input: {
     input.paymentMethod,
     input.paymentMethods,
     input.bankAccountId,
+    input.bankTransferProvider,
+    input.wiseAccountId,
     input.bankName,
     input.minimumTrade,
     input.maximumTrade,
@@ -9586,6 +9736,22 @@ export async function updateMarketplaceListingForSeller(input: {
     input.changeReason,
     input.changeExplanation,
   ].every((value) => value === undefined);
+  // Disabling a rail or revoking account ownership must still let a seller
+  // withdraw an offer or lower its stock. Keep this exception narrow: payment
+  // terms, expiry extensions and resubmissions still require current review.
+  // This predicate is recomputed from the canonical listing after a race.
+  const reducedWiseAmount = input.availableAmount === undefined ? undefined : canonicalizeTradeAmount(input.availableAmount);
+  const isWiseRiskReducingEdit = current.bankTransferProvider === "wise"
+    && (current.status === "active" || current.status === "paused")
+    && (input.status === undefined || input.status === "paused")
+    && (input.availableAmount === undefined
+      || Boolean(reducedWiseAmount && toNumber(reducedWiseAmount) <= toNumber(current.availableAmount)))
+    && (input.status === "paused" || input.availableAmount !== undefined)
+    && [input.photos, input.price, input.currency, input.network, input.paymentMethod, input.paymentMethods,
+      input.bankAccountId, input.bankTransferProvider, input.wiseAccountId, input.bankName, input.minimumTrade,
+      input.maximumTrade, input.expiresAt, input.expirationHours, input.notes, input.sellerDescription,
+      input.responseTime].every(value => value === undefined);
+  if (!isWiseRiskReducingEdit && (current.bankTransferProvider === "wise" || input.bankTransferProvider === "wise")) assertWisePaymentsRuntime();
   // Mobile networks can deliver a successful status mutation after the client
   // has already timed out. Repeating the same pause/resume request must not
   // create another audit event or overwrite a newer listing snapshot.
@@ -9668,13 +9834,21 @@ export async function updateMarketplaceListingForSeller(input: {
       ? normalizedPaymentMethods
       : (current.paymentMethods?.length ? current.paymentMethods : resolveListingPaymentMethods(undefined, current.paymentMethod));
     const nextPaymentMethod = nextPaymentMethods[0] ?? normalizeMarketplacePaymentMethod(current.paymentMethod) ?? "Bank Transfer";
-    const selectedSellerBankAccount = resolveSellerListingBankAccount(
+    const nextBankTransferProvider = input.bankTransferProvider ?? current.bankTransferProvider;
+    const nextWiseAccountId = nextBankTransferProvider === "wise" ? (input.wiseAccountId ?? current.wiseAccountId) : undefined;
+    if (!isWiseRiskReducingEdit) {
+      assertWiseListingShape({ bankTransferProvider: nextBankTransferProvider, wiseAccountId: nextWiseAccountId,
+        currency: (input.currency ?? current.currency).trim().toUpperCase(), paymentMethods: nextPaymentMethods,
+        bankAccountId: input.bankAccountId || (nextBankTransferProvider === "wise" ? undefined : current.bankAccountId) });
+      if (nextBankTransferProvider === "wise") getReviewedWiseAccount(db.users.find(user => user.id === input.sellerId), nextWiseAccountId);
+    }
+    const selectedSellerBankAccount = nextBankTransferProvider === "wise" ? null : resolveSellerListingBankAccount(
       db,
       input.sellerId,
       input.bankAccountId !== undefined ? input.bankAccountId : current.bankAccountId,
       nextPaymentMethods,
     );
-    const nextRequiresBankSelection = requiresIsraeliBankSelection(nextPaymentMethods, nextPaymentMethod);
+    const nextRequiresBankSelection = nextBankTransferProvider !== "wise" && requiresIsraeliBankSelection(nextPaymentMethods, nextPaymentMethod);
     const nextBankSelection = input.bankName !== undefined
       ? parseIsraeliBankSelection(input.bankName)
       : parseIsraeliBankSelection(current.bankName);
@@ -9696,12 +9870,14 @@ export async function updateMarketplaceListingForSeller(input: {
       originalAmount: input.availableAmount !== undefined ? canonicalAvailableAmount : current.originalAmount,
       availableAmount: canonicalAvailableAmount,
       price: canonicalPrice ?? current.price,
-      currency: input.currency?.trim() || current.currency,
+      currency: nextBankTransferProvider === "wise" ? "USD" : input.currency?.trim() || current.currency,
       network: input.network || current.network,
       paymentMethods: nextPaymentMethods,
       paymentMethod: nextPaymentMethod,
       bankAccountId: selectedSellerBankAccount?.id,
-      bankName: nextRequiresBankSelection
+      bankTransferProvider: nextBankTransferProvider,
+      wiseAccountId: nextWiseAccountId,
+      bankName: nextBankTransferProvider === "wise" ? "Wise" : nextRequiresBankSelection
         ? serializeIsraeliBankSelection(nextBankSelection) || undefined
         : undefined,
       minimumTrade: canonicalMinimumTrade,
@@ -9851,6 +10027,10 @@ export async function renewMarketplaceListing(input: {
   if (index === -1) throw new Error("Listing not found.");
   const listing = db.marketplaceListings[index];
   if (input.sellerId && listing.sellerId !== input.sellerId) throw new Error("You can renew only your own listings.");
+  if (listing.bankTransferProvider === "wise") {
+    assertWiseListingShape(listing);
+    getReviewedWiseAccount(db.users.find(user => user.id === listing.sellerId), listing.wiseAccountId);
+  }
   if (input.sellerId) {
     const enforcementRestriction = getSellerEnforcementRestrictionMessage(db, input.sellerId);
     if (enforcementRestriction) {
@@ -10209,6 +10389,10 @@ export async function reviewMarketplaceListingByOwner(input: {
   if (index === -1) throw new Error("Listing not found.");
   const current = db.marketplaceListings[index];
   const trimmedReason = String(input.reason ?? "").trim();
+  if (current.bankTransferProvider === "wise" && input.decision === "approve") {
+    assertWiseListingShape(current);
+    getReviewedWiseAccount(db.users.find(user => user.id === current.sellerId), current.wiseAccountId);
+  }
   if ((input.decision === "reject" || input.decision === "request_changes") && !trimmedReason) {
     throw new Error("Reason is required.");
   }
@@ -10299,7 +10483,14 @@ export async function reviewMarketplaceListingByOwner(input: {
       input.decision === "approve" ? "Listing approved" : input.decision === "reject" ? "Listing rejected" : "Listing changes requested",
     triggeredBy: input.ownerUserId,
   });
-  await writeDb(db, { selectedTables: LISTING_TRUST_WRITE_TABLES });
+  const validateWiseApproval = current.bankTransferProvider === "wise" && input.decision === "approve"
+    ? (snapshot: AlphaExchangeDb) => {
+        assertWiseListingShape(current);
+        assertAccountAdministrationActor(snapshot, input.ownerUserId, false);
+        getReviewedWiseAccount(snapshot.users.find(user => user.id === current.sellerId), current.wiseAccountId);
+      }
+    : undefined;
+  await writeDb(db, { selectedTables: LISTING_TRUST_WRITE_TABLES, validateLatestBeforeCommit: validateWiseApproval, validateBeforeCommit: validateWiseApproval });
   priceAlertPublications.forEach(publishNotificationPublication);
   publishArchivedNotifications(archivedAdminNotifications);
   return db.marketplaceListings[index];
@@ -10370,7 +10561,7 @@ export async function getMyMarketplaceListings(sellerId: string, status?: string
     !status || status === "all"
       ? db.marketplaceListings.filter((listing) => listing.sellerId === sellerId)
       : db.marketplaceListings.filter((listing) => listing.sellerId === sellerId && listing.status === status);
-  return enrichListingsWithSellerData(db, rawListings);
+  return enrichListingsWithSellerData(db, rawListings, undefined, sellerId);
 }
 
 export async function getSellerListingWorkspaceSummary(sellerId: string, dbInput?: AlphaExchangeDb) {
@@ -10546,6 +10737,7 @@ export async function getWorkspaceBootstrapData(input: {
 /** Seller proposals never silently change the buyer's agreed financial terms. */
 export async function updateTradeTerms(input: {
   requestId: string; actorUserId: string;
+  clientPlatform?: "mobile";
   action: "counter_offer" | "propose_amount" | "propose_ils_amount" | "accept_amount" | "decline_terms" | "withdraw_terms";
   value?: string; proposalId?: string; expectedUpdatedAt?: string; safetyAcknowledged?: boolean;
 }) {
@@ -10555,10 +10747,12 @@ export async function updateTradeTerms(input: {
     if (notificationPublication && !snapshot.notifications.some((item) => item.id === notificationPublication?.notification.id)) notificationPublication = null;
     const request = snapshot.purchaseRequests.find((item) => item.id === input.requestId);
     if (!request || ![request.sellerId, request.buyerId].includes(input.actorUserId)) throw new TradeBlockedError("trade-terms-invalid", "Trade not found.", input.requestId);
+    if (request.bankTransferProvider === "wise" && input.clientPlatform === "mobile") throw new TradeBlockedError("wise-web-draft-only", "Use the website to manage this Wise USD trade.", request.id);
     if (snapshot.disputes.some((item) => item.purchaseRequestId === request.id && item.status === "open")) throw new TradeBlockedError("trade-terms-invalid", "Resolve the dispute before changing trade terms.", input.requestId);
     const seller = request.sellerId === input.actorUserId;
     const proposal = request.termsProposal;
     const creating = input.action === "counter_offer" || input.action === "propose_amount" || input.action === "propose_ils_amount";
+    if (request.bankTransferProvider === "wise" && (creating || input.action === "accept_amount")) assertWisePaymentsRuntime();
     if ((creating || input.action === "accept_amount") && (areTradeAmountsLocked(request) || hasIrreversibleTradeProgress(snapshot, request))) throw new TradeBlockedError("trade-terms-invalid", "Trade amounts and price are locked at this stage. Adjustments require buyer approval before trade acceptance and before payment becomes available.", input.requestId);
     if (!creating && proposal && proposal.id === input.proposalId && proposal.status !== "pending") {
       const expected = input.action === "accept_amount" ? "accepted" : input.action === "withdraw_terms" ? "withdrawn" : "declined";
@@ -10663,6 +10857,7 @@ export function assertBuyerEligibleForDemand(db: AlphaExchangeDb, userId: string
 }
 
 export async function createPurchaseRequest(input: {
+  clientPlatform?: "mobile";
   usdtDemandId?: string;
   usdtDemandOfferId?: string;
   usdtDemandRevision?: number;
@@ -10682,6 +10877,9 @@ export async function createPurchaseRequest(input: {
   cardlessVerificationValue?: string;
   cardlessIlsAmount?: string;
   paymentMethod?: string;
+  currency?: "ILS" | "USD";
+  bankTransferProvider?: BankTransferProvider;
+  buyerWiseAccountId?: string;
   bankName?: string;
   safetyAcknowledged?: boolean;
   priceMode?: "listing_price" | "buyer_offer";
@@ -10696,7 +10894,7 @@ export async function createPurchaseRequest(input: {
   const { db, fromFullCache } = await readDbForCriticalTradeMutation(demandMode ? [...PURCHASE_REQUEST_FAST_READ_TABLES, "usdt_demands"] : PURCHASE_REQUEST_FAST_READ_TABLES);
   const demandInput = demandMode ? { buyerId: input.buyerId, demandId: input.usdtDemandId ?? "", offerId: input.usdtDemandOfferId ?? "",
     revision: input.usdtDemandRevision ?? 0, listingId: input.listingId, amount: input.usdtAmount,
-    network: input.receivingNetwork, paymentMethod: input.paymentMethod } : null;
+    network: input.receivingNetwork, paymentMethod: input.paymentMethod, currency: input.currency, bankTransferProvider: input.bankTransferProvider } : null;
   if (demandInput) {
     if (input.actorUserId !== input.buyerId) throw new Error("Buyer identity mismatch.");
     assertDemandActor(db.users.find(u => u.id === input.buyerId));
@@ -10772,6 +10970,17 @@ export async function createPurchaseRequest(input: {
   }
   const listing = db.marketplaceListings.find((item) => item.id === input.listingId);
   if (!listing) throw new Error("Listing not found.");
+  if (input.actorUserId !== input.buyerId) throw new Error("Buyer identity mismatch.");
+  const wiseTransfer = listing.bankTransferProvider === "wise";
+  if (wiseTransfer) {
+    if (input.clientPlatform === "mobile") throw new TradeBlockedError("wise-web-draft-only", "Wise USD trades are available only on the website.");
+    assertWiseListingShape(listing);
+    if (input.bankTransferProvider !== "wise" || input.currency !== "USD" || input.paymentMethod !== "Bank Transfer") {
+      throw new Error("Review and explicitly select Wise USD Bank Transfer before continuing.");
+    }
+  } else if (input.bankTransferProvider === "wise" || input.buyerWiseAccountId) {
+    throw new Error("This listing does not accept Wise USD payments.");
+  }
   const buyerReceivingWalletAddress = normalizeWalletAddress(input.buyerReceivingWalletAddress);
   const requestedNetwork = input.receivingNetwork ?? listing.network;
   if (!isSupportedNetwork(requestedNetwork) || ![listing.network, "TRC20", "BEP20"].includes(requestedNetwork)) {
@@ -10883,7 +11092,9 @@ export async function createPurchaseRequest(input: {
   const sellerBankAccount = listing.bankAccountId && seller
     ? getSellerBankAccountById(seller, listing.bankAccountId)
     : undefined;
-  if (isBankTransferPaymentMethod(primaryPaymentMethod) && !sellerBankAccount) {
+  const sellerWiseAccount = wiseTransfer ? getReviewedWiseAccount(seller, listing.wiseAccountId) : undefined;
+  const buyerWiseAccount = wiseTransfer ? getReviewedWiseAccount(db.users.find(user => user.id === input.buyerId), input.buyerWiseAccountId) : undefined;
+  if (!wiseTransfer && isBankTransferPaymentMethod(primaryPaymentMethod) && !sellerBankAccount) {
     throw new TradeBlockedError(
       "LISTING_BANK_ACCOUNT_UNAVAILABLE",
       "This Bank Transfer listing no longer has a valid payout account. Choose another listing or ask the seller to update it.",
@@ -10941,6 +11152,11 @@ export async function createPurchaseRequest(input: {
     buyerSafetyAcknowledged,
     sellerSafetyAcknowledged: !requiresFaceToFaceSafetyNotice,
     sellerBankAccountId: sellerBankAccount?.id,
+    bankTransferProvider: wiseTransfer ? "wise" : listing.bankTransferProvider,
+    sellerWiseAccountId: sellerWiseAccount?.id,
+    buyerWiseAccountId: buyerWiseAccount?.id,
+    sellerWiseAccountSnapshot: sellerWiseAccount ? createWiseUsdAccountSnapshot(sellerWiseAccount) : undefined,
+    buyerWiseAccountSnapshot: buyerWiseAccount ? createWiseUsdAccountSnapshot(buyerWiseAccount) : undefined,
     sellerBankAccountSnapshot: sellerBankAccount
       ? {
           accountHolderName: sellerBankAccount.accountHolderName,
@@ -10950,7 +11166,7 @@ export async function createPurchaseRequest(input: {
           accountLast4: sellerBankAccount.accountLast4,
         }
       : undefined,
-    bankName: isBankTransferPaymentMethod(primaryPaymentMethod)
+    bankName: wiseTransfer ? "Wise" : isBankTransferPaymentMethod(primaryPaymentMethod)
       ? sellerBankAccount?.bankName
       : isCardlessAtmPaymentMethod(primaryPaymentMethod)
         ? (serializeIsraeliBankSelection(canonicalCardlessBanks) || undefined)
@@ -11053,11 +11269,12 @@ export async function createPurchaseRequest(input: {
       if (demandInput && demandMarket) validateDemandMatch(snapshot, demandInput, demandMarket);
       const canonicalListing = snapshot.marketplaceListings.find((candidate) => candidate.id === input.listingId);
       const canonicalSeller = snapshot.users.find((candidate) => candidate.id === sellerId);
+      assertWiseTradeSnapshotCurrent(snapshot, canonicalListing, request);
       const canonicalBuyer = snapshot.users.find((candidate) => candidate.id === input.buyerId);
       const canonicalBankAccount = canonicalListing?.bankAccountId && canonicalSeller
         ? getSellerBankAccountById(canonicalSeller, canonicalListing.bankAccountId)
         : undefined;
-      const bankAccountChanged = isBankTransferPaymentMethod(primaryPaymentMethod) && (
+      const bankAccountChanged = !wiseTransfer && isBankTransferPaymentMethod(primaryPaymentMethod) && (
         !sellerBankAccount
         || !canonicalBankAccount
         || canonicalBankAccount.id !== sellerBankAccount.id
@@ -11095,6 +11312,7 @@ export async function createPurchaseRequest(input: {
     validateBeforeCommit: (snapshot) => {
       if (demandInput && demandMarket) commitDemandMatch(snapshot, demandInput, demandMarket, request);
       const canonicalListing = snapshot.marketplaceListings.find((candidate) => candidate.id === input.listingId);
+      assertWiseTradeSnapshotCurrent(snapshot, canonicalListing, request);
       const listingTermsChanged = !canonicalListing
         || canonicalListing.updatedAt !== listing.updatedAt
         || canonicalListing.status !== listing.status
@@ -11106,6 +11324,8 @@ export async function createPurchaseRequest(input: {
         || canonicalListing.currency !== listing.currency
         || canonicalListing.network !== listing.network
         || canonicalListing.bankAccountId !== listing.bankAccountId
+        || canonicalListing.bankTransferProvider !== listing.bankTransferProvider
+        || canonicalListing.wiseAccountId !== listing.wiseAccountId
         || canonicalListing.bankName !== listing.bankName
         || JSON.stringify(resolveListingPaymentMethods(canonicalListing.paymentMethods, canonicalListing.paymentMethod))
           !== JSON.stringify(listingPaymentMethods);
@@ -11229,7 +11449,7 @@ export async function createPurchaseRequest(input: {
         || canonicalBuyer.disabled === true
         || canonicalBuyer.emailVerified !== true
         || isUserInteractionBlocked(snapshot, input.buyerId, sellerId)
-        || (isBankTransferPaymentMethod(primaryPaymentMethod) && !canonicalBankAccount)
+        || (!wiseTransfer && isBankTransferPaymentMethod(primaryPaymentMethod) && !canonicalBankAccount)
       ) {
         throw new TradeBlockedError(
           "LISTING_SELLER_LOCKED",
@@ -11303,6 +11523,8 @@ export function sanitizePurchaseRequestForActor(request: PurchaseRequest, actorU
     amountAdjustmentCount: getTradeAmountAdjustmentCount(request),
     trustReconciliation: undefined,
     sellerBankAccountSnapshot: undefined,
+    sellerWiseAccountSnapshot: undefined,
+    buyerWiseAccountSnapshot: undefined,
     buyerName: canViewPrivateContent || request.buyerIsOwner ? request.buyerName : publicAccountName({ id: request.buyerId }),
     timeline: (request.timeline ?? []).map((entry) => sanitizeTradeTimelineForCounterparty(entry, canViewPrivateContent)),
     messages: (request.messages ?? []).map((message) => sanitizeTradeRoomMessageForCounterparty(message, canViewPrivateContent, canViewConfidentialCredential)),
@@ -11337,6 +11559,8 @@ export function sanitizePurchaseRequestForActor(request: PurchaseRequest, actorU
   }
   if (!canRevealTradeBankDetailsToActor(request, actorUserId, actorRole)) {
     delete redacted.sellerBankAccountId;
+    delete redacted.sellerWiseAccountId;
+    delete redacted.buyerWiseAccountId;
   }
   // Scheduler claims are internal delivery metadata. They are not part of the
   // Trade Room contract for participants or admins.
@@ -11962,6 +12186,12 @@ type TradeRoomBankDetailsResult = {
   branchNumber: string;
   accountNumber: string;
   accountLast4: string;
+  bankTransferProvider?: BankTransferProvider;
+  currency?: "USD";
+  routingNumber?: string;
+  accountType?: "checking" | "savings";
+  bankAddress?: string;
+  buyerSender?: WiseUsdAccountSnapshot;
 };
 
 export async function getTradeRoomBankDetails(input: {
@@ -11990,7 +12220,18 @@ export async function getTradeRoomBankDetails(input: {
     }
 
     const seller = snapshot.users.find((user) => user.id === request.sellerId);
-    const bankAccount = resolveLockedTradeBankAccount(request, seller);
+    if (request.bankTransferProvider === "wise" && request.status === "pending") {
+      assertWiseTradeSnapshotCurrent(snapshot, snapshot.marketplaceListings.find(listing => listing.id === request.listingId), request);
+    }
+    const wiseAccount = request.bankTransferProvider === "wise" ? request.sellerWiseAccountSnapshot : undefined;
+    if (request.bankTransferProvider === "wise" && (!wiseAccount || !request.buyerWiseAccountSnapshot
+      || wiseAccount.userId !== request.sellerId || request.buyerWiseAccountSnapshot.userId !== request.buyerId)) {
+      throw new Error("Wise payment snapshots are unavailable.");
+    }
+    const bankAccount = wiseAccount ? {
+      id: wiseAccount.accountId, accountHolderName: wiseAccount.accountHolderName, bankName: wiseAccount.bankName,
+      branchNumber: "", accountNumber: wiseAccount.accountNumber, accountLast4: wiseAccount.accountNumber.slice(-4),
+    } : resolveLockedTradeBankAccount(request, seller);
     if (!bankAccount) {
       throw new Error("No bank account is linked to this trade.");
     }
@@ -11999,11 +12240,14 @@ export async function getTradeRoomBankDetails(input: {
       requestId: request.id,
       tradeId: request.tradeId ?? request.id,
       bankAccountId: bankAccount.id,
-      accountHolderName: input.actorUserId === request.sellerId || input.actorRole === "owner" ? bankAccount.accountHolderName : "",
+      accountHolderName: wiseAccount || input.actorUserId === request.sellerId || input.actorRole === "owner" ? bankAccount.accountHolderName : "",
       bankName: bankAccount.bankName,
       branchNumber: bankAccount.branchNumber,
       accountNumber: bankAccount.accountNumber,
       accountLast4: bankAccount.accountLast4,
+      ...(wiseAccount ? { bankTransferProvider: "wise" as const, currency: "USD" as const,
+        routingNumber: wiseAccount.routingNumber, accountType: wiseAccount.accountType, bankAddress: wiseAccount.bankAddress,
+        buyerSender: request.buyerWiseAccountSnapshot } : {}),
     };
 
     const recentlyLogged = (request.timeline ?? []).some((entry) =>
@@ -12845,6 +13089,7 @@ function assertTradeParticipantOrAdmin(request: PurchaseRequest, userId: string,
 }
 
 type UploadTradeEvidenceInput = {
+  clientPlatform?: "mobile";
   purchaseRequestId: string;
   actorUserId: string;
   actorRole: UserRole;
@@ -12938,6 +13183,7 @@ async function uploadTradeEvidenceAttempt(
 
   assertTradeParticipantOrAdmin(request, input.actorUserId, input.actorRole);
   if (request.termsProposal?.status === "pending") throw new Error("Respond to the proposed terms before uploading payment or release evidence.");
+  if (request.bankTransferProvider === "wise" && input.clientPlatform === "mobile") throw new TradeBlockedError("wise-web-draft-only", "Use the website to manage this Wise USD trade.", request.id);
   if (input.side === "buyer" && request.buyerId !== input.actorUserId) {
     throw new Error("Only the buyer can upload buyer evidence.");
   }
@@ -13802,6 +14048,7 @@ export async function moderateSellerReview(input: {
 }
 
 type UpdatePurchaseRequestStatusInput = {
+  clientPlatform?: "mobile";
   requestId: string;
   actorUserId: string;
   actorRole: UserRole;
@@ -13893,6 +14140,7 @@ async function updatePurchaseRequestStatusAttempt(
     });
   }
   let request = db.purchaseRequests[requestIndex];
+  if (request.bankTransferProvider === "wise" && input.clientPlatform === "mobile") throw new TradeBlockedError("wise-web-draft-only", "Use the website to manage this Wise USD trade.", request.id);
   let stateBefore = request.status;
   logLocalMarketplaceDiagnostic("info", "[trade-consistency] mutation db-read", {
     requestId: input.requestId,
@@ -14339,7 +14587,9 @@ async function updatePurchaseRequestStatusAttempt(
         sellerId: request.sellerId,
       });
     }
-    if (isBankTransferTrade) {
+    if (request.bankTransferProvider === "wise") {
+      assertWiseTradeSnapshotCurrent(db, listing, request);
+    } else if (isBankTransferTrade) {
       const linkedBankAccount = resolveLockedTradeBankAccount(request, currentSeller);
       if (!linkedBankAccount) {
         throw new TradeBlockedError("bank-account-unavailable", "This Bank Transfer request has no valid locked seller bank account.", request.id, {
@@ -14902,6 +15152,7 @@ async function updatePurchaseRequestStatusAttempt(
         buyerId: request.buyerId,
         rate: COMMISSION_RATE,
         grossAmount: normalizedGross,
+        grossCurrency: next.currency,
         feePolicyVersion: hasBuyerFee ? MARKETPLACE_FEE_CUTOVER_VERSION : undefined,
         commissionCalculationVersion: next.commissionCalculationVersion,
         sellerFeeAmount,
@@ -15041,13 +15292,13 @@ async function updatePurchaseRequestStatusAttempt(
     queueSmsDelivery(db, { eventType: "trade_completed", eventKey: `trade:${request.id}:completed:seller:${request.sellerId}`, recipientUserId: request.sellerId, destinationPath: requestDetailsHref(request.id) });
     const owner = getOwnerUser(db);
     const largeTradeThreshold = getLargeTradeThreshold();
-    const gross = toNumber(next.fiatAmount);
-    if (owner && gross >= largeTradeThreshold) {
+    const tradeSizeUsdt = toNumber(next.usdtAmount);
+    if (owner && tradeSizeUsdt >= largeTradeThreshold) {
       pushNotification(db, {
         userId: owner.id,
         category: "trade",
         title: "Large-value trade completed",
-        message: `Trade ${next.tradeId ?? request.id} completed at ${next.currency} ${next.fiatAmount} (threshold ${largeTradeThreshold}).`,
+        message: `Trade ${next.tradeId ?? request.id} completed at ${next.currency} ${next.fiatAmount} (threshold ${largeTradeThreshold} USDT).`,
         relatedTradeId: next.tradeId,
         relatedListingId: request.listingId,
         relatedHref: adminPurchaseRequestsDestination(request.id),
@@ -15169,6 +15420,7 @@ async function updatePurchaseRequestStatusAttempt(
         }
 
         if (input.nextStatus === "accepted") {
+          assertWiseTradeSnapshotCurrent(canonicalSnapshot, canonicalListing, canonicalRequest);
           if (canonicalListing) assertSellerTradeCapacity(canonicalSnapshot, canonicalListing, next.usdtAmount, canonicalRequest.id);
           const canonicalPendingCommissionCount = getSellerPendingCommissionCount(canonicalSnapshot, request.sellerId);
           const canonicalPendingSiblingIds = canonicalSnapshot.purchaseRequests
@@ -15203,7 +15455,7 @@ async function updatePurchaseRequestStatusAttempt(
             || canonicalBuyer.disabled === true
             || canonicalBuyer.emailVerified !== true
             || isUserInteractionBlocked(canonicalSnapshot, request.buyerId, request.sellerId)
-            || (isBankTransferTrade && !resolveLockedTradeBankAccount(canonicalRequest, canonicalSeller))
+            || (isBankTransferTrade && canonicalRequest.bankTransferProvider !== "wise" && !resolveLockedTradeBankAccount(canonicalRequest, canonicalSeller))
             || Boolean(canonicalOtherActiveBuyerTrade)
             || Boolean(getBuyerPendingFeedbackTrade(canonicalSnapshot, request.buyerId))
             || Boolean(getSellerPurchaseCommissionBlock(canonicalSnapshot, request.buyerId))

@@ -250,8 +250,8 @@ function toNumber(value: string | number | null | undefined) {
   return Number(String(value ?? "").replace(/[^\d.]/g, "")) || 0;
 }
 
-function formatCurrency(value: number) {
-  return `₪${value.toLocaleString("en-IL", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+function formatCurrency(value: number, currency: string) {
+  return `${value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`;
 }
 
 function formatUsdt(value: number) {
@@ -1623,7 +1623,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
   function exportCommissionsCsv() {
     const rows = commissionsRows.allRows;
     const csvRows = [
-      csvRow(["Source", "Trade ID", "Buyer", "Seller", "Trade Value", "Commission", "Payment Status", "Reason", "Date"]),
+      csvRow(["Source", "Trade ID", "Buyer", "Seller", "Trade Value", "Trade Currency", "Commission (USDT)", "Payment Status", "Reason", "Date"]),
       ...rows.map((record) => {
         const request = record.purchaseRequestId ? requestsById.get(record.purchaseRequestId) : undefined;
         const buyerName = request?.buyerName ?? record.buyerId ?? "";
@@ -1634,7 +1634,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
         const source = record.source === "tolerance_carry_forward" ? "Carried balance" : record.source === "admin_manual" ? "Admin-issued" : "Trade";
         const tradeValue = record.source === "admin_manual" || record.source === "tolerance_carry_forward" ? "" : record.grossAmount.toFixed(2);
         const reason = record.issueReason ?? "";
-        return csvRow([source, tradeId, buyerName, sellerName, tradeValue, commissionAmountInput(record.commissionAmount), record.paymentStatus, reason, record.createdAt]);
+        return csvRow([source, tradeId, buyerName, sellerName, tradeValue, tradeValue ? (record.grossCurrency ?? request?.currency ?? "Currency unavailable") : "", commissionAmountInput(record.commissionAmount), record.paymentStatus, reason, record.createdAt]);
       }),
     ];
     const blob = new Blob([csvRows.join("\n")], { type: "text/csv;charset=utf-8;" });
@@ -3002,7 +3002,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                     <td className="px-4 py-3 text-[#D1D5DB]">
                                       <p>{currencyText(`${request.usdtAmount ?? listing?.availableAmount ?? "—"} USDT`)}</p>
                                       <p className={`mt-1 text-xs ${request.priceMode === "buyer_offer" ? "font-semibold text-[#F4D87A]" : "text-[#9CA3AF]"}`}>
-                                        {request.priceMode === "buyer_offer" ? t("Offer", "عرض سعر") : t("Price", "السعر")} {currencyText(`₪${(toNumber(request.pricePerUsdt) || (toNumber(request.fiatAmount) / Math.max(1, toNumber(request.usdtAmount)))).toFixed(2)}`)}
+                                        {request.priceMode === "buyer_offer" ? t("Offer", "عرض سعر") : t("Price", "السعر")} {currencyText(`${(toNumber(request.pricePerUsdt) || (toNumber(request.fiatAmount) / Math.max(1, toNumber(request.usdtAmount)))).toFixed(2)} ${request.currency || "ILS"}`)}
                                       </p>
                                     </td>
                                     <td className="px-4 py-3 font-mono font-medium whitespace-nowrap text-[#D1D5DB]">{currencyText(displayListingId(listing, request.listingId))}</td>
@@ -3158,6 +3158,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                             const sellerName = accountLabel(record.sellerId);
                             const isCarried = record.source === "tolerance_carry_forward";
                             const isAdminIssued = record.source === "admin_manual" || isCarried;
+                            const tradeCurrency = record.grossCurrency ?? request?.currency;
                             const sourceLabel = isAdminIssued
                               ? `${(isCarried ? t("Carried balance", "رصيد مرحّل") : t("Admin-issued", "صادرة عن الإدارة"))} · ${displayCommissionId(record)}`
                               : displayTradeId(request, record.tradeId ?? record.purchaseRequestId);
@@ -3205,7 +3206,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                   </div>
                                   <div className="rounded-xl border border-white/10 bg-black/20 p-3">
                                     <p className="text-[10px] uppercase tracking-[0.12em] text-[#7F8490]">{t("Trade value", "قيمة الصفقة")}</p>
-                                    <p className="mt-1 text-sm font-medium text-white">{currencyText(isAdminIssued ? "—" : formatCurrency(record.grossAmount))}</p>
+                                    <p className="mt-1 text-sm font-medium text-white">{currencyText(isAdminIssued ? "—" : tradeCurrency ? formatCurrency(record.grossAmount, tradeCurrency) : t("Currency unavailable", "العملة غير متاحة"))}</p>
                                   </div>
                                   <div className="rounded-xl border border-white/10 bg-black/20 p-3">
                                     <p className="text-[10px] uppercase tracking-[0.12em] text-[#7F8490]">{t("Issued", "تاريخ الإصدار")}</p>
@@ -4423,8 +4424,8 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                 <p>{t("Status:", "الحالة:")} <span className="text-white">{currencyText(statusLabel(selectedRequest.status))}</span></p>
                 <p>{currencyText(t("USDT Amount:", "كمية USDT:"))} <span className="text-white">{moneyText(selectedRequest.usdtAmount ?? "—")}</span></p>
                 <p>{t("Fiat Amount:", "المبلغ النقدي:")} <span className="text-white">{currencyText(`${selectedRequest.fiatAmount} ${selectedRequest.currency}`)}</span></p>
-                <p>{currencyText(selectedRequest.priceMode === "buyer_offer" ? t("Buyer Offered Price:", "سعر المشتري المقترح:") : t("Price per USDT:", "السعر لكل USDT:"))} <span className={selectedRequest.priceMode === "buyer_offer" ? "font-semibold text-[#F4D87A]" : "text-white"}>{currencyText(`₪${(toNumber(selectedRequest.pricePerUsdt) || (toNumber(selectedRequest.fiatAmount) / Math.max(1, toNumber(selectedRequest.usdtAmount)))).toFixed(2)}`)}</span></p>
-                {selectedRequest.priceMode === "buyer_offer" ? <p>{t("Original Listing Price:", "سعر العرض الأصلي:")} <span className="text-white">{currencyText(`₪${selectedRequest.listingPriceAtRequest ?? "—"}`)}</span></p> : null}
+                <p>{currencyText(selectedRequest.priceMode === "buyer_offer" ? t("Buyer Offered Price:", "سعر المشتري المقترح:") : t("Price per USDT:", "السعر لكل USDT:"))} <span className={selectedRequest.priceMode === "buyer_offer" ? "font-semibold text-[#F4D87A]" : "text-white"}>{currencyText(`${(toNumber(selectedRequest.pricePerUsdt) || (toNumber(selectedRequest.fiatAmount) / Math.max(1, toNumber(selectedRequest.usdtAmount)))).toFixed(2)} ${selectedRequest.currency || "ILS"}`)}</span></p>
+                {selectedRequest.priceMode === "buyer_offer" ? <p>{t("Original Listing Price:", "سعر العرض الأصلي:")} <span className="text-white">{currencyText(`${selectedRequest.listingPriceAtRequest ?? "—"} ${selectedRequest.currency || "ILS"}`)}</span></p> : null}
                 <p>{t("Network:", "الشبكة:")} <span className="text-white">{selectedRequest.network}</span></p>
                 <p>{t("Payment Method:", "طريقة الدفع:")} <span className="text-white">{currencyText(marketplacePaymentMethodLabelForLocale(selectedRequest.paymentMethod, locale))}</span></p>
                 <p>{t("Receiving Bank:", "البنك المستلم:")} <span className="text-white">{currencyText(selectedRequest.bankName ?? "—")}</span></p>

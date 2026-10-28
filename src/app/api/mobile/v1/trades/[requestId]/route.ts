@@ -109,7 +109,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     if (["counter_offer", "propose_amount", "propose_ils_amount", "accept_amount", "decline_terms", "withdraw_terms"].includes(action)) {
       const rate = checkRateLimit({ headers: request.headers, key: "mobile:trade:terms", identifier: auth.user.id, maxRequests: 20, windowMs: 60_000 });
       if (!rate.allowed) return mobileError("RATE_LIMITED", requestId, locale, 429);
-      const updated = await updateTradeTerms({ requestId: params.requestId, actorUserId: auth.user.id, action: action as Parameters<typeof updateTradeTerms>[0]["action"], value: String(body?.value ?? ""), proposalId: String(body?.proposalId ?? ""), expectedUpdatedAt: String(body?.expectedUpdatedAt ?? ""), safetyAcknowledged: body?.safetyAcknowledged === true });
+      const updated = await updateTradeTerms({ clientPlatform: "mobile", requestId: params.requestId, actorUserId: auth.user.id, action: action as Parameters<typeof updateTradeTerms>[0]["action"], value: String(body?.value ?? ""), proposalId: String(body?.proposalId ?? ""), expectedUpdatedAt: String(body?.expectedUpdatedAt ?? ""), safetyAcknowledged: body?.safetyAcknowledged === true });
       return mobileJson({ trade: toMobileTradeSummary(updated, auth.user.id), actions: toMobileTradeActions(updated, auth.user.id) }, requestId);
     }
     if (action === "recalculate_cardless_amount") {
@@ -143,6 +143,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     }
 
     const updated = await updatePurchaseRequestStatus({
+      clientPlatform: "mobile",
       requestId: params.requestId,
       actorUserId: auth.user.id,
       actorRole: auth.user.role,

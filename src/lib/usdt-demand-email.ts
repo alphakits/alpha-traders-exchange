@@ -35,7 +35,7 @@ function eligibleNotice(db: AlphaExchangeDb, notice: AlphaExchangeNotification, 
   } catch { return false; }
   // A provider outage must pause delivery, not permanently retire an otherwise
   // eligible notice. The durable worker preserves its bounded retry window.
-  if (!demandReference(market)) throw new Error("Demand email reference temporarily unavailable.");
+  if (d.bankTransferProvider !== "wise" && !demandReference(market)) throw new Error("Demand email reference temporarily unavailable.");
   try {
     assertDemandTerms(d, market);
     const offer = intent.offerId ? d.offers.find(candidate => candidate.id === intent.offerId) : undefined;

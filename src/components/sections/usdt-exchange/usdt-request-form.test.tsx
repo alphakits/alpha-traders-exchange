@@ -11,6 +11,41 @@ const now = Date.parse("2026-10-24T00:00:00Z");
 const initial: DemandTerms = { amount: "5000", price: "3.30", paymentMethod: "Bank Transfer", network: "TRC20", city: "" };
 const reference = { price: "3.30", minimum: "2.95", maximum: "3.65" };
 
+describe("Wise USD request currency boundaries", () => {
+  it("clears the ILS price when switching to Wise and requires a new USD price", () => {
+    render(<Harness wiseDraftEnabled />);
+    fireEvent.change(screen.getByLabelText("Bank transfer provider"), { target: { value: "wise" } });
+    const terms = JSON.parse(screen.getByTestId("terms").textContent!);
+    expect(terms).toMatchObject({ currency: "USD", bankTransferProvider: "wise", price: "" });
+    expect(submitButton().disabled).toBe(true);
+    expect(screen.queryByRole("button", { name: "Use reference price" })).toBeNull();
+    expect(screen.queryByLabelText(/reason|purpose/i)).toBeNull();
+    fireEvent.change(screen.getByLabelText("Requested price per USDT (USD)"), { target: { value: "1.02" } });
+    expect(screen.getByRole("region", { name: "Estimated payment" }).textContent).toContain("USD 5,151.00");
+    expect(submitButton().disabled).toBe(false);
+  });
+  it.each([false, true])("shows USD totals without a fabricated ILS quote, Arabic=%s", ar => {
+    const onSubmit = vi.fn();
+    render(<Harness ar={ar} wiseDraftEnabled reference={null} initialTerms={{ ...initial, price: "1.01", currency: "USD", bankTransferProvider: "wise" }} onSubmit={onSubmit} />);
+    const fee = screen.getByTestId("fee-breakdown");
+    expect(fee.textContent).toContain("USD 5,100.50");
+    expect(fee.textContent).not.toContain("₪");
+    const form = screen.getByRole("form");
+    fireEvent.submit(form);
+    expect(onSubmit).toHaveBeenCalledOnce();
+  });
+  it("blocks a persisted Wise form when the server capability is disabled", () => {
+    render(<Harness initialTerms={{ ...initial, price: "1.00", currency: "USD", bankTransferProvider: "wise" }} />);
+    expect(submitButton().disabled).toBe(true);
+    expect(screen.getByText("Wise USD transfers are unavailable.")).toBeTruthy();
+  });
+  it("does not offer Wise without server capability", () => {
+    render(<Harness />);
+    expect(screen.queryByLabelText("Bank transfer provider")).toBeNull();
+    expect(screen.queryByRole("option", { name: "Wise · USD" })).toBeNull();
+  });
+});
+
 function Harness(props: Partial<RequestFormProps> & { initialTerms?: DemandTerms } = {}) {
   const [terms, setTerms] = useState(props.initialTerms ?? initial);
   const [cash, setCash] = useState("1000");

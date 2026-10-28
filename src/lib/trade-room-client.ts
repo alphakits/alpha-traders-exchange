@@ -37,6 +37,8 @@ function sanitizeTradeRoomCacheData<T>(data: T): T {
     const request = room.request as Record<string, unknown>;
     request.messages = sanitizeMessages(request.messages);
     delete request.sellerBankAccountSnapshot;
+    delete request.sellerWiseAccountSnapshot;
+    delete request.buyerWiseAccountSnapshot;
   }
   return copy;
 }

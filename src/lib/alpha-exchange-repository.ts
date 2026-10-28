@@ -16,6 +16,7 @@ import { isPublicOwnerIdentity } from "@/lib/public-account-identity";
 import { ALPHA_EXCHANGE_OWNER_EMAIL } from "@/lib/alpha-exchange-identity";
 import { compactSnapshotIdentities, setSnapshotIdentityDirectory, type SnapshotIdentity } from "@/lib/alpha-exchange-identity-directory";
 import { listingCommissionRequiredMessage } from "@/lib/listing-commission-policy";
+import { decodeWiseStorage, serializeWiseStorageJson, WiseStorageError } from "@/lib/wise-storage-crypto";
 import type {
   AlphaExchangeDb,
   MarketplaceEnforcementAuditEntry,
@@ -624,7 +625,8 @@ function lifecycleRowDelta(before: IndexedPayload[], after: LifecycleRow[], boun
       const prior = previous.get(idOf(row));
       // JSONB canonicalizes key order and omits undefined properties. Compare
       // persisted JSON values so normalization alone does not rewrite history.
-      return !prior || prior.sort_index !== positions.get(idOf(row)) || !isDeepStrictEqual(prior.payload, JSON.parse(json(row)));
+      return !prior || prior.sort_index !== positions.get(idOf(row))
+        || !isDeepStrictEqual(decodeWiseStorage(prior.payload), JSON.parse(JSON.stringify(row)));
     }),
     positions,
   };
@@ -716,11 +718,11 @@ function toTimestamp(value: string | undefined) {
 }
 
 function json<T>(value: T) {
-  return JSON.stringify(value);
+  return serializeWiseStorageJson(value);
 }
 
 function fromPayloadRows<T>(rows: Array<{ payload: T }>) {
-  return rows.map((row) => row.payload);
+  return rows.map((row) => decodeWiseStorage(row.payload));
 }
 
 function cloneSnapshot<T>(value: T): T {
@@ -2205,10 +2207,11 @@ function loadPersistedFallbackSnapshot(): SnapshotWithVersion | null {
     if (!existsSync(FALLBACK_SNAPSHOT_PATH)) return null;
     const raw = readFileSync(FALLBACK_SNAPSHOT_PATH, "utf8").trim();
     if (!raw) return null;
-    const parsed = JSON.parse(raw) as SnapshotWithVersion;
+    const parsed = decodeWiseStorage(JSON.parse(raw) as SnapshotWithVersion);
     const version = getVersion(parsed);
     return attachVersion(cloneSnapshot(parsed), version);
   } catch (error) {
+    if (error instanceof WiseStorageError) throw error;
     logEvent("warn", {
       event: "alpha_exchange_repository_fallback_snapshot",
       outcome: "failed",
@@ -2240,9 +2243,10 @@ function syncMemoryFallbackSnapshot(snapshot: AlphaExchangeDb, version = getVers
   try {
     mkdirSync(FALLBACK_SNAPSHOT_DIR, { recursive: true });
     const tempPath = `${FALLBACK_SNAPSHOT_PATH}.tmp`;
-    writeFileSync(tempPath, JSON.stringify(next), "utf8");
+    writeFileSync(tempPath, json(next), "utf8");
     renameSync(tempPath, FALLBACK_SNAPSHOT_PATH);
   } catch (error) {
+    if (error instanceof WiseStorageError) throw error;
     logEvent("warn", {
       event: "alpha_exchange_repository_fallback_snapshot",
       outcome: "failed",
@@ -2737,7 +2741,7 @@ export class AlphaExchangeRepository {
         from alpha_exchange.purchase_requests r where r.id = $1 or r.trade_id = $1 limit 1`, [requestId]);
       const row = result.rows[0];
       if (!row) throw new Error("Trade not found.");
-      const snapshot = { ...emptySnapshotCollections(), ...row.payload };
+      const snapshot = { ...emptySnapshotCollections(), ...decodeWiseStorage(row.payload) };
       const before = structuredClone(snapshot.purchaseRequests.find((request) => request.id === row.target_id)!);
       const beforeJson = JSON.stringify(before);
       const next = await apply(snapshot);
@@ -2800,6 +2804,7 @@ export class AlphaExchangeRepository {
         Number(row?.version ?? "0"),
       );
     } catch (error) {
+      if (error instanceof WiseStorageError) throw error;
       logEvent("warn", {
         event: "alpha_exchange_repository_selected_snapshot",
         outcome: "failed",
@@ -3482,7 +3487,7 @@ export class AlphaExchangeRepository {
        limit 1`,
       [candidates, candidates[0], viewerUserId ?? null, includeOwnerHistory, ALPHA_EXCHANGE_OWNER_EMAIL],
     );
-    const row = result.rows[0];
+    const row = decodeWiseStorage(result.rows[0]);
     if (!row?.request_payload) return null;
 
     const snapshot = emptySnapshotCollections();
@@ -3508,7 +3513,7 @@ export class AlphaExchangeRepository {
           "select payload from alpha_exchange.users where id = any($1::text[])",
           [actorIds],
         );
-        snapshot.users.push(...actors.rows.map(actor => actor.payload));
+        snapshot.users.push(...fromPayloadRows(actors.rows));
       }
     }
     return attachVersion(snapshot, Number(row.version ?? "0"));
@@ -3785,6 +3790,7 @@ export class AlphaExchangeRepository {
       perf?.done();
       return withVersion;
     } catch (error) {
+      if (error instanceof WiseStorageError) throw error;
       if (isProductionSecurityRuntime()) {
         logEvent("error", {
           event: "alpha_exchange_repository_load",
@@ -4044,7 +4050,7 @@ export class AlphaExchangeRepository {
             // rewrite all history/accounts or invalidate more readers.
             if (options?.rebaseOnLatest && !options.evidenceOverrides?.size && selectedTables.every(name => {
               const table = getTable(name);
-              return isDeepStrictEqual(JSON.parse(json(table.values(latestSnapshot))), JSON.parse(json(table.values(persistedSnapshot))));
+              return isDeepStrictEqual(JSON.parse(JSON.stringify(table.values(latestSnapshot))), JSON.parse(JSON.stringify(table.values(persistedSnapshot))));
             })) {
               await client.query("commit");
               Object.assign(db, cloneSnapshot(persistedSnapshot));
@@ -4413,6 +4419,7 @@ export class AlphaExchangeRepository {
         Number(row?.version ?? "0"),
       );
     } catch (error) {
+      if (error instanceof WiseStorageError) throw error;
       if (isProductionSecurityRuntime()) {
         logEvent("error", {
           event: "alpha_exchange_repository_session_user_read",
@@ -4629,6 +4636,7 @@ export class AlphaExchangeRepository {
         sellerReviews: [],
       } as AlphaExchangeDb;
     } catch (error) {
+      if (error instanceof WiseStorageError) throw error;
       logEvent("warn", {
         event: "alpha_exchange_repository_listing_snapshot",
         outcome: "failed",

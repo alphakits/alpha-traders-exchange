@@ -90,6 +90,12 @@ type TradeRoomBankDetails = {
   branchNumber: string;
   accountNumber: string;
   accountLast4: string;
+  bankTransferProvider?: "israeli_bank" | "wise";
+  currency?: "USD";
+  routingNumber?: string;
+  accountType?: "checking" | "savings";
+  bankAddress?: string;
+  buyerSender?: { accountHolderName: string; routingNumber: string; accountNumber: string; accountType: "checking" | "savings"; currency: "USD" };
 };
 
 type TradeRoomChatPostPayload = {
@@ -1317,8 +1323,8 @@ export function getTradeRoomSessionKey(actorUserId: string, requestId: string) {
 export function canRevealTradeRoomBankDetails(request: PurchaseRequest | null, isSeller: boolean) {
   return Boolean(
     request
-    && !isSeller
-    && Boolean(request.sellerBankAccountId)
+    && (!isSeller || request.bankTransferProvider === "wise")
+    && (Boolean(request.sellerBankAccountId) || request.bankTransferProvider === "wise")
     && isBankTransferPaymentMethod(request.paymentMethod)
     && isBankDetailsDisclosureStage(request.status),
   );
@@ -1943,7 +1949,7 @@ function TradeRoomPageSession({
   const request = room?.request ?? null;
   const sellerWalletAddress = isSeller ? request?.buyerReceivingWalletAddress : undefined;
   const requestPaymentMethod = request ? (normalizeMarketplacePaymentMethod(request.paymentMethod) ?? request.paymentMethod) : "";
-  const requestPaymentMethodLabel = paymentMethodDisplayLabel(requestPaymentMethod, isAr);
+  const requestPaymentMethodLabel = `${paymentMethodDisplayLabel(requestPaymentMethod, isAr)}${request?.bankTransferProvider === "wise" ? " · Wise · USD" : ""}`;
   const isFaceToFaceTrade = isFaceToFacePaymentMethod(requestPaymentMethod);
   const isCashTrade = isCashTradePaymentMethod(requestPaymentMethod);
   const requestBankNamesLabel = request?.bankName ? bankSelectionDisplayLabel(request.bankName, locale) : "";
@@ -2045,7 +2051,7 @@ function TradeRoomPageSession({
 
   const handleRevealBankDetails = useCallback(async () => {
     if (!bankDetailsRequestId || bankDetailsBusy) return;
-    const confirmed = window.confirm(isAr
+    const confirmed = window.confirm(isSeller ? (isAr ? "إظهار تفاصيل حسابات الدفع الخاصة لهذه الصفقة؟" : "View the private payment account details for this trade?") : isAr
       ? "بعد إظهار تفاصيل البنك لن يمكنك إلغاء الصفقة. يمكن للبائع إلغاؤها فقط ما دام الدفع لم يبدأ. هل تريد المتابعة؟"
       : "Revealing bank details locks your cancellation option. Only the seller can cancel while payment has not started. Continue?");
     if (!confirmed) return;
@@ -2062,7 +2068,7 @@ function TradeRoomPageSession({
       }
       setBankDetails(payload.bankDetails);
       const currentRoom = roomRef.current;
-      if (currentRoom && !currentRoom.request.sensitivePaymentSharedAt) {
+      if (currentRoom && !isSeller && !currentRoom.request.sensitivePaymentSharedAt) {
         const nextRoom = applyRequestToRoom(currentRoom, {
           ...currentRoom.request,
           sensitivePaymentSharedAt: new Date().toISOString(),
@@ -2082,7 +2088,7 @@ function TradeRoomPageSession({
     } finally {
       setBankDetailsBusy(false);
     }
-  }, [actor.id, bankDetailsBusy, bankDetailsRequestId, fetchRoom, isAr, requestId, setBankDetailsError]);
+  }, [actor.id, bankDetailsBusy, bankDetailsRequestId, fetchRoom, isAr, isSeller, requestId, setBankDetailsError]);
 
   const selectedStepEvent = useMemo(() => {
     if (!request) return null;
@@ -3046,7 +3052,7 @@ function TradeRoomPageSession({
                 <p>{isSeller ? (isAr ? "المشتري" : "Buyer") : (isAr ? "البائع" : "Seller")}: <span className="text-white">{currencyText(counterpartName)}</span></p>
                 <p>{isAr ? "حسابك" : "Your account"}: {currencyText(publicAccountName(actor))}</p>
                 <p>{isAr ? "طريقة الدفع" : "Payment Method"}: {currencyText(requestPaymentMethodLabel)}</p>
-                <p>{currencyText(isAr ? "السعر لكل USDT" : "Price per USDT")}: <bdi dir="ltr">{currencyText(`₪${(toNumber(request.pricePerUsdt) || (toNumber(request.fiatAmount) / Math.max(1, toNumber(request.usdtAmount)))).toFixed(2)}`)} / <span className="currency-usdt">USDT</span></bdi></p>
+                <p>{currencyText(isAr ? "السعر لكل USDT" : "Price per USDT")}: <bdi dir="ltr">{currencyText(`${request.currency} ${(toNumber(request.pricePerUsdt) || (toNumber(request.fiatAmount) / Math.max(1, toNumber(request.usdtAmount)))).toFixed(2)}`)} / <span className="currency-usdt">USDT</span></bdi></p>
                 {request.bankName ? <p>{isCardlessAtmTrade ? (isAr ? "بنك السحب" : "Withdrawal bank") : (isAr ? "البنوك المعتمدة" : "Supported Banks")}: <bdi dir="auto">{currencyText(requestBankNamesLabel)}</bdi></p> : null}
                 {request.closedAt ? <p className="text-red-300">{isAr ? "سبب إغلاق الصفقة" : "Close reason"}: {currencyText(request.closeReason ?? (isAr ? "غير محدد" : "Not specified"))}</p> : null}
                 <UserSafetyActions context="trade" locale={locale} targetUserId={isSeller ? request.buyerId : request.sellerId} viewerSignedIn />
@@ -3361,12 +3367,18 @@ function TradeRoomPageSession({
                       <div className="mt-2 space-y-1 text-sm text-[#E5E7EB]">
                         {bankDetails.accountHolderName ? <p>{isAr ? "اسم صاحب الحساب" : "Account holder"}: <span className="text-white"><bdi dir="auto">{currencyText(bankDetails.accountHolderName)}</bdi></span></p> : null}
                         <p>{isAr ? "اسم البنك" : "Bank"}: <span className="text-white"><bdi dir="auto">{currencyText(getIsraeliBankDisplayName(bankDetails.bankName, locale))}</bdi></span></p>
-                        <p>{isAr ? "رقم الفرع" : "Branch"}: <span className="text-white"><bdi dir="ltr">{currencyText(bankDetails.branchNumber)}</bdi></span></p>
+                        {bankDetails.bankTransferProvider === "wise" ? <>
+                          <p>{isAr ? "طريقة التحويل" : "Transfer route"}: <bdi dir="ltr">Wise · USD · ACH</bdi></p>
+                          <p>{isAr ? "رقم التوجيه ACH" : "ACH routing number"}: <bdi dir="ltr">{bankDetails.routingNumber}</bdi></p>
+                          <p>{isAr ? "نوع الحساب" : "Account type"}: {bankDetails.accountType === "checking" ? (isAr ? "جارٍ" : "Checking") : (isAr ? "توفير" : "Savings")}</p>
+                          {bankDetails.bankAddress ? <p>{isAr ? "عنوان البنك" : "Bank address"}: <bdi>{bankDetails.bankAddress}</bdi></p> : null}
+                        </> : <p>{isAr ? "رقم الفرع" : "Branch"}: <span className="text-white"><bdi dir="ltr">{currencyText(bankDetails.branchNumber)}</bdi></span></p>}
                         <p>{isAr ? "رقم الحساب" : "Account number"}: <span className="font-mono text-white"><bdi dir="ltr">{currencyText(bankDetails.accountNumber)}</bdi></span></p>
+                        {bankDetails.buyerSender ? <div className="mt-3 space-y-1 border-t border-white/20 pt-3"><p className="font-semibold">{isAr ? "حساب المشتري المُرسِل المحدد لهذه الصفقة" : "Buyer's sending account selected for this trade"}</p><p><bdi>{bankDetails.buyerSender.accountHolderName}</bdi> · USD</p><p>{isAr ? "رقم التوجيه" : "Routing number"}: <bdi>{bankDetails.buyerSender.routingNumber}</bdi></p><p>{isAr ? "رقم الحساب" : "Account number"}: <bdi>{bankDetails.buyerSender.accountNumber}</bdi></p><p className="text-xs text-amber-200">{isAr ? "طابق اسم المرسل والمبلغ مع الدفعة الفعلية. الإيصال وحده ليس تأكيدًا لوصول المال." : "Match the sender and amount against the actual credited payment. A receipt alone is not confirmation that funds arrived."}</p></div> : null}
                       </div>
                     ) : (
                       <div className="mt-2 space-y-3 text-sm text-[#D1D5DB]">
-                        <p>{isAr ? "بعد إظهار التفاصيل لا يمكنك الإلغاء. يمكن للبائع الإلغاء قبل بدء الدفع فقط." : "After revealing bank details, you cannot cancel. Only the seller can cancel before payment starts."}</p>
+                        <p>{isSeller ? (isAr ? "راجع حساب المرسل وتفاصيل الاستلام الخاصة بهذه الصفقة." : "Review the sending account and receiving instructions for this trade.") : (isAr ? "بعد إظهار التفاصيل لا يمكنك الإلغاء. يمكن للبائع الإلغاء قبل بدء الدفع فقط." : "After revealing bank details, you cannot cancel. Only the seller can cancel before payment starts.")}</p>
                         <Button type="button" onClick={() => void handleRevealBankDetails()}>
                           {isAr ? "إظهار تفاصيل البنك" : "Reveal Bank Details"}
                         </Button>

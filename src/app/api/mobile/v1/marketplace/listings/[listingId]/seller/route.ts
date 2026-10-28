@@ -99,7 +99,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
     }
     const listing = (await getMarketplaceListings("active", undefined, viewerUserId))
       .find((candidate) => candidate.id === listingId);
-    if (!listing) return mobileError("NOT_FOUND", requestId, locale, 404);
+    if (!listing || listing.bankTransferProvider === "wise") return mobileError("NOT_FOUND", requestId, locale, 404);
 
     const profile = await getPremiumSellerProfile({ sellerId: listing.sellerId });
     if (!profile) return mobileError("NOT_FOUND", requestId, locale, 404);

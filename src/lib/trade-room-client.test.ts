@@ -41,6 +41,8 @@ describe("Trade Room client prefetch reliability", () => {
       request: {
         id: "trade-secret",
         sellerBankAccountSnapshot: { accountNumber: "12345678" },
+        sellerWiseAccountSnapshot: { accountNumber: "00888888888" },
+        buyerWiseAccountSnapshot: { routingNumber: "021000021" },
         messages: [{ id: "credential-1", credentialKind: "cardless_code", message: "Cardless withdrawal code: 123456", payloadHash: "secret-hash" }],
       },
       messages: [
@@ -52,6 +54,8 @@ describe("Trade Room client prefetch reliability", () => {
     const raw = window.sessionStorage.getItem("alpha.trade-room.cache.v2.buyer-1.trade-secret");
     expect(raw).not.toContain("123456");
     expect(raw).not.toContain("12345678");
+    expect(raw).not.toContain("00888888888");
+    expect(raw).not.toContain("021000021");
     expect(raw).not.toContain("secret-hash");
     expect(raw).not.toContain("internal-hash");
     expect(readTradeRoomCache("trade-secret", "buyer-1")).toMatchObject({

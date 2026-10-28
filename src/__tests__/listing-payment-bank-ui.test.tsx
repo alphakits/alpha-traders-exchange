@@ -25,6 +25,8 @@ let bankAccounts: typeof savedAccount[];
 let submittedListing: Record<string, unknown> | undefined;
 let mobile: boolean;
 let marketAvailable: boolean;
+let wiseEnabled: boolean;
+const reviewedWiseAccount = { id: "wise-seller", provider: "wise", currency: "USD", accountHolderName: "Seller", accountLast4: "0042", routingLast4: "0021", accountType: "checking", ownershipReviewStatus: "manually_reviewed" };
 
 function json(payload: unknown, status = 200) {
   return new Response(JSON.stringify(payload), { status, headers: { "content-type": "application/json" } });
@@ -35,6 +37,7 @@ beforeEach(() => {
   submittedListing = undefined;
   mobile = false;
   marketAvailable = true;
+  wiseEnabled = false;
   Object.defineProperty(window, "matchMedia", {
     configurable: true,
     value: vi.fn((query: string) => ({
@@ -46,6 +49,7 @@ beforeEach(() => {
   vi.stubGlobal("EventSource", class { addEventListener() {} removeEventListener() {} close() {} });
   vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
+    if (url.includes("/wise-accounts")) return json({ enabled: wiseEnabled, accounts: wiseEnabled ? [reviewedWiseAccount] : [] });
     if (url.includes("/api/market/center")) return marketAvailable ? json({ snapshot: {
       status: "live", updatedAt: new Date().toISOString(), stale: false, unavailablePairs: [],
       pairs: {
@@ -87,6 +91,34 @@ async function openForm(preferredPaymentMethods = ["Bank Transfer"], locale: "ar
 }
 
 describe("listing payment-method bank requirements", () => {
+  it("creates a Wise USD listing with reviewed receiving details, without converting ILS or using a legacy account", async () => {
+    wiseEnabled = true;
+    marketAvailable = false;
+    bankAccounts = [savedAccount];
+    const form = await openForm();
+    const provider = await form.findByLabelText("Payment route and currency");
+    fireEvent.change(provider, { target: { value: "wise" } });
+    expect((document.getElementById("create-price") as HTMLInputElement).value).toBe("");
+    fireEvent.change(document.getElementById("create-price")!, { target: { value: "1.02" } });
+    fireEvent.click(form.getByRole("button", { name: "Continue to payment" }));
+    const review = form.getByRole("button", { name: "Review listing" }) as HTMLButtonElement;
+    expect(review.disabled).toBe(true);
+    expect((form.getByRole("button", { name: /Meet in Person/ }) as HTMLButtonElement).disabled).toBe(true);
+    expect(form.queryByText("Payout bank account")).toBeNull();
+    fireEvent.change(form.getByLabelText("Your personal Wise account for receiving USD"), { target: { value: reviewedWiseAccount.id } });
+    expect(review.disabled).toBe(false);
+    fireEvent.click(review);
+    expect(form.getByTestId("create-summary-total").textContent).toContain("1,020.00 USD");
+    expect(form.getByText("USD receiving account")).toBeTruthy();
+    fireEvent.click(form.getByRole("checkbox"));
+    const submit = form.getByRole("button", { name: "Submit Listing" }) as HTMLButtonElement;
+    expect(submit.disabled).toBe(false);
+    fireEvent.click(submit);
+    await waitFor(() => expect(submittedListing).toBeDefined());
+    expect(submittedListing).toMatchObject({ currency: "USD", price: "1.02", bankTransferProvider: "wise", wiseAccountId: "wise-seller", paymentMethods: ["Bank Transfer"] });
+    expect(submittedListing).not.toHaveProperty("bankAccountId");
+    expect(submittedListing).not.toHaveProperty("bankName");
+  }, 20000);
   it.each([true, false])("submits cash methods without profile bank details and gates Bank Transfer (mobile=%s)", async (isMobile) => {
     mobile = isMobile;
     const form = await openForm();

@@ -80,7 +80,7 @@ describe("draft USDT PostgreSQL invariants", () => {
     const body = review.split("-- BEGIN REVIEWED DEMAND SCHEMA\n")[1]?.split("-- END REVIEWED DEMAND SCHEMA")[0];
     const compact = (value: string) => value.replace(/\s+/g, " ").trim();
     expect(compact(body ?? "")).toBe(compact(`${USDT_DEMAND_SCHEMA_SQL.join(";\n")};`));
-    const migration = await readFile("supabase/migrations/20261024024258_usdt_buy_requests.sql", "utf8");
+    const migration = (await readFile("supabase/migrations/20261024024258_usdt_buy_requests.sql", "utf8")).replace(/\r\n/g, "\n");
     expect(compact(migration.split("-- BEGIN REVIEWED DEMAND SCHEMA\n")[1]?.split("-- END REVIEWED DEMAND SCHEMA")[0] ?? "")).toBe(compact(body ?? ""));
     await database.exec(review);
     const rows = await database.query<{ rls: boolean; client_access: boolean }>(`select
@@ -277,7 +277,7 @@ describe("draft USDT PostgreSQL invariants", () => {
     try {
       const now = new Date().toISOString();
       const trade = { id: "draft-purchase", listingId: "listing-seller", buyerId: "buyer", sellerId: "seller", status: "pending", usdtAmount: d.amount,
-        pricePerUsdt: d.price, feePolicyVersion: "buyer_seller_1pct_v1", createdAt: now, updatedAt: now, usdtDemandId: d.id, usdtDemandOfferId: offerId } as PurchaseRequest;
+        pricePerUsdt: d.price, feePolicyVersion: "buyer_seller_1pct_v1", currency: "ILS", createdAt: now, updatedAt: now, usdtDemandId: d.id, usdtDemandOfferId: offerId } as PurchaseRequest;
       match!.snapshot.purchaseRequests.push(trade);
       commitDemandMatch(match!.snapshot, { buyerId: "buyer", demandId: d.id, offerId, revision: 1, listingId: trade.listingId, amount: d.amount, paymentMethod: d.paymentMethod, network: d.network }, demandTestMarket(), trade);
       await expect(match!.commit(match!.snapshot, { selectedTables: ["purchase_requests", "usdt_demands"] })).rejects.toThrow(/injected_failure/);

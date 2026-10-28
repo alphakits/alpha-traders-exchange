@@ -1,6 +1,9 @@
 "use client";
 
 import { buildTradeRoomDestination } from "@/lib/trade-room-destination";
+import { useWiseAccounts } from "./wise-account-select";
+import type { ListingCreateForm } from "./seller-workspace-section";
+import type { ListingEditForm } from "./seller-listings-workspace-portal";
 
 import { PAGE_SECTION_NAVIGATION_EVENT, navigateToPageSection, pageSectionFromEvent, revealPageSection } from "@/lib/page-section-navigation";
 import { LiveMarketCards } from "@/components/market/live-market-cards";
@@ -1163,16 +1166,16 @@ export const ListingCard = memo(function ListingCard({ listing, isAr, marketPric
               <p className="seller-price-value mt-2 text-4xl font-semibold leading-none text-[#6EE7B7] md:text-5xl">
                 {moneyText(toNumber(listing.price).toLocaleString("en-IL", { minimumFractionDigits: 2, maximumFractionDigits: 2 }))}
               </p>
-              <p className="mt-1 text-[11px] uppercase tracking-[0.12em] text-[#E5E7EB]">{currencyText("ILS / USDT")}</p>
+              <p className="mt-1 text-[11px] uppercase tracking-[0.12em] text-[#E5E7EB]">{currencyText(`${listing.currency} / USDT`)}</p>
 
             </div>
           </div>
-          <div className="seller-live-market-panel compact-listing__market rounded-lg border text-[11px] text-[#CFCFCF]">
+          {listing.currency === "ILS" ? <div className="seller-live-market-panel compact-listing__market rounded-lg border text-[11px] text-[#CFCFCF]">
             <span className="text-[#9CA3AF]">{isAr ? "السوق الحالي" : "Current Market"}</span>
             <span>{currencyText("USDT / ILS")}</span>
             <span className="seller-live-market-badge">{isAr ? "مباشر" : "Live"}</span>
             <span className="compact-listing__market-price font-semibold">{marketPricePerUsdt > 0 ? moneyText(marketPricePerUsdt.toFixed(5)) : "—"}</span>
-          </div>
+          </div> : <p className="p-2 text-xs text-[#D1D5DB]">{isAr ? "السعر والإجمالي بالدولار USD. لا يوجد تحويل تلقائي للعملة." : "Price and total are in USD. No automatic currency conversion."}</p>}
         </div>
         <div className="compact-listing__stats grid grid-cols-4 gap-1.5 text-center text-xs">
           <div className={cn("rounded-xl border border-white/10 bg-black/25 p-3 text-[#D1D5DB] transition duration-300 hover:bg-black/35", `seller-rank-microcard seller-rank-microcard--${isOwnerListing ? "legendary" : sellerRankKey}`)}>
@@ -1205,7 +1208,7 @@ export const ListingCard = memo(function ListingCard({ listing, isAr, marketPric
               <div className="mt-1 flex flex-wrap gap-1.5">
                 {normalizePaymentMethodList(listing.paymentMethods, listing.paymentMethod).map((method) => (
                   <span key={`${listing.id}-${method}`} className="max-w-full break-words rounded-full border border-white/15 bg-white/[0.03] px-2 py-0.5 text-[11px] text-[#D1D5DB]">
-                    {currencyText(paymentMethodLabel(method, isAr))}
+                    {currencyText(paymentMethodLabel(method, isAr))}{listing.bankTransferProvider === "wise" && method === "Bank Transfer" ? " · Wise · USD" : ""}
                   </span>
                 ))}
               </div>
@@ -1430,7 +1433,7 @@ export function UsdtExchangePage({
   const sellerWorkspaceRevisionRef = useRef(0);
   const listingCreateRequestInFlightRef = useRef(false);
   const [listingCreateResult, setListingCreateResult] = useState<ListingCreateResult | null>(null);
-  const [listingEditForm, setListingEditForm] = useState({
+  const [listingEditForm, setListingEditForm] = useState<ListingEditForm>({
     availableAmount: "",
     price: "",
     currency: "ILS",
@@ -1499,7 +1502,7 @@ export function UsdtExchangePage({
     ?? (sellerCommissionStatus?.pendingCount === 1 ? sellerCommissionStatus.amountDue : 0);
   const [requestActionKey, setRequestActionKey] = useState<string | null>(null);
   const qaCommissionResetAttemptedRef = useRef(false);
-  const [listingCreateForm, setListingCreateForm] = useState({
+  const [listingCreateForm, setListingCreateForm] = useState<ListingCreateForm>({
     availableAmount: "",
     price: "",
     currency: "ILS",
@@ -1521,12 +1524,13 @@ export function UsdtExchangePage({
         if (!request || request.isMine || payload.actorId !== demandPrefillActorId || request.state !== "open" || !payload.canRespond || controller.signal.aborted) return;
         demandPrefilled.current = `${demandPrefillActorId}:${demandListingIntent}`;
         setListingCreateForm(previous => ({ ...previous, availableAmount: request.amount, maximumTrade: request.amount,
-          minimumTrade: "0", price: request.price, currency: "ILS", network: request.network, paymentMethods: [request.paymentMethod] }));
+          minimumTrade: "0", price: request.price, currency: request.currency ?? "ILS", bankTransferProvider: request.bankTransferProvider ?? "israeli_bank", wiseAccountId: "", bankAccountId: "", bankName: "", network: request.network, paymentMethods: [request.paymentMethod] }));
         revealPageSection("create-listing");
       }).catch(() => undefined);
     return () => controller.abort();
   }, [demandListingIntent, demandPrefillActorId]);
   const [sellerBankAccounts, setSellerBankAccounts] = useState<SellerBankAccount[]>([]);
+  const wise = useWiseAccounts(sessionUser?.id);
   const [sellerBankAccountsLoading, setSellerBankAccountsLoading] = useState(false);
   const [selectedPurchasePaymentMethod, setSelectedPurchasePaymentMethod] = useState<string>("Bank Transfer");
 
@@ -1572,8 +1576,8 @@ export function UsdtExchangePage({
   }, [isSessionResolving, refreshCanonicalSession, sessionUser]);
 
   useEffect(() => {
-    setListingCreateForm((prev) => syncListingBankSelection(prev, sellerBankAccounts));
-    setListingEditForm((prev) => syncListingBankSelection(prev, sellerBankAccounts));
+    setListingCreateForm((prev) => prev.bankTransferProvider === "wise" ? prev : syncListingBankSelection(prev, sellerBankAccounts));
+    setListingEditForm((prev) => prev.bankTransferProvider === "wise" ? prev : syncListingBankSelection(prev, sellerBankAccounts));
   }, [sellerBankAccounts]);
 
   const tradeReturnPath = selectedListing
@@ -1689,7 +1693,7 @@ export function UsdtExchangePage({
     return () => media.removeEventListener("change", update);
   }, []);
 
-  const [buyerInfo, setBuyerInfo] = useState({ usdtAmount: "", receivingWalletAddress: "", receivingNetwork: "TRC20" as SupportedNetwork, cardlessBankName: "", cardlessWithdrawalCode: "", cardlessVerificationKind: "id_number" as CardlessVerificationKind, cardlessVerificationValue: "", cardlessIlsAmount: "" });
+  const [buyerInfo, setBuyerInfo] = useState({ usdtAmount: "", receivingWalletAddress: "", receivingNetwork: "TRC20" as SupportedNetwork, buyerWiseAccountId: "", cardlessBankName: "", cardlessWithdrawalCode: "", cardlessVerificationKind: "id_number" as CardlessVerificationKind, cardlessVerificationValue: "", cardlessIlsAmount: "" });
   const [sellerForm, setSellerForm] = useState<SellerApplicationForm>(() => ({
     firstName: initialSessionUser?.fullName?.split(" ")[0] ?? "",
     lastName: initialSessionUser?.fullName?.split(" ").slice(1).join(" ") ?? "",
@@ -2830,6 +2834,7 @@ export function UsdtExchangePage({
   ], [isAr]);
 
   const livePresence = useLivePresenceMap(listings.map(listing => listing.sellerId));
+  const mixedPriceCurrencies = currencyFilter === "all" && new Set(listings.map(listing => listing.currency)).size > 1;
   const filteredListings = useMemo(() => {
     const filtered = listings.filter((listing) => {
       const price = toNumber(listing.price);
@@ -2845,8 +2850,8 @@ export function UsdtExchangePage({
       const paymentMethodPass = paymentMethodFilter === "all" || methods.some((method) => method.toLowerCase() === paymentMethodFilter.toLowerCase());
       const minAmountPass = !minAmount || amount >= minAmount;
       const maxAmountPass = !maxAmount || amount <= maxAmount;
-      const minPricePass = !minPrice || price >= minPrice;
-      const maxPricePass = !maxPrice || price <= maxPrice;
+      const minPricePass = mixedPriceCurrencies || !minPrice || price >= minPrice;
+      const maxPricePass = mixedPriceCurrencies || !maxPrice || price <= maxPrice;
       const trustPass = !trustScoreThreshold || (listing.sellerReputation?.trustScore ?? 0) >= trustScoreThreshold;
       const onlinePass = !onlineOnlyFilter || deriveSellerPresence(livePresence[listing.sellerId] ?? listing.sellerProfile ?? {}).online;
       return networkPass && currencyPass && paymentMethodPass && minAmountPass && maxAmountPass && minPricePass && maxPricePass && trustPass && onlinePass;
@@ -2858,7 +2863,7 @@ export function UsdtExchangePage({
         return compareMarketplaceSellers(a.sellerReputation, b.sellerReputation)
           || a.id.localeCompare(b.id);
       }
-      if (sortBy === "price-asc") return toNumber(a.price) - toNumber(b.price);
+      if (sortBy === "price-asc") return a.currency.localeCompare(b.currency) || toNumber(a.price) - toNumber(b.price);
       if (sortBy === "amount-desc") return toNumber(b.availableAmount) - toNumber(a.availableAmount);
       if (sortBy === "trades-desc") return (b.sellerReputation?.completedTrades ?? 0) - (a.sellerReputation?.completedTrades ?? 0);
       if (sortBy === "rating-desc") return (b.sellerReputation?.rating ?? 0) - (a.sellerReputation?.rating ?? 0);
@@ -2868,7 +2873,7 @@ export function UsdtExchangePage({
       sorted.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
     }
     return sorted;
-  }, [livePresence, listings, networkFilter, currencyFilter, paymentMethodFilter, minAmountFilter, maxAmountFilter, minPriceFilter, maxPriceFilter, trustScoreFilter, onlineOnlyFilter, sortBy]);
+  }, [livePresence, listings, networkFilter, currencyFilter, paymentMethodFilter, minAmountFilter, maxAmountFilter, minPriceFilter, maxPriceFilter, trustScoreFilter, onlineOnlyFilter, sortBy, mixedPriceCurrencies]);
 
   useEffect(() => {
     if (!isMobileViewport) return;
@@ -2997,6 +3002,10 @@ export function UsdtExchangePage({
 
   async function submitPurchaseRequest() {
     if (!selectedListing) return;
+    if (selectedListing.bankTransferProvider === "wise" && (!wise.enabled || !wise.reviewedAccounts.some(account => account.id === buyerInfo.buyerWiseAccountId))) {
+      setStatusMessage(isAr ? "اختر حساب Wise الشخصي الذي تمت مراجعة ملكيته لإرسال USD." : "Select your ownership-reviewed personal Wise account for sending USD.");
+      return;
+    }
     // React state updates after the current event. This synchronous ref closes
     // the double-tap window on phones before a second handler can submit.
     if (purchaseRequestInFlightRef.current || isSubmittingPurchase) return;
@@ -3057,6 +3066,7 @@ export function UsdtExchangePage({
             usdtAmount: tradeAmount,
             buyerReceivingWalletAddress: normalizeWalletAddress(buyerInfo.receivingWalletAddress),
             receivingNetwork: buyerInfo.receivingNetwork,
+            ...(selectedListing.bankTransferProvider === "wise" ? { currency: "USD", bankTransferProvider: "wise", buyerWiseAccountId: buyerInfo.buyerWiseAccountId } : {}),
             ...(isCardlessAtmPaymentMethod(selectedListingPaymentMethod) ? {
               bankName: buyerInfo.cardlessBankName,
               cardlessWithdrawalCode: buyerInfo.cardlessWithdrawalCode,
@@ -3204,13 +3214,14 @@ export function UsdtExchangePage({
   const listingCreateAmount = toNumber(listingCreateForm.availableAmount);
   const listingCreateMinTrade = toNumber(listingCreateForm.minimumTrade);
   const listingCreateMaxTrade = toNumber(listingCreateForm.maximumTrade || listingCreateForm.availableAmount);
-  const listingCreatePriceInvalid = marketReferenceAvailable && listingCreatePrice > maxAllowedListingPrice;
-  const listingCreatePriceValid = marketReferenceAvailable && listingCreatePrice > 0 && !listingCreatePriceInvalid;
+  const listingCreateIsWise = listingCreateForm.bankTransferProvider === "wise";
+  const listingCreatePriceInvalid = !listingCreateIsWise && marketReferenceAvailable && listingCreatePrice > maxAllowedListingPrice;
+  const listingCreatePriceValid = (listingCreateIsWise || marketReferenceAvailable) && listingCreatePrice > 0 && !listingCreatePriceInvalid;
   const listingCreateTradeRangeInvalid = listingCreateMaxTrade <= 0 || listingCreateMaxTrade > listingCreateAmount || listingCreateMaxTrade < listingCreateMinTrade;
   const listingCreateSelectedMethods = normalizePaymentMethodList(listingCreateForm.paymentMethods, undefined);
   const listingCreateSelectedBanks = parseIsraeliBankSelection(listingCreateForm.bankName);
-  const listingCreateRequiresBank = requiresBankSelection(listingCreateSelectedMethods);
-  const listingCreateRequiresBankAccount = requiresSellerPayoutBankAccount(listingCreateSelectedMethods);
+  const listingCreateRequiresBank = !listingCreateIsWise && requiresBankSelection(listingCreateSelectedMethods);
+  const listingCreateRequiresBankAccount = !listingCreateIsWise && requiresSellerPayoutBankAccount(listingCreateSelectedMethods);
   const listingCreateSelectedBankAccount = sellerBankAccounts.find((account) => account.id === listingCreateForm.bankAccountId);
   const listingCreateBankAccountMismatch = Boolean(
     listingCreateRequiresBankAccount
@@ -3223,6 +3234,7 @@ export function UsdtExchangePage({
     || (listingCreateRequiresBank && !listingCreateSelectedBanks.length)
     || (listingCreateRequiresBankAccount && !listingCreateForm.bankAccountId)
     || listingCreateBankAccountMismatch
+    || (listingCreateIsWise && (!wise.enabled || listingCreateForm.currency !== "USD" || !wise.reviewedAccounts.some(account => account.id === listingCreateForm.wiseAccountId)))
     || !listingCommissionAgreement;
   const listingCreateTotalIls = listingCreateAmount * listingCreatePrice;
   const listingBlockedByMarketplaceEnforcement = Boolean(sellerWorkspaceSummary?.enforcement?.restricted);
@@ -3246,7 +3258,7 @@ export function UsdtExchangePage({
         : `You already have ${sellerWorkspaceSummary.openListingCount} open listings, including listings awaiting review. Close one before creating another.`)
       : (sellerWorkspaceSummary?.blockedReason
         ?? (isAr ? "إنشاء العروض متوقف حالياً. راجع العروض النشطة أو العمولة أو حالة الامتثال." : "Listing creation is currently blocked."));
-  const isListingCreateSubmitDisabled = !marketReferenceAvailable || listingCreateMissingRequired || listingCreatePriceInvalid || listingCreateTradeRangeInvalid || listingCreationBlocked;
+  const isListingCreateSubmitDisabled = (!listingCreateIsWise && !marketReferenceAvailable) || listingCreateMissingRequired || listingCreatePriceInvalid || listingCreateTradeRangeInvalid || listingCreationBlocked;
   const listingCreateGuardCardTone = listingCreatePriceInvalid
     ? "border-red-500/60 bg-red-500/10 shadow-[0_0_0_3px_rgba(239,68,68,0.16)]"
     : listingCreatePriceValid
@@ -3267,8 +3279,9 @@ export function UsdtExchangePage({
   const listingEditTradeRangeInvalid = listingEditMaxTrade <= 0 || listingEditMaxTrade > listingEditAmount || listingEditMaxTrade < listingEditMinTrade;
   const listingEditSelectedMethods = normalizePaymentMethodList(listingEditForm.paymentMethods, undefined);
   const listingEditSelectedBanks = parseIsraeliBankSelection(listingEditForm.bankName);
-  const listingEditRequiresBank = requiresBankSelection(listingEditSelectedMethods);
-  const listingEditRequiresBankAccount = requiresSellerPayoutBankAccount(listingEditSelectedMethods);
+  const listingEditIsWise = listingEditForm.bankTransferProvider === "wise";
+  const listingEditRequiresBank = !listingEditIsWise && requiresBankSelection(listingEditSelectedMethods);
+  const listingEditRequiresBankAccount = !listingEditIsWise && requiresSellerPayoutBankAccount(listingEditSelectedMethods);
   const listingEditSelectedBankAccount = sellerBankAccounts.find((account) => account.id === listingEditForm.bankAccountId);
   const listingEditBankAccountMismatch = Boolean(
     listingEditRequiresBankAccount
@@ -3280,7 +3293,8 @@ export function UsdtExchangePage({
     || !listingEditSelectedMethods.length
     || (listingEditRequiresBank && !listingEditSelectedBanks.length)
     || (listingEditRequiresBankAccount && !listingEditForm.bankAccountId)
-    || listingEditBankAccountMismatch;
+    || listingEditBankAccountMismatch
+    || (listingEditIsWise && (!wise.enabled || listingEditForm.currency !== "USD" || !wise.reviewedAccounts.some(account => account.id === listingEditForm.wiseAccountId)));
   const isListingEditSubmitDisabled = (listingEditCurrency === "ILS" && !marketReferenceAvailable) || listingEditMissingRequired || listingEditPriceInvalid || listingEditTradeRangeInvalid;
   const listingEditNeedsReason = listingEditOriginal
     ? listingEditRequiresReason(listingEditOriginal, {
@@ -3475,8 +3489,16 @@ export function UsdtExchangePage({
     const completed = buyerRequests.filter((request) => request.status === "completed" || request.status === "review_open" || Boolean(request.completedAt));
     const pending = buyerRequests.filter((request) => !["completed", "review_open", "declined", "cancelled"].includes(request.status));
     const totalUsdtBought = completed.reduce((sum, request) => sum + toNumber(request.usdtAmount), 0);
-    const totalFiatSpent = completed.reduce((sum, request) => sum + toNumber(request.fiatAmount), 0);
-    const averagePurchasePrice = totalUsdtBought > 0 ? totalFiatSpent / totalUsdtBought : marketPricePerUsdt;
+    const currencyTotals = completed.reduce<Record<string, { fiat: number; usdt: number }>>((totals, request) => {
+      const currency = request.currency || "ILS";
+      const previous = totals[currency] ?? { fiat: 0, usdt: 0 };
+      totals[currency] = { fiat: previous.fiat + toNumber(request.fiatAmount), usdt: previous.usdt + toNumber(request.usdtAmount) };
+      return totals;
+    }, {});
+    const averagePurchasePrices = Object.entries(currencyTotals)
+      .filter(([, totals]) => totals.usdt > 0)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([currency, totals]) => ({ currency, price: totals.fiat / totals.usdt }));
     const paymentCounts = buyerRequests.reduce<Record<string, number>>((acc, request) => {
       const method = normalizeMarketplacePaymentMethod(request.paymentMethod);
       if (!method) return acc;
@@ -3497,7 +3519,7 @@ export function UsdtExchangePage({
       total: buyerRequests.length,
       completed: completed.length,
       pending: pending.length,
-      averagePurchasePrice,
+      averagePurchasePrices,
       favoritePaymentMethods: favoritePaymentMethods || "—",
       recentTrades: sortedBuyerRequests.slice(0, 3),
       recentPurchases: sortedBuyerRequests.slice(0, 3).length,
@@ -3505,7 +3527,7 @@ export function UsdtExchangePage({
       totalUsdtBought,
       activeDays: new Set(buyerRequests.map((request) => formatIsraelDateKey(request.completedAt ?? request.updatedAt ?? request.createdAt)).filter(Boolean)).size,
     };
-  }, [buyerRequests, isAr, listingsById, marketPricePerUsdt, sortedBuyerRequests]);
+  }, [buyerRequests, isAr, listingsById, sortedBuyerRequests]);
 
   useEffect(() => {
     setBuyerTradeVisibleCount(isMobileViewport ? 1 : 2);
@@ -4393,6 +4415,8 @@ export function UsdtExchangePage({
           currency: listing.currency ?? "ILS",
           network: listing.network,
           paymentMethods: listing.paymentMethods ?? [listing.paymentMethod ?? ""],
+          bankAccountId: listing.bankAccountId,
+          ...(listing.bankTransferProvider === "wise" ? { bankTransferProvider: "wise", wiseAccountId: listing.wiseAccountId } : {}),
           bankName: listing.bankName ?? "",
           minimumTrade: listing.minimumTrade ?? "0",
           maximumTrade: listing.maximumTrade ?? listing.availableAmount,
@@ -4472,8 +4496,9 @@ export function UsdtExchangePage({
         body: JSON.stringify({
           availableAmount: listingCreateForm.availableAmount,
           price: listingCreateForm.price,
-          currency: "ILS",
+          currency: listingCreateIsWise ? "USD" : "ILS",
           network: listingCreateForm.network,
+          ...(listingCreateIsWise ? { bankTransferProvider: "wise", wiseAccountId: listingCreateForm.wiseAccountId } : {}),
           paymentMethods: listingCreateSelectedMethods,
           bankAccountId: listingCreateRequiresBankAccount ? listingCreateForm.bankAccountId || undefined : undefined,
           bankName: listingCreateRequiresBank ? serializeIsraeliBankSelection(listingCreateSelectedBanks) : undefined,
@@ -4502,6 +4527,8 @@ export function UsdtExchangePage({
         availableAmount: "",
         price: "",
         currency: "ILS",
+        bankTransferProvider: "israeli_bank",
+        wiseAccountId: "",
         paymentMethods: getDefaultListingPaymentMethods(sessionUser?.preferredPaymentMethods),
         bankAccountId: "",
         bankName: "",
@@ -4552,6 +4579,8 @@ export function UsdtExchangePage({
           availableAmount: listingEditForm.availableAmount,
           price: listingEditForm.price,
           currency: listingEditForm.currency,
+          bankTransferProvider: listingEditForm.bankTransferProvider ?? "israeli_bank",
+          wiseAccountId: listingEditIsWise ? listingEditForm.wiseAccountId : undefined,
           network: listingEditForm.network,
           paymentMethods: listingEditSelectedMethods,
           bankAccountId: listingEditRequiresBankAccount ? listingEditForm.bankAccountId || undefined : undefined,
@@ -5055,7 +5084,7 @@ export function UsdtExchangePage({
               </div>
               <div className="flex items-center justify-between rounded-xl border border-white/10 bg-black/20 px-3 py-2">
                 <span>{isAr ? "متوسط سعر الشراء" : "Average Purchase Price"}</span>
-                <span className="font-semibold text-white">{currencyText(formatIls(buyerOverviewStats.averagePurchasePrice))}</span>
+                <span className="space-y-1 text-end font-semibold text-white">{buyerOverviewStats.averagePurchasePrices.length ? buyerOverviewStats.averagePurchasePrices.map(({ currency, price }) => <bdi key={currency} dir="ltr" className="block">{currencyText(`${price.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`)}</bdi>) : "—"}</span>
               </div>
             </div>
           </div>
@@ -5282,6 +5311,9 @@ export function UsdtExchangePage({
 
         {isApprovedSeller && showSellerWorkspace ? (
           <SellerListingsWorkspacePortal
+            wiseEnabled={wise.enabled}
+            wiseAccounts={wise.accounts}
+            wiseAccountsLoading={wise.loading}
             {...{
               discordShareActionKey,
               discordSharing,
@@ -5403,7 +5435,7 @@ export function UsdtExchangePage({
                 </select>
                 <select value={sortBy} onChange={(event) => setSortBy(event.target.value as "trust-desc" | "price-asc" | "amount-desc" | "trades-desc" | "rating-desc" | "response-fast" | "newest")} className="flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 py-2 text-sm text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C9A227] focus-visible:ring-offset-1 focus-visible:ring-offset-[#050505]">
                   <option value="trust-desc">{isAr ? "ترتيب: أفضل البائعين" : "Sort: Best Sellers"}</option>
-                  <option value="price-asc">{isAr ? "الترتيب: أقل سعر" : "Sort: Lowest Price"}</option>
+                  <option value="price-asc">{mixedPriceCurrencies ? (isAr ? "السعر: مجمّع حسب العملة" : "Price: grouped by currency") : (isAr ? "الترتيب: أقل سعر" : "Sort: Lowest Price")}</option>
                   <option value="amount-desc">{isAr ? "الترتيب: أعلى كمية USDT" : "Sort: Highest Available USDT"}</option>
                   <option value="trades-desc">{isAr ? "الترتيب: أكثر صفقات مكتملة" : "Sort: Most Completed Trades"}</option>
                   <option value="rating-desc">{isAr ? "الترتيب: أعلى تقييم" : "Sort: Highest Rating"}</option>
@@ -5412,8 +5444,8 @@ export function UsdtExchangePage({
                 </select>
                 <Input className="currency-money" placeholder={isAr ? "أقل كمية USDT" : "Min USDT amount"} value={minAmountFilter} onChange={(event) => setMinAmountFilter(event.target.value)} />
                 <Input className="currency-money" placeholder={isAr ? "أعلى كمية USDT" : "Max USDT amount"} value={maxAmountFilter} onChange={(event) => setMaxAmountFilter(event.target.value)} />
-                <Input className="currency-money" placeholder={isAr ? "أقل سعر (₪)" : "Min price (₪)"} value={minPriceFilter} onChange={(event) => setMinPriceFilter(event.target.value)} />
-                <Input className="currency-money" placeholder={isAr ? "أعلى سعر (₪)" : "Max price (₪)"} value={maxPriceFilter} onChange={(event) => setMaxPriceFilter(event.target.value)} />
+                <Input className="currency-money" disabled={mixedPriceCurrencies} placeholder={mixedPriceCurrencies ? (isAr ? "اختر عملة لتصفية السعر" : "Choose a currency to filter price") : `${isAr ? "أقل سعر" : "Min price"} (${currencyFilter === "all" ? uniqueCurrencies[0] ?? "ILS" : currencyFilter})`} value={minPriceFilter} onChange={(event) => setMinPriceFilter(event.target.value)} />
+                <Input className="currency-money" disabled={mixedPriceCurrencies} placeholder={mixedPriceCurrencies ? (isAr ? "اختر عملة لتصفية السعر" : "Choose a currency to filter price") : `${isAr ? "أعلى سعر" : "Max price"} (${currencyFilter === "all" ? uniqueCurrencies[0] ?? "ILS" : currencyFilter})`} value={maxPriceFilter} onChange={(event) => setMaxPriceFilter(event.target.value)} />
                 <Input placeholder={isAr ? "أقل درجة ثقة" : "Min trust score"} value={trustScoreFilter} onChange={(event) => setTrustScoreFilter(event.target.value)} />
                 <Button type="button" variant={onlineOnlyFilter ? "default" : "secondary"} onClick={() => setOnlineOnlyFilter((prev) => !prev)}>
                   {onlineOnlyFilter ? (isAr ? "البائعون المتصلون فقط" : "Online Sellers Only") : (isAr ? "إظهار البائعين المتصلين فقط" : "Show Online Sellers Only")}
@@ -5518,6 +5550,9 @@ export function UsdtExchangePage({
       {!isDashboardWorkspace && !showBuyerSellerApplicationUpFront ? sellerApplicationPanel : null}
       {isSellerWorkspaceUser && showSellerWorkspace ? (
 <SellerWorkspaceSection
+            wiseEnabled={wise.enabled}
+            wiseAccounts={wise.accounts}
+            wiseAccountsLoading={wise.loading}
           {...{
             activityHistory,
             commissionAdvancedOpen,
@@ -5864,6 +5899,9 @@ export function UsdtExchangePage({
       <Portal>
       {selectedListing ? (
         <PurchaseListingDialog
+          wiseEnabled={wise.enabled}
+          wiseAccounts={wise.accounts}
+          wiseAccountsLoading={wise.loading}
           locale={locale}
           listing={selectedListing}
           sellerProfileData={sellerProfileData}

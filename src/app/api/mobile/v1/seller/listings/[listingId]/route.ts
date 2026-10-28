@@ -108,6 +108,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       });
     }
     const body = await readMobileJsonBody(request);
+    if (body?.bankTransferProvider === "wise" || body?.wiseAccountId) return mobileError("INVALID_REQUEST", requestId, locale, 400);
     const action = String(body?.action ?? "").trim();
     if (action !== "pause" && action !== "resume" && action !== "update") {
       return mobileError("INVALID_REQUEST", requestId, locale, 400);
@@ -116,6 +117,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     if (!existing || existing.sellerId !== auth.user.id) {
       return mobileError("NOT_FOUND", requestId, locale, 404);
     }
+    if (existing.bankTransferProvider === "wise") return mobileError("INVALID_REQUEST", requestId, locale, 400);
     if (action === "update") {
       const availableAmount = String(body?.availableAmount ?? "").trim();
       const price = normalizeListingPrice(String(body?.price ?? "").trim()) ?? "";

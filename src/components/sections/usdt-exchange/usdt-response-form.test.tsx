@@ -12,6 +12,20 @@ const current = (): DemandView => ({ id: "demand-one", requesterName: "AT-100", 
 const props = (): ComponentProps<typeof SellerResponseForm> => ({ ar: false, current: current(), listings: [{ id: "listing-one", amount: "10000", price: "3.20" }],
   reference: { price: "3.20", minimum: "2.85", maximum: "3.55" }, listingId: "listing-one", offerPrice: "3.20", onListingChange: vi.fn(), onPriceChange: vi.fn(), busy: false, ready: true, now, onSubmit: vi.fn() });
 const submitButton = () => screen.getByRole("button", { name: /^(Send|Update) response$/ }) as HTMLButtonElement;
+
+describe("Wise USD seller response", () => {
+  it("uses an explicit USD offer and USD fees without requiring the ILS reference", () => {
+    const input = { ...props(), current: { ...current(), currency: "USD" as const, bankTransferProvider: "wise" as const, price: "1.00" },
+      reference: null, offerPrice: "1.02", listings: [{ id: "listing-one", amount: "10000", price: "1.00" }] };
+    render(<SellerResponseForm {...input} />);
+    expect(screen.getByLabelText("Your response price (USD)")).toBeTruthy();
+    expect(screen.getByRole("region", { name: "Buyer payment preview" }).textContent).toContain("USD 5,151.00");
+    expect(screen.getByRole("region", { name: "Buyer payment preview" }).textContent).not.toContain("₪");
+    expect(submitButton().disabled).toBe(false);
+    fireEvent.submit(screen.getByRole("form", { name: "Seller response" }));
+    expect(input.onSubmit).toHaveBeenCalledOnce();
+  });
+});
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
 describe("seller response form", () => {
