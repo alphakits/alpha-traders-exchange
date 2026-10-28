@@ -21,6 +21,7 @@ export function NativeAppBridge({ locale }: { locale: AppLocale }) {
     let stopped = false;
     let epoch = 0;
     let controller = new AbortController();
+    let registrationQueue: Promise<void> = Promise.resolve();
     const emitState = (userId: string, state: "on" | "off" | "blocked" | "unavailable") => {
       lastPushState.current = { userId, state };
       window.dispatchEvent(new CustomEvent("alpha-notification-push-state", { detail: lastPushState.current }));
@@ -31,14 +32,16 @@ export function NativeAppBridge({ locale }: { locale: AppLocale }) {
       message: Extract<ReturnType<typeof parseNativeToWebBridgeMessage>, { status: "registered" }>,
       userId: string,
       registrationKey: string,
+      startedEpoch: number,
     ) => {
       if (!message) return;
-      const startedEpoch = epoch;
       const signal = controller.signal;
+      const isCurrent = () => !stopped && !signal.aborted && epoch === startedEpoch
+        && currentUserIdRef.current === userId && lastRegistrationRef.current === registrationKey;
       const retryDelays = [0, 1_000, 3_000];
       for (let attempt = 0; attempt < retryDelays.length; attempt += 1) {
         if (retryDelays[attempt] > 0) await wait(retryDelays[attempt]);
-        if (stopped || signal.aborted || epoch !== startedEpoch || currentUserIdRef.current !== userId) return;
+        if (!isCurrent()) return;
         try {
           const response = await fetch("/api/mobile/v1/push-subscriptions", {
             method: "POST",
@@ -62,7 +65,7 @@ export function NativeAppBridge({ locale }: { locale: AppLocale }) {
             }),
           });
           if (response.ok) {
-            if (!stopped && !signal.aborted && epoch === startedEpoch && currentUserIdRef.current === userId) {
+            if (isCurrent()) {
               lastSuccessfulRegistrationRef.current = registrationKey;
               emitState(userId, "on");
               postToNativeApp({
@@ -80,22 +83,19 @@ export function NativeAppBridge({ locale }: { locale: AppLocale }) {
           // Retry bounded transient network failures below.
         }
       }
-      if (lastRegistrationRef.current === registrationKey) {
-        // A foreground/session signal from the native shell resends its cached
-        // token, while the server upsert keeps that retry idempotent.
-        lastRegistrationRef.current = null;
-      }
-      if (!stopped && !signal.aborted && epoch === startedEpoch && currentUserIdRef.current === userId) {
-        lastSuccessfulRegistrationRef.current = null;
-        emitState(userId, "off");
-        postToNativeApp({
-          type: "alpha.web.push-registration",
-          version: NATIVE_WEB_BRIDGE_VERSION,
-          userId,
-          status: "failed",
-          locale: message.locale,
-        });
-      }
+      if (!isCurrent()) return;
+      // A foreground/session signal from the native shell resends its cached
+      // token, while the server upsert keeps that retry idempotent.
+      lastRegistrationRef.current = null;
+      lastSuccessfulRegistrationRef.current = null;
+      emitState(userId, "off");
+      postToNativeApp({
+        type: "alpha.web.push-registration",
+        version: NATIVE_WEB_BRIDGE_VERSION,
+        userId,
+        status: "failed",
+        locale: message.locale,
+      });
     };
 
     const handleMessage = (event: MessageEvent) => {
@@ -121,8 +121,18 @@ export function NativeAppBridge({ locale }: { locale: AppLocale }) {
         if (lastSuccessfulRegistrationRef.current === registrationKey) emitState(userId, "on");
         return;
       }
+      const registrationEpoch = ++epoch;
       lastRegistrationRef.current = registrationKey;
-      void persistRegistration(message, userId, registrationKey);
+      // Token refresh and locale changes can arrive while persistence is still
+      // in flight. Let that request settle before writing the newest state;
+      // aborting it would not cancel a server upsert already in progress.
+      // Superseded tasks cannot retry, acknowledge or reset the newest state.
+      const persistLatest = async () => {
+        if (stopped || epoch !== registrationEpoch || currentUserIdRef.current !== userId
+          || lastRegistrationRef.current !== registrationKey) return;
+        await persistRegistration(message, userId, registrationKey, registrationEpoch);
+      };
+      registrationQueue = registrationQueue.then(persistLatest, persistLatest);
     };
 
     const handleSignedOut = () => {

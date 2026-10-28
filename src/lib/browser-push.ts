@@ -57,17 +57,22 @@ export async function saveBrowserPush(input: { userId: string; sessionToken: str
   const pool = getRuntimePostgresPool();
   if (!pool) throw new Error("Push storage unavailable");
   await ensureNotificationEngagementSchema(pool);
-  const result = await pool.query(`insert into alpha_exchange.browser_push_subscriptions
+  const result = await pool.query<{ active: boolean }>(`insert into alpha_exchange.browser_push_subscriptions
     (endpoint_hash, user_id, session_token_hash, subscription, locale)
     select $1,$2,$3,$4::jsonb,$5 from alpha_exchange.sessions
     where token_hash=$3 and user_id=$2 and expires_at>now()
     on conflict(endpoint_hash) do update set user_id=excluded.user_id,
       session_token_hash=excluded.session_token_hash, subscription=excluded.subscription,
-      locale=excluded.locale, active=true,
+      locale=excluded.locale,
+      active=alpha_exchange.browser_push_subscriptions.active
+        or alpha_exchange.browser_push_subscriptions.subscription is distinct from excluded.subscription,
       created_at=case when alpha_exchange.browser_push_subscriptions.user_id<>excluded.user_id then now() else alpha_exchange.browser_push_subscriptions.created_at end,
       updated_at=now()
-    returning endpoint_hash`, [pushHash(subscription.endpoint), input.userId, pushHash(input.sessionToken), JSON.stringify(subscription), input.locale]);
+    returning active`, [pushHash(subscription.endpoint), input.userId, pushHash(input.sessionToken), JSON.stringify(subscription), input.locale]);
   if (!result.rowCount) throw new Error("Session ended");
+  // Browser APIs may retain a locally cached subscription after the provider
+  // retires it. A health refresh must not revive that rejected endpoint/key.
+  return result.rows[0].active;
 }
 
 export async function removeBrowserPush(userId: string, endpoint: string) {

@@ -33,7 +33,13 @@ async function persist(subscription: PushSubscription, locale: "ar" | "en", acti
     body: JSON.stringify({ action, subscription: subscription.toJSON(), locale, expectedUserId: scope.userId }),
   });
   scope.signal?.throwIfAborted();
+  if (response.status === 409) {
+    const body = await response.json().catch(() => null) as { code?: string } | null;
+    scope.signal?.throwIfAborted();
+    if (body?.code === "subscription_inactive") return false;
+  }
   if (!response.ok) throw new Error("Push registration failed");
+  return true;
 }
 
 export async function checkBrowserPush(locale: "ar" | "en", enabled: boolean, scope: PushScope = {}): Promise<DevicePushState> {
@@ -46,8 +52,7 @@ export async function checkBrowserPush(locale: "ar" | "en", enabled: boolean, sc
   const subscription = await registration?.pushManager.getSubscription();
   if (!subscription || !enabled) return "off";
   if (scope.publicKey && !matchesApplicationKey(subscription, applicationKey(scope.publicKey))) return "off";
-  await persist(subscription, locale, "refresh", scope);
-  return "on";
+  return await persist(subscription, locale, "refresh", scope) ? "on" : "off";
 }
 
 /** Called directly by a click handler; no await before the permission request. */
@@ -72,11 +77,20 @@ export async function enableBrowserPush(locale: "ar" | "en", publicKey: string, 
   scope.signal?.throwIfAborted();
   if (subscription && !matchesApplicationKey(subscription, key)) {
     await persist(subscription, locale, "unsubscribe", scope);
+    scope.signal?.throwIfAborted();
     await subscription.unsubscribe();
     scope.signal?.throwIfAborted();
     subscription = null;
   }
   subscription ??= await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key });
-  await persist(subscription, locale, "subscribe", scope);
+  if (!await persist(subscription, locale, "subscribe", scope)) {
+    // Only an explicit Enable action replaces a provider-retired subscription.
+    // Permission may still be granted while getSubscription() returns it.
+    scope.signal?.throwIfAborted();
+    await subscription.unsubscribe();
+    scope.signal?.throwIfAborted();
+    subscription = await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key });
+    if (!await persist(subscription, locale, "subscribe", scope)) throw new Error("Push subscription is still inactive");
+  }
   return "on";
 }

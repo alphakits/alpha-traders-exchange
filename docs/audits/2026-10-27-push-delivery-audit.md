@@ -1,10 +1,17 @@
 # Buyer and seller push notification audit
 
-Updated: 28 October 2026. Integration base: `dc2de1edee936264f4f84792e019e355ed9ffe2a`.
+Updated: 28 October 2026. Integration base: `a9fc0f9beb1a546127ce0f3b68cb1e7b8bd1b293`.
 
 This change recovers the unfinished browser-push/reminder draft and fixes important buyer/seller delivery gaps. It contains no Wise feature changes or financial decision changes. Software checks do not establish that a device displayed a notification.
 
-Status: implementation and local verification complete. The review patch contains 58 notification implementation, migration, test and audit files. Remote CI and preview results are tracked in the associated pull request. Production deployment, configuration and physical-device acceptance remain separate release requirements; no real notifications were sent during this audit.
+Status: the earlier implementation and local verification checkpoint is retained below. The 28 October continuation integrates PR #449's public-build repair and adds two further delivery fixes; final-candidate CI and preview results are tracked in PR #447. Production configuration, deployment and real-device acceptance remain open; no real notifications were sent during this audit.
+
+## 28 October continuation
+
+- A background refresh no longer reactivates an unchanged browser subscription retired after a provider 404/410. The API reports it inactive, health checks show off, and explicit Enable replaces the stale local subscription before reporting success. Nine database, route and client regressions were added.
+- Native token/locale registrations are serialized within the current document; superseded queued tasks, retries, acknowledgements and UI state updates are suppressed. Three regressions cover delayed success, delayed failure and refresh during retry backoff. This does not claim server ordering after an ambiguous network disconnect.
+- Five direct browser-client scenarios passed, and the native source syntax check passed. Full Vitest, database and release checks on this candidate are tracked by PR #447; the older counts below are historical evidence.
+- Read-only production inspection confirmed missing web-push configuration/migrations/schedulers and shared production/preview database inheritance. The [release-readiness audit](2026-10-28-notification-release-readiness.md) records the exact evidence and remaining acceptance checklist. Authenticated preview mutation tests must wait for isolation.
 
 ## Findings fixed
 

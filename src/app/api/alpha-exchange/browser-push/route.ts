@@ -34,7 +34,8 @@ export async function POST(request: NextRequest) {
     if (!browserPushConfiguration()) return NextResponse.json({ error: "Browser push is unavailable." }, { status: 503, headers });
     const sessionToken = await getCurrentSessionToken();
     if (!sessionToken) return NextResponse.json({ error: "Unauthorized." }, { status: 401, headers });
-    await saveBrowserPush({ userId: user.id, sessionToken, subscription, locale: body.locale });
+    const active = await saveBrowserPush({ userId: user.id, sessionToken, subscription, locale: body.locale });
+    if (!active) return NextResponse.json({ registered: false, code: "subscription_inactive", error: "This device subscription expired. Enable alerts again." }, { status: 409, headers });
     // Background renewal never turns a deliberately disabled preference on.
     if (body.action === "subscribe") await updateNotificationPreferences({ userId: user.id, preferences: { browserPush: true, inApp: true } });
     return NextResponse.json({ registered: true }, { headers });

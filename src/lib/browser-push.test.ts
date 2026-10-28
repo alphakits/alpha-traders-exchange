@@ -68,6 +68,26 @@ describe("browser push delivery", () => {
     await db.exec("update alpha_exchange.browser_push_deliveries set updated_at=now()-interval '3 minutes'");
     await drainBrowserPush();expect(send).toHaveBeenCalledTimes(2);
   });
+  it.each([404, 410])("does not revive a provider-retired subscription during refresh after %s", async statusCode => {
+    await notice();
+    send.mockRejectedValueOnce({ statusCode });
+    await drainBrowserPush();
+    expect(await saveBrowserPush({ userId: "user", sessionToken: "session", subscription, locale: "en" })).toBe(false);
+    await notice("after-refresh");
+    expect((await drainBrowserPush()).sent).toBe(0);
+    expect(send).toHaveBeenCalledTimes(1);
+    expect((await db.query<{ active: boolean }>("select active from alpha_exchange.browser_push_subscriptions")).rows[0].active).toBe(false);
+  });
+  it("reactivates an expired endpoint only after subscription keys change", async () => {
+    await notice();
+    send.mockRejectedValueOnce({ statusCode: 410 });
+    await drainBrowserPush();
+    const replacement = { ...subscription, keys: { ...subscription.keys, auth: Buffer.alloc(16, 2).toString("base64url") } };
+    expect(await saveBrowserPush({ userId: "user", sessionToken: "session", subscription: replacement, locale: "en" })).toBe(true);
+    await notice("after-repair");
+    expect((await drainBrowserPush()).sent).toBe(1);
+    expect(send.mock.calls[1][0]).toEqual(replacement);
+  });
   it("rejects expired registrations and external destinations",async()=>{
     await expect(saveBrowserPush({userId:"user",sessionToken:"expired",subscription,locale:"en"})).rejects.toThrow("Session ended");
     const n=await notice();expect(browserPushPayload({...n,relatedHref:"https://evil.example"},"en").url).toBe("/en/notifications");

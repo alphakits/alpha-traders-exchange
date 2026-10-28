@@ -24,6 +24,40 @@ it("refreshes only a subscription using the current application key", async () =
   expect(await checkBrowserPush("en", true, { publicKey: "AA" })).toBe("on");
   expect(fetch).toHaveBeenCalledTimes(1);
 });
+it("reports provider-retired subscriptions off without automatically replacing them", async () => {
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ code: "subscription_inactive" }), { status: 409 })));
+  expect(await checkBrowserPush("en", true, { userId: "buyer", publicKey: "AA" })).toBe("off");
+  expect(subscription.unsubscribe).not.toHaveBeenCalled();
+  expect(registration.pushManager.subscribe).not.toHaveBeenCalled();
+  expect(Notification.requestPermission).not.toHaveBeenCalled();
+});
+it("replaces a provider-retired subscription only after explicit Enable", async () => {
+  const replacement = { ...subscription, toJSON: () => ({ ...subscription.toJSON(), endpoint: "https://fcm.googleapis.com/fcm/send/replacement" }) };
+  registration.pushManager.subscribe.mockResolvedValue(replacement);
+  const fetcher = vi.fn()
+    .mockResolvedValueOnce(new Response(JSON.stringify({ code: "subscription_inactive" }), { status: 409 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ registered: true }), { status: 200 }));
+  vi.stubGlobal("fetch", fetcher);
+  expect(await enableBrowserPush("en", "AA", { userId: "buyer" })).toBe("on");
+  expect(subscription.unsubscribe).toHaveBeenCalledTimes(1);
+  expect(registration.pushManager.subscribe).toHaveBeenCalledTimes(1);
+  expect(JSON.parse(fetcher.mock.calls[1][1].body)).toMatchObject({ action: "subscribe", expectedUserId: "buyer", subscription: { endpoint: "https://fcm.googleapis.com/fcm/send/replacement" } });
+  expect(Notification.requestPermission).not.toHaveBeenCalled();
+});
+it("does not report on when replacement registration is still retired", async () => {
+  vi.stubGlobal("fetch", vi.fn().mockImplementation(async () => new Response(JSON.stringify({ code: "subscription_inactive" }), { status: 409 })));
+  await expect(enableBrowserPush("en", "AA", { userId: "buyer" })).rejects.toThrow("still inactive");
+  expect(subscription.unsubscribe).toHaveBeenCalledTimes(1);
+  expect(registration.pushManager.subscribe).toHaveBeenCalledTimes(1);
+});
+it("does not replace a retired subscription after logout during unsubscribe", async () => {
+  const controller = new AbortController();
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ code: "subscription_inactive" }), { status: 409 })));
+  subscription.unsubscribe.mockImplementation(async () => { controller.abort(); return true; });
+  await expect(enableBrowserPush("en", "AA", { userId: "buyer", signal: controller.signal })).rejects.toMatchObject({ name: "AbortError" });
+  expect(registration.pushManager.subscribe).not.toHaveBeenCalled();
+  expect(fetch).toHaveBeenCalledTimes(1);
+});
 afterEach(()=>{vi.unstubAllGlobals();delete (navigator as unknown as Record<string,unknown>).serviceWorker;});
 describe("browser permission and registration",()=>{
  it("refreshes a healthy subscription without a permission popup",async()=>{expect(await checkBrowserPush("en",true)).toBe("on");expect(Notification.requestPermission).not.toHaveBeenCalled();});
