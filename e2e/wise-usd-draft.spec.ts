@@ -16,6 +16,11 @@ async function login(api: APIRequestContext, email: string) {
 test("personal Wise USD accounts and Buy Request complete locally with private payment instructions", async ({ page, context, playwright, baseURL, browserName }, info) => {
   const browserErrorAudit = createHardNavigationErrorAudit(browserName);
   browserErrorAudit.observe(page);
+  let phase = "fixture setup";
+  const pageErrors: Array<{ phase: string; path: string; message: string; stack?: string }> = [];
+  page.on("pageerror", error => {
+    pageErrors.push({ phase, path: new URL(page.url()).pathname, message: error.message, stack: error.stack });
+  });
   await context.route("**/*", route => ["localhost", "127.0.0.1"].includes(new URL(route.request().url()).hostname)
     ? route.continue() : route.abort("blockedbyclient"));
   await seedOfflineFixture(baseURL!);
@@ -42,6 +47,7 @@ test("personal Wise USD accounts and Buy Request complete locally with private p
       expect(JSON.stringify(created)).not.toContain(accountNumber);
       return created.account.id as string;
     };
+    phase = "account settings";
     await page.goto("/en/settings?tab=profile#wise-accounts");
     const buyerAccountForm = page.getByRole("region", { name: "Personal Wise accounts · USD", exact: true });
     await buyerAccountForm.getByLabel("Legal account holder name", { exact: true }).fill("Demo Buyer");
@@ -76,6 +82,7 @@ test("personal Wise USD accounts and Buy Request complete locally with private p
     expect(JSON.stringify(publicListings)).not.toContain("00002002002");
     expect(JSON.stringify(publicListings)).not.toContain("00001001001");
 
+    phase = "request creation";
     await page.goto("/en/usdt-exchange/requests");
     await page.getByRole("button", { name: "Create a request", exact: true }).click();
     await page.getByLabel("Bank transfer provider", { exact: true }).selectOption("wise");
@@ -85,6 +92,7 @@ test("personal Wise USD accounts and Buy Request complete locally with private p
     await expect(page.getByLabel(/transaction reason|transaction purpose/i)).toHaveCount(0);
     await page.getByRole("form", { name: "Request details", exact: true }).screenshot({ path: info.outputPath("wise-usd-request.png") });
     const published = page.waitForResponse(response => response.url().endsWith("/api/alpha-exchange/usdt-requests") && response.request().method() === "POST");
+    phase = "publish request";
     await page.getByRole("button", { name: "Publish request", exact: true }).click();
     const demand = await ok(await published);
     const publishedWorkspace = await ok(await page.request.get(`/api/alpha-exchange/usdt-requests/${demand.id}`));
@@ -95,6 +103,7 @@ test("personal Wise USD accounts and Buy Request complete locally with private p
     // The hard navigation can cancel the departing document's demand refresh.
     // Retain WebKit's exact native diagnostic only if the newly committed
     // document proves the same owner's Wise request and the seller's new offer.
+    phase = "reload request with seller response";
     await browserErrorAudit.navigate(page, () => page.goto(`/en/usdt-exchange/requests/${demand.id}?offer=${offered.id}`), {
       url: new URL(`/api/alpha-exchange/usdt-requests/${demand.id}`, baseURL).href,
       label: "same Wise demand workspace",
@@ -108,6 +117,7 @@ test("personal Wise USD accounts and Buy Request complete locally with private p
           && request.offers.some(offer => offer.id === offered.id && offer.price === "1.00" && offer.state === "open" && offer.available);
       },
     });
+    phase = "review response";
     await page.getByRole("button", { name: "Review response", exact: true }).click();
     await page.getByLabel("Your personal Wise account for sending USD", { exact: true }).selectOption(buyerAccount);
     await page.getByLabel(/Your receiving wallet/).fill("TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE");
@@ -117,6 +127,7 @@ test("personal Wise USD accounts and Buy Request complete locally with private p
       path: info.outputPath("wise-usd-review.png"), style: ".alpha-site-header { visibility: hidden !important; }",
     });
     const matching = page.waitForResponse(response => response.url().endsWith("/api/alpha-exchange/purchase-requests") && response.request().method() === "POST");
+    phase = "open Trade Room";
     await page.getByRole("button", { name: "Open Trade Room", exact: true }).click();
     const matched = await ok(await matching);
     const trade = matched.purchase;
@@ -132,9 +143,11 @@ test("personal Wise USD accounts and Buy Request complete locally with private p
     const premature = await seller.patch(path, { data: { status: "usdt_release_pending" } });
     expect(premature.ok()).toBe(false);
     await ok(await seller.patch(path, { data: { status: "accepted", safetyAcknowledged: true } }));
+    phase = "reload accepted Trade Room";
     await page.reload();
     await expect(page.getByRole("button", { name: "Reveal Bank Details", exact: true })).toBeVisible();
     page.once("dialog", dialog => dialog.accept());
+    phase = "reveal payment instructions";
     await page.getByRole("button", { name: "Reveal Bank Details", exact: true }).click();
     await expect(page.getByText("00002002002", { exact: true })).toBeVisible();
     await expect(page.getByText("00001001001", { exact: true })).toBeVisible();
@@ -144,6 +157,7 @@ test("personal Wise USD accounts and Buy Request complete locally with private p
     const evidence = async (api: APIRequestContext, side: "buyer" | "seller") => ok(await api.post(`${path}/evidence`, { data: {
       side, fileName: `${side}-synthetic-proof.png`, mimeType: "image/png", sizeBytes: Buffer.from(png, "base64").length, fileData: `data:image/png;base64,${png}`,
     } }));
+    phase = "complete trade and verify final state";
     expect((await evidence(page.request, "buyer")).request.status).toBe("payment_sent");
     for (const status of ["funds_received", "usdt_release_pending"]) await ok(await seller.patch(path, { data: { status } }));
     expect((await evidence(seller, "seller")).request.status).toBe("usdt_sent");
@@ -155,9 +169,9 @@ test("personal Wise USD accounts and Buy Request complete locally with private p
     expect(commissions).toHaveLength(1);
     expect(commissions[0]).toMatchObject({ sellerFeeAmount: 10, buyerFeeCollectedAmount: 10, commissionAmount: 20, grossAmount: 1010, grossCurrency: "USD" });
     expect(final.usdtDemands.find((entry: { id: string }) => entry.id === demand.id).state).toBe("matched");
-    expect(browserErrorAudit.errors).toEqual([]);
+    expect(browserErrorAudit.errors, JSON.stringify({ pageErrors, audit: browserErrorAudit.report() }, null, 2)).toEqual([]);
   } finally {
-    await info.attach("browser-error-audit", { body: JSON.stringify(browserErrorAudit.report(), null, 2), contentType: "application/json" });
+    await info.attach("browser-error-audit", { body: JSON.stringify({ pageErrors, audit: browserErrorAudit.report() }, null, 2), contentType: "application/json" });
     await seller.dispose(); await reviewer.dispose(); await outsider.dispose();
   }
 });
