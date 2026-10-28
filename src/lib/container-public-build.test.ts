@@ -31,7 +31,7 @@ describe("container public build inputs", () => {
     expect(run).not.toBeNull();
     const guard = run![1].replace(/\\\n/g, " ");
     const status = (overrides: Record<string, string> = {}) => spawnSync("/bin/sh", ["-c", guard], {
-      env: { ...defaults, ...overrides },
+      env: { ...defaults, ...overrides, NODE_ENV: "test" },
     }).status;
     expect(status()).toBe(0);
     expect(status({ NEXT_PUBLIC_SITE_URL: "https://example.test" })).toBe(0);
