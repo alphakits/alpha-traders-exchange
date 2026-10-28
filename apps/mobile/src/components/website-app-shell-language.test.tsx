@@ -170,3 +170,42 @@ describe("active mobile website shell language", () => {
     expect(mocks.values.has(WEBSITE_SESSION_LOCALE_KEY)).toBe(false);
   });
 });
+
+describe("Trade Room native refresh gesture isolation", () => {
+  it.each(["en", "ar"] as const)("disables refresh for the initial %s Trade Room and restores it after navigation", async (locale) => {
+    mocks.values.set(WEBSITE_SESSION_LOCALE_KEY, locale);
+    mocks.values.set(resumeKey, `${origin}/${locale}/trade-room/test-request#chat`);
+    render(<WebsiteAppShell />);
+    await waitFor(() => expect(mocks.props?.source).toEqual({ uri: `${origin}/${locale}/trade-room/test-request#chat` }));
+    expect(mocks.props?.pullToRefreshEnabled).toBe(false);
+    act(() => mocks.props?.onNavigationStateChange?.({
+      url: `${origin}/${locale}/profile`, canGoBack: true,
+    } as WebViewNavigation));
+    expect(mocks.props?.pullToRefreshEnabled).toBe(true);
+    act(() => mocks.props?.onNavigationStateChange?.({
+      url: `${origin}/${locale}/trade-room/test-request?action=open-trade#chat`, canGoBack: true,
+    } as WebViewNavigation));
+    expect(mocks.props?.pullToRefreshEnabled).toBe(false);
+  });
+
+  it("keeps ordinary refresh, ignores untrusted navigation state and follows trusted window destinations", async () => {
+    mocks.values.set(resumeKey, `${origin}/en/profile`);
+    render(<WebsiteAppShell />);
+    await waitFor(() => expect(mocks.props).not.toBeNull());
+    expect(mocks.props?.pullToRefreshEnabled).toBe(true);
+    act(() => mocks.props?.onOpenWindow?.({ nativeEvent: { targetUrl: `${origin}/en/trade-room/test-request` } } as never));
+    expect(mocks.props?.source).toEqual({ uri: `${origin}/en/trade-room/test-request` });
+    expect(mocks.props?.pullToRefreshEnabled).toBe(false);
+    act(() => mocks.props?.onNavigationStateChange?.({
+      url: "https://attacker.example/en/profile", canGoBack: false,
+    } as WebViewNavigation));
+    expect(mocks.props?.pullToRefreshEnabled).toBe(false);
+    act(() => mocks.props?.onOpenWindow?.({ nativeEvent: { targetUrl: `${origin}/en/profile` } } as never));
+    expect(mocks.props?.pullToRefreshEnabled).toBe(true);
+    act(() => mocks.props?.onNavigationStateChange?.({
+      url: `${origin}/en/login?redirectTo=/en/trade-room/test-request`, canGoBack: true,
+    } as WebViewNavigation));
+    expect(mocks.props?.pullToRefreshEnabled).toBe(true);
+  });
+});
+
