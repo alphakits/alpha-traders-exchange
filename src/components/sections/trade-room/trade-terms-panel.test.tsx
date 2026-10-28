@@ -43,7 +43,7 @@ describe("trade proposal controls", () => {
     await waitFor(() => expect(fetch).toHaveBeenCalledOnce());
     expect(JSON.parse(fetch.mock.calls[0][1].body)).toMatchObject({ action: "accept_counter_offer", proposalId: "offer-2" });
   });
-  it.each(["accepted", "payment_sent", "funds_received", "usdt_release_pending", "usdt_sent"] as const)("explains why amount adjustment is locked at %s", (status) => {
+  it.each(["payment_sent", "funds_received", "usdt_release_pending", "usdt_sent"] as const)("explains why amount adjustment is locked at %s", (status) => {
     render(<TradeTermsPanel request={{ ...base, status }} actorId="seller" isAr={false} onUpdated={vi.fn()} />);
     expect((screen.getByRole("button", { name: "Adjust Amount" }) as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByText(/amount is locked/)).toBeTruthy();
@@ -51,8 +51,8 @@ describe("trade proposal controls", () => {
 });
 
 
-it.each(["Bank Transfer", "Cardless ATM Withdrawal", "Face-to-Face (Meet in Person)"])("proposes a correction and requires buyer approval for %s", async (paymentMethod) => {
-  const request = { ...base, status: "pending" as const, priceMode: "listing_price" as const, paymentMethod };
+it.each(["Bank Transfer", "Cardless ATM Withdrawal", "Face-to-Face (Meet in Person)"].flatMap(paymentMethod => ["pending", "accepted"].map(status => ({ paymentMethod, status: status as "pending" | "accepted" }))))("proposes a correction and requires buyer approval for $paymentMethod at $status", async ({ paymentMethod, status }) => {
+  const request = { ...base, status, priceMode: "listing_price" as const, paymentMethod };
   const proposed = { ...request, termsProposal: { id: "amount-1", kind: "amount_correction" as const, status: "pending" as const, usdtAmount: "300", fiatAmount: "900.00", pricePerUsdt: "3.00", createdAt: request.updatedAt } };
   const fetch = vi.fn().mockResolvedValue(Response.json({ request: proposed }));
   vi.stubGlobal("fetch", fetch);
@@ -91,19 +91,23 @@ it("submits an ILS total correction for buyer approval", async () => {
   expect(JSON.parse(fetch.mock.calls[0][1].body)).toMatchObject({ action: "propose_ils_amount", value: "404" });
 });
 
-it("closes an open editor when acceptance makes payment available", () => {
+it("keeps an amount draft after acceptance and closes it once payment is sent", () => {
   const { rerender } = render(<TradeTermsPanel request={base} actorId="seller" isAr={false} onUpdated={vi.fn()} />);
   fireEvent.click(screen.getByRole("button", {name:"Adjust Amount"}));
   fireEvent.change(screen.getByLabelText("Correct USDT amount"), {target:{value:"150"}});
   rerender(<TradeTermsPanel request={{...base,status:"accepted"}} actorId="seller" isAr={false} onUpdated={vi.fn()} />);
+  expect((screen.getByLabelText("Correct USDT amount") as HTMLInputElement).value).toBe("150");
+  expect((screen.getByRole("button", {name:"Propose corrected amount"}) as HTMLButtonElement).disabled).toBe(false);
+  expect(screen.queryByRole("button", {name:"Make a counter-offer"})).toBeNull();
+  rerender(<TradeTermsPanel request={{...base,status:"payment_sent"}} actorId="seller" isAr={false} onUpdated={vi.fn()} />);
   expect(screen.queryByLabelText("Correct USDT amount")).toBeNull();
   expect((screen.getByRole("button", {name:"Adjust Amount"}) as HTMLButtonElement).disabled).toBe(true);
   expect(screen.getByTestId("trade-amount-locked")).toBeTruthy();
 });
 
-it("prevents the buyer accepting a legacy proposal once payment is available", () => {
+it("prevents the buyer accepting a proposal after payment has been sent", () => {
   const fetch = vi.fn(); vi.stubGlobal("fetch", fetch);
-  const request = {...base,status:"accepted" as const,termsProposal:{id:"stale",kind:"amount_correction" as const,status:"pending" as const,usdtAmount:"500",fiatAmount:"1500",pricePerUsdt:"3",createdAt:base.updatedAt}};
+  const request = {...base,status:"payment_sent" as const,termsProposal:{id:"stale",kind:"amount_correction" as const,status:"pending" as const,usdtAmount:"500",fiatAmount:"1500",pricePerUsdt:"3",createdAt:base.updatedAt}};
   render(<TradeTermsPanel request={request} actorId="buyer" isAr={false} onUpdated={vi.fn()} />);
   const accept=screen.getByRole("button",{name:"Accept these terms"});
   expect((accept as HTMLButtonElement).disabled).toBe(true);
@@ -134,8 +138,8 @@ it("closes an open editor if the other seller tab uses the second adjustment", (
   expect(screen.getByRole("button", {name:"Adjust Amount"}).getAttribute("aria-expanded")).toBe("false");
 });
 
-it("still lets the buyer approve the second proposal before acceptance", async () => {
-  const request = {...base, amountAdjustmentCount: 2, termsProposal:{id:"second",kind:"amount_correction" as const,status:"pending" as const,usdtAmount:"150",fiatAmount:"450",pricePerUsdt:"3",createdAt:base.updatedAt}};
+it.each(["pending", "accepted"] as const)("still lets the buyer approve the second proposal at %s before payment", async status => {
+  const request = {...base, status, amountAdjustmentCount: 2, termsProposal:{id:"second",kind:"amount_correction" as const,status:"pending" as const,usdtAmount:"150",fiatAmount:"450",pricePerUsdt:"3",createdAt:base.updatedAt}};
   const fetch = vi.fn().mockResolvedValue(Response.json({request})); vi.stubGlobal("fetch", fetch);
   render(<TradeTermsPanel request={request} actorId="buyer" isAr={false} onUpdated={vi.fn()} />);
   const accept=screen.getByRole("button", {name:"Accept these terms"});
@@ -143,6 +147,36 @@ it("still lets the buyer approve the second proposal before acceptance", async (
   fireEvent.click(accept);
   await waitFor(() => expect(fetch).toHaveBeenCalledOnce());
   expect(JSON.parse(fetch.mock.calls[0][1].body)).toMatchObject({action:"accept_amount",proposalId:"second"});
+});
+
+it("does not reinterpret an open counter-price draft as an amount when the trade is accepted", () => {
+  const { rerender } = render(<TradeTermsPanel request={base} actorId="seller" isAr={false} onUpdated={vi.fn()} />);
+  fireEvent.click(screen.getByRole("button", { name: "Make a counter-offer" }));
+  fireEvent.change(screen.getByLabelText("Counter price in ILS per USDT"), { target: { value: "3.10" } });
+  rerender(<TradeTermsPanel request={{ ...base, status: "accepted" }} actorId="seller" isAr={false} onUpdated={vi.fn()} />);
+  expect(screen.queryByLabelText("Counter price in ILS per USDT")).toBeNull();
+  expect(screen.queryByLabelText("Correct USDT amount")).toBeNull();
+  expect(screen.getByRole("button", { name: "Adjust Amount" }).getAttribute("aria-expanded")).toBe("false");
+  fireEvent.click(screen.getByRole("button", { name: "Adjust Amount" }));
+  expect((screen.getByLabelText("Correct USDT amount") as HTMLInputElement).value).toBe("");
+});
+
+it("keeps legacy counter-offer approval locked after acceptance while allowing withdrawal or decline", () => {
+  const fetch = vi.fn(); vi.stubGlobal("fetch", fetch);
+  const request = { ...base, status: "accepted" as const, termsProposal: { id: "old-counter", kind: "counter_offer" as const, status: "pending" as const, usdtAmount: "250", fiatAmount: "775.00", pricePerUsdt: "3.10", createdAt: base.updatedAt } };
+  render(<TradeTermsPanel request={request} actorId="buyer" isAr={false} onUpdated={vi.fn()} />);
+  const accept = screen.getByRole("button", { name: "Accept these terms" }) as HTMLButtonElement;
+  expect(accept.disabled).toBe(true);
+  fireEvent.click(accept);
+  expect(fetch).not.toHaveBeenCalled();
+  expect((screen.getByRole("button", { name: "Decline proposal" }) as HTMLButtonElement).disabled).toBe(false);
+  expect(screen.getByRole("status").textContent).toContain("Counter-offers are only available before");
+});
+
+it.each([false, true])("offers accepted amount adjustments with the payment boundary explained, Arabic=%s", isAr => {
+  render(<TradeTermsPanel request={{ ...base, status: "accepted", tradeCreatedAt: base.updatedAt, priceOfferAcceptedAt: base.updatedAt }} actorId="seller" isAr={isAr} onUpdated={vi.fn()} />);
+  expect((screen.getByRole("button", { name: isAr ? "تعديل المبلغ" : "Adjust Amount" }) as HTMLButtonElement).disabled).toBe(false);
+  expect(screen.getByText(isAr ? /قبل إرسال الدفعة أو مشاركة رمز السحب أو تأكيد النقد/ : /before payment is sent, a withdrawal code is shared, or cash is confirmed/)).toBeTruthy();
 });
 
 it.each(["Bank Transfer", "Face-to-Face (Meet in Person)", "Cardless ATM Withdrawal"])("previews counter-offer totals including the buyer fee for %s", paymentMethod => {

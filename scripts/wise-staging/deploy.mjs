@@ -425,7 +425,10 @@ export function validateRuntimeEvidence({ report, deployment, config, outboundPr
     && [...Object.keys(RUNTIME), ...PUBLIC_KEYS, WISE_KEY, 'SUPABASE_DB_URL', 'SUPABASE_SERVICE_ROLE_KEY'].every(key => deployment.env.includes(key)), 'DEPLOYED_RUNTIME_KEY_MISSING');
   const buildKeys = buildArguments(config.rows).blank;
   need(Array.isArray(deployment.build?.env) && [...buildKeys, ...PUBLIC_KEYS].every(key => deployment.build.env.includes(key)), 'DEPLOYED_BUILD_KEY_MISSING');
-  const source = docker.toString('utf8');
+  // Git may materialize the reviewed Dockerfile with CRLF on Windows. Normalize
+  // only line endings for syntax inspection; package verification still checks
+  // the original exact bytes and manifest hashes before this function runs.
+  const source = docker.toString('utf8').replace(/\r\n/g, '\n');
   need((source.match(/^FROM docker\.io\/library\/node:24\.22\.1-bookworm-slim@sha256:[a-f0-9]{64} AS (?:build|runtime)$/gm) ?? []).length === 2
     && source.includes('if (process.versions.node !== \'24.22.1\') process.exit(1)')
     && /AS runtime\nWORKDIR \/app\nENV NODE_ENV=production \\\n/.test(source)

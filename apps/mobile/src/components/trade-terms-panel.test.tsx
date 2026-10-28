@@ -11,7 +11,7 @@ vi.mock("./branded-text", () => ({ BrandedText: ({ children }: { children: React
 vi.mock("./gold-button", () => ({ GoldButton: ({ children, disabled, onPress }: { children: ReactNode; disabled: boolean; onPress: () => void }) => <button disabled={disabled} onClick={onPress}>{children}</button> }));
 import { TradeTermsPanel } from "./trade-terms-panel";
 
-const base = { id: "trade-1", side: "seller", status: "pending", currency: "ILS", paymentMethod: "Cardless ATM Withdrawal", usdtAmount: "420", fiatAmount: "1315.02", pricePerUsdt: "3.10", priceMode: "listing_price", feePolicyVersion: "buyer_seller_1pct_v1", actions: { canCancel: true } } as MobileTradeDetail;
+const base = { id: "trade-1", side: "seller", status: "pending", currency: "ILS", paymentMethod: "Cardless ATM Withdrawal", usdtAmount: "420", fiatAmount: "1315.02", pricePerUsdt: "3.10", priceMode: "listing_price", feePolicyVersion: "buyer_seller_1pct_v1", actions: { canCancel: true, canAdjustAmounts: true } } as MobileTradeDetail;
 afterEach(cleanup);
 
 it.each([false, true])("calculates a native ATM correction from cash including the fee, Arabic=%s", async isAr => {
@@ -44,4 +44,95 @@ it.each(["Bank Transfer", "Face-to-Face (Meet in Person)"])("calculates native t
   fireEvent.change(screen.getByLabelText("Total ILS payment"), { target: { value: "1300" } });
   expect(screen.getByText("420 → 415.202811 USDT")).toBeTruthy();
   expect(screen.getByText("Total includes the buyer’s 1% fee. Do not add it again.")).toBeTruthy();
+});
+
+it.each(["Bank Transfer", "Face-to-Face (Meet in Person)", "Cardless ATM Withdrawal"])("allows an accepted %s amount proposal independently of cancellation", async paymentMethod => {
+  const onAction = vi.fn().mockResolvedValue(undefined);
+  render(<TradeTermsPanel trade={{ ...base, status: "accepted", paymentMethod, priceMode: "buyer_offer", actions: { ...base.actions, canCancel: false, canAdjustAmounts: true } }} isAr={false} disabled={false} onAction={onAction} />);
+  const cardless = paymentMethod === "Cardless ATM Withdrawal";
+  expect(screen.queryByRole("button", { name: "Make a counter-offer" })).toBeNull();
+  fireEvent.change(screen.getByLabelText(cardless ? "New withdrawal amount (ILS)" : "Correct USDT amount"), { target: { value: cardless ? "1300" : "300" } });
+  fireEvent.click(screen.getByRole("button", { name: "Propose corrected amount" }));
+  await waitFor(() => expect(onAction).toHaveBeenCalledWith(cardless ? "propose_ils_amount" : "propose_amount", cardless ? "1300" : "300", false));
+});
+
+it.each([false, true])("lets the buyer approve the second accepted amount proposal before payment, Arabic=%s", async isAr => {
+  const proposal = { id: "amount-2", kind: "amount_correction" as const, status: "pending" as const, usdtAmount: "300", fiatAmount: "939.30", pricePerUsdt: "3.10", createdAt: "2026-10-28T18:00:00Z" };
+  const onAction = vi.fn().mockResolvedValue(undefined);
+  render(<TradeTermsPanel trade={{ ...base, side: "buyer", status: "accepted", amountAdjustmentCount: 2, termsProposal: proposal, actions: { ...base.actions, canCancel: false, canAdjustAmounts: true } }} isAr={isAr} disabled={false} onAction={onAction} />);
+  const accept = screen.getByRole("button", { name: isAr ? "موافقة على الشروط" : "Accept these terms" }) as HTMLButtonElement;
+  expect(accept.disabled).toBe(false);
+  fireEvent.click(accept);
+  await waitFor(() => expect(onAction).toHaveBeenCalledWith("accept_amount", "", false));
+});
+
+it.each(["accepted", "payment_sent", "funds_received", "usdt_release_pending", "usdt_sent"] as const)("honors server irreversible-progress lock at %s even when cancellation differs", status => {
+  const onAction = vi.fn();
+  render(<TradeTermsPanel trade={{ ...base, status, actions: { ...base.actions, canCancel: true, canAdjustAmounts: false } }} isAr={false} disabled={false} onAction={onAction} />);
+  expect(screen.queryByRole("button", { name: "Propose corrected amount" })).toBeNull();
+  expect(screen.queryByRole("textbox")).toBeNull();
+  expect(onAction).not.toHaveBeenCalled();
+});
+
+it.each(["payment_sent", "funds_received", "usdt_release_pending", "usdt_sent", "completed", "cancelled"] as const)("never reopens %s from a stale amount capability", status => {
+  render(<TradeTermsPanel trade={{ ...base, status }} isAr={false} disabled={false} onAction={vi.fn()} />);
+  expect(screen.queryByRole("textbox")).toBeNull();
+});
+
+it("keeps older native payloads without amount eligibility locked", () => {
+  const actions = { ...base.actions };
+  delete actions.canAdjustAmounts;
+  render(<TradeTermsPanel trade={{ ...base, actions }} isAr={false} disabled={false} onAction={vi.fn()} />);
+  expect(screen.queryByRole("textbox")).toBeNull();
+});
+
+it("does not approve a pending amount proposal after its server payment boundary locks", () => {
+  const onAction = vi.fn();
+  const termsProposal = { id: "amount-1", kind: "amount_correction" as const, status: "pending" as const, usdtAmount: "300", fiatAmount: "939.30", pricePerUsdt: "3.10", createdAt: "2026-10-28T18:00:00Z" };
+  render(<TradeTermsPanel trade={{ ...base, status: "accepted", side: "buyer", termsProposal, actions: { ...base.actions, canAdjustAmounts: false } }} isAr={false} disabled={false} onAction={onAction} />);
+  const accept = screen.getByRole("button", { name: "Accept these terms" }) as HTMLButtonElement;
+  expect(accept.disabled).toBe(true);
+  fireEvent.click(accept);
+  expect(onAction).not.toHaveBeenCalled();
+  expect(screen.getByText(/amount is locked/)).toBeTruthy();
+  expect((screen.getByRole("button", { name: "Decline proposal" }) as HTMLButtonElement).disabled).toBe(false);
+});
+
+it("does not reinterpret a pending counter-price draft as an accepted amount", async () => {
+  const onAction = vi.fn().mockResolvedValue(undefined);
+  const trade = { ...base, paymentMethod: "Bank Transfer", priceMode: "buyer_offer" as const };
+  const { rerender } = render(<TradeTermsPanel trade={trade} isAr={false} disabled={false} onAction={onAction} />);
+  fireEvent.click(screen.getByRole("button", { name: "Make a counter-offer" }));
+  fireEvent.change(screen.getByLabelText("Counter price ILS"), { target: { value: "3.11" } });
+  rerender(<TradeTermsPanel trade={{ ...trade, status: "accepted" }} isAr={false} disabled={false} onAction={onAction} />);
+  const input = screen.getByLabelText("Correct USDT amount") as HTMLInputElement;
+  expect(input.value).toBe("");
+  const submit = screen.getByRole("button", { name: "Propose corrected amount" }) as HTMLButtonElement;
+  expect(submit.disabled).toBe(true);
+  fireEvent.change(input, { target: { value: "300" } });
+  expect(input.value).toBe("300");
+  fireEvent.click(submit);
+  await waitFor(() => expect(onAction).toHaveBeenCalledWith("propose_amount", "300", false));
+});
+
+it("keeps counter-offer approval pending-only", () => {
+  const termsProposal = { id: "counter-1", kind: "counter_offer" as const, status: "pending" as const, usdtAmount: "300", fiatAmount: "939.30", pricePerUsdt: "3.10", createdAt: "2026-10-28T18:00:00Z" };
+  const onAction = vi.fn();
+  render(<TradeTermsPanel trade={{ ...base, status: "accepted", side: "buyer", priceMode: "buyer_offer", termsProposal }} isAr={false} disabled={false} onAction={onAction} />);
+  const accept = screen.getByRole("button", { name: "Accept these terms" }) as HTMLButtonElement;
+  expect(accept.disabled).toBe(true);
+  fireEvent.click(accept);
+  expect(onAction).not.toHaveBeenCalled();
+  expect(screen.getByText(/Counter-offers are only available before/)).toBeTruthy();
+});
+
+it("blocks a third accepted proposal without hiding the amount limit", () => {
+  const onAction = vi.fn();
+  render(<TradeTermsPanel trade={{ ...base, status: "accepted", amountAdjustmentCount: 2 }} isAr={false} disabled={false} onAction={onAction} />);
+  expect(screen.getByText(/Adjustment limit reached \(2\/2\)/)).toBeTruthy();
+  expect((screen.getByLabelText("New withdrawal amount (ILS)") as HTMLInputElement).disabled).toBe(true);
+  const submit = screen.getByRole("button", { name: "Propose corrected amount" }) as HTMLButtonElement;
+  expect(submit.disabled).toBe(true);
+  fireEvent.click(submit);
+  expect(onAction).not.toHaveBeenCalled();
 });

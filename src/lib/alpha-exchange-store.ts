@@ -10753,7 +10753,7 @@ export async function updateTradeTerms(input: {
     const proposal = request.termsProposal;
     const creating = input.action === "counter_offer" || input.action === "propose_amount" || input.action === "propose_ils_amount";
     if (request.bankTransferProvider === "wise" && (creating || input.action === "accept_amount")) assertWisePaymentsRuntime();
-    if ((creating || input.action === "accept_amount") && (areTradeAmountsLocked(request) || hasIrreversibleTradeProgress(snapshot, request))) throw new TradeBlockedError("trade-terms-invalid", "Trade amounts and price are locked at this stage. Adjustments require buyer approval before trade acceptance and before payment becomes available.", input.requestId);
+    if ((creating || input.action === "accept_amount") && (areTradeAmountsLocked(request) || hasIrreversibleTradeProgress(snapshot, request))) throw new TradeBlockedError("trade-terms-invalid", "Trade amounts and price are locked at this stage. Adjustments require buyer approval before payment, withdrawal-code sharing, or cash confirmation.", input.requestId);
     if (!creating && proposal && proposal.id === input.proposalId && proposal.status !== "pending") {
       const expected = input.action === "accept_amount" ? "accepted" : input.action === "withdraw_terms" ? "withdrawn" : "declined";
       if (proposal.status === expected && (input.action === "withdraw_terms" ? seller : !seller)) { committed = request; return snapshot; }
@@ -10768,7 +10768,7 @@ export async function updateTradeTerms(input: {
       if (getTradeAmountAdjustmentCount(request) >= MAX_TRADE_AMOUNT_ADJUSTMENTS) throw new TradeBlockedError("trade-terms-invalid", "The two-adjustment limit has been reached. No further amount or price proposals are allowed for this trade.", input.requestId);
       if (proposal?.status === "pending") throw new TradeBlockedError("trade-terms-invalid", "Wait for the buyer or withdraw the current proposal first.", input.requestId);
       const counter = input.action === "counter_offer";
-      if (request.status !== "pending" || (counter && request.priceMode !== "buyer_offer")) throw new TradeBlockedError("trade-terms-invalid", "Trade terms cannot be changed at this stage.", input.requestId);
+      if (counter ? request.status !== "pending" || request.priceMode !== "buyer_offer" : !["pending", "accepted"].includes(request.status)) throw new TradeBlockedError("trade-terms-invalid", "Trade terms cannot be changed at this stage.", input.requestId);
 
       if (!counter && request.status !== "pending" && !isDemandReservedTrade(request)) throw new TradeBlockedError("trade-terms-invalid", "This trade no longer owns the listing.", input.requestId);
       if (counter && isFaceToFacePaymentMethod(request.paymentMethod) && !request.sellerSafetyAcknowledged && input.safetyAcknowledged !== true) throw new TradeBlockedError("trade-terms-invalid", "Read and accept the Face-to-Face safety guidelines first.", input.requestId);
@@ -10803,9 +10803,11 @@ export async function updateTradeTerms(input: {
         if (proposal.kind !== "amount_correction") throw new TradeBlockedError("trade-terms-invalid", "Use the counter-offer acceptance action.", input.requestId);
         if ((request.status !== "pending" && !isDemandReservedTrade(request)) || Number(proposal.usdtAmount) > Number(listingUnreservedAmount(snapshot, listing, request.id)) || Number(proposal.usdtAmount) < getPurchaseMinimumTrade(listing.minimumTrade, isCardlessAtmPaymentMethod(request.paymentMethod)) || Number(proposal.usdtAmount) > Number(listing.maximumTrade || listing.availableAmount)) throw new TradeBlockedError("trade-terms-invalid", "The proposed amount is no longer available.", input.requestId);
         if (isCardlessAtmPaymentMethod(request.paymentMethod) && Number(request.fiatAmount) !== Number(proposal.fiatAmount)) {
-          // Prepared credentials are still private before acceptance. They
+          // Prepared credentials are still private before buyer confirmation. They
           // cannot be reused for a different cash amount; request a fresh code.
           request.messages = request.messages?.filter((entry) => entry.credentialKind !== "cardless_code");
+          request.cardlessCodeAwaitingBuyerConfirmation = false;
+          snapshot.tradeMessages = snapshot.tradeMessages?.filter((entry) => entry.purchaseRequestId !== request.id || entry.credentialKind !== "cardless_code");
         }
         request.usdtAmount = proposal.usdtAmount;
         request.fiatAmount = proposal.fiatAmount;
@@ -10842,7 +10844,7 @@ export async function recalculateCardlessTradeAmount(input: { requestId: string;
   const request = db.purchaseRequests.find(item => item.id === input.requestId);
   if (!request || request.sellerId !== input.actorUserId) throw new Error("Only this trade's seller can adjust the USDT amount.");
   if (!isCardlessAtmPaymentMethod(request.paymentMethod) || areTradeAmountsLocked(request) || hasIrreversibleTradeProgress(db, request)) {
-    throw new Error("The amount is locked. Adjustments are only available before trade acceptance and before payment.");
+    throw new Error("The amount is locked. Adjustments are only available before payment, withdrawal-code sharing, or cash confirmation.");
   }
   return updateTradeTerms({ requestId: request.id, actorUserId: input.actorUserId,
     action: "propose_ils_amount", value: input.ilsAmount || request.fiatAmount, expectedUpdatedAt: request.updatedAt });
