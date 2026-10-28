@@ -88,7 +88,7 @@ jobs:
       - name: Install locked dependencies
         run: npm ci
       - name: Verify isolation of database audit tools
-        run: node --test scripts/test-audit-database-url.mjs
+        run: node --test scripts/test-audit-database-url.mjs scripts/test-postgres-performance-diagnostics.mjs
       - name: Enable wait diagnostics in the disposable database
         env:
           POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
