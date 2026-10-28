@@ -1,6 +1,6 @@
-# Buyer and seller push event audit — 27 October 2026
+# Buyer and seller push event audit — updated 28 October 2026
 
-This is a source and isolated regression audit against main `e7a6b8f` plus the recovered notification draft and current fixes. It does not establish delivery on a real device or production rollout readiness.
+This is a source and isolated regression audit integrated with main `dc2de1e` plus the notification changes. It does not establish delivery on a real device or production rollout readiness.
 
 | Important event | Recipient and destination found in source | Audit result |
 | --- | --- | --- |
@@ -14,7 +14,8 @@ This is a source and isolated regression audit against main `e7a6b8f` plus the r
 | New trade request / price offer | Listing seller; Trade Room | Existing central publisher in `createPurchaseRequest`. |
 | Proposal / counter-offer | Other participant; Trade Room | Existing canonical publication after mutation. |
 | Acceptance / decline | Buyer; Trade Room (counter acceptance also alerts seller) | Existing central publisher in status transition. |
-| Cancel / manual closure / admin cancellation | Both participants; their Trade Room | Existing recipient loop. Admin destinations remain separate from participant destinations. |
+| Trade cancellation / admin cancellation | Both participants; their Trade Room | Existing recipient loop. Admin destinations remain separate from participant destinations. Closing an unfinished trade follows this cancellation path. |
+| Owner closes an already-completed trade | Informational Trade Room realtime update | `updateFinishedTradeByAdmin` preserves completion, settlement and history, and emits realtime only. It creates no new participant action or push notification. |
 | Payment marked sent / payment evidence upload | Seller; Trade Room | Existing status and evidence paths. Evidence writes collect publications for after commit. |
 | Funds confirmed / release started / USDT sent | Other participant; Trade Room | Existing central publication; seller also receives completion action after manually marking USDT sent. |
 | Completion / review available | Buyer; Trade Room; seller commission action | Existing central publication. Review nudges use category `trade` with reviews center classification, requiring preference classification beyond category alone. |

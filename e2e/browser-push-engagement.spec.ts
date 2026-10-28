@@ -2,9 +2,9 @@ import { expect, test, type Page } from "@playwright/test";
 import { createECDH } from "node:crypto";
 
 // UI-only push evidence: login, profile rendering, service-worker registration,
-// and the configuration GET use the local production app. PushManager and the
-// notification persistence/reminder endpoints are mocked, so this suite never
-// contacts a push provider or claims to prove delivery on an actual device.
+// and the configuration GET use the local production app. Browser push capability,
+// permission and notification persistence/reminder endpoints are mocked. This suite
+// never contacts a push provider or proves delivery on an actual device.
 type Role = "BUYER" | "SELLER";
 type Config = {
   userId: string;
@@ -38,7 +38,7 @@ async function login(page: Page, role: Role) {
   return config;
 }
 
-async function mockPushUi(page: Page, config: Config, mode: "granted" | "blocked" | "unsupported") {
+async function mockPushUi(page: Page, config: Config, mode: "prompt" | "blocked" | "unsupported") {
   const registrationRequests: Record<string, unknown>[] = [];
   // Keep this UI suite runnable under the normal CI config, which intentionally
   // has no live provider credentials. The actual GET above remains unmocked.
@@ -60,23 +60,33 @@ async function mockPushUi(page: Page, config: Config, mode: "granted" | "blocked
     await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ registered: true }) });
   });
   await page.addInitScript(({ mode, publicKey }) => {
-    const testWindow = window as Window & { __pushUiCalls?: number };
+    const testWindow = window as Window & { __pushUiCalls?: number; __pushUiPermissionCalls?: number };
     testWindow.__pushUiCalls = 0;
+    testWindow.__pushUiPermissionCalls = 0;
     if (mode === "unsupported") {
       delete (window as unknown as Record<string, unknown>).PushManager;
       return;
     }
-    if (mode === "blocked") {
-      Object.defineProperty(Notification, "permission", { configurable: true, get: () => "denied" });
-      return;
+    // Headless Chromium may report denied despite grantPermissions, and the
+    // Linux WebKit port has no PushManager. Model those provider-facing APIs
+    // explicitly; retain real service-worker registration/activation below.
+    let permission: NotificationPermission = mode === "blocked" ? "denied" : "default";
+    class UiNotification {
+      static get permission() { return permission; }
+      static async requestPermission(): Promise<NotificationPermission> {
+        testWindow.__pushUiPermissionCalls! += 1;
+        if (permission !== "denied") permission = "granted";
+        return permission;
+      }
     }
+    Object.defineProperty(window, "Notification", { configurable: true, value: UiNotification });
     let subscription: PushSubscription | null = null;
-    Object.defineProperty(PushManager.prototype, "getSubscription", {
-      configurable: true, value: async () => subscription,
-    });
-    Object.defineProperty(PushManager.prototype, "subscribe", {
-      configurable: true,
-      value: async (options: PushSubscriptionOptionsInit) => {
+    class UiPushManager implements PushManager {
+      async getSubscription() { return subscription; }
+      async permissionState(): Promise<PermissionState> {
+        return permission === "default" ? "prompt" : permission;
+      }
+      async subscribe(options: PushSubscriptionOptionsInit = {}) {
         testWindow.__pushUiCalls! += 1;
         const requestedKey = options.applicationServerKey;
         const applicationServerKey = requestedKey instanceof ArrayBuffer ? requestedKey
@@ -93,7 +103,12 @@ async function mockPushUi(page: Page, config: Config, mode: "granted" | "blocked
           unsubscribe: async () => { subscription = null; return true; },
         };
         return subscription;
-      },
+      }
+    }
+    Object.defineProperty(window, "PushManager", { configurable: true, value: UiPushManager });
+    const pushManager = new UiPushManager();
+    Object.defineProperty(ServiceWorkerRegistration.prototype, "pushManager", {
+      configurable: true, get: () => pushManager,
     });
   }, { mode, publicKey: browserPush.publicKey });
   return registrationRequests;
@@ -113,14 +128,16 @@ for (const scenario of [
   { role: "BUYER" as const, locale: "en" as const, width: 1280 },
   { role: "SELLER" as const, locale: "ar" as const, width: 390 },
 ]) {
-  test(`UI only: ${scenario.role.toLowerCase()} manually connects device alerts in ${scenario.locale} at ${scenario.width}px`, async ({ page, context, baseURL }, testInfo) => {
+  test(`UI only: ${scenario.role.toLowerCase()} manually connects device alerts in ${scenario.locale} at ${scenario.width}px`, async ({ page, baseURL }, testInfo) => {
     expect(["localhost", "127.0.0.1", "[::1]"]).toContain(new URL(baseURL!).hostname);
     await page.setViewportSize({ width: scenario.width, height: 900 });
-    await context.grantPermissions(["notifications"]);
+    const pageErrors: string[] = [];
+    page.on("pageerror", error => pageErrors.push(error.message));
     const config = await login(page, scenario.role);
-    const requests = await mockPushUi(page, config, "granted");
+    const requests = await mockPushUi(page, config, "prompt");
     const setup = await openSetup(page, scenario.locale);
     expect(await page.evaluate(() => (window as Window & { __pushUiCalls?: number }).__pushUiCalls)).toBe(0);
+    expect(await page.evaluate(() => (window as Window & { __pushUiPermissionCalls?: number }).__pushUiPermissionCalls)).toBe(0);
     await setup.getByRole("button", { name: scenario.locale === "ar" ? "تفعيل" : "Enable", exact: true }).click();
     await expect.poll(() => requests.filter(request => request.action === "subscribe").length).toBe(1);
     // The completed reminder closes after its preference refresh. Open settings
@@ -131,14 +148,18 @@ for (const scenario of [
     expect(requests.filter(request => request.action === "subscribe")).toHaveLength(1);
     expect(requests[0]).toMatchObject({ locale: scenario.locale, expectedUserId: config.userId });
     expect(await page.evaluate(() => (window as Window & { __pushUiCalls?: number }).__pushUiCalls)).toBe(1);
+    expect(await page.evaluate(() => (window as Window & { __pushUiPermissionCalls?: number }).__pushUiPermissionCalls)).toBe(1);
     const worker = await page.evaluate(async () => (await navigator.serviceWorker.getRegistration("/"))?.active?.scriptURL);
     expect(worker).toContain("/alpha-push-sw.js");
+    expect(pageErrors).toEqual([]);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
     await setup.screenshot({ path: testInfo.outputPath(`push-setup-${scenario.locale}.png`) });
   });
 }
 
-test("UI only: blocked Chrome notifications show recovery instructions without registering", async ({ page }, testInfo) => {
+test("UI only: blocked browser notifications show recovery instructions without registering", async ({ page }, testInfo) => {
+  const pageErrors: string[] = [];
+  page.on("pageerror", error => pageErrors.push(error.message));
   const config = await login(page, "BUYER");
   const requests = await mockPushUi(page, config, "blocked");
   const setup = await openSetup(page, "en");
@@ -146,10 +167,14 @@ test("UI only: blocked Chrome notifications show recovery instructions without r
   await expect(setup.getByRole("status")).toContainText("Open site settings beside the address bar");
   await expect(setup.getByRole("button", { name: "Check again", exact: true })).toBeVisible();
   expect(requests).toHaveLength(0);
+  expect(await page.evaluate(() => (window as Window & { __pushUiPermissionCalls?: number }).__pushUiPermissionCalls)).toBe(0);
+  expect(pageErrors).toEqual([]);
   await setup.screenshot({ path: testInfo.outputPath("push-blocked-recovery.png") });
 });
 
 test("UI only: unsupported browser explains device availability and fits a narrow Arabic screen", async ({ page }, testInfo) => {
+  const pageErrors: string[] = [];
+  page.on("pageerror", error => pageErrors.push(error.message));
   await page.setViewportSize({ width: 320, height: 900 });
   const config = await login(page, "SELLER");
   const requests = await mockPushUi(page, config, "unsupported");
@@ -157,6 +182,7 @@ test("UI only: unsupported browser explains device availability and fits a narro
   await expect(setup).toContainText("غير متاح");
   await expect(setup.getByRole("button", { name: "تفعيل", exact: true })).toHaveCount(0);
   expect(requests).toHaveLength(0);
+  expect(pageErrors).toEqual([]);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
   await setup.screenshot({ path: testInfo.outputPath("push-unsupported-ar-mobile.png") });
 });

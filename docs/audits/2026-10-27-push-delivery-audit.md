@@ -1,6 +1,6 @@
 # Buyer and seller push notification audit
 
-Date: 27 October 2026. Base: `e7a6b8f5978fea1aca70eccbd9580eb0d7e6168b`.
+Updated: 28 October 2026. Integration base: `dc2de1edee936264f4f84792e019e355ed9ffe2a`.
 
 This change recovers the unfinished browser-push/reminder draft and fixes important buyer/seller delivery gaps. It contains no Wise feature changes or financial decision changes. Software checks do not establish that a device displayed a notification.
 
@@ -31,6 +31,7 @@ All sends in automated tests use isolated mocks; database behavior uses disposab
 | Check | Evidence |
 | --- | --- |
 | Final expanded regression | 51 files, 746 unique tests passed across the main run and targeted recovery run. Two PGlite fixture-start timeouts under concurrent build load were resolved by rerunning those unchanged suites with one worker and a 60-second hook timeout: 72/72 passed. No remaining failed/skipped tests in the combined results. |
+| Full remote quality gate | Commit `732d8dd` passed 599 test files / 6,991 tests, lint, types, production build and the release safety gate. Browser-suite and deployment acceptance are separate checks tracked in PR #447. |
 | Browser sender, service worker, registration, reminder database and route security | 7 files, 74 tests passed, including overlaps with the wider run |
 | Native delivery, recovery, registration, concurrency and cron | 5 files, 60 tests passed; included in the wider run |
 | Browser setup, settings, native bridge and contracts | 6 files, 38 tests passed; overlaps with the wider run |
@@ -44,6 +45,8 @@ All sends in automated tests use isolated mocks; database behavior uses disposab
 | Production dependencies | Advisory gate passed after checking source backports. Raw npm audit still reports four existing entries in two guarded advisory chains; this is not a clean npm audit. No new browser-push-chain advisory was reported. |
 
 Focused Chrome UI acceptance: **5 tests passed, no retries**, covering English buyer setup, Arabic seller setup, blocked permission, unsupported Arabic 320px layout and signed-out configuration rejection. Four screenshots were visually inspected. Tests use real local authentication/pages/service-worker registration, with explicit mocks for PushManager subscription and provider persistence; they cannot prove OS delivery.
+
+The CI browser pass exposed differences in the automation engines: WebKit omitted PushManager and Chromium did not preserve the requested permission state. The UI-only fixture now explicitly simulates those APIs across engines, checks zero automatic permission prompts and exactly one prompt on Enable, and asserts that no page errors occur. Actual authenticated configuration and service-worker registration remain unmocked. This provides UI-flow coverage, not proof of native browser push capability.
 
 ## Release and device acceptance still required
 
