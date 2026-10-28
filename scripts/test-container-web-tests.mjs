@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
-import { assertIsolatedTestEnvironment, webTestStages } from "./check-container-web-tests.mjs";
+import { assertContainerTestInputs, assertIsolatedTestEnvironment, webTestStages } from "./check-container-web-tests.mjs";
 
 const clean = () => ({
   platform: "linux", version: "24.22.1",
@@ -46,4 +47,28 @@ test("runs the unrestricted configured suite and both named rehearsals without w
     ["run", "src/__tests__/marketplace-concurrency-scale.test.ts"],
   ]);
   assert.ok(webTestStages.every(({ timeout }) => timeout > 0));
+});
+
+test("refuses a container missing the release-acceptance workflow before starting tests", () => {
+  const workflow = ".github/workflows/reliability-shield.yml";
+  assert.doesNotThrow(() => assertContainerTestInputs(() => true));
+  assert.throws(() => assertContainerTestInputs((input) => input !== workflow),
+    /Required unit-test build input is absent: \.github\/workflows\/reliability-shield\.yml/);
+});
+
+test("both container contexts include only the required GitHub workflow and retain secret exclusions", () => {
+  const docker = readFileSync(new URL("../Dockerfile.vercel.dockerignore", import.meta.url), "utf8");
+  const container = readFileSync(new URL("../Dockerfile.vercel.containerignore", import.meta.url), "utf8");
+  assert.equal(container, docker);
+  const rules = docker.split(/\r?\n/).map((line) => line.trim()).filter((line) => line && !line.startsWith("#"));
+  assert.equal(rules[0], "**");
+  // Re-including a parent directory would also admit unrelated files below it.
+  assert.deepEqual(rules.filter((line) => line.startsWith("!.github")), [
+    "!.github/workflows/reliability-shield.yml",
+  ]);
+  const lastInclusion = rules.findLastIndex((line) => line.startsWith("!"));
+  for (const exclusion of ["**/.env", "**/.env.*", "**/.git", "**/.git/**", "**/.vercel", "**/.vercel/**",
+    "**/private", "**/private/**", "**/*.pem", "**/*.key", "**/*.p12", "**/*.pfx"]) {
+    assert.ok(rules.indexOf(exclusion) > lastInclusion, `Secret exclusion must follow all inclusions: ${exclusion}`);
+  }
 });

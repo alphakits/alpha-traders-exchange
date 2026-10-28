@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { expect, test, type APIRequestContext, type APIResponse } from "@playwright/test";
 import { OFFLINE_ACCOUNTS, OFFLINE_PASSWORD, OFFLINE_HEADERS, seedOfflineFixture } from "../scripts/usdt-request-offline-fixture.mjs";
+import type { DemandWorkspace } from "../src/types/usdt-demand";
+import { createHardNavigationErrorAudit } from "./support/hard-navigation-errors";
 
 async function ok(response: Pick<APIResponse, "ok" | "status" | "text" | "json">) {
   expect(response.ok(), `${response.status()} ${await response.text()}`).toBe(true);
@@ -11,9 +13,9 @@ async function login(api: APIRequestContext, email: string) {
     headers: { "x-forwarded-for": `2001:db8::${randomUUID().slice(0, 4)}` } }));
 }
 
-test("personal Wise USD accounts and Buy Request complete locally with private payment instructions", async ({ page, context, playwright, baseURL }, info) => {
-  const errors: string[] = [];
-  page.on("pageerror", error => errors.push(error.message));
+test("personal Wise USD accounts and Buy Request complete locally with private payment instructions", async ({ page, context, playwright, baseURL, browserName }, info) => {
+  const browserErrorAudit = createHardNavigationErrorAudit(browserName);
+  browserErrorAudit.observe(page);
   await context.route("**/*", route => ["localhost", "127.0.0.1"].includes(new URL(route.request().url()).hostname)
     ? route.continue() : route.abort("blockedbyclient"));
   await seedOfflineFixture(baseURL!);
@@ -90,7 +92,22 @@ test("personal Wise USD accounts and Buy Request complete locally with private p
     const offered = await ok(await seller.post(`/api/alpha-exchange/usdt-requests/${demand.id}/offers`, { data: {
       listingId, revision, price: "1.00", operationId: randomUUID(),
     } }));
-    await page.goto(`/en/usdt-exchange/requests/${demand.id}?offer=${offered.id}`);
+    // The hard navigation can cancel the departing document's demand refresh.
+    // Retain WebKit's exact native diagnostic only if the newly committed
+    // document proves the same owner's Wise request and the seller's new offer.
+    await browserErrorAudit.navigate(page, () => page.goto(`/en/usdt-exchange/requests/${demand.id}?offer=${offered.id}`), {
+      url: new URL(`/api/alpha-exchange/usdt-requests/${demand.id}`, baseURL).href,
+      label: "same Wise demand workspace",
+      validateBody: body => {
+        const next = body as Partial<DemandWorkspace> | null;
+        const request = next?.requests?.[0];
+        if (!request) return false;
+        return next?.actorId === OFFLINE_ACCOUNTS.buyer.id && next?.requests?.length === 1
+          && request.id === demand.id && request.revision === revision && request.isMine
+          && request.currency === "USD" && request.bankTransferProvider === "wise"
+          && request.offers.some(offer => offer.id === offered.id && offer.price === "1.00" && offer.state === "open" && offer.available);
+      },
+    });
     await page.getByRole("button", { name: "Review response", exact: true }).click();
     await page.getByLabel("Your personal Wise account for sending USD", { exact: true }).selectOption(buyerAccount);
     await page.getByLabel(/Your receiving wallet/).fill("TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE");
@@ -138,8 +155,9 @@ test("personal Wise USD accounts and Buy Request complete locally with private p
     expect(commissions).toHaveLength(1);
     expect(commissions[0]).toMatchObject({ sellerFeeAmount: 10, buyerFeeCollectedAmount: 10, commissionAmount: 20, grossAmount: 1010, grossCurrency: "USD" });
     expect(final.usdtDemands.find((entry: { id: string }) => entry.id === demand.id).state).toBe("matched");
-    expect(errors).toEqual([]);
+    expect(browserErrorAudit.errors).toEqual([]);
   } finally {
+    await info.attach("browser-error-audit", { body: JSON.stringify(browserErrorAudit.report(), null, 2), contentType: "application/json" });
     await seller.dispose(); await reviewer.dispose(); await outsider.dispose();
   }
 });

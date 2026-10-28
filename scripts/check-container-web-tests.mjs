@@ -39,12 +39,17 @@ export const webTestStages = [
   { name: "fifteen-seller-exchange-scale-rehearsal", args: ["run", "src/__tests__/marketplace-concurrency-scale.test.ts"], timeout: 180_000 },
 ];
 
-export function runContainerWebTests() {
-  const isolation = assertIsolatedTestEnvironment();
+export function assertContainerTestInputs(exists = existsSync) {
   for (const input of [
     "apps/mobile/src", "apps/mobile/app", "apps/mobile/app.json", "apps/mobile/.eas/workflows/iphone-installed-preview.yml",
     ".dockerignore", "Dockerfile.vercel.dockerignore", "Dockerfile.vercel.containerignore", "railway.json", "vercel.json",
-  ]) assert.ok(existsSync(input), `Required unit-test build input is absent: ${input}`);
+    ".github/workflows/reliability-shield.yml",
+  ]) assert.ok(exists(input), `Required unit-test build input is absent: ${input}`);
+}
+
+export function runContainerWebTests() {
+  const isolation = assertIsolatedTestEnvironment();
+  assertContainerTestInputs();
   console.log(JSON.stringify({ status: "PASS_CONTAINER_TEST_ISOLATION", ...isolation }));
   const results = [];
   for (const stage of webTestStages) {

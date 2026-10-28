@@ -4,6 +4,7 @@
 !Dockerfile.vercel.dockerignore
 !Dockerfile.vercel.containerignore
 !.dockerignore
+!.github/workflows/reliability-shield.yml
 !railway.json
 !vercel.json
 !Dockerfile.discord-worker

@@ -89,9 +89,11 @@ test('blanks every private project build variable while preserving public build 
 });
 test('excludes generated, private, environment and dependency files while retaining isolated test inputs', () => {
   for (const file of ['.env', '.env.example', 'src/.env.production', 'private/account.json', 'node_modules/pkg/index.js', 'work/proof.json',
-    'test-results/trace.zip', 'e2e/.auth/admin.json', 'e2e/storage-state.json', 'docs/cookies.txt', 'src/client.pem', 'public/files/video.mp4', '.git/config']) assert.equal(includedPath(file), false, file);
+    'test-results/trace.zip', 'e2e/.auth/admin.json', 'e2e/storage-state.json', 'docs/cookies.txt', 'src/client.pem', 'public/files/video.mp4', '.git/config',
+    '.github/workflows/other.yml', '.github/CODEOWNERS', '.github/.env', '.github/workflows/.env.production',
+    '.github/workflows/client.pem', '.github/private/account.json']) assert.equal(includedPath(file), false, file);
   for (const file of ['src/lib/wise-storage-crypto.ts', 'src/__tests__/wise-storage-postgres.test.ts', 'apps/mobile/.eas/workflows/iphone-installed-preview.yml',
-    'Dockerfile.vercel.containerignore', 'public/images/hero.webp', 'supabase/migrations/valid.sql']) assert.equal(includedPath(file), true, file);
+    'Dockerfile.vercel.containerignore', '.github/workflows/reliability-shield.yml', 'public/images/hero.webp', 'supabase/migrations/valid.sql']) assert.equal(includedPath(file), true, file);
   for (const file of ['../escape', 'C:/escape', '/absolute', 'src\\file', 'src/../file']) assert.throws(() => includedPath(file));
 });
 test('rejects symbolic links, submodules and case-colliding Git paths', () => {
