@@ -474,7 +474,7 @@ jobs:
   release-acceptance:
     name: Release acceptance
     if: always()
-    needs: [quality-gate, postgres-concurrency, critical-browser-flows, phone-verification-gate, webkit-browser-flows, usdt-request-flows]
+    needs: [quality-gate, postgres-concurrency, critical-browser-flows, phone-verification-gate, webkit-browser-flows, usdt-request-flows, wise-isolated-flows]
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
@@ -486,6 +486,7 @@ jobs:
           PHONE_RESULT: ${{ needs.phone-verification-gate.result }}
           WEBKIT_RESULT: ${{ needs.webkit-browser-flows.result }}
           USDT_RESULT: ${{ needs.usdt-request-flows.result }}
+          WISE_RESULT: ${{ needs.wise-isolated-flows.result }}
         run: |
           test "$QUALITY_RESULT" = success
           test "$DATABASE_RESULT" = success
@@ -493,3 +494,4 @@ jobs:
           test "$PHONE_RESULT" = success
           test "$WEBKIT_RESULT" = success
           test "$USDT_RESULT" = success
+          test "$WISE_RESULT" = success
