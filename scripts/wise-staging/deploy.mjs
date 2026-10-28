@@ -260,8 +260,8 @@ export function validateUpload(rows, manifest) {
     need(expected && includedPath(name) && row.sha === expected.sha && row.size === expected.size, 'UPLOAD_NOT_REVIEWED_SOURCE');
     safe.push({ path: name, sha: row.sha, size: row.size });
   }
-  // The CLI can omit its own ignore files, but cannot silently omit build inputs.
-  need(manifest.every(row => ['.gitignore', '.vercelignore'].includes(row.path) || seen.has(row.path)), 'SOURCE_FILE_OMITTED_FROM_UPLOAD');
+  // CLI 65.2.0 omits these reviewed ignore files; every build input stays required.
+  need(manifest.every(row => ['.gitignore', '.vercelignore', 'apps/mobile/.gitignore'].includes(row.path) || seen.has(row.path)), 'SOURCE_FILE_OMITTED_FROM_UPLOAD');
   need(REQUIRED_FILES.every(name => seen.has(name)), 'REQUIRED_UPLOAD_FILE_MISSING');
   return safe.sort((a, b) => a.path.localeCompare(b.path));
 }

@@ -7,10 +7,13 @@ The local source is this checkout; generated packages and sanitized journals go
 under the ignored `tmp/wise-staging` directory. No credentials, fixture manifests,
 or historical audit results are shipped here.
 
-On 28 October 2026 the connected Vercel and Supabase APIs returned not found for
-those recorded staging resources. Restore access or review replacement identifiers
-in code and rerun all guards before hosted work. The tools do not silently create
-replacement infrastructure.
+On 28 October 2026 connector project lookups returned not found for these resources,
+but both exact targets were recovered without replacement infrastructure. Supabase
+lists the database as the `alpha-usdt-buy-requests-staging` preview branch; the
+explicitly scoped Vercel CLI profile reaches the original protected project.
+Confirm the branch identity, pinned database TLS/CA, and `inspect-config` before
+concluding that a resource is missing. If these checks fail, restore access or
+review replacement identifiers and rerun all guards before hosted work.
 
 Use Node **24.22.1**, installed repository dependencies, and Vercel CLI **65.2.0**.
 The package preparer needs Python available as `CODEX_PRIMARY_RUNTIME_PYTHON`,
