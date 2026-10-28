@@ -163,6 +163,11 @@ export async function POST(request: NextRequest) {
     }
     const usdtAmount = String(body.usdtAmount ?? "").trim();
     const paymentMethod = String(body.paymentMethod ?? "").trim();
+    const bankTransferProvider = body.bankTransferProvider;
+    if (bankTransferProvider !== undefined && bankTransferProvider !== "wise" && bankTransferProvider !== "israeli_bank") return denied("Invalid bank transfer provider.", 400, "PAYMENT_PROVIDER_INVALID");
+    const currency = body.currency;
+    if (currency !== undefined && currency !== "ILS" && currency !== "USD") return denied("Unsupported payment currency.", 400, "PAYMENT_CURRENCY_INVALID");
+    const buyerWiseAccountId = typeof body.buyerWiseAccountId === "string" ? body.buyerWiseAccountId.trim() : undefined;
     if (!usdtAmount) {
       return denied("Trade amount is required.", 400, "TRADE_AMOUNT_REQUIRED");
     }
@@ -192,6 +197,9 @@ export async function POST(request: NextRequest) {
       cardlessVerificationValue: String(body?.cardlessVerificationValue ?? ""),
       cardlessIlsAmount: String(body?.cardlessIlsAmount ?? ""),
       paymentMethod: paymentMethod || undefined,
+      bankTransferProvider,
+      currency,
+      buyerWiseAccountId,
       bankName: bankName || undefined,
       safetyAcknowledged,
       priceMode: rawPriceMode,

@@ -108,6 +108,12 @@ if (includeBrowserTests) {
     env: { USDT_OFFLINE_PRODUCTION: "1" },
   });
   steps.push({
+    label: "Wise isolated USD lifecycle and phone layouts",
+    executable: process.execPath,
+    arguments: ["./node_modules/playwright/cli.js", "test", "--config=playwright.wise-draft.config.ts"],
+    env: { WISE_OFFLINE_PRODUCTION: "1" },
+  });
+  steps.push({
     label: "Mobile and desktop browser flows",
     executable: process.execPath,
     arguments: ["./node_modules/playwright/cli.js", "test"],

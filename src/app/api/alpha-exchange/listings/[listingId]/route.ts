@@ -105,6 +105,10 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     const paymentMethods = resolvedPaymentMethods?.slice(0, MAX_LISTING_PAYMENT_METHODS);
     const paymentMethod = paymentMethods?.[0];
     const bankAccountId = body.bankAccountId !== undefined ? String(body.bankAccountId).trim() : undefined;
+    const bankTransferProvider = body.bankTransferProvider;
+    if (bankTransferProvider !== undefined && bankTransferProvider !== "wise" && bankTransferProvider !== "israeli_bank") throw new Error("Invalid bank transfer provider.");
+    const wiseAccountId = body.wiseAccountId !== undefined ? String(body.wiseAccountId).trim() : undefined;
+    const effectiveProvider = bankTransferProvider ?? existingListing?.bankTransferProvider;
     const bankSelection = body.bankName !== undefined ? parseIsraeliBankSelection(String(body.bankName ?? "")) : undefined;
     const rawMinimumTrade = body.minimumTrade !== undefined ? String(body.minimumTrade).trim() : undefined;
     const rawMaximumTrade = body.maximumTrade !== undefined ? String(body.maximumTrade).trim() : undefined;
@@ -156,7 +160,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     const effectivePaymentMethods = paymentMethods?.length
       ? paymentMethods
       : resolveListingPaymentMethods(existingListing?.paymentMethods, effectivePaymentMethod);
-    if (requiresIsraeliBankSelection(effectivePaymentMethods, effectivePaymentMethod)) {
+    if (effectiveProvider !== "wise" && requiresIsraeliBankSelection(effectivePaymentMethods, effectivePaymentMethod)) {
       const effectiveBanks = bankSelection ?? parseIsraeliBankSelection(existingListing?.bankName);
       if (!effectiveBanks.length) {
         return NextResponse.json({ error: "Please choose one or two supported banks before saving the listing." }, { status: 400 });
@@ -217,7 +221,9 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       paymentMethod,
       paymentMethods,
       bankAccountId,
-      bankName: requiresIsraeliBankSelection(effectivePaymentMethods, effectivePaymentMethod)
+      bankTransferProvider,
+      wiseAccountId,
+      bankName: effectiveProvider !== "wise" && requiresIsraeliBankSelection(effectivePaymentMethods, effectivePaymentMethod)
         ? serializeIsraeliBankSelection(bankSelection ?? parseIsraeliBankSelection(existingListing?.bankName)) || undefined
         : undefined,
       minimumTrade,

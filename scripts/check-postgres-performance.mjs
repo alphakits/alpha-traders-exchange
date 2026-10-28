@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { formatPostgresPerformanceDiagnostics } from "./integration/postgres-performance-diagnostics.mjs";
 
 const resultPath = process.argv[2] ?? "test-results/postgres-concurrency/results.json";
 const results = JSON.parse(await readFile(resultPath, "utf8"));
@@ -23,4 +24,12 @@ const evidence = { commit: results.commit, status: valid && measured.maxMs < 100
   reason: !valid ? "Incomplete or invalid 240-status/30-receipt measurement" : measured.maxMs >= 1000 ? "Subsecond action target exceeded" : "All measured actions below threshold" };
 await writeFile(path.join(path.dirname(resultPath), "performance-gate.json"), JSON.stringify(evidence, null, 2));
 console.log(JSON.stringify(evidence));
+// Optional diagnostics must never change the action counts or strict MAX gate.
+// Errors are deliberately not printed: malformed files may contain private data.
+const readOptional = async name => {
+  try { return JSON.parse(await readFile(path.join(path.dirname(resultPath), name), "utf8")); }
+  catch { return null; }
+};
+const [waitDiagnostics, queryTimings] = await Promise.all([readOptional("wait-diagnostics.json"), readOptional("query-timings.json")]);
+console.log(`POSTGRES_PERFORMANCE_DIAGNOSTICS ${formatPostgresPerformanceDiagnostics(results, waitDiagnostics, queryTimings)}`);
 assert.equal(evidence.status, "PASS", evidence.reason);

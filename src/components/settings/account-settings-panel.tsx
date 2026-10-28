@@ -1,5 +1,6 @@
 "use client";
 import { AccountSessionsPanel } from "@/components/settings/account-sessions-panel";
+import { WiseAccountsPanel } from "@/components/settings/wise-accounts-panel";
 
 import { brandText } from "@/components/ui/currency-text";
 
@@ -890,6 +891,8 @@ export function AccountSettingsPanel({
               <Link href="/profile" className={buttonVariants({ variant: "default" })}>
                 {isAr ? "انتقل إلى الملف الشخصي" : "Go to Profile"}
               </Link>
+
+              <WiseAccountsPanel key={canonicalSession?.user?.id ?? userId ?? "signed-out"} locale={locale} actorId={canonicalSession?.user?.id ?? userId ?? undefined} canReview={canonicalSession?.user?.role === "admin" || canonicalSession?.user?.role === "owner"} />
 
               {canManageSellerBankAccounts ? (
                 <div id="seller-bank-accounts" className="space-y-3 rounded-2xl border border-white/10 bg-black/20 p-4">

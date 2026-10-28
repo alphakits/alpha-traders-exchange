@@ -164,8 +164,8 @@ export function SellerTradeRequestCard({ request, workspace }: {
             <dl className="grid grid-cols-2 gap-x-3 gap-y-3 text-xs [&_dt]:text-[#9CA3AF] [&_dd]:mt-0.5 [&_dd]:break-words [&_dd]:text-white">
               <div className="col-span-2"><dt>{isAr ? "طريقة الدفع" : "Payment method"}</dt><dd>{currencyText(paymentMethodEmoji(request.paymentMethod))} {currencyText(paymentMethodLabel(request.paymentMethod, isAr))}</dd></div>
               <div><dt>{isAr ? "الشبكة" : "Network"}</dt><dd>{request.network}</dd></div>
-              <div><dt>{currencyText(isAr ? "السعر لكل USDT" : "Price per USDT")}</dt><dd>{currencyText(`₪${(toNumber(request.pricePerUsdt) || (toNumber(request.fiatAmount) / Math.max(1, toNumber(request.usdtAmount)))).toFixed(2)}`)}</dd></div>
-              {request.priceMode === "buyer_offer" ? <div><dt>{isAr ? "سعر العرض الأصلي" : "Original listing price"}</dt><dd>{currencyText(`₪${toNumber(request.listingPriceAtRequest).toFixed(2)}`)}</dd></div> : null}
+              <div><dt>{currencyText(isAr ? "السعر لكل USDT" : "Price per USDT")}</dt><dd>{currencyText(`${(toNumber(request.pricePerUsdt) || (toNumber(request.fiatAmount) / Math.max(1, toNumber(request.usdtAmount)))).toFixed(2)} ${request.currency || "ILS"}`)}</dd></div>
+              {request.priceMode === "buyer_offer" ? <div><dt>{isAr ? "سعر العرض الأصلي" : "Original listing price"}</dt><dd>{currencyText(`${toNumber(request.listingPriceAtRequest).toFixed(2)} ${request.currency || "ILS"}`)}</dd></div> : null}
               <div><dt>{isAr ? "العرض" : "Listing"}</dt><dd>{currencyText(shortListingRef({ id: request.listingId, displayNumber: myListingsById.get(request.listingId)?.displayNumber }))}</dd></div>
               <div><dt>{isAr ? "تاريخ الإرسال" : "Submitted"}</dt><dd>{new Date(request.createdAt).toLocaleString(dateLocale)}</dd></div>
               {request.completedAt ? <div><dt>{isAr ? "اكتملت" : "Completed"}</dt><dd>{new Date(request.completedAt).toLocaleString(dateLocale)}</dd></div> : null}

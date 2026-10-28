@@ -18,7 +18,8 @@ export function RequestMoneyText({ children }: { children: string }) {
   )}</>;
 }
 
-export function paymentLabel(method: string, ar: boolean) {
+export function paymentLabel(method: string, ar: boolean, provider?: string) {
+  if (method === "Bank Transfer" && provider === "wise") return ar ? "تحويل بنكي · Wise · USD" : "Bank Transfer · Wise · USD";
   if (!ar) return method === "Face-to-Face (Meet in Person)" ? "Face-to-Face" : method;
   return ({ "Bank Transfer": "تحويل بنكي", "Cardless ATM Withdrawal": "سحب دون بطاقة", "Face-to-Face (Meet in Person)": "لقاء شخصي" } as Record<string, string>)[method] ?? method;
 }
@@ -34,7 +35,8 @@ export function RequestStatus({ state, ar }: { state: DemandView["state"]; ar: b
   </span>;
 }
 
-export function FeeBreakdown({ amount, price, ar, title, seller = false }: { amount: string; price: string; ar: boolean; title: string; seller?: boolean }) {
+export function FeeBreakdown({ amount, price, ar, title, seller = false, currency = "ILS" }: { amount: string; price: string; ar: boolean; title: string; seller?: boolean; currency?: "ILS" | "USD" }) {
+  const prefix = currency === "USD" ? "USD " : "₪";
   const total = calculateTradePaymentTotal(amount, price, true);
   const exactAmount = formatUsdtExact(amount);
   const rounded = exactAmount !== "—" && exactAmount !== formatUsdt(amount);
@@ -42,9 +44,9 @@ export function FeeBreakdown({ amount, price, ar, title, seller = false }: { amo
     <h3 className="text-sm font-semibold text-gray-200">{title}</h3>
     <dl className="mt-4 space-y-3 text-sm [&_dd]:min-w-0 [&_dd]:max-w-full [&_dd]:text-emerald-300 [&_dd]:[overflow-wrap:anywhere]">
       <div className="flex flex-wrap items-center justify-between gap-2"><dt className="text-gray-400">{ar ? "كمية USDT" : "USDT amount"}</dt><dd className="font-medium tabular-nums"><bdi dir="ltr">{formatUsdt(amount)} USDT</bdi></dd></div>
-      <div className="flex flex-wrap items-center justify-between gap-2"><dt className="text-gray-400">{ar ? "المبلغ قبل الرسوم" : "Subtotal"}</dt><dd className="tabular-nums"><bdi dir="ltr">₪{formatIls(calculateFiatAmount(amount, price))}</bdi></dd></div>
-      <div className="flex flex-wrap items-center justify-between gap-2"><dt className="text-gray-400">{ar ? "رسوم المشتري (1%)" : "Buyer fee (1%)"}</dt><dd className="tabular-nums"><bdi dir="ltr">₪{formatIls(calculateTradeBuyerFiatFee(amount, price))}</bdi></dd></div>
-      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-white/10 pt-4"><dt className="font-semibold">{seller ? (ar ? "إجمالي ما يدفعه المشتري" : "Buyer pays in total") : (ar ? "إجمالي ما تدفعه" : "You pay in total")}</dt><dd className="text-2xl font-semibold tabular-nums text-emerald-300"><bdi dir="ltr">₪{formatIls(total)}</bdi></dd></div>
+      <div className="flex flex-wrap items-center justify-between gap-2"><dt className="text-gray-400">{ar ? "المبلغ قبل الرسوم" : "Subtotal"}</dt><dd className="tabular-nums"><bdi dir="ltr">{prefix}{formatIls(calculateFiatAmount(amount, price))}</bdi></dd></div>
+      <div className="flex flex-wrap items-center justify-between gap-2"><dt className="text-gray-400">{ar ? "رسوم المشتري (1%)" : "Buyer fee (1%)"}</dt><dd className="tabular-nums"><bdi dir="ltr">{prefix}{formatIls(calculateTradeBuyerFiatFee(amount, price))}</bdi></dd></div>
+      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-white/10 pt-4"><dt className="font-semibold">{seller ? (ar ? "إجمالي ما يدفعه المشتري" : "Buyer pays in total") : (ar ? "إجمالي ما تدفعه" : "You pay in total")}</dt><dd className="text-2xl font-semibold tabular-nums text-emerald-300"><bdi dir="ltr">{prefix}{formatIls(total)}</bdi></dd></div>
     </dl>
     {rounded && <details className="mt-4 text-xs leading-5 text-gray-400">
       <summary className="min-h-11 cursor-pointer py-3 text-sky-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-300">{ar ? "عرض كمية USDT الدقيقة" : "View exact USDT amount"}</summary>

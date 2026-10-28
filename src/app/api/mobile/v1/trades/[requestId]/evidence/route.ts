@@ -150,6 +150,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
     }
 
     const uploaded = await uploadTradeEvidence({
+      clientPlatform: "mobile",
       purchaseRequestId: params.requestId,
       actorUserId: auth.user.id,
       actorRole: auth.user.role,

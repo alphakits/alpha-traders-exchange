@@ -21,6 +21,41 @@ env:
   NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-placeholder-anon-key
 
 jobs:
+  wise-isolated-flows:
+    name: Wise isolated USD lifecycle and phone layouts
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          lfs: false
+      - name: Use Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Install Chromium and WebKit
+        run: npx playwright install --with-deps chromium webkit
+      - name: Verify staging isolation and source packaging guards
+        run: node --test scripts/wise-staging/deploy.test.mjs scripts/wise-staging/adapters.test.mjs scripts/wise-staging/audit/guards.test.mjs
+      - name: Build isolated Wise fixture without provider credentials
+        run: node scripts/usdt-request-offline.mjs --build --wise-draft --port 3227
+      - name: Verify USD lifecycle and English/Arabic phone layouts
+        env:
+          WISE_OFFLINE_PRODUCTION: "1"
+        run: node node_modules/playwright/cli.js test --config=playwright.wise-draft.config.ts
+      - name: Preserve synthetic browser evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wise-isolated-browser-evidence
+          path: test-results/wise-usd-draft/
+          if-no-files-found: ignore
+          retention-days: 14
+
   postgres-concurrency:
     name: PostgreSQL concurrency and transaction recovery
     runs-on: ubuntu-latest
@@ -53,7 +88,7 @@ jobs:
       - name: Install locked dependencies
         run: npm ci
       - name: Verify isolation of database audit tools
-        run: node --test scripts/test-audit-database-url.mjs
+        run: node --test scripts/test-audit-database-url.mjs scripts/test-postgres-performance-diagnostics.mjs
       - name: Enable wait diagnostics in the disposable database
         env:
           POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
@@ -439,7 +474,7 @@ jobs:
   release-acceptance:
     name: Release acceptance
     if: always()
-    needs: [quality-gate, postgres-concurrency, critical-browser-flows, phone-verification-gate, webkit-browser-flows, usdt-request-flows]
+    needs: [quality-gate, postgres-concurrency, critical-browser-flows, phone-verification-gate, webkit-browser-flows, usdt-request-flows, wise-isolated-flows]
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
@@ -451,6 +486,7 @@ jobs:
           PHONE_RESULT: ${{ needs.phone-verification-gate.result }}
           WEBKIT_RESULT: ${{ needs.webkit-browser-flows.result }}
           USDT_RESULT: ${{ needs.usdt-request-flows.result }}
+          WISE_RESULT: ${{ needs.wise-isolated-flows.result }}
         run: |
           test "$QUALITY_RESULT" = success
           test "$DATABASE_RESULT" = success
@@ -458,3 +494,4 @@ jobs:
           test "$PHONE_RESULT" = success
           test "$WEBKIT_RESULT" = success
           test "$USDT_RESULT" = success
+          test "$WISE_RESULT" = success

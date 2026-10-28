@@ -105,6 +105,9 @@ describe("compact Exchange home", () => {
     // in each responsive welcome layout, including the compact phone branch.
     if (width >= 1024) {
       expect(welcome.querySelector("#workspace-summary")).toBeTruthy();
+      // This case checks shortcut navigation, after the lazy workspace is ready.
+      // Settle cold module transforms separately from the click/focus deadline.
+      await act(async () => { await vi.dynamicImportSettled(); });
       await waitFor(() => expect(document.getElementById(side === "seller" ? "create-listing" : "my-trade-requests-section")).toBeTruthy());
       fireEvent.click(within(welcome).getByRole("button", { name: side === "seller"
         ? (isAr ? "إنشاء عرض" : "Create Listing")
@@ -169,6 +172,40 @@ describe("compact Exchange home", () => {
       container.remove();
     }
   });
+
+  it("submits an explicit USD Wise purchase with the buyer's reviewed sending account", async () => {
+    requests = [];
+    user = { ...buyer, emailVerified: true, isPhotoVerified: true, adultConfirmed: true };
+    const fallback = vi.mocked(fetch).getMockImplementation()!;
+    const listing = { id: "wise-listing", sellerId: "wise-seller", sellerDisplayName: "AT-Wise", photos: [],
+      originalAmount: "1000", availableAmount: "1000", price: "1.02", currency: "USD", network: "TRC20", paymentMethod: "Bank Transfer", paymentMethods: ["Bank Transfer"], bankTransferProvider: "wise",
+      minimumTrade: "100", maximumTrade: "1000", sellerDescription: "", responseTime: "5 minutes", status: "active", approvalStatus: "approved",
+      createdAt: "2026-09-22T10:00:00.000Z", updatedAt: "2026-09-22T10:00:00.000Z" };
+    let submitted: Record<string, unknown> | undefined;
+    vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input) === "/api/alpha-exchange/listings") return Promise.resolve(Response.json({ listings: [listing] }));
+      if (String(input) === "/api/alpha-exchange/wise-accounts") return Promise.resolve(Response.json({ enabled: true, accounts: [{ id: "buyer-wise", provider: "wise", currency: "USD", accountHolderName: "Home Buyer", accountLast4: "0042", routingLast4: "0021", accountType: "checking", ownershipReviewStatus: "manually_reviewed" }] }));
+      if (String(input) === "/api/alpha-exchange/purchase-requests" && init?.method === "POST") {
+        submitted = JSON.parse(String(init.body));
+        return Promise.resolve(Response.json({ error: "Draft fixture received" }, { status: 400 }));
+      }
+      return fallback(input, init);
+    }));
+    render(<UsdtExchangePage locale="en" initialSessionUser={user} />);
+    fireEvent.click(await screen.findByRole("button", { name: /Buy USDT from AT-Wise/ }));
+    fireEvent.change(await screen.findByLabelText(/USDT Amount/, {}, { timeout: 10000 }), { target: { value: "200" } });
+    fireEvent.change(screen.getByPlaceholderText(/wallet address/i), { target: { value: "TMDgWpi2huECqaoR6e71ttEiVyV34HUtr8" } });
+    expect((screen.getByRole("button", { name: "Start Trade" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.change(await screen.findByLabelText("Your personal Wise account for sending USD"), { target: { value: "buyer-wise" } });
+    expect((screen.getByRole("button", { name: "Start Trade" }) as HTMLButtonElement).disabled).toBe(false);
+    expect(screen.getByRole("dialog").textContent).toContain("206.04 USD");
+    fireEvent.submit(document.getElementById("buy-usdt-form")!);
+    await waitFor(() => expect(submitted).toBeDefined());
+    expect(submitted).toMatchObject({ currency: "USD", bankTransferProvider: "wise", buyerWiseAccountId: "buyer-wise", listingId: "wise-listing", paymentMethod: "Bank Transfer", usdtAmount: "200", priceMode: "listing_price" });
+    expect(submitted).not.toHaveProperty("accountNumber");
+    expect(submitted).not.toHaveProperty("routingNumber");
+    expect(submitted).not.toHaveProperty("transactionPurpose");
+  }, 20000);
 
   it.each([["buy", "fetch"], ["offer", "body"]] as const)("releases a stalled %s request %s without repeating it or navigating on a late response", async (mode, phase) => {
     requests = [];
@@ -649,6 +686,22 @@ describe("compact Exchange home", () => {
 });
 
 describe("desktop buyer workspace", () => {
+  it("keeps USD and ILS average purchase prices separate", async () => {
+    requests = [
+      { ...trade, id: "ils-completed", status: "completed", currency: "ILS", usdtAmount: "200", fiatAmount: "640" },
+      { ...trade, id: "usd-completed", status: "completed", currency: "USD", bankTransferProvider: "wise", usdtAmount: "100", fiatAmount: "102", pricePerUsdt: "1.02" },
+    ];
+    render(<UsdtExchangePage locale="en" initialSessionUser={user} workspaceMode="buyer" />);
+    const averageLabel = await screen.findByText("Average Purchase Price");
+    await waitFor(() => expect(averageLabel.parentElement?.textContent).toContain("3.20 ILS"), { timeout: 10000 });
+    expect(averageLabel.parentElement?.textContent).toContain("1.02 USD");
+    expect(averageLabel.parentElement?.textContent).not.toContain("2.47");
+    fireEvent.click(document.querySelector('[aria-controls="buyer-trade-details-usd-completed"]')!);
+    const details = document.getElementById("buyer-trade-details-usd-completed")!;
+    expect(details.textContent).toContain("1.02 USD");
+    expect(details.textContent).not.toContain("₪1.02");
+  });
+
   it.each([["en", undefined], ["ar", undefined], ["en", "buyer"], ["ar", "buyer"]] as const)("integrates one workspace and navigates every buyer control (%s, %s)", async (locale, mode) => {
     const isAr = locale === "ar";
     requests = [

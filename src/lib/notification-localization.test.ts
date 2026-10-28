@@ -189,6 +189,10 @@ describe("notification localization", () => {
       "اكتملت الصفقة #TR-000777 بقيمة 1499.00 ILS (حد التنبيه: 1000).",
     ],
     [
+      "Trade #TR-000777 completed at USD 101.00 (threshold 99 USDT).",
+      "اكتملت الصفقة #TR-000777 بقيمة 101.00 USD (حد التنبيه: 99 USDT).",
+    ],
+    [
       "Your commission payment for trade #TR-000777 was verified. Your account is now fully unlocked.",
       "تم التحقق من دفع عمولة الصفقة #TR-000777. أُعيد تفعيل حسابك بالكامل.",
     ],

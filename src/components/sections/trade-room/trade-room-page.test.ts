@@ -111,6 +111,14 @@ describe("Trade Room client stability helpers", () => {
     expect(canRevealTradeRoomBankDetails({ ...acceptedBankTransfer, status: "completed" }, false)).toBe(false);
   });
 
+  it("lets both Wise participants reveal private instructions only during active bank-transfer stages", () => {
+    const wiseTrade = { ...room({ status: "accepted" }).request, paymentMethod: "Bank Transfer", currency: "USD", bankTransferProvider: "wise" } as PurchaseRequest;
+    expect(canRevealTradeRoomBankDetails(wiseTrade, true)).toBe(true);
+    expect(canRevealTradeRoomBankDetails(wiseTrade, false)).toBe(true);
+    expect(canRevealTradeRoomBankDetails({ ...wiseTrade, status: "completed" }, true)).toBe(false);
+    expect(canRevealTradeRoomBankDetails({ ...wiseTrade, paymentMethod: "Face-to-Face (Meet in Person)" }, true)).toBe(false);
+  });
+
   it("guides Face-to-Face through cash receipt and explicit seller delivery completion", () => {
     const acceptedFaceToFace = {
       ...room({ status: "accepted" }).request,

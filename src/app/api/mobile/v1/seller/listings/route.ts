@@ -135,6 +135,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await readMobileJsonBody(request);
+    if (body?.bankTransferProvider === "wise" || body?.wiseAccountId) return mobileError("INVALID_REQUEST", requestId, locale, 400);
     if (!body) return mobileError("INVALID_REQUEST", requestId, locale, 400);
     const availableAmount = String(body.availableAmount ?? "").trim();
     const price = normalizeListingPrice(String(body.price ?? "").trim()) ?? "";

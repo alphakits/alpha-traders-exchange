@@ -96,7 +96,7 @@ describe("request rules", () => {
   });
   it("permanently locks accepted terms and preserves history after its trade is cancelled", () => {
     const d = publish(); const o = offer(d.id);
-    const trade = { id: "cancelled-match", buyerId: "buyer", sellerId: "seller", listingId: o.listingId, status: "cancelled", usdtAmount: d.amount, pricePerUsdt: o.price, feePolicyVersion: "buyer_seller_1pct_v1" } as PurchaseRequest;
+    const trade = { id: "cancelled-match", buyerId: "buyer", sellerId: "seller", listingId: o.listingId, status: "cancelled", usdtAmount: d.amount, pricePerUsdt: o.price, feePolicyVersion: "buyer_seller_1pct_v1", currency: "ILS" } as PurchaseRequest;
     const input = { buyerId: "buyer", demandId: d.id, offerId: o.id, revision: d.revision, listingId: o.listingId, amount: d.amount, paymentMethod: d.paymentMethod, network: d.network };
     commitDemandMatch(db, input, demandTestMarket(), trade); db.purchaseRequests.push(trade);
     vi.useFakeTimers(); vi.setSystemTime(Date.now() + 300_001);

@@ -11,6 +11,7 @@ const root = fileURLToPath(new URL("../", import.meta.url));
 const build = process.argv.includes("--build");
 const production = process.argv.includes("--production");
 const quoteScenarios = process.argv.includes("--quote-scenarios");
+const wiseDraft = process.argv.includes("--wise-draft");
 if (build && production) throw new Error("Use --build or --production, not both.");
 const resumeArgument = process.argv.indexOf("--resume-runtime");
 const resuming = resumeArgument >= 0;
@@ -49,9 +50,11 @@ Object.assign(environment, {
   ALPHA_USDT_OFFLINE_PREVIEW: "1", ALPHA_E2E_TEST_SUPPORT: "1", ALPHA_E2E_LOOPBACK_ONLY: "1",
   ALPHA_USDT_OFFLINE_QUOTE_SCENARIOS: quoteScenarios ? "1" : "0",
   ALPHA_EXCHANGE_FORCE_INMEMORY_REPOSITORY: "1", ALPHA_USDT_REQUESTS_ENABLED: "1",
+  ...(wiseDraft ? { ALPHA_WISE_DRAFT_ENABLED: "1", ALPHA_EXCHANGE_DATA_BACKEND: "json" } : {}),
   ALPHA_USDT_REQUEST_EMAIL_DELIVERY_ENABLED: "0", ALPHA_EXCHANGE_TWILIO_SEND_ENABLED: "false",
   ALPHA_EXCHANGE_TWILIO_OTP_SEND_ENABLED: "false", ALPHA_FX_REFERENCE_URL: "https://usdt-offline.invalid/quote",
   ALPHA_EXCHANGE_CARDLESS_CREDENTIAL_SECRET: "offline-preview-synthetic-credentials-only",
+  ALPHA_EXCHANGE_WISE_DATA_SECRET: "offline-preview-synthetic-wise-data-only",
   NEXT_PUBLIC_SITE_URL: baseURL, NEXT_PUBLIC_APP_URL: baseURL,
 });
 const childArgs = build ? [path.join(root, "scripts/build-production.mjs")]

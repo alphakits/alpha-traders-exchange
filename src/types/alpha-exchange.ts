@@ -1,3 +1,5 @@
+import type { BankTransferProvider, WiseUsdAccount, WiseUsdAccountSnapshot } from "@/types/wise";
+
 export type UserRole =
   | "guest"
   | "student"
@@ -176,6 +178,8 @@ export interface AlphaExchangeUser {
   sellerAchievements?: SellerAchievement[];
   ownerSettings?: OwnerSettings;
   sellerBankAccounts?: SellerBankAccount[];
+  /** Private local-draft account records; never include in session or public DTOs. */
+  wiseUsdAccounts?: WiseUsdAccount[];
   disabled?: boolean;
   createdAt: string;
   updatedAt: string;
@@ -425,6 +429,7 @@ export interface SellerReputationSnapshot {
   estimatedCommissionPaid: number;
   revenueGenerated: number;
   repeatBuyers: number;
+  /** Average completed trade amount in USDT, independent of settlement currency. */
   averageTradeSize: number;
   publicVolumeRange?: string;
   nextRank?: SellerLevel;
@@ -452,6 +457,8 @@ export interface MarketplaceListing {
   paymentMethod: string;
   paymentMethods: string[];
   bankAccountId?: string;
+  bankTransferProvider?: BankTransferProvider;
+  wiseAccountId?: string;
   bankName?: string;
   minimumTrade: string;
   maximumTrade: string;
@@ -894,6 +901,11 @@ export interface PurchaseRequest {
   buyerSafetyAcknowledged?: boolean;
   sellerSafetyAcknowledged?: boolean;
   sellerBankAccountId?: string;
+  bankTransferProvider?: BankTransferProvider;
+  sellerWiseAccountId?: string;
+  buyerWiseAccountId?: string;
+  sellerWiseAccountSnapshot?: WiseUsdAccountSnapshot;
+  buyerWiseAccountSnapshot?: WiseUsdAccountSnapshot;
   /** Server-only immutable payment instructions captured with the request. */
   sellerBankAccountSnapshot?: {
     accountHolderName: string;
@@ -964,6 +976,8 @@ export interface CommissionRecord {
   issueReason?: string;
   rate: number;
   grossAmount: number;
+  /** Original fiat settlement currency; commissionAmount remains denominated in USDT. */
+  grossCurrency?: string;
   /** Identifies trades created under the explicit buyer+seller fee schedule. */
   feePolicyVersion?: "buyer_seller_1pct_v1";
   /** Seller's own 1% marketplace fee in USDT. */
@@ -1146,6 +1160,9 @@ export type AuditAction =
   | "seller_bank_account_added"
   | "seller_bank_account_updated"
   | "seller_bank_account_deleted"
+  | "wise_account_saved"
+  | "wise_account_deleted"
+  | "wise_account_reviewed"
   | "trade_closed_manually"
   | "trade_inactivity_warning_sent"
   | "trade_bank_details_revealed"

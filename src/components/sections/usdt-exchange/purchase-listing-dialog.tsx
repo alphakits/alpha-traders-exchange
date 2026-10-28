@@ -1,6 +1,7 @@
 "use client";
 
 import { formatMoneyNumber } from "@/lib/accent-text";
+import { WiseAccountSelect, type WiseAccountSummary } from "./wise-account-select";
 import { brandText, currencyText, moneyText } from "@/components/ui/currency-text";
 import { ActionFeedback } from "@/components/ui/action-feedback";
 import { TradePaymentSummary } from "@/components/sections/usdt-exchange/trade-payment-summary";
@@ -28,6 +29,7 @@ type BuyerInfo = {
   usdtAmount: string;
   receivingWalletAddress: string;
   receivingNetwork?: SupportedNetwork;
+  buyerWiseAccountId?: string;
   cardlessBankName?: string;
   cardlessWithdrawalCode?: string;
   cardlessVerificationKind?: CardlessVerificationKind;
@@ -36,6 +38,9 @@ type BuyerInfo = {
 };
 
 type PurchaseListingDialogProps = {
+  wiseEnabled?: boolean;
+  wiseAccounts?: WiseAccountSummary[];
+  wiseAccountsLoading?: boolean;
   locale: Locale;
   listing: MarketplaceListing;
   sellerProfileData: PremiumSellerProfileData | null;
@@ -89,6 +94,9 @@ function safeText(value: unknown, fallback = "—") {
 }
 
 export function PurchaseListingDialog({
+  wiseEnabled = false,
+  wiseAccounts = [],
+  wiseAccountsLoading = false,
   locale,
   listing,
   sellerProfileData,
@@ -130,12 +138,14 @@ export function PurchaseListingDialog({
   onOfferedPriceChange,
   onSafetyAcknowledgedChange,
   onGoToVerification,
-  formatIls,
+  formatIls: formatLegacyIls,
   paymentMethodEmoji,
   paymentMethodLabel,
   sellerLevelToneKey,
 }: PurchaseListingDialogProps) {
   const isAr = locale === "ar";
+  const isWise = listing.bankTransferProvider === "wise";
+  const formatIls = (value: number) => listing.currency === "USD" ? `${value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD` : formatLegacyIls(value);
   const paymentMethodOptions = getMarketplacePaymentMethodOptions(selectedPaymentMethods);
   const availablePaymentMethods = new Set(paymentMethodOptions
     .filter((option) => option.available)
@@ -161,6 +171,7 @@ export function PurchaseListingDialog({
   );
   const paymentTotalInvalid = !Number.isFinite(estimatedTotal) || estimatedTotal <= 0;
   const purchaseDisabled = cardlessInvalid || paymentTotalInvalid || isSubmittingPurchase
+    || (isWise && (!wiseEnabled || wiseAccountsLoading || !wiseAccounts.some(account => account.id === buyerInfo.buyerWiseAccountId && account.ownershipReviewStatus === "manually_reviewed")))
     || !selectedPaymentMethodIsAvailable
     || buyerTradeAmountInvalid
     || buyerWalletInvalid
@@ -235,7 +246,7 @@ export function PurchaseListingDialog({
                   </div>
                   <div className={isAr ? "text-left" : "text-right"}>
                     <p className="text-2xl font-bold leading-none text-[#C9A227]">{currencyText(priceMode === "buyer_offer" && offeredTradePrice <= 0 ? "—" : formatIls(priceMode === "buyer_offer" ? offeredTradePrice : selectedPrice))}</p>
-                    <p className="mt-1 text-[11px] uppercase tracking-[0.12em] text-[#D1D5DB]">{priceMode === "buyer_offer" ? (isAr ? "سعرك المقترح" : "Your offered price") : (isAr ? "سعر العرض" : "Listing price")} · {currencyText("ILS / USDT")}</p>
+                    <p className="mt-1 text-[11px] uppercase tracking-[0.12em] text-[#D1D5DB]">{priceMode === "buyer_offer" ? (isAr ? "سعرك المقترح" : "Your offered price") : (isAr ? "سعر العرض" : "Listing price")} · {currencyText(`${listing.currency} / USDT`)}</p>
                     {priceMode === "buyer_offer" ? <p className="mt-1 text-[10px] text-[#9CA3AF]">{isAr ? "سعر البائع" : "Seller price"}: {currencyText(formatIls(selectedPrice))}</p> : null}
                   </div>
                 </div>
@@ -252,7 +263,7 @@ export function PurchaseListingDialog({
                       const selected = selectedPaymentMethod === method;
                       return (
                         <button key={`purchase-method-${listing.id}-${method}`} type="button" disabled={!available} aria-disabled={!available} onClick={() => onPaymentMethodChange(method)} className={`rounded-xl border p-3 transition-all duration-200 ${isAr ? "text-right" : "text-left"} ${selected ? "border-[#6CAEFF]/70 bg-[#6CAEFF]/15 shadow-[0_10px_24px_rgba(36,121,255,0.25)]" : available ? "border-white/10 bg-black/25 hover:-translate-y-0.5 hover:border-[#6CAEFF]/45 hover:shadow-[0_10px_24px_rgba(15,23,42,0.35)]" : "cursor-not-allowed border-white/5 bg-black/15 opacity-50"}`}>
-                          <p className={`text-sm font-medium ${available ? "text-white" : "text-[#9CA3AF]"}`}>{currencyText(paymentMethodEmoji(method))} {currencyText(paymentMethodLabel(method, isAr))}</p>
+                          <p className={`text-sm font-medium ${available ? "text-white" : "text-[#9CA3AF]"}`}>{currencyText(paymentMethodEmoji(method))} {currencyText(paymentMethodLabel(method, isAr))}{isWise && method === "Bank Transfer" ? " · Wise · USD" : ""}</p>
                           {selected ? <p className="mt-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#93C5FD]">{isAr ? "مختارة لهذه الصفقة" : "Selected for this trade"}</p> : null}
                           {!available ? <p className="mt-2 text-[10px] text-[#9CA3AF]">{isAr ? "غير متاحة في هذا العرض" : "Not offered on this listing"}</p> : null}
                         </button>
@@ -260,10 +271,11 @@ export function PurchaseListingDialog({
                     })}
                   </div>
                   <p className={`mt-3 text-[11px] text-[#9CA3AF] ${isAr ? "text-right" : "text-left"}`}>{isAr ? "يمكن اختيار الطرق التي فعّلها البائع لهذا العرض فقط." : "Only payment methods enabled by this seller can be selected."}</p>
-                  {isBankTransferPaymentMethod(selectedPaymentMethod) && parseIsraeliBankSelection(listing.bankName).length ? (
+                  {!isWise && isBankTransferPaymentMethod(selectedPaymentMethod) && parseIsraeliBankSelection(listing.bankName).length ? (
                     <p className="mt-3 text-xs text-[#D1D5DB]">{isAr ? "البنوك المدعومة" : "Supported banks"}: <span className="text-white">{currencyText(parseIsraeliBankSelection(listing.bankName).map((bankName) => getIsraeliBankDisplayName(bankName, locale)).join(isAr ? "، " : ", "))}</span></p>
                   ) : null}
                 </div>
+                {isWise ? <WiseAccountSelect id="purchase-wise-account" locale={locale} purpose="sending" accounts={wiseAccounts} loading={wiseAccountsLoading} value={buyerInfo.buyerWiseAccountId ?? ""} disabled={isSubmittingPurchase || !wiseEnabled} onChange={buyerWiseAccountId => onBuyerDetailsChange?.({ buyerWiseAccountId })} /> : null}
                 {isCardless ? <div className="space-y-2 rounded-xl border border-[#C9A227]/30 bg-[#C9A227]/5 p-3">
                   <label htmlFor="cardless-cash-input" className="block text-sm font-medium">{isAr ? "أدخل مبلغ السحب بالشيكل" : "Enter withdrawal amount in ILS"}</label>
                   <Input id="cardless-cash-input" dir="ltr" inputMode="numeric" disabled={isSubmittingPurchase} placeholder="100 – 10,000" value={formatMoneyNumber(buyerInfo.cardlessIlsAmount ?? "")} onChange={(event) => {

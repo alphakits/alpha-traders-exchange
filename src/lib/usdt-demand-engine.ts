@@ -5,11 +5,17 @@ import type { MarketSnapshot } from "@/types/market";
 import { hasSellerOperationalAccess } from "@/lib/seller-approval-verification";
 import { formatIls, formatUsdt } from "@/lib/usdt-demand-format";
 import { demandIdentityProjector } from "@/lib/usdt-demand-identity";
+import { isWisePaymentsEnabled, getWisePaymentsMode } from "@/lib/wise-payments-capability";
 import { demandAcceptedMatch, demandExpiresAtMs } from "./usdt-demand-policy";
 import { assertDemandActor, assertDemandListing, assertDemandTerms, canRespond, DEMAND_COOLDOWN_MS, DEMAND_TTL_MS, DEMAND_PUBLICATION_WINDOW_MS, DEMAND_PUBLICATION_LIMIT, demandChangeSchema, demandCreateSchema, DemandError, demandListingAvailableAmount, demandOfferSchema, demandReference, demandState } from "./usdt-demand-policy";
 
 function actor(db: AlphaExchangeDb, id: string) {
   const user = db.users.find(u => u.id === id); assertDemandActor(user); return user;
+}
+function sameTerms(left: DemandTerms, right: DemandTerms) {
+  return (["amount", "price", "network", "paymentMethod", "city"] as const).every(key => left[key] === right[key])
+    && (left.currency ?? "ILS") === (right.currency ?? "ILS")
+    && (left.bankTransferProvider ?? "israeli_bank") === (right.bankTransferProvider ?? "israeli_bank");
 }
 function expire(db: AlphaExchangeDb, now: number) {
   for (const d of db.usdtDemands ?? []) {
@@ -30,11 +36,13 @@ function notice(db: AlphaExchangeDb, user: AlphaExchangeUser, d: UsdtDemand, off
   if (db.notifications.some(n => n.id === id)) return;
   const title = offerId ? "New response to your USDT request" : "New USDT request";
   const offeredPrice = offerId ? d.offers.find(o => o.id === offerId)?.price ?? d.price : d.price;
-  const message = `${formatUsdt(d.amount)} USDT ${offerId ? "offered" : "requested"} at ₪${formatIls(offeredPrice)} per USDT. ${d.paymentMethod} · ${d.network}.`;
+  const moneyPrefix = d.currency === "USD" ? "USD " : "₪";
+  const provider = d.bankTransferProvider === "wise" ? " · Wise" : "";
+  const message = `${formatUsdt(d.amount)} USDT ${offerId ? "offered" : "requested"} at ${moneyPrefix}${formatIls(offeredPrice)} per USDT. ${d.paymentMethod}${provider} · ${d.network}.`;
   const href = `/usdt-exchange/requests/${encodeURIComponent(d.id)}${offerId ? `?offer=${encodeURIComponent(offerId)}` : ""}`;
   db.notifications.push({ id, userId: user.id, category: "listing", title, titleEn: title, message, messageEn: message,
     titleAr: offerId ? "رد جديد على طلب USDT الخاص بك" : "طلب USDT جديد",
-    messageAr: `${offerId ? "عرض" : "طلب"} ${formatUsdt(d.amount)} USDT بسعر ₪${formatIls(offeredPrice)} لكل USDT. ${d.network}.`,
+    messageAr: `${offerId ? "عرض" : "طلب"} ${formatUsdt(d.amount)} USDT بسعر ${moneyPrefix}${formatIls(offeredPrice)} لكل USDT. ${d.network}${provider}.`,
     isRead: false, createdAt: new Date().toISOString(), relatedHref: href, actionHref: href,
     state: user.notificationPreferences?.inApp === false ? "archived" : "unread",
     archivedAt: user.notificationPreferences?.inApp === false ? new Date().toISOString() : undefined,
@@ -68,7 +76,7 @@ export function createDemand(db: AlphaExchangeDb, userId: string, body: unknown,
   const previous = (db.usdtDemands ?? []).find(d => d.requesterId === userId && d.operationId === input.operationId);
   if (previous) {
     const originalTerms = previous.createTerms ?? previous;
-    if ((Object.keys(input.terms) as Array<keyof DemandTerms>).some(k => originalTerms[k] !== input.terms[k])) throw new DemandError("IDEMPOTENCY_CONFLICT", "This submission key was already used with different terms.");
+    if (!sameTerms(originalTerms, input.terms)) throw new DemandError("IDEMPOTENCY_CONFLICT", "This submission key was already used with different terms.");
     return previous;
   }
   assertCanPublish();
@@ -103,8 +111,11 @@ export function changeDemand(db: AlphaExchangeDb, userId: string, id: string, bo
     assertSingleOpen(db, userId, id);
     if (!editing) assertPostRate(db, userId, now);
     assertDemandTerms(input.terms, market, now);
-    if (editing && (Object.keys(input.terms) as Array<keyof DemandTerms>).every(key => demand[key] === input.terms[key])) return demand;
-    demand.createTerms ??= { amount: demand.amount, price: demand.price, network: demand.network, paymentMethod: demand.paymentMethod, city: demand.city };
+    if (editing && sameTerms(demand, input.terms)) return demand;
+    demand.createTerms ??= { amount: demand.amount, price: demand.price, network: demand.network, paymentMethod: demand.paymentMethod, city: demand.city,
+      ...(demand.currency ? { currency: demand.currency } : {}), ...(demand.bankTransferProvider ? { bankTransferProvider: demand.bankTransferProvider } : {}) };
+    delete demand.currency;
+    delete demand.bankTransferProvider;
     Object.assign(demand, input.terms); demand.state = "open";
     if (!editing) demand.expiresAt = new Date(now + DEMAND_TTL_MS).toISOString();
   } else demand.state = "cancelled";
@@ -180,6 +191,7 @@ export function readDemandWorkspace(db: AlphaExchangeDb, userId: string, market:
     const accepted = demandAcceptedMatch(d);
     const canSeeTrade = d.requesterId === userId || d.offers.some(o => o.id === accepted?.offerId && o.sellerId === userId);
     return { id: d.id, amount: d.amount, price: d.price, network: d.network, paymentMethod: d.paymentMethod, city: d.city,
+      ...(d.currency ? { currency: d.currency } : {}), ...(d.bankTransferProvider ? { bankTransferProvider: d.bankTransferProvider } : {}),
       revision: d.revision, state, updatedAt: d.updatedAt, expiresAt: new Date(demandExpiresAtMs(d)).toISOString(), isMine: d.requesterId === userId,
       requesterName: identity(d.requesterId).displayName, requester: identity(d.requesterId),
       purchaseRequestId: canSeeTrade ? accepted?.purchaseRequestId : undefined, offers };
@@ -190,6 +202,7 @@ export function readDemandWorkspace(db: AlphaExchangeDb, userId: string, market:
     try { assertDemandListing(db, selected, l); return true; } catch { return false; }
   }).map(l => ({ id: l.id, price: l.price, amount: demandListingAvailableAmount(db, l) })) : [];
   return { actorId: userId, canRespond: hasSellerOperationalAccess(user), reference: demandReference(market), requests, listings,
+    ...(isWisePaymentsEnabled() ? { wiseDraftEnabled: true, wisePaymentsMode: getWisePaymentsMode() as "draft" | "hosted" } : {}),
     publishing: publicationLimits(db, userId, Date.now()).publishing,
     nextCursor: page.length < remaining.length ? page.at(-1)!.id : null };
 }

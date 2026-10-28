@@ -3,7 +3,14 @@ import { E2E_BASE_URL, E2E_CRON_SECRET, E2E_PORT } from "./e2e/support/base-url"
 
 export default defineConfig({
   testDir: "./e2e",
-  testIgnore: "**/phone-verification-gate.spec.ts",
+  // These suites require their own server capabilities and fixtures. The Wise
+  // config runs both files against its network-blocked offline launcher; the
+  // ordinary server must never be reset by that isolated fixture.
+  testIgnore: [
+    "**/phone-verification-gate.spec.ts",
+    "**/wise-usd-draft.spec.ts",
+    "**/wise-usd-layout.spec.ts",
+  ],
   globalSetup: "./e2e/global-setup.ts",
   fullyParallel: false,
   forbidOnly: !!process.env.CI,

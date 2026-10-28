@@ -136,7 +136,9 @@ export function calculateSellerTrustSnapshot(input: {
     return acc;
   }, {});
   const repeatBuyers = Object.values(buyersCount).filter((count) => count > 1).length;
-  const averageTradeSize = completedTrades ? volumeByCompleted.revenueGenerated / completedTrades : 0;
+  // Trade size is denominated in USDT, including when completed trades use
+  // different fiat currencies. Do not average ILS and USD settlement totals.
+  const averageTradeSize = completedTrades ? volumeByCompleted.totalUsdtVolume / completedTrades : 0;
   const level = deriveSellerLevel({ completedTrades, totalUsdtVolume: volumeByCompleted.totalUsdtVolume, trustScore });
   const badges = deriveSellerBadges({ level, rating, responseTimeMinutes, responseSampleCount, trustScore, completionRate, completedTrades, recentActivityScore });
   const prestigeProgress = getSellerPrestigeProgress(volumeByCompleted.totalUsdtVolume, level);

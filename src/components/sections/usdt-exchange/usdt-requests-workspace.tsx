@@ -14,6 +14,7 @@ import { RequestForm } from "./usdt-request-form";
 import { SellerResponseForm } from "./usdt-response-form";
 import { RequestCounterpartyIdentity } from "./request-counterparty-identity";
 import { RequestClientError, requestErrorMessage } from "./usdt-request-errors";
+import { useWiseAccounts, WiseAccountSelect } from "./wise-account-select";
 
 const root = "/api/alpha-exchange/usdt-requests";
 const initial: DemandTerms = { amount: "", price: "", network: "TRC20", paymentMethod: "Bank Transfer", city: "" };
@@ -117,6 +118,8 @@ export function UsdtRequestsWorkspace({ locale, actorId, demandId }: { locale: "
   const [kind, setKind] = useState<CardlessVerificationKind>("id_number");
   const [verification, setVerification] = useState("");
   const [safety, setSafety] = useState(false);
+  const [buyerWiseAccountId, setBuyerWiseAccountId] = useState("");
+  const wiseAccounts = useWiseAccounts(accountMatches && data?.wiseDraftEnabled ? actorId : undefined);
   const current = demandId ? data?.requests.find(request => request.id === demandId) : undefined;
   const url = demandId ? root + "/" + encodeURIComponent(demandId) : root + "?scope=" + scope;
   const contextKey = actorId + "|" + (demandId ?? "") + "|" + scope + "|" + accountMatches;
@@ -137,7 +140,7 @@ export function UsdtRequestsWorkspace({ locale, actorId, demandId }: { locale: "
     }
   }, [data, demandId, scope, router]);
   const clearReview = useCallback(() => {
-    setReviewOffer(null); setWallet(""); setBank(""); setCode(""); setVerification(""); setKind("id_number"); setSafety(false);
+    setReviewOffer(null); setWallet(""); setBank(""); setCode(""); setVerification(""); setKind("id_number"); setSafety(false); setBuyerWiseAccountId("");
   }, []);
   const load = useCallback(async (signal?: AbortSignal) => {
     const call = ++sequence.current;
@@ -209,13 +212,18 @@ export function UsdtRequestsWorkspace({ locale, actorId, demandId }: { locale: "
   const reviewedIdentity = current?.offers.find(offer => offer.id === reviewOffer?.id)?.seller ?? reviewOffer?.seller;
   const walletError = current && wallet ? getWalletAddressValidationError(current.network, wallet) : null;
   const atmReady = current?.paymentMethod !== "Cardless ATM Withdrawal" || Boolean(bank && parseCardlessWithdrawalDetails({ withdrawalCode: code, verificationKind: kind, verificationValue: verification }).ok);
-  const reviewReady = Boolean(wallet.trim() && !walletError && atmReady && safety && reviewOffer?.available && reference
+  const wiseReview = current?.bankTransferProvider === "wise" && current.currency === "USD";
+  const reviewPriceReady = wiseReview ? data?.wiseDraftEnabled && !refreshFailed : reference && reviewOffer
+    && Number(reviewOffer.price) >= Number(reference.minimum) && Number(reviewOffer.price) <= Number(reference.maximum);
+  const wiseAccountReady = !wiseReview || (wiseAccounts.enabled && wiseAccounts.reviewedAccounts.some(account => account.id === buyerWiseAccountId));
+  const reviewReady = Boolean(wallet.trim() && !walletError && atmReady && wiseAccountReady && safety && reviewOffer?.available && reviewPriceReady
     && current?.state === "open" && Date.parse(current.expiresAt) > now
-    && Number(reviewOffer.price) >= Number(reference.minimum) && Number(reviewOffer.price) <= Number(reference.maximum));
+  );
   const reviewHelp = current && (current.state !== "open" || Date.parse(current.expiresAt) <= now)
     ? text("This request has closed or expired. Refresh to see its current status.", "أُغلق هذا الطلب أو انتهت صلاحيته. حدّث لعرض حالته الحالية.")
-    : !reference ? text("Refresh the price and availability before opening a trade. Your details stay on this screen.", "حدّث السعر والتوفر قبل فتح الصفقة. تبقى تفاصيلك في هذه الشاشة.")
-      : reviewOffer && (Number(reviewOffer.price) < Number(reference.minimum) || Number(reviewOffer.price) > Number(reference.maximum))
+    : !wiseAccountReady ? text("Choose your personal Wise USD account after its ownership review is complete.", "اختر حساب Wise الشخصي بالدولار بعد اكتمال مراجعة ملكيته.")
+    : refreshFailed || (!wiseReview && !reference) ? text("Refresh the price and availability before opening a trade. Your details stay on this screen.", "حدّث السعر والتوفر قبل فتح الصفقة. تبقى تفاصيلك في هذه الشاشة.")
+      : !wiseReview && reference && reviewOffer && (Number(reviewOffer.price) < Number(reference.minimum) || Number(reviewOffer.price) > Number(reference.maximum))
         ? text("This response is outside the current price range. Refresh to review available responses.", "هذا الرد خارج نطاق السعر الحالي. حدّث لمراجعة الردود المتاحة.")
         : text("Complete the wallet, required payment details and confirmation above to continue.", "أكمل المحفظة وتفاصيل الدفع المطلوبة والتأكيد أعلاه للمتابعة.");
   const selling = current ? !current.isMine : scope === "available";
@@ -227,7 +235,7 @@ export function UsdtRequestsWorkspace({ locale, actorId, demandId }: { locale: "
     if (!d.isMine || d.purchaseRequestId || ["matched", "fulfilled", "trade_cancelled"].includes(d.state)) return;
     const action = ["open", "paused"].includes(d.state) && Date.parse(d.expiresAt) > now ? "edit" : "renew";
     submission.current = null; setError(""); setEditingRequest({ id: d.id, revision: d.revision, action, expiresAt: d.expiresAt });
-    setTerms({ amount: d.amount, price: d.price, network: d.network, paymentMethod: d.paymentMethod, city: d.city });
+    setTerms({ amount: d.amount, price: d.price, network: d.network, paymentMethod: d.paymentMethod, city: d.city, currency: d.currency, bankTransferProvider: d.bankTransferProvider });
     setCash(String(Number(calculateTradePaymentTotal(d.amount, d.price, true) ?? "1000"))); setEditing(true); reveal("request-form");
   }
   function createRequest() {
@@ -285,8 +293,8 @@ export function UsdtRequestsWorkspace({ locale, actorId, demandId }: { locale: "
     const status = o.state === "accepted" ? text("Selected", "تم اختياره") : o.state === "withdrawn" ? text("Withdrawn", "مسحوب") : o.state === "superseded" ? text("Replaced", "تم استبداله") : text("Unavailable", "غير متاح");
     return <article id={"offer-" + o.id} data-testid="offer-card" key={o.id} className={panel + " scroll-mt-24 " + (selectedOfferId === o.id ? "ring-2 ring-blue-400" : "")}>
       <div className="flex flex-wrap items-center justify-between gap-4">
-        <div className="min-w-0 max-w-full">{o.seller ? <RequestCounterpartyIdentity identity={o.seller} locale={locale} audience="seller" /> : <p className="font-medium">{o.sellerName}</p>}<p className="mt-2 text-xl font-semibold tabular-nums text-emerald-300"><bdi dir="ltr">₪{formatIls(o.price)}</bdi> <span className="text-sm text-gray-400">/ USDT</span></p>
-          {currentTerms ? <p className="mt-2 text-sm text-gray-300">{text("Total incl. 1% buyer fee", "الإجمالي شامل رسوم المشتري 1%")}: <bdi dir="ltr" className="font-semibold tabular-nums text-emerald-300">₪{formatIls(calculateTradePaymentTotal(current!.amount, o.price, true))}</bdi></p>
+        <div className="min-w-0 max-w-full">{o.seller ? <RequestCounterpartyIdentity identity={o.seller} locale={locale} audience="seller" /> : <p className="font-medium">{o.sellerName}</p>}<p className="mt-2 text-xl font-semibold tabular-nums text-emerald-300"><bdi dir="ltr">{current?.currency === "USD" ? "USD " : "₪"}{formatIls(o.price)}</bdi> <span className="text-sm text-gray-400">/ USDT</span></p>
+          {currentTerms ? <p className="mt-2 text-sm text-gray-300">{text("Total incl. 1% buyer fee", "الإجمالي شامل رسوم المشتري 1%")}: <bdi dir="ltr" className="font-semibold tabular-nums text-emerald-300">{current?.currency === "USD" ? "USD " : "₪"}{formatIls(calculateTradePaymentTotal(current!.amount, o.price, true))}</bdi></p>
             : <p className="mt-2 text-sm leading-6 text-gray-400">{text("Response to earlier request terms. Its total is not shown because the request has changed.", "رد على شروط طلب سابقة. لا يُعرض إجماليه لأن الطلب تغيّر.")}</p>}
         </div>
         <div className="flex flex-wrap items-center gap-3">
@@ -319,10 +327,10 @@ export function UsdtRequestsWorkspace({ locale, actorId, demandId }: { locale: "
     </nav>}
     <RequestSteps selling={selling} ar={ar} step={current?.purchaseRequestId || reviewOffer ? 2 : current ? 1 : 0} />
     <section aria-label={text("Price reference", "مرجع السعر")} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-[#111318] p-4 sm:p-5">
-      <div className="min-w-0"><p className="text-xs text-gray-400">{text("USD/ILS reference", "مرجع USD/ILS")}</p><p className="mt-1 text-xl font-semibold tabular-nums text-emerald-300 [overflow-wrap:anywhere]"><bdi dir="ltr">{reference ? "₪" + formatPriceReference(reference.price) : "—"}</bdi></p></div>
+      <div className="min-w-0"><p className="text-xs text-gray-400">{text("USD/ILS reference · ILS transfers only", "مرجع USD/ILS · لتحويلات الشيكل فقط")}</p><p className="mt-1 text-xl font-semibold tabular-nums text-emerald-300 [overflow-wrap:anywhere]"><bdi dir="ltr">{reference ? "₪" + formatPriceReference(reference.price) : "—"}</bdi></p></div>
       <div><p className="text-xs text-gray-400"><RequestMoneyText>{text("Allowed price per USDT · ±₪0.35", "السعر المسموح لكل USDT · ±₪0.35")}</RequestMoneyText></p><p className="mt-1 font-medium text-emerald-300">{reference ? <bdi dir="ltr">₪{formatIls(reference.minimum)} – ₪{formatIls(reference.maximum)}</bdi> : text("Waiting for a fresh quote", "بانتظار سعر حديث")}</p></div>
       <button className={secondary} disabled={busy} onClick={() => void run(async () => { await load(); })}>{text("Refresh", "تحديث")}</button>
-      {data && !data.reference && <p className="w-full text-sm text-amber-200">{text("A fresh reference is needed before publishing or opening a trade. Your form stays here; refresh to try again.", "يلزم سعر مرجعي حديث قبل النشر أو فتح صفقة. تبقى بياناتك هنا؛ حدّث للمحاولة مجددًا.")}</p>}
+      {data && !data.reference && terms.bankTransferProvider !== "wise" && current?.bankTransferProvider !== "wise" && <p className="w-full text-sm text-amber-200">{text("A fresh reference is needed before publishing or opening a trade. Your form stays here; refresh to try again.", "يلزم سعر مرجعي حديث قبل النشر أو فتح صفقة. تبقى بياناتك هنا؛ حدّث للمحاولة مجددًا.")}</p>}
     </section>
     {error && <p id="request-feedback" tabIndex={-1} role="alert" className="rounded-xl border border-red-400/40 bg-red-500/10 p-4 text-red-200 focus:outline-none"><RequestMoneyText>{error}</RequestMoneyText></p>}
     {refreshFailed && data && <p role="status" className="rounded-xl border border-amber-300/20 bg-amber-300/10 p-4 text-sm text-amber-100">{text("We could not refresh the latest price and availability. Your draft is saved on this screen. Choose Refresh before publishing, responding or opening a trade.", "تعذر تحديث السعر والتوفر. تبقى مسودتك في هذه الشاشة. اختر تحديث قبل النشر أو الرد أو فتح صفقة.")}</p>}
@@ -338,11 +346,11 @@ export function UsdtRequestsWorkspace({ locale, actorId, demandId }: { locale: "
     {current && !editing && <NextStep ar={ar} title={activeTrade ? (current.state === "fulfilled" ? text("Your trade is completed", "اكتملت صفقتك") : text("Continue in your Trade Room", "تابع في غرفة الصفقة")) : current.state === "paused" ? text("Review the price before continuing", "راجع السعر قبل المتابعة") : current.state !== "open" ? text("This request is closed", "هذا الطلب مغلق") : current.isMine ? (activeOffers.length ? text("Compare your seller responses", "قارن ردود البائعين") : text("Your request is waiting for sellers", "طلبك بانتظار البائعين")) : ownResponse ? text("Your response is waiting for the buyer", "ردك بانتظار المشتري") : text("Send the buyer your price", "أرسل سعرك للمشتري")}>
       <p>{activeTrade ? (current.state === "fulfilled" ? text("Open the Trade Room to review the completed trade and its final details.", "افتح غرفة الصفقة لمراجعة الصفقة المكتملة وتفاصيلها النهائية.") : text("Follow the next instruction in the Trade Room to continue this trade.", "اتبع الخطوة التالية في غرفة الصفقة لمتابعة هذه الصفقة.")) : current.state === "paused" ? (current.isMine ? text("Matching pauses when the quote is unavailable or the price leaves the allowed range. Refresh the quote, or edit your request. Prices never change automatically.", "تتوقف المطابقة عندما لا يتوفر سعر مرجعي أو يكون السعر خارج النطاق المسموح. حدّث السعر المرجعي أو عدّل طلبك. لا تتغير الأسعار تلقائيًا.") : text("This request is paused until a fresh quote is available and the buyer’s price is in range. Refresh later or browse other open requests.", "هذا الطلب متوقف حتى يتوفر سعر مرجعي حديث ويكون سعر المشتري ضمن النطاق. حدّث لاحقًا أو تصفح الطلبات المفتوحة الأخرى.")) : current.state !== "open" ? (current.isMine ? (current.purchaseRequestId ? text("This accepted request stays locked. Go back to your requests to publish a new one when a slot is available.", "يبقى هذا الطلب المقبول مقفلًا. عد إلى طلباتك لنشر طلب جديد عند توفر فرصة نشر.") : text("Review the details and publish again when a slot is available. Existing responses stay in your history.", "راجع التفاصيل وانشر مجددًا عند توفر فرصة نشر. تبقى الردود السابقة في السجل.")) : text("You can browse other open buyer requests.", "يمكنك تصفح طلبات المشترين المفتوحة الأخرى.")) : current.isMine ? (activeOffers.length ? text("Each response shows your full payment including the buyer fee. Choose Review response to check the details and wallet before opening a trade.", "يعرض كل رد إجمالي دفعتك شاملًا رسوم المشتري. اختر مراجعة الرد للتحقق من التفاصيل والمحفظة قبل فتح الصفقة.") : text("Eligible sellers can see your request. Responses refresh automatically here. You can update or cancel the request while you wait.", "يمكن للبائعين المؤهلين مشاهدة طلبك. تتحدث الردود هنا تلقائيًا. يمكنك تحديث الطلب أو إلغاؤه أثناء الانتظار.")) : ownResponse ? text("The buyer must review your response before a trade opens. You can update your price below or withdraw the response.", "يجب أن يراجع المشتري ردك قبل فتح الصفقة. يمكنك تحديث سعرك أدناه أو سحب الرد.") : text("Use an approved listing that covers the full amount and matches the payment method, network and meeting city when needed.", "استخدم عرضًا معتمدًا يغطي كامل الكمية ويتوافق مع طريقة الدفع والشبكة ومدينة اللقاء عند الحاجة.")}</p>
     </NextStep>}
-    {editing && <RequestForm ar={ar} terms={terms} setTerms={next => { setTerms(next); setError(""); }} cash={cash} setCash={setCash} reference={reference} publishing={data?.publishing} busy={busy} mode={editingRequest?.action ?? "create"} expiresAt={editingRequest?.expiresAt} stale={staleEditor} now={now} onSubmit={submitTerms} onClose={() => { setEditing(false); setEditingRequest(null); }} onReload={() => { if (current && canEdit) editRequest(current); else { setEditing(false); setEditingRequest(null); } }} />}
+    {editing && <RequestForm ar={ar} wiseDraftEnabled={data?.wiseDraftEnabled && !refreshFailed} terms={terms} setTerms={next => { setTerms(next); setError(""); }} cash={cash} setCash={setCash} reference={reference} publishing={data?.publishing} busy={busy} mode={editingRequest?.action ?? "create"} expiresAt={editingRequest?.expiresAt} stale={staleEditor} now={now} onSubmit={submitTerms} onClose={() => { setEditing(false); setEditingRequest(null); }} onReload={() => { if (current && canEdit) editRequest(current); else { setEditing(false); setEditingRequest(null); } }} />}
     {data?.requests.map(d => <article data-testid="request-card" key={d.id} className={panel}>
-      <div className="flex flex-wrap justify-between gap-4"><div className="min-w-0 max-w-full">{d.requester ? <RequestCounterpartyIdentity identity={d.requester} locale={locale} audience="buyer" /> : <p className="text-sm text-gray-400">{d.requesterName}</p>}<h2 className="mt-2 text-[clamp(1.125rem,5vw,1.875rem)] font-semibold tabular-nums text-emerald-300 [overflow-wrap:anywhere]"><bdi dir="ltr">{formatUsdt(d.amount)} <span className="text-lg">USDT</span></bdi></h2><p className="mt-2 text-gray-300"><bdi dir="ltr" className="font-medium tabular-nums text-emerald-300">₪{formatIls(d.price)}</bdi> {text("per USDT", "لكل USDT")}</p></div><RequestStatus state={["open", "paused"].includes(d.state) && Date.parse(d.expiresAt) <= now ? "expired" : d.state} ar={ar} /></div>
-      <div className="mt-4 flex flex-wrap gap-2 text-xs text-gray-300">{[paymentLabel(d.paymentMethod, ar), d.network, d.city].filter(Boolean).map(label => <span key={label} className="min-w-0 max-w-full rounded-lg bg-white/5 px-3 py-2 [overflow-wrap:anywhere]">{label}</span>)}</div>
-      <p className="mt-4 text-sm text-gray-300">{text("At requested price, incl. 1% buyer fee", "بالسعر المطلوب، شامل رسوم المشتري 1%")}: <bdi dir="ltr" className="font-semibold tabular-nums text-emerald-300">₪{formatIls(calculateTradePaymentTotal(d.amount, d.price, true))}</bdi></p>
+      <div className="flex flex-wrap justify-between gap-4"><div className="min-w-0 max-w-full">{d.requester ? <RequestCounterpartyIdentity identity={d.requester} locale={locale} audience="buyer" /> : <p className="text-sm text-gray-400">{d.requesterName}</p>}<h2 className="mt-2 text-[clamp(1.125rem,5vw,1.875rem)] font-semibold tabular-nums text-emerald-300 [overflow-wrap:anywhere]"><bdi dir="ltr">{formatUsdt(d.amount)} <span className="text-lg">USDT</span></bdi></h2><p className="mt-2 text-gray-300"><bdi dir="ltr" className="font-medium tabular-nums text-emerald-300">{d.currency === "USD" ? "USD " : "₪"}{formatIls(d.price)}</bdi> {text("per USDT", "لكل USDT")}</p></div><RequestStatus state={["open", "paused"].includes(d.state) && Date.parse(d.expiresAt) <= now ? "expired" : d.state} ar={ar} /></div>
+      <div className="mt-4 flex flex-wrap gap-2 text-xs text-gray-300">{[paymentLabel(d.paymentMethod, ar, d.bankTransferProvider), d.network, d.city].filter(Boolean).map(label => <span key={label} className="min-w-0 max-w-full rounded-lg bg-white/5 px-3 py-2 [overflow-wrap:anywhere]">{label}</span>)}</div>
+      <p className="mt-4 text-sm text-gray-300">{text("At requested price, incl. 1% buyer fee", "بالسعر المطلوب، شامل رسوم المشتري 1%")}: <bdi dir="ltr" className="font-semibold tabular-nums text-emerald-300">{d.currency === "USD" ? "USD " : "₪"}{formatIls(calculateTradePaymentTotal(d.amount, d.price, true))}</bdi></p>
       <p className="mt-2 text-xs text-gray-400">{["open", "paused"].includes(d.state) ? text("Expires", "ينتهي") : text("Updated", "تم التحديث")}: {new Date(["open", "paused"].includes(d.state) ? d.expiresAt : d.updatedAt).toLocaleString(ar ? "ar" : "en", { dateStyle: "medium", timeStyle: "short" })}</p>
       {["open", "paused"].includes(d.state) && <p className="mt-3 inline-flex rounded-full border border-blue-300/20 bg-blue-400/10 px-3 py-1.5 text-xs font-medium text-blue-200">{requestTimeLeft(d.expiresAt, now, ar)}</p>}
       {d.isMine && d.purchaseRequestId && <p className="mt-3 text-xs leading-5 text-gray-300">{text("Accepted requests are locked. Your agreed terms remain in the Trade Room.", "الطلبات المقبولة مقفلة. تبقى شروطك المتفق عليها في غرفة الصفقة.")}</p>}
@@ -372,6 +380,7 @@ export function UsdtRequestsWorkspace({ locale, actorId, demandId }: { locale: "
       void run(async isCurrent => {
         const result = await api<{ destination: string }>("/api/alpha-exchange/purchase-requests", { method: "POST", body: JSON.stringify({
           listingId: reviewOffer.listingId, usdtAmount: current.amount, receivingNetwork: current.network, paymentMethod: current.paymentMethod,
+          ...(wiseReview ? { currency: "USD", bankTransferProvider: "wise", buyerWiseAccountId } : {}),
           buyerReceivingWalletAddress: normalizeWalletAddress(wallet), feePolicyVersion: "buyer_seller_1pct_v1", usdtDemandId: current.id,
           usdtDemandOfferId: reviewOffer.id, usdtDemandRevision: current.revision, safetyAcknowledged: safety,
           bankName: bank, cardlessWithdrawalCode: code, cardlessVerificationKind: kind, cardlessVerificationValue: verification,
@@ -383,8 +392,9 @@ export function UsdtRequestsWorkspace({ locale, actorId, demandId }: { locale: "
       <fieldset disabled={busy} className="min-w-0 space-y-5">
         <legend className="mb-4 text-xl font-semibold" tabIndex={-1}>{text("Review and open trade", "راجع وافتح الصفقة")}</legend>
         {reviewedIdentity ? <RequestCounterpartyIdentity identity={reviewedIdentity} locale={locale} audience="seller" /> : <p className="font-medium">{reviewOffer.sellerName}</p>}
-        <p className="text-sm text-gray-300 [overflow-wrap:anywhere]">{paymentLabel(current.paymentMethod, ar)} · {current.network}{current.city ? " · " + current.city : ""}</p>
-        <FeeBreakdown amount={current.amount} price={reviewOffer.price} ar={ar} title={text("Your final payment", "دفعتك النهائية")} />
+        <p className="text-sm text-gray-300 [overflow-wrap:anywhere]">{paymentLabel(current.paymentMethod, ar, current.bankTransferProvider)} · {current.network}{current.city ? " · " + current.city : ""}</p>
+        <FeeBreakdown amount={current.amount} price={reviewOffer.price} currency={current.currency} ar={ar} title={text("Your final payment", "دفعتك النهائية")} />
+        {wiseReview && <WiseAccountSelect locale={locale} accounts={wiseAccounts.accounts} loading={wiseAccounts.loading} value={buyerWiseAccountId} onChange={id => { setBuyerWiseAccountId(id); setSafety(false); }} purpose="sending" id="request-wise-sender" />}
         <label className="block">{text("Your receiving wallet", "محفظتك المستلمة")} ({current.network})
           <input required className={field} dir="ltr" autoComplete="off" spellCheck={false} maxLength={200} aria-invalid={Boolean(walletError)} aria-describedby="wallet-help" value={wallet} onChange={e => { setWallet(e.target.value); setError(""); }} />
         </label>

@@ -96,7 +96,7 @@ export function toMobileTradeActions(
   const isBuyer = request.buyerId === userId;
   const isSeller = request.sellerId === userId;
   const isCashTrade = isCashTradePaymentMethod(request.paymentMethod);
-  return {
+  const actions: MobileTradeDetail["actions"] = {
     canAccept: isSeller && request.status === "pending" && request.termsProposal?.status !== "pending"
       && !(context.sellerCommissionDueCount && context.sellerCommissionDueCount > 0),
     canDecline: canSellerDeclineTrade(request, userId),
@@ -142,6 +142,11 @@ export function toMobileTradeActions(
       && request.buyerReview?.hidden !== true
       && !request.sellerResponse,
   };
+  if (request.bankTransferProvider === "wise") return { ...actions, canAccept: false, canDecline: false, canCancel: false,
+    canViewBankDetails: false, canMarkPaymentSent: false, canConfirmPreparedCardlessCode: false, canUploadPaymentEvidence: false,
+    canConfirmFunds: false, canBeginRelease: false, canMarkUsdtSent: false, canUploadReleaseEvidence: false,
+    canCompleteTrade: false, canCompleteFaceToFace: false };
+  return actions;
 }
 
 export function canExposeBuyerWalletToMobileParticipant(request: PurchaseRequest, userId: string) {

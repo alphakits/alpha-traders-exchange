@@ -16,6 +16,9 @@ export type DemandPublicIdentity = {
 };
 
 export type DemandTerms = {
+  /** Absent values preserve the original ILS request contract. */
+  currency?: "ILS" | "USD";
+  bankTransferProvider?: "israeli_bank" | "wise";
   amount: string;
   price: string;
   network: SupportedNetwork;
@@ -64,6 +67,8 @@ export type DemandView = DemandTerms & {
   }>;
 };
 export type DemandWorkspace = {
+  wiseDraftEnabled?: boolean;
+  wisePaymentsMode?: "draft" | "hosted";
   actorId: string;
   canRespond: boolean;
   reference: { price: string; minimum: string; maximum: string; quotedAt?: string; validUntil?: string } | null;
