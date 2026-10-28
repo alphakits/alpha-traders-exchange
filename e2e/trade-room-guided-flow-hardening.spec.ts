@@ -649,8 +649,8 @@ for (const locale of ["en", "ar"] as const) {
       await outsideList.hover();
       const beforeOutside = await page.evaluate(() => window.scrollY);
       expect(beforeOutside).toBeGreaterThan(30);
-      await wheelAndSettle(page, outsideList, -120);
-      expect(await page.evaluate(() => window.scrollY)).toBeLessThan(beforeOutside - 10);
+      await page.mouse.wheel(0, -120);
+      await expect.poll(() => page.evaluate(() => window.scrollY), { timeout: 5_000 }).toBeLessThan(beforeOutside - 10);
 
       await draft.fill("1,500.25");
       await expect(draft).toHaveValue("1,500.25");
