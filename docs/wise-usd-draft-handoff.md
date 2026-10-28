@@ -97,6 +97,10 @@ Reliability Shield run `40688025571` tested commit `835452f28a60d4e75b768613bb1b
 
 No live activation follows from these results. Keep the PR draft until the final revision has all required checks and the provider and staging limitations above are resolved.
 
+Follow-up commit `4b652f81c162b053c9197c8f39876b57c1b22485` passed the full Linux quality gate, both Buy Requests browser engines, phone gates and the exact cross-page WebKit preflight. All 270 measured PostgreSQL actions passed the unchanged subsecond gate (maximum 897 ms); the prior latency/focus failures remain historical evidence of intermittent behavior, with no proven root-cause fix. Its Vercel preview reached `READY`, confirming the container packaging correction.
+
+The Wise Safari error persisted. Diagnostic revision `012fb6b3c0a6713d7878e20c86232a90184758e4` exposed the exact native fetch stack during the same-request hard navigation. Publication's POST response precedes its asynchronous client navigation; the test had not waited for the initial request workspace to render before starting the next navigation. The next revision explicitly checks the published URL, one request card with the expected USD/Wise terms, and the detailed seller-response region before proceeding. This strengthens the UI assertions without broadening the error audit. Browser verification of that synchronization change remains pending until its CI job passes.
+
 ## Verification on 2026-10-25
 
 - Optimized offline Next.js build completed successfully with Node 24.22.1. Standalone TypeScript checking and scoped ESLint also passed.

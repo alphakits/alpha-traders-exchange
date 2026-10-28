@@ -19,7 +19,7 @@ test("personal Wise USD accounts and Buy Request complete locally with private p
   let phase = "fixture setup";
   const pageErrors: Array<{ phase: string; path: string; message: string; stack?: string }> = [];
   page.on("pageerror", error => {
-    pageErrors.push({ phase, path: new URL(page.url()).pathname, message: error.message, stack: error.stack });
+    pageErrors.push({ phase, path: new URL(page.url()).pathname, message: error.message, stack: error.stack?.split("\n").slice(0,16).join("\n") });
   });
   await context.route("**/*", route => ["localhost", "127.0.0.1"].includes(new URL(route.request().url()).hostname)
     ? route.continue() : route.abort("blockedbyclient"));
@@ -95,6 +95,16 @@ test("personal Wise USD accounts and Buy Request complete locally with private p
     phase = "publish request";
     await page.getByRole("button", { name: "Publish request", exact: true }).click();
     const demand = await ok(await published);
+    // Publication responds before router.push and the new workspace's first
+    // fetch finish. Observe the user's destination before initiating another
+    // document navigation; otherwise those two transitions overlap in WebKit.
+    await expect(page).toHaveURL(new RegExp(`/en/usdt-exchange/requests/${demand.id}$`));
+    const publishedCard = page.getByTestId("request-card");
+    await expect(publishedCard).toHaveCount(1);
+    await expect(publishedCard.getByRole("heading", { name: /1,000\s+USDT/ })).toBeVisible();
+    await expect(publishedCard).toContainText("USD 1.00");
+    await expect(publishedCard).toContainText(/Bank Transfer.*Wise.*USD/);
+    await expect(page.getByRole("region", { name: "Seller responses", exact: true })).toBeVisible();
     const publishedWorkspace = await ok(await page.request.get(`/api/alpha-exchange/usdt-requests/${demand.id}`));
     const revision = publishedWorkspace.requests.find((entry: { id: string }) => entry.id === demand.id).revision;
     const offered = await ok(await seller.post(`/api/alpha-exchange/usdt-requests/${demand.id}/offers`, { data: {
