@@ -12,11 +12,14 @@ RUN --network=none env -i PATH=/usr/local/bin:/usr/bin:/bin CI=1 NODE_ENV=test N
 RUN --network=none env -i PATH=/usr/local/bin:/usr/bin:/bin CI=1 NODE_ENV=test NO_COLOR=1 \
     node scripts/check-container-web-tests.mjs
 
-# Consume public build inputs only. Deployment tooling must blank private
-# project variables in build.env while preserving their runtime configuration.
-ARG NEXT_PUBLIC_SUPABASE_URL
-ARG NEXT_PUBLIC_SUPABASE_ANON_KEY
-ARG NEXT_PUBLIC_SITE_URL
+# Browser-public defaults keep builds independent of Vercel container build-arg
+# forwarding (vercel/vercel#16895). These match the existing production client:
+# the sb_publishable key is not a secret or service-role key. Explicit build args
+# can still override them; never add private credentials here. Runtime project
+# variables remain unchanged, and private variables must stay out of build.env.
+ARG NEXT_PUBLIC_SUPABASE_URL=https://pihtougaocftqvcfcdhj.supabase.co
+ARG NEXT_PUBLIC_SUPABASE_ANON_KEY=sb_publishable_irzm6FKaszs4UKqI22RI-g_uftv54UO
+ARG NEXT_PUBLIC_SITE_URL=https://www.alphatraders.co.il
 ENV NODE_ENV=production \
     ALPHA_USDT_REQUESTS_ENABLED=1 \
     ALPHA_USDT_REQUEST_EMAIL_DELIVERY_ENABLED=0 \
