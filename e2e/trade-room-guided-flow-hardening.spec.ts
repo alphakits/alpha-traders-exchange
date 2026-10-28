@@ -1096,9 +1096,17 @@ test("Trade Room Poke is recipient-only, cooldown-protected, reconnect-safe, and
       await login(buyerSecondPage.request, buyerEmail, buyerPassword);
       const secondBrowserReplay = await buyerSecondPage.request.post(`/api/alpha-exchange/purchase-requests/${requestId}/poke`);
       expect(secondBrowserReplay.status()).toBe(429);
+      expect((await buyerPage.request.get("/api/alpha-exchange/account-sessions")).status()).toBe(401);
     } finally {
       await buyerSecondContext.close();
     }
+
+    // Signing in elsewhere replaces the original session. Reconnect the buyer
+    // before asserting live delivery; closing the other browser cannot restore it.
+    await login(buyerPage.request, buyerEmail, buyerPassword);
+    await buyerPage.goto(`/en/trade-room/${requestId}`);
+    await expect(buyerPage.getByRole("button", { name: /Poke again in/i })).toBeDisabled({ timeout: 20_000 });
+    expect((await buyerPage.request.post(`/api/alpha-exchange/purchase-requests/${requestId}/poke`)).status()).toBe(429);
 
     // The live recipient has the single canonical reminder, and the server's
     // persisted Poke state survives direct replay attempts. The focused store
