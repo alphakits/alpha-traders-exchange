@@ -15,6 +15,7 @@ import { PhoneVerificationChannelPicker } from "@/components/auth/phone-verifica
 import type { PhoneVerificationChannel, PhoneVerificationChannels } from "@/lib/phone-verification-channel";
 import { useOptionalCanonicalSession } from "@/components/auth/canonical-session-provider";
 import { getInterfaceAccess } from "@alpha-traders/contracts";
+import { ClientRequestTimeoutError, fetchClientJson, runClientRequest } from "@/lib/client-request-deadline";
 
 type Tab = "profile" | "security" | "notifications" | "privacy" | "account";
 
@@ -90,6 +91,18 @@ type DiscordConnection = {
   linkedAt: string;
   lastSyncedAt: string | null;
 };
+
+function isDiscordIdentity(value: unknown): value is { connection: DiscordConnection | null } {
+  if (typeof value !== "object" || value === null || !("connection" in value)) return false;
+  const connection = value.connection;
+  if (connection === null) return true;
+  return typeof connection === "object"
+    && "discordUserId" in connection && typeof connection.discordUserId === "string" && connection.discordUserId.length > 0
+    && "username" in connection && typeof connection.username === "string" && connection.username.length > 0
+    && "globalName" in connection && (connection.globalName === null || typeof connection.globalName === "string")
+    && "linkedAt" in connection && typeof connection.linkedAt === "string"
+    && "lastSyncedAt" in connection && (connection.lastSyncedAt === null || typeof connection.lastSyncedAt === "string");
+}
 
 type SellerBankAccount = {
   id: string;
@@ -189,8 +202,11 @@ export function AccountSettingsPanel({
   const [privacyMessage, setPrivacyMessage, privacyMessageFeedbackKey] = useActionFeedbackState<string | null>(null);
   const [exportMessage, setExportMessage, exportMessageFeedbackKey] = useActionFeedbackState<string | null>(null);
   const [discordConnection, setDiscordConnection] = useState<DiscordConnection | null>(null);
-  const [discordLoaded, setDiscordLoaded] = useState(false);
+  const [discordStatus, setDiscordStatus] = useState<"loading" | "ready" | "unavailable">("loading");
+  const [discordStatusRevision, setDiscordStatusRevision] = useState(0);
+  const [discordNeedsVerification, setDiscordNeedsVerification] = useState(false);
   const [discordBusy, setDiscordBusy] = useState(false);
+  const discordActionRef = useRef<AbortController | null>(null);
   const [discordMessage, setDiscordMessage, discordMessageFeedbackKey] = useActionFeedbackState<string | null>(null);
   const [showDiscordUnlink, setShowDiscordUnlink] = useState(false);
   const [bankAccounts, setBankAccounts] = useState<SellerBankAccount[]>([]);
@@ -278,15 +294,6 @@ export function AccountSettingsPanel({
       }
     })();
 
-    void (async () => {
-      const response = await fetch("/api/discord/identity", { cache: "no-store" });
-      if (response.ok) {
-        const data = await response.json() as { connection?: DiscordConnection | null };
-        setDiscordConnection(data.connection ?? null);
-      }
-      setDiscordLoaded(true);
-    })();
-
     const result = new URLSearchParams(window.location.search).get("discord");
     if (result) {
       setActiveTab("account");
@@ -320,6 +327,33 @@ export function AccountSettingsPanel({
       if (message) setDiscordMessage(isAr ? message.ar : message.en);
     }
   }, [initialTab, isAr, setDiscordMessage]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setDiscordStatus("loading");
+    void (async () => {
+      try {
+        const { response, payload } = await fetchClientJson<unknown>("/api/discord/identity", {
+          cache: "no-store",
+          signal: controller.signal,
+        });
+        if (controller.signal.aborted) return;
+        if (!response.ok || !isDiscordIdentity(payload)) throw new Error("Discord identity unavailable");
+        setDiscordConnection(payload.connection);
+        setDiscordNeedsVerification(false);
+        setShowDiscordUnlink(false);
+        setDiscordStatus("ready");
+      } catch {
+        if (!controller.signal.aborted) setDiscordStatus("unavailable");
+      }
+    })();
+    return () => controller.abort();
+  }, [discordStatusRevision]);
+
+  useEffect(() => () => {
+    discordActionRef.current?.abort();
+    discordActionRef.current = null;
+  }, []);
 
   // The server computes this from the seller's canonical approval and access policy.
   // Do not infer access again from a client-visible role or status.
@@ -671,69 +705,77 @@ export function AccountSettingsPanel({
   };
 
   async function handleDiscordConnect() {
+    if (discordActionRef.current || discordStatus !== "ready" || discordNeedsVerification) return;
+    const controller = new AbortController();
+    discordActionRef.current = controller;
     setDiscordBusy(true);
     setDiscordMessage(null);
     try {
-      const response = await fetch("/api/discord/oauth/start", {
+      const { response, payload: data } = await fetchClientJson<unknown>("/api/discord/oauth/start", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ locale }),
+        signal: controller.signal,
       });
-      const data = await response.json() as { authorizationUrl?: string; error?: string };
-      if (!response.ok || !data.authorizationUrl) {
+      if (discordActionRef.current !== controller) return;
+      if (!response.ok || typeof data !== "object" || data === null
+        || !("authorizationUrl" in data) || typeof data.authorizationUrl !== "string" || !data.authorizationUrl) {
+        const error = typeof data === "object" && data !== null && "error" in data && typeof data.error === "string"
+          ? data.error : "Could not start Discord connection.";
         setDiscordMessage(
-          isAr ? "تعذر بدء ربط Discord." : (data.error ?? "Could not start Discord connection."),
+          isAr ? "تعذر بدء ربط Discord." : error,
         );
         return;
       }
       window.location.assign(data.authorizationUrl);
-    } catch {
-      setDiscordMessage(isAr ? "تعذر بدء ربط Discord." : "Could not start Discord connection.");
+    } catch (error) {
+      if (discordActionRef.current !== controller) return;
+      setDiscordMessage(error instanceof ClientRequestTimeoutError
+        ? (isAr ? "استغرق بدء ربط Discord وقتًا أطول من المتوقع. حاول مرة أخرى." : "Starting Discord connection took too long. Please try again.")
+        : (isAr ? "تعذر بدء ربط Discord." : "Could not start Discord connection."));
     } finally {
-      setDiscordBusy(false);
+      if (discordActionRef.current === controller) {
+        discordActionRef.current = null;
+        setDiscordBusy(false);
+      }
     }
   }
 
   async function handleDiscordUnlink() {
+    if (discordActionRef.current || discordStatus !== "ready" || discordNeedsVerification) return;
+    const controller = new AbortController();
+    discordActionRef.current = controller;
     setDiscordBusy(true);
     setDiscordMessage(null);
     try {
-      const response = await fetch("/api/discord/identity", { method: "DELETE" });
-      const data: unknown = await response.json();
-      if (
-        !response.ok
-        || typeof data !== "object"
-        || data === null
-        || !("unlinked" in data)
-        || data.unlinked !== true
-      ) {
-        const error = typeof data === "object"
-          && data !== null
-          && "error" in data
-          && typeof data.error === "string"
-          ? data.error
-          : null;
-        setDiscordMessage(
-          isAr ? "تعذر فصل Discord." : (error ?? "Could not disconnect Discord."),
-        );
-        return;
-      }
-      const confirmationResponse = await fetch("/api/discord/identity", {
-        cache: "no-store",
-      });
-      const confirmation: unknown = await confirmationResponse.json();
-      if (
-        !confirmationResponse.ok
-        || typeof confirmation !== "object"
-        || confirmation === null
-        || !("connection" in confirmation)
-        || confirmation.connection !== null
-      ) {
-        setDiscordMessage(
-          isAr
+      // One deadline includes the mutation, both response bodies, and read-back.
+      // Never retry a mutation that the server may already have committed.
+      const failure = await runClientRequest(controller, 15_000, async (signal) => {
+        const response = await fetch("/api/discord/identity", { method: "DELETE", signal });
+        signal.throwIfAborted();
+        const data: unknown = await response.json();
+        signal.throwIfAborted();
+        if (!response.ok || typeof data !== "object" || data === null || !("unlinked" in data) || data.unlinked !== true) {
+          const error = typeof data === "object" && data !== null && "error" in data && typeof data.error === "string"
+            ? data.error : "Could not disconnect Discord.";
+          return isAr ? "تعذر فصل Discord." : error;
+        }
+        const confirmationResponse = await fetch("/api/discord/identity", { cache: "no-store", signal });
+        signal.throwIfAborted();
+        const confirmation: unknown = await confirmationResponse.json();
+        signal.throwIfAborted();
+        if (!confirmationResponse.ok || !isDiscordIdentity(confirmation) || confirmation.connection !== null) {
+          return isAr
             ? "تم إرسال طلب الفصل، لكن تعذر تأكيده. حدّث الصفحة للتحقق."
-            : "Disconnect was requested but could not be confirmed. Refresh to verify.",
-        );
+            : "Disconnect was requested but could not be confirmed. Refresh to verify.";
+        }
+        return null;
+      });
+      if (discordActionRef.current !== controller) return;
+      if (failure) {
+        setDiscordNeedsVerification(true);
+        setShowDiscordUnlink(false);
+        setDiscordMessage(failure);
         return;
       }
       setDiscordConnection(null);
@@ -743,10 +785,18 @@ export function AccountSettingsPanel({
           ? "تم فصل Discord. ستتم إزالة أدوار المجتمع المُدارة في الخلفية."
           : "Discord disconnected. Managed community roles will be removed in the background.",
       );
-    } catch {
-      setDiscordMessage(isAr ? "تعذر فصل Discord." : "Could not disconnect Discord.");
+    } catch (error) {
+      if (discordActionRef.current !== controller) return;
+      setDiscordNeedsVerification(true);
+      setShowDiscordUnlink(false);
+      setDiscordMessage(error instanceof ClientRequestTimeoutError
+        ? (isAr ? "تعذر تأكيد الفصل في الوقت المحدد. أعد التحقق من حالة الاتصال قبل المحاولة مجددًا." : "Disconnect could not be confirmed in time. Check connection status before trying again.")
+        : (isAr ? "تعذر تأكيد فصل Discord. أعد التحقق من حالة الاتصال." : "Could not confirm Discord disconnect. Check connection status."));
     } finally {
-      setDiscordBusy(false);
+      if (discordActionRef.current === controller) {
+        discordActionRef.current = null;
+        setDiscordBusy(false);
+      }
     }
   }
 
@@ -791,9 +841,13 @@ export function AccountSettingsPanel({
                   : "Connect Discord to the Alpha Traders community and synchronize your eligible roles."}
               </p>
             </div>
-            {!discordLoaded ? (
+            {discordStatus === "loading" ? (
               <p className="text-sm text-[#9CA3AF]" role="status">
                 {isAr ? "جارٍ تحميل حالة الاتصال..." : "Loading connection status..."}
+              </p>
+            ) : discordStatus === "unavailable" ? (
+              <p className="text-sm text-amber-100" role="status">
+                {isAr ? "تعذر التحقق من حالة اتصال Discord حاليًا." : "Discord connection status is currently unavailable."}
               </p>
             ) : discordConnection ? (
               <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -809,14 +863,16 @@ export function AccountSettingsPanel({
                       @{discordConnection.username}
                     </p>
                     <p className="mt-1 text-xs text-emerald-300">
-                      {isAr ? "متصل" : "Connected"}
+                      {discordNeedsVerification
+                        ? (isAr ? "آخر اتصال مؤكد — يلزم التحقق" : "Last confirmed connection — verification required")
+                        : (isAr ? "متصل" : "Connected")}
                     </p>
                   </div>
                 </div>
                 {!showDiscordUnlink ? (
                   <Button
                     variant="secondary"
-                    disabled={discordBusy}
+                    disabled={discordBusy || discordNeedsVerification}
                     onClick={() => setShowDiscordUnlink(true)}
                   >
                     {isAr ? "فصل Discord" : "Disconnect"}
@@ -831,7 +887,7 @@ export function AccountSettingsPanel({
                     <div className="flex gap-2">
                       <Button
                         variant="destructive"
-                        disabled={discordBusy}
+                        disabled={discordBusy || discordNeedsVerification}
                         onClick={() => void handleDiscordUnlink()}
                       >
                         {isAr ? "تأكيد الفصل" : "Confirm disconnect"}
@@ -865,6 +921,18 @@ export function AccountSettingsPanel({
                 </Button>
               </div>
             )}
+            {discordStatus === "unavailable" || (discordStatus === "ready" && discordNeedsVerification) ? (
+              <Button
+                variant="secondary"
+                disabled={discordBusy}
+                onClick={() => {
+                  setDiscordMessage(null);
+                  setDiscordStatusRevision((revision) => revision + 1);
+                }}
+              >
+                {isAr ? "إعادة التحقق من حالة الاتصال" : "Retry connection status"}
+              </Button>
+            ) : null}
             {discordMessage ? (
               <ActionFeedback revealKey={discordMessageFeedbackKey} as="p"
                 className="rounded-xl border border-white/10 bg-white/[0.03] p-3 text-sm text-[#D1D5DB]"
