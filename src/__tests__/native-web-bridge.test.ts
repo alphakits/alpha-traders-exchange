@@ -87,3 +87,10 @@ describe("native website bridge protocol", () => {
     expect(parseWebToNativeBridgeMessage({ ...registered, userId: "" })).toBeNull();
   });
 });
+
+it("parses explicit notification management actions and rejects missing user scope", () => {
+  for (const type of ["alpha.web.push-settings", "alpha.web.notification-reminders"]) {
+    expect(parseWebToNativeBridgeMessage({ type, version: 1, userId: "user", locale: "ar" })).toEqual({ type, version: 1, userId: "user", locale: "ar" });
+    expect(parseWebToNativeBridgeMessage({ type, version: 1, locale: "ar" })).toBeNull();
+  }
+});

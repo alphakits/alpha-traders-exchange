@@ -78,9 +78,13 @@ async function whatsappPayload(userId: string, locale?: string) {
   };
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   const { user, unauthorized } = await requireApiUser();
   if (!user) return unauthorized;
+  const expectedUserId = request.headers.get("x-alpha-expected-user-id");
+  if (expectedUserId && expectedUserId !== user.id) {
+    return NextResponse.json({ error: "Account changed. Please retry." }, { status: 409, headers: { "Cache-Control": "private, no-store" } });
+  }
   return NextResponse.json({
     preferences: traditionalPayload(user),
     whatsapp: await whatsappPayload(user.id, user.preferredLocale),
@@ -90,12 +94,16 @@ export async function GET() {
       phoneVerificationChannels: getPhoneVerificationChannels(),
       sms: isTwilioSendEnabled(),
     },
-  });
+  }, { headers: { "Cache-Control": "private, no-store", Vary: "Cookie" } });
 }
 
 export async function PATCH(request: NextRequest) {
   const { user, unauthorized } = await requireApiUser();
   if (!user) return unauthorized;
+  const expectedUserId = request.headers.get("x-alpha-expected-user-id");
+  if (expectedUserId && expectedUserId !== user.id) {
+    return NextResponse.json({ error: "Account changed. Please retry." }, { status: 409, headers: { "Cache-Control": "private, no-store" } });
+  }
   const rate = await checkSharedRateLimit({ headers: request.headers, key: "exchange:notification-preferences", identifier: user.id, maxRequests: 12, windowMs: 60_000 });
   if (!rate.allowed) return createRateLimitResponse(rate.retryAfterSeconds);
 

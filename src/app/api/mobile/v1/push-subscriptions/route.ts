@@ -20,6 +20,7 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 type RegistrationBody = {
+  expectedUserId?: unknown;
   expoPushToken?: unknown;
   installationId?: unknown;
   platform?: unknown;
@@ -67,6 +68,9 @@ export async function POST(request: NextRequest) {
   if (!rate.allowed) return createRateLimitResponse(rate.retryAfterSeconds);
 
   const body = await request.json().catch(() => null) as RegistrationBody | null;
+  if (body?.expectedUserId !== undefined && body.expectedUserId !== user.id) {
+    return noStoreJson({ error: "Account changed. Please retry." }, 409);
+  }
   const expoPushToken = typeof body?.expoPushToken === "string" ? body.expoPushToken.trim() : "";
   const installationId = typeof body?.installationId === "string" ? body.installationId.trim() : "";
   const appVersion = typeof body?.appVersion === "string" ? body.appVersion.trim() : "";

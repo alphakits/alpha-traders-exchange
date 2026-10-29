@@ -1,10 +1,10 @@
 import "server-only";
 import { getAlphaExchangeRepository, type SnapshotTableName } from "./alpha-exchange-repository";
-import { invalidateAlphaExchangeStoreCache, assertBuyerEligibleForDemand } from "./alpha-exchange-store";
+import { invalidateAlphaExchangeStoreCache, assertBuyerEligibleForDemand, publishCommittedNotifications } from "./alpha-exchange-store";
 import { getMarketSnapshot } from "./market-service";
 import { assertDemandEnabled } from "./usdt-demand-policy";
-import { changeDemand, createDemand, readDemandWorkspace, respondToDemand, withdrawDemandOffer } from "./usdt-demand-engine";
-import type { AlphaExchangeDb } from "@/types/alpha-exchange";
+import { appendDueDemandExpiryNotifications, changeDemand, createDemand, readDemandWorkspace, respondToDemand, withdrawDemandOffer } from "./usdt-demand-engine";
+import type { AlphaExchangeDb, AlphaExchangeNotification } from "@/types/alpha-exchange";
 import type { MarketSnapshot } from "@/types/market";
 
 export const DEMAND_TABLES: readonly SnapshotTableName[] = ["users", "listings", "purchase_requests", "commissions", "marketplace_enforcement_records", "usdt_demands", "notifications"];
@@ -18,15 +18,26 @@ export async function mutateDemands<T>(mutate: (db: AlphaExchangeDb) => T, befor
     const repository = await getAlphaExchangeRepository();
     const tx = await repository.beginTradeLifecycleTransaction(DEMAND_TABLES);
     let result: T;
+    let committedNotifications: AlphaExchangeNotification[] = [];
+    const apply = (snapshot: AlphaExchangeDb) => {
+      const existingIds = new Set(snapshot.notifications.map(notification => notification.id));
+      result = mutate(snapshot);
+      // A rebase replaces the speculative publications. Replays and notices
+      // already committed by another request must not alert devices again.
+      committedNotifications = snapshot.notifications.filter(notification => !existingIds.has(notification.id));
+      return snapshot;
+    };
     try {
       const db = tx?.snapshot ?? await repository.loadSelectedSnapshot(DEMAND_TABLES);
-      result = mutate(db);
+      apply(db);
       const selectedTables = ["usdt_demands", "notifications"] as const;
       if (tx) await tx.commit(db, { selectedTables });
       else await repository.saveSnapshot(db, { selectedTables, rebaseTables: DEMAND_TABLES,
-        rebaseOnLatest: fresh => { result = mutate(fresh); return fresh; } });
-      invalidateAlphaExchangeStoreCache(); return result!;
+        rebaseOnLatest: apply });
     } finally { await tx?.close(); }
+    invalidateAlphaExchangeStoreCache();
+    publishCommittedNotifications(committedNotifications);
+    return result!;
   };
   const pending = localQueue.then(run, run); localQueue = pending.catch(() => undefined); return pending;
 }
@@ -54,4 +65,7 @@ export async function offerDemand(userId: string, id: string, body: unknown) {
 }
 export async function withdrawOffer(userId: string, id: string, offerId: string) {
   return mutateDemands(db => withdrawDemandOffer(db, userId, id, offerId));
+}
+export async function runDemandExpiryNotifications(): Promise<{ notified: number }> {
+  return mutateDemands(db => appendDueDemandExpiryNotifications(db));
 }

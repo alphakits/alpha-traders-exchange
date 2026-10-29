@@ -8,6 +8,10 @@ vi.mock("@/lib/commission-deposit-discovery", () => ({ verifyBinanceInternalComm
   scanBinanceCommissionDeposits: mocks.scanBinance, scanTronCommissionDeposits: mocks.scanTron, scanBep20CommissionDeposits: mocks.scanBsc }));
 vi.mock("@/lib/bep20-commission-verifier", () => ({ verifyBep20Commission: mocks.bep20 }));
 vi.mock("@/lib/commission-batch-tron-verifier", () => ({ verifyCommissionBatchTronReceipt: mocks.tron }));
+vi.mock("@/lib/mobile-push", () => ({ scheduleMobilePushDelivery: vi.fn() }));
+vi.mock("@/lib/browser-push", () => ({ scheduleBrowserPushDelivery: vi.fn() }));
+import { scheduleMobilePushDelivery } from "./mobile-push";
+import { scheduleBrowserPushDelivery } from "./browser-push";
 import { getAlphaExchangeRepository } from "./alpha-exchange-repository";
 import { getSellerCommissionStatus, getSellerListingWorkspaceData, invalidateAlphaExchangeStoreCache, updateCommissionPaymentStatus } from "./alpha-exchange-store";
 import { getCommissionCheckoutRuntime } from "./commission-checkout-runtime";
@@ -25,6 +29,7 @@ function seed() {
 }
 beforeEach(async () => {
   vi.clearAllMocks(); vi.stubEnv("ALPHA_EXCHANGE_COMMISSION_CHECKOUT_V1", "1"); vi.stubEnv("ALPHA_EXCHANGE_FORCE_INMEMORY_REPOSITORY", "1");
+  vi.mocked(scheduleMobilePushDelivery).mockReset();
   globalThis.__alphaExchangeRepositoryPromise = undefined as never; globalThis.__alphaExchangeMemorySnapshot = seed() as never; invalidateAlphaExchangeStoreCache();
   // Initialize the actual repository's isolated memory adapter, then separately
   // mock only the checkout schema-readiness query. No live SQL/provider is used.
@@ -65,7 +70,25 @@ it.each(["TRC20", "BEP20"] as const)("automatically settles a full 40 USDT net r
   expect(final.commissionRecords[0]).toMatchObject({ commissionAmount: 40, paymentStatus: "paid",
     paymentBatchSettlement: { receivedMicros: 40_000_000, excessMicros: 0, waivedMicros: 0 } });
   expect(final.notifications.filter((row) => row.reason === "commission_payment_verified")).toHaveLength(1);
+  expect(vi.mocked(scheduleMobilePushDelivery).mock.calls.filter(([notice]) => notice.reason === "commission_payment_verified")).toHaveLength(1);
+  expect(scheduleBrowserPushDelivery).toHaveBeenCalledTimes(1);
   expect((await reloaded.scan(Date.now() + 60_000)).verified).toBe(0);
+});
+it("publishes verified checkout notices only after persistence and suppresses failed-commit alerts", async () => {
+  const { service, payment } = await prepared();
+  vi.mocked(scheduleMobilePushDelivery).mockImplementation(notification => {
+    const snapshot = globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb;
+    expect(snapshot.notifications.some(item => item.id === notification.id)).toBe(true);
+    expect(snapshot.commissionRecords.every(record => record.paymentStatus === "paid")).toBe(true);
+  });
+  const repository = await getAlphaExchangeRepository();
+  vi.spyOn(repository, "saveSnapshot").mockRejectedValueOnce(new Error("injected commit failure"));
+  expect(await service.reconcile({ deposits: [payment], deadline: Date.now() + 60_000 })).toMatchObject({ verified: 0, errors: 1 });
+  expect(scheduleMobilePushDelivery).not.toHaveBeenCalled();
+  expect(scheduleBrowserPushDelivery).not.toHaveBeenCalled();
+  expect(await service.reconcile({ deposits: [payment], deadline: Date.now() + 60_000 })).toMatchObject({ verified: 1 });
+  expect(scheduleMobilePushDelivery).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ userId: "seller", reason: "commission_payment_verified", actionHref: "/seller/commission-checkout" }));
+  expect(scheduleBrowserPushDelivery).toHaveBeenCalledTimes(1);
 });
 it("switches a mistaken TRC20 choice to BEP20, survives reload, and clears restrictions after automatic verification", async () => {
   const clock = vi.spyOn(Date, "now").mockReturnValue(Date.now());

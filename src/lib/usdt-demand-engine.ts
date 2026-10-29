@@ -52,6 +52,71 @@ function notice(db: AlphaExchangeDb, user: AlphaExchangeUser, d: UsdtDemand, off
 function notifySellers(db: AlphaExchangeDb, d: UsdtDemand) {
   for (const user of db.users) if (canRespond(db, user, d.requesterId)) notice(db, user, d);
 }
+/** Status changes go only to an existing counterparty, never the seller feed.
+ * Keep these separate from demandEmail, whose templates require an open offer. */
+function statusNotice(db: AlphaExchangeDb, demand: UsdtDemand, actorId: string | null, recipientId: string,
+  event: "cancelled" | "withdrawn" | "expired", offerId?: string) {
+  const recipient = db.users.find(user => user.id === recipientId);
+  const actor = db.users.find(user => user.id === actorId);
+  if (!recipient || recipient.disabled || recipientId === actorId
+    || (actorId && recipient.blockedUserIds?.includes(actorId)) || actor?.blockedUserIds?.includes(recipientId)) return false;
+  try { assertDemandActor(recipient); } catch { return false; }
+  if (event === "cancelled" && !canRespond(db, recipient, demand.requesterId)) return false;
+  const kind = event === "withdrawn" ? `withdrawn-${offerId}` : event;
+  const id = `demand-notice:${demand.id}:${demand.revision}:${kind}:${recipientId}`;
+  if (db.notifications.some(notification => notification.id === id)) return false;
+  const href = `/usdt-exchange/requests/${encodeURIComponent(demand.id)}${event === "withdrawn" && offerId ? `?offer=${encodeURIComponent(offerId)}` : ""}`;
+  const title = event === "cancelled" ? "USDT request cancelled" : event === "expired"
+    ? "Your USDT request expired" : "Response to your USDT request withdrawn";
+  const message = event === "cancelled"
+    ? "The buyer cancelled the USDT request you responded to. Your response is no longer available."
+    : event === "expired" ? "Your USDT request expired. Open it to review the terms and publish it again if you still need USDT."
+    : "A seller withdrew their response to your USDT request. Open the request to review other responses.";
+  const at = new Date().toISOString();
+  db.notifications.push({
+    id, userId: recipientId, category: "listing", title, titleEn: title, message, messageEn: message,
+    titleAr: event === "cancelled" ? "تم إلغاء طلب USDT" : event === "expired" ? "انتهت صلاحية طلب USDT الخاص بك" : "تم سحب رد على طلب USDT الخاص بك",
+    messageAr: event === "cancelled"
+      ? "ألغى المشتري طلب USDT الذي رددت عليه. لم يعد ردك متاحاً."
+      : event === "expired" ? "انتهت صلاحية طلب USDT الخاص بك. افتحه لمراجعة الشروط ونشره مجدداً إذا كنت لا تزال بحاجة إلى USDT."
+      : "سحب أحد البائعين رده على طلب USDT الخاص بك. افتح الطلب لمراجعة الردود الأخرى.",
+    reason: event === "withdrawn" ? "buy_request_offer_withdrawn" : `buy_request_${event}`,
+    priority: event === "withdrawn" ? "high" : "normal",
+    isRead: false, createdAt: at, relatedHref: href, actionHref: href, actionLabel: "View USDT request",
+    state: recipient.notificationPreferences?.inApp === false ? "archived" : "unread",
+    archivedAt: recipient.notificationPreferences?.inApp === false ? at : undefined,
+  });
+  return true;
+}
+
+export const DEMAND_EXPIRY_NOTIFICATION_BATCH = 100;
+export const DEMAND_EXPIRY_NOTIFICATION_LOOKBACK_MS = 24 * 60 * 60 * 1000;
+/** Observe the existing expiry policy without changing request, offer or trade
+ * state. The revision marker survives inbox pruning/deletion. The lookback
+ * permits delayed cron recovery without alerting historical requests on rollout. */
+export function appendDueDemandExpiryNotifications(db: AlphaExchangeDb, now = Date.now()) {
+  let notified = 0;
+  let processed = 0;
+  const due = (db.usdtDemands ?? []).filter(demand => {
+    const expiresAt = demandExpiresAtMs(demand);
+    return ["open", "expired"].includes(demand.state) && expiresAt > 0 && expiresAt <= now
+      && expiresAt >= now - DEMAND_EXPIRY_NOTIFICATION_LOOKBACK_MS
+      && (demand.expiryNotifiedRevision ?? 0) < demand.revision
+      && !demandAcceptedMatch(demand) && !demand.offers.some(offer => offer.state === "accepted");
+  }).sort((a, b) => demandExpiresAtMs(a) - demandExpiresAtMs(b) || a.id.localeCompare(b.id));
+  const existingIds = new Set(db.notifications.map(notification => notification.id));
+  for (const demand of due) {
+    const existing = existingIds.has(`demand-notice:${demand.id}:${demand.revision}:expired:${demand.requesterId}`);
+    const created = !existing && statusNotice(db, demand, null, demand.requesterId, "expired");
+    if (existing || created) {
+      demand.expiryNotifiedRevision = demand.revision;
+      processed += 1;
+      if (created) notified += 1;
+    }
+    if (processed >= DEMAND_EXPIRY_NOTIFICATION_BATCH) break;
+  }
+  return { notified };
+}
 function assertSingleOpen(db: AlphaExchangeDb, userId: string, exceptId?: string) {
   if ((db.usdtDemands ?? []).some(d => d.requesterId === userId && d.id !== exceptId && d.state === "open")) throw new DemandError("OPEN_REQUEST_EXISTS", "You already have an open USDT request. Update or cancel it first.");
 }
@@ -101,6 +166,9 @@ export function changeDemand(db: AlphaExchangeDb, userId: string, id: string, bo
   }
   const now = Date.now(); expire(db, now);
   if (input.action === "cancel" && demand.state === "cancelled") return demand;
+  const cancelledRecipients = input.action === "cancel" && demand.state === "open"
+    ? [...new Set(demand.offers.filter(offer => offer.state === "open" && offer.revision === demand.revision).map(offer => offer.sellerId))]
+    : [];
   // Older clients used renew for both editing and publishing again. A request
   // that is still open always follows edit rules, so retries/old clients cannot
   // extend its lifetime or consume an additional publication by editing it.
@@ -124,6 +192,7 @@ export function changeDemand(db: AlphaExchangeDb, userId: string, id: string, bo
   delete demand.purchaseRequestId; delete demand.acceptedOfferId;
   for (const offer of demand.offers) if (offer.state === "open") offer.state = "superseded";
   demand.history.push({ action: input.action === "cancel" ? "cancelled" : editing ? "edited" : "renewed", actorId: userId, at: demand.updatedAt, revision: demand.revision, ...priorTrade });
+  for (const recipientId of cancelledRecipients) statusNotice(db, demand, userId, recipientId, "cancelled");
   // Editing is unrestricted by publication quota, so it must not rebroadcast
   // a new-request notice to every seller. Existing cards refresh by revision.
   if (input.action === "renew" && !editing) notifySellers(db, demand);
@@ -156,7 +225,12 @@ export function withdrawDemandOffer(db: AlphaExchangeDb, userId: string, id: str
   const offer = demand?.offers.find(o => o.id === offerId && o.sellerId === userId);
   if (!demand || !offer) throw new DemandError("NOT_FOUND", "Response not found.", 404);
   if (offer.state === "accepted") throw new DemandError("TRADE_EXISTS", "Continue in the Trade Room.");
-  if (offer.state === "open") { offer.state = "withdrawn"; demand.updatedAt = new Date().toISOString(); }
+  if (offer.state === "open") {
+    const notifyBuyer = demand.state === "open" && !demandAcceptedMatch(demand)
+      && offer.revision === demand.revision && demandExpiresAtMs(demand) > Date.now();
+    offer.state = "withdrawn"; demand.updatedAt = new Date().toISOString();
+    if (notifyBuyer) statusNotice(db, demand, userId, demand.requesterId, "withdrawn", offer.id);
+  }
 }
 export function readDemandWorkspace(db: AlphaExchangeDb, userId: string, market: MarketSnapshot, input: { id?: string; scope?: string; cursor?: string } = {}): DemandWorkspace {
   const user = actor(db, userId);

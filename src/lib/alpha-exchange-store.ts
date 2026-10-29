@@ -60,6 +60,7 @@ import { runEnvValidation } from "@/lib/env-validation";
 import { getAlphaExchangeRepository, type SnapshotTableName, type TradeLifecycleTransaction } from "@/lib/alpha-exchange-repository";
 import { addRole, dedupeRoles, hasRole, isUserRole, normalizeRolesForUser, removeRole, resolvePrimaryRole } from "@/lib/roles";
 import { publishRealtimeEvent } from "@/lib/realtime";
+import { scheduleBrowserPushDelivery } from "@/lib/browser-push";
 import { scheduleMobilePushDelivery } from "@/lib/mobile-push";
 import { scheduleWhatsAppNotificationDelivery } from "@/lib/whatsapp-notifications";
 import { isWhatsAppSendingEnabled } from "@/lib/whatsapp-platform";
@@ -5323,10 +5324,19 @@ function publishNotificationPublication(publication: DeferredNotificationPublica
   // new message can alert the device while duplicate publications stay safe.
   if (publication.notification.whatsappChannelOnly !== true) {
     scheduleMobilePushDelivery(publication.notification);
+    scheduleBrowserPushDelivery();
   }
   // WhatsApp delivery independently re-reads the canonical notification,
   // participant, verified destination and current consent before sending.
   scheduleWhatsAppNotificationDelivery(publication.notification);
+}
+
+/** Publish new notifications only after their owning transaction commits. */
+export function publishCommittedNotifications(notifications: readonly AlphaExchangeNotification[]) {
+  for (const notification of notifications) {
+    if (notification.isRead || notification.state === "read" || notification.state === "archived") continue;
+    publishNotificationPublication({ type: "notification.created", notification });
+  }
 }
 
 function pushNotification(
