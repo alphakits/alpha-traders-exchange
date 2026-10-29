@@ -18,6 +18,8 @@ create table if not exists alpha_exchange.economic_news_official_sync (
 );
 alter table alpha_exchange.economic_news_official_results enable row level security;
 alter table alpha_exchange.economic_news_official_sync enable row level security;
+revoke all on table alpha_exchange.economic_news_official_results from public, anon, authenticated;
+revoke all on table alpha_exchange.economic_news_official_sync from public, anon, authenticated;
 `;
 let initialized: Promise<void> | undefined;
 async function initialize(pool: Pool) {

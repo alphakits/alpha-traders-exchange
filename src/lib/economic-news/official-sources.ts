@@ -106,7 +106,7 @@ export function parseOfficialResult(event: CalendarEvent, document: OfficialDocu
   } else if (key === "official-fed-fomc-decision") {
     const fractions = text.replace(/([0-9]+)-([0-9]+)\/([0-9]+)/g, (_, a, b, c) => String(Number(a) + Number(b) / Number(c)))
       .replace(/([0-9]+)\s*([¼½¾])/g, (_, a, b) => String(Number(a) + ({ "¼": .25, "½": .5, "¾": .75 }[b as "¼"] ?? 0)));
-    const match = /(?:decided to|voted to|will) (?:maintain|raise|lower)[^.]*?target range for the federal funds rate (?:at|to) ([\d.]+) to ([\d.]+) percent/i.exec(fractions);
+    const match = /(?:decided to|voted to|will) (?:maintain|raise|lower)[^.]*?target range for the federal funds rate(?: by (?:\d+(?:\.\d+)?|\d+\/\d+|[¼½¾]) percentage points?)? (?:at|to) ([\d.]+) to ([\d.]+) percent/i.exec(fractions);
     if (match && Number(match[1]) < Number(match[2]) && Number(match[2]) <= 30) actual = `${Number(match[1]).toFixed(2)}%–${Number(match[2]).toFixed(2)}%`;
   } else if (key === "official-fed-fomc-minutes") {
     // A publication notice must not replace a richer, verified editorial summary.
@@ -122,7 +122,7 @@ export function parseOfficialResult(event: CalendarEvent, document: OfficialDocu
       actual = change(text, `Compensation costs for civilian workers ${percent}, seasonally adjusted, for the 3-month period ending in ${months[Number(quarter[1]) * 3 - 1]} ${quarter[2]}`);
     } else {
       const family = key.includes("cpi-") ? "CONSUMER PRICE INDEX" : key.includes("ppi-") ? "PRODUCER PRICE INDEXES" : "EMPLOYMENT SITUATION";
-      if (!m || !new RegExp(`${family} - ${esc(reference)}`, "i").test(text)) return null;
+      if (!m || !new RegExp(`${family} -+ ${esc(reference)}\\b`, "i").test(text)) return null;
       if (key.endsWith("core-cpi-mom")) actual = change(text, `index for all items less food and energy ${percent} in ${m}`);
       else if (key.endsWith("cpi-mom")) actual = change(text, `Consumer Price Index for All Urban Consumers \\(CPI-U\\) ${percent} on a seasonally adjusted basis in ${m}`);
       else if (key.endsWith("cpi-yoy")) actual = change(text, `Over the last 12 months, the all items index ${percent} before seasonal adjustment`);

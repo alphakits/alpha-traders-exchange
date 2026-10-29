@@ -90,11 +90,26 @@ describe("strict official publication parsing (recorded-format fixtures, no live
     expect(parseOfficialResult(event("bea-gdp-advance"), document(text), now)?.event.actual).toBe("2.1%");
     expect(parseOfficialResult(event("bea-gdp-advance"), document(text.replaceAll("third quarter", "second quarter")), now)).toBeNull();
   });
-  it("reads payroll, unemployment, earnings and the immediately prior payroll revision separately", () => {
-    const text = "Transmission embargoed until 8:30 a.m. (ET) Friday, November 6, 2026 THE EMPLOYMENT SITUATION - OCTOBER 2026 Total nonfarm payroll employment changed little in October (+29,000), and the unemployment rate was 4.2 percent. In October, average hourly earnings for all employees on private nonfarm payrolls edged up by 5 cents, or 0.1 percent. The change in total nonfarm payroll employment for September was revised down by 29,000, from +162,000 to +133,000.";
+  it.each(["-", "--", "—"])("reads employment series and revisions with the official %s heading separator", separator => {
+    const text = `Transmission embargoed until 8:30 a.m. (ET) Friday, November 6, 2026 THE EMPLOYMENT SITUATION ${separator} OCTOBER 2026 Total nonfarm payroll employment changed little in October (+29,000), and the unemployment rate was 4.2 percent. In October, average hourly earnings for all employees on private nonfarm payrolls edged up by 5 cents, or 0.1 percent. The change in total nonfarm payroll employment for September was revised down by 29,000, from +162,000 to +133,000.`;
     expect(parseOfficialResult(event("bls-nfp"), document(text), now)?.event).toMatchObject({ actual: "29K", previous: "162K", revised: "133K" });
     expect(parseOfficialResult(event("bls-unemployment"), document(text), now)?.event.actual).toBe("4.2%");
     expect(parseOfficialResult(event("bls-hourly-earnings-mom"), document(text), now)?.event.actual).toBe("0.1%");
+    expect(parseOfficialResult(event("bls-nfp"), document(text.replace("OCTOBER 2026", "SEPTEMBER 2026")), now)).toBeNull();
+    expect(parseOfficialResult(event("bls-nfp"), document(text.replace("OCTOBER 2026", "OCTOBER 2027")), now)).toBeNull();
+  });
+  it.each([
+    ["lower", "1/4 percentage point", "3-1/2 to 3-3/4", "3.50%–3.75%"],
+    ["raise", "1/4 percentage point", "4 to 4-1/4", "4.00%–4.25%"],
+    ["lower", "0.25 percentage point", "3.5 to 3.75", "3.50%–3.75%"],
+    ["lower", "1/2 percentage point", "3-1/4 to 3-1/2", "3.25%–3.50%"],
+    ["raise", "0.5 percentage points", "4.25 to 4.5", "4.25%–4.50%"],
+    ["lower", "¼ percentage point", "3½ to 3¾", "3.50%–3.75%"],
+  ])("reads the announced FOMC target after %s by %s", (action, amount, range, actual) => {
+    const text = `October 28, 2026 For release at 2:00 p.m. EDT The Committee decided to ${action} the target range for the federal funds rate by ${amount} to ${range} percent.`;
+    expect(parseOfficialResult(event("fed-fomc-decision"), document(text), now)?.event.actual).toBe(actual);
+    expect(parseOfficialResult(event("fed-fomc-decision"), document(text.replace("October 28, 2026", "September 16, 2026")), now)).toBeNull();
+    expect(parseOfficialResult(event("fed-fomc-decision"), document(text.replace("decided to", "considered a proposal to")), now)).toBeNull();
   });
   it("keeps the policy decision separate from minutes and unstructured speech summaries", () => {
     const text = "October 28, 2026 For release at 2:00 p.m. EDT The Committee decided to maintain the target range for the federal funds rate at 3-3/4 to 4 percent.";

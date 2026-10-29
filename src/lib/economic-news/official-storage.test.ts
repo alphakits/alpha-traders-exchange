@@ -23,7 +23,9 @@ const result: OfficialResult = { event: { ...claims, actual: "190K", previous: "
 let lease: { pool: Pool; token: string };
 beforeAll(async () => {
   state.db = await PGlite.create();
-  await state.db.exec("create schema alpha_exchange; create role news_runtime_anon; grant usage on schema alpha_exchange to news_runtime_anon;");
+  await state.db.exec(`create schema alpha_exchange; create role news_runtime_anon; create role anon; create role authenticated;
+    grant usage on schema alpha_exchange to news_runtime_anon, anon, authenticated;
+    alter default privileges in schema alpha_exchange grant all on tables to anon, authenticated;`);
   await acquireOfficialNewsLease(now);
 }, 30_000);
 beforeEach(async () => {
@@ -74,6 +76,16 @@ describe("server-only runtime News results on real PostgreSQL semantics", () => 
       expect((await state.db.query("select * from alpha_exchange.economic_news_official_results")).rows).toEqual([]);
       expect((await state.db.query("select * from alpha_exchange.economic_news_official_sync")).rows).toEqual([]);
     } finally { await state.db.exec("reset role"); }
+  });
+  it("revokes inherited client table privileges, including TRUNCATE which RLS does not cover", async () => {
+    for (const role of ["anon", "authenticated"]) {
+      for (const table of ["economic_news_official_results", "economic_news_official_sync"]) {
+        const access = await state.db.query<{ allowed: boolean }>(
+          "select has_table_privilege($1, $2, 'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') as allowed",
+          [role, `alpha_exchange.${table}`]);
+        expect(access.rows[0].allowed).toBe(false);
+      }
+    }
   });
   it("tracks exactly the runtime schema in an idempotent migration", async () => {
     const migration = readFileSync("supabase/migrations/20261028202622_official_news_runtime_results.sql", "utf8").replace(/^--.*\n/, "").trim();
