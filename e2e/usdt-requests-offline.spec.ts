@@ -697,7 +697,21 @@ for (const locale of ["en", "ar"] as const) {
       await expectReadableSelectPaint(sellerPage.getByLabel(ar ? "عرضك" : "Your listing", { exact: true }), info, `${locale}-listing-select-paint`);
       const response = await seller.request.post(`${root}/${demand.id}/offers`, { data: { revision: 1, listingId: "listing-offline-seller", price: "3.25", operationId: randomUUID() } });
       expect(response.ok(), await response.text()).toBe(true);
-      await buyerPage.goto(`/${locale}/usdt-exchange/requests/${demand.id}`);
+      // The retained WebKit trace reports a native market-fetch refusal 18ms
+      // into this hard navigation, before the new document commits. Preserve
+      // that diagnostic and require a healthy destination feed on this
+      // isolated server's port; unrelated or steady-state errors still fail.
+      await browserErrorAudit.navigate(buyerPage, () => buyerPage.goto(`/${locale}/usdt-exchange/requests/${demand.id}`), {
+        url: new URL("/api/market/center", baseURL).href,
+        label: "market feed",
+        validateBody: (body) => {
+          const snapshot = body as { snapshot?: { pairs?: Record<string, { price?: number }> } } | null;
+          return ["btcUsdt", "ethUsdt", "usdtIls"].every(key => {
+            const price = snapshot?.snapshot?.pairs?.[key]?.price;
+            return typeof price === "number" && Number.isFinite(price) && price > 0;
+          });
+        },
+      });
       const review = buyerPage.getByRole("button", { name: ar ? "مراجعة الرد" : "Review response", exact: true });
       await review.focus(); await review.press("Enter");
       const reviewForm = buyerPage.getByRole("form", { name: ar ? "مراجعة الصفقة" : "Trade review" });

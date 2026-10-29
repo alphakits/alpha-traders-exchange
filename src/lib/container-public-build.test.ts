@@ -3,7 +3,7 @@ import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
-const dockerfile = readFileSync("Dockerfile.vercel", "utf8");
+const dockerfile = readFileSync("Dockerfile.vercel", "utf8").replace(/\r\n/g, "\n");
 const [build, runtime] = dockerfile.split(/(?=^FROM .+ AS runtime$)/m);
 const publicNames = [
   "NEXT_PUBLIC_SUPABASE_URL",
@@ -17,10 +17,26 @@ const defaults = Object.fromEntries(
 describe("container public build inputs", () => {
   it("has only the three reviewed browser-safe defaults when build args are not forwarded", () => {
     expect(Object.keys(defaults)).toEqual(publicNames);
-    expect(defaults.NEXT_PUBLIC_SUPABASE_URL).toBe("https://pihtougaocftqvcfcdhj.supabase.co");
-    expect(defaults.NEXT_PUBLIC_SITE_URL).toBe("https://www.alphatraders.co.il");
+    // The reviewed staging packager replaces these three ARG defaults together.
+    // Keep both exact targets bound as pairs; arbitrary or mixed targets fail.
+    const reviewedTargets = [
+      ["https://pihtougaocftqvcfcdhj.supabase.co", "https://www.alphatraders.co.il"],
+      ["https://ntnehgenzsooxwznrzzx.supabase.co", "https://alpha-usdt-buy-requests-staging-ntneh.vercel.app"],
+    ];
+    expect(reviewedTargets).toContainEqual([defaults.NEXT_PUBLIC_SUPABASE_URL, defaults.NEXT_PUBLIC_SITE_URL]);
     // A publishable key is intentionally public; secret/service-role keys must never be embedded.
-    expect(defaults.NEXT_PUBLIC_SUPABASE_ANON_KEY).toMatch(/^sb_publishable_[A-Za-z0-9_-]+$/);
+    const publicKey = defaults.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    if (publicKey.startsWith("sb_publishable_")) {
+      expect(publicKey).toMatch(/^sb_publishable_[A-Za-z0-9_-]+$/);
+    } else {
+      expect(publicKey).toMatch(/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/);
+      const [header, claims] = publicKey.split(".").slice(0, 2)
+        .map((part) => JSON.parse(Buffer.from(part, "base64url").toString("utf8")));
+      expect(header).toMatchObject({ alg: "HS256", typ: "JWT" });
+      expect(claims).toMatchObject({
+        iss: "supabase", role: "anon", ref: new URL(defaults.NEXT_PUBLIC_SUPABASE_URL).hostname.split(".")[0],
+      });
+    }
     expect([...dockerfile.matchAll(/^ARG (\w+)/gm)].map((match) => match[1])).toEqual(publicNames);
     expect(dockerfile).not.toMatch(/sb_secret_|SUPABASE_SERVICE_ROLE_KEY|DATABASE_URL|RESEND_API_KEY/);
   });
@@ -30,9 +46,14 @@ describe("container public build inputs", () => {
     const run = build.match(/^RUN (test -n [\s\S]+?)\s*&&\s*\\\n\s*node --test scripts\/test-container-server\.mjs/m);
     expect(run).not.toBeNull();
     const guard = run![1].replace(/\\\n/g, " ");
-    const status = (overrides: Record<string, string> = {}) => spawnSync("/bin/sh", ["-c", guard], {
-      env: { ...defaults, ...overrides, NODE_ENV: "test" },
-    }).status;
+    const shell = process.platform === "win32" ? process.env.SHELL || "/bin/sh" : "/bin/sh";
+    const status = (overrides: Record<string, string> = {}) => {
+      const result = spawnSync(shell, ["-c", guard], {
+        env: { ...defaults, ...overrides, NODE_ENV: "test" },
+      });
+      expect(result.error).toBeUndefined();
+      return result.status;
+    };
     expect(status()).toBe(0);
     expect(status({ NEXT_PUBLIC_SITE_URL: "https://example.test" })).toBe(0);
     for (const name of publicNames) expect(status({ [name]: "" })).not.toBe(0);
