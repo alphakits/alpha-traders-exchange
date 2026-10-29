@@ -22,9 +22,27 @@ const ids = {
   listing: `gh-listing-${randomUUID()}`,
 };
 
-const sellerEmail = `${ids.seller}@example.test`;
-const buyerEmail = `${ids.buyer}@example.test`;
+let sellerEmail = `${ids.seller}@example.test`;
+let buyerEmail = `${ids.buyer}@example.test`;
 const trackedIds = new Set<string>(Object.values(ids));
+let loginIp = freshLoginIp();
+
+function freshLoginIp() {
+  // The isolated loopback runtime accepts documentation-range client identities.
+  // Keep one identity for every login in this test, without changing real limits.
+  return `2001:db8:${randomBytes(12).toString("hex").match(/.{4}/g)!.join(":")}`;
+}
+
+function startTestFixtures() {
+  ids.seller = `gh-seller-${randomUUID()}`;
+  ids.buyer = `gh-buyer-${randomUUID()}`;
+  ids.listing = `gh-listing-${randomUUID()}`;
+  sellerEmail = `${ids.seller}@example.test`;
+  buyerEmail = `${ids.buyer}@example.test`;
+  trackedIds.clear();
+  for (const id of Object.values(ids)) trackedIds.add(id);
+  loginIp = freshLoginIp();
+}
 
 const iso = (deltaMs = 0) => new Date(Date.now() + deltaMs).toISOString();
 
@@ -202,7 +220,7 @@ async function cleanupState(api: APIRequestContext) {
 
 async function login(request: APIRequestContext, email: string, password: string) {
   const response = await request.post("/api/auth/login", {
-    headers: { "x-forwarded-for": "198.51.100.20" },
+    headers: { "x-forwarded-for": loginIp },
     data: { email, password, rememberMe: true },
   });
   expect(response.ok(), `login failed for ${email}`).toBeTruthy();
@@ -525,9 +543,15 @@ test.describe.configure({ mode: "serial" });
 
 test.beforeEach(async () => {
   const api = await pwRequest.newContext({ baseURL: E2E_BASE_URL });
-  await cleanupState(api);
-  await provisionState(api);
-  await api.dispose();
+  try {
+    await cleanupState(api);
+    // Removing/recreating the same account does not clear the serving process's
+    // login buckets. Each case owns fresh users and one stable network identity.
+    startTestFixtures();
+    await provisionState(api);
+  } finally {
+    await api.dispose();
+  }
 });
 
 test.afterAll(async () => {
