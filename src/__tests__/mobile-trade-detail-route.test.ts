@@ -134,6 +134,32 @@ beforeEach(() => {
 });
 
 describe("mobile trade detail route", () => {
+  it("serializes unpaid accepted amount adjustment separately from bank-disclosure cancellation", async () => {
+    mocks.getTradeRoomData.mockResolvedValueOnce(room({
+      buyerEvidence: undefined,
+      sensitivePaymentKind: "bank_details",
+      sensitivePaymentSharedAt: "2026-10-28T12:00:00Z",
+    }));
+    const response = await GET(request("GET"), { params: Promise.resolve({ requestId: "purchase-1" }) });
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      trade: { actions: { canCancel: false, canAdjustAmounts: true } },
+    });
+  });
+
+  it.each([
+    { paymentSentAt: "2026-10-28T12:00:00Z" },
+    { sensitivePaymentKind: "cardless_code", sensitivePaymentSharedAt: "2026-10-28T12:00:00Z" },
+    { fundsReceivedAt: "2026-10-28T12:00:00Z" },
+  ])("serializes amount denial for stale accepted progress: %j", async progress => {
+    mocks.getTradeRoomData.mockResolvedValueOnce(room({ buyerEvidence: undefined, ...progress }));
+    const response = await GET(request("GET"), { params: Promise.resolve({ requestId: "purchase-1" }) });
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      trade: { actions: { canAdjustAmounts: false } },
+    });
+  });
+
   it.each(["Bank Transfer", "Cardless ATM Withdrawal", "Face-to-Face (Meet in Person)"])("exposes no buyer completion action for %s", async (paymentMethod) => {
     mocks.getTradeRoomData.mockResolvedValue(room({ paymentMethod, status: "usdt_sent" }));
     const response = await GET(request("GET"), { params: Promise.resolve({ requestId: "purchase-1" }) });

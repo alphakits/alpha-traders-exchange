@@ -176,7 +176,7 @@ test('unknown secret-write outcome is redacted and never retried automatically',
   assert.equal(calls, 1);
 });
 
-test('runtime proof requires READY exact source, immutable argument binding, metadata and fresh database facts', async () => {
+for (const [ending, newline] of [['LF', '\n'], ['CRLF', '\r\n']]) test(`runtime proof requires READY exact source, immutable argument binding, metadata and fresh database facts (${ending})`, async () => {
   const runtimeConfigHash = digest(JSON.stringify({ NODE_ENV: 'production', ...RUNTIME })), environment = [...rows(), { key: WISE_KEY, id: 'wise', type: 'sensitive', target: ['preview'], updatedAt: 1 }];
   const report = { status: 'CREATED_AWAITING_RUNTIME_VERIFICATION', projectId, teamId, targetRef, target: 'preview', productionWrites: 0, aliasWrites: 0,
     deploymentsCreated: 1, releaseReady: false, runtimeOverrides: RUNTIME, runtimeConfigHash, sourceCommit: sha, manifestHash, deploymentId: 'dpl_synthetic',
@@ -186,7 +186,8 @@ test('runtime proof requires READY exact source, immutable argument binding, met
     url: 'alpha-usdt-buy-requests-staging-test-alpha-kits.vercel.app', env: [...Object.keys(RUNTIME), ...PUBLIC_KEYS, WISE_KEY, 'SUPABASE_DB_URL', 'SUPABASE_SERVICE_ROLE_KEY'],
     build: { env: [...buildArguments(environment).blank, ...PUBLIC_KEYS] }, meta: { reviewedSourceCommit: sha, reviewedSourceManifest: manifestHash,
       reviewedRuntimeConfig: runtimeConfigHash, stagingEmailTransport: 'disabled', stagingOutbound: 'disabled', stagingFeature: 'wise-usd' } };
-  const docker = await readFile(new URL('../../Dockerfile.vercel', import.meta.url));
+  const dockerSource = await readFile(new URL('../../Dockerfile.vercel', import.meta.url), 'utf8');
+  const docker = Buffer.from(dockerSource.replace(/\r\n/g, '\n').replace(/\n/g, newline));
   const input = { report, deployment, config, outboundProof: baseline(), docker };
   const proof = validateRuntimeEvidence(input);
   assert.equal(proof.status, 'PASS_WISE_STAGING_RUNTIME_GUARD'); assert.equal(proof.runtimeConfig.NODE_ENV, 'production');

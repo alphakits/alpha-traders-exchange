@@ -11,14 +11,75 @@ const acceptedBankTrade = {
 } as PurchaseRequest;
 
 describe("mobile trade actions", () => {
+  it("exposes amount adjustment independently of buyer cancellation after bank disclosure", () => {
+    const viewed = { ...acceptedBankTrade, sensitivePaymentKind: "bank_details" as const,
+      sensitivePaymentSharedAt: "2026-10-28T12:00:00Z" };
+    expect(toMobileTradeActions(viewed, "buyer-1")).toMatchObject({ canCancel: false, canAdjustAmounts: true });
+    expect(toMobileTradeActions(viewed, "seller-1").canAdjustAmounts).toBe(true);
+    expect(toMobileTradeActions(viewed, "outsider").canAdjustAmounts).toBe(false);
+    expect(toMobileTradeActions(viewed, "buyer-1", { canOpenDispute: false, hasOpenDispute: true }).canAdjustAmounts).toBe(false);
+    expect(toMobileTradeActions({ ...viewed, bankTransferProvider: "wise" }, "buyer-1").canAdjustAmounts).toBe(false);
+  });
+  it.each(["Bank Transfer", "Cardless ATM Withdrawal", "Face-to-Face (Meet in Person)"])(
+    "emits the payment-based amount capability for %s", paymentMethod => {
+      for (const userId of ["buyer-1", "seller-1"]) {
+        const trade = { ...acceptedBankTrade, paymentMethod };
+        for (const status of ["pending", "accepted"] as const) {
+          expect(toMobileTradeActions({ ...trade, status }, userId).canAdjustAmounts).toBe(true);
+        }
+        for (const status of ["payment_sent", "funds_received", "usdt_release_pending", "usdt_sent", "completed", "review_open", "locked", "cancelled", "declined"] as const) {
+          expect(toMobileTradeActions({ ...trade, status }, userId).canAdjustAmounts).toBe(false);
+        }
+        expect(toMobileTradeActions({ ...trade, paymentSentAt: "2026-10-28T12:00:00Z" }, userId).canAdjustAmounts).toBe(false);
+        expect(toMobileTradeActions({ ...trade, sensitivePaymentKind: "cardless_code", sensitivePaymentSharedAt: "2026-10-28T12:00:00Z" }, userId).canAdjustAmounts).toBe(false);
+      }
+    },
+  );
+  it.each(["Bank Transfer", "Cardless ATM Withdrawal", "Face-to-Face (Meet in Person)"])(
+    "pauses %s payment while retaining buyer approval of an accepted amount proposal", paymentMethod => {
+      const trade = { ...acceptedBankTrade, paymentMethod, cardlessCodeAwaitingBuyerConfirmation: true,
+        messages: [{ credentialKind: "cardless_code" }],
+      } as PurchaseRequest;
+      const proposal = { id: "amount-1", kind: "amount_correction" as const, status: "pending" as const,
+        usdtAmount: "300", fiatAmount: "900.00", pricePerUsdt: "3.00", createdAt: "2026-10-28T12:00:00Z" };
+      const current = toMobileTradeActions(trade, "buyer-1");
+      const cash = paymentMethod !== "Bank Transfer";
+      expect(current).toMatchObject({ canMarkPaymentSent: cash, canUploadPaymentEvidence: !cash,
+        canConfirmPreparedCardlessCode: paymentMethod === "Cardless ATM Withdrawal" });
+      const pending = { ...trade, termsProposal: proposal };
+      expect(toMobileTradeActions(pending, "buyer-1")).toMatchObject({
+        canMarkPaymentSent: false, canConfirmPreparedCardlessCode: false, canUploadPaymentEvidence: false,
+        canAdjustAmounts: true, canCancel: current.canCancel,
+      });
+      expect(toMobileTradeActions(pending, "seller-1")).toMatchObject({ canConfirmFunds: false, canAdjustAmounts: true });
+      expect(toMobileTradeActions({ ...trade, termsProposal: { ...proposal, status: "accepted" } }, "buyer-1"))
+        .toMatchObject({ canMarkPaymentSent: cash, canUploadPaymentEvidence: !cash,
+          canConfirmPreparedCardlessCode: paymentMethod === "Cardless ATM Withdrawal" });
+    },
+  );
+  it.each(["payment_sent", "funds_received", "usdt_release_pending", "usdt_sent"] as const)(
+    "does not expose seller progression for stale pending terms at %s", status => {
+      for (const paymentMethod of ["Bank Transfer", "Cardless ATM Withdrawal", "Face-to-Face (Meet in Person)"]) {
+        const trade = { ...acceptedBankTrade, paymentMethod, status,
+          termsProposal: { id: "stale-proposal", kind: "amount_correction", status: "pending" },
+        } as PurchaseRequest;
+        expect(toMobileTradeActions(trade, "seller-1")).toMatchObject({
+          canConfirmFunds: false, canBeginRelease: false, canMarkUsdtSent: false, canUploadReleaseEvidence: false,
+          canCompleteTrade: false, canCompleteFaceToFace: false,
+        });
+      }
+    },
+  );
   it("distinguishes saved private ATM details from legacy accepted credentials", () => {
     const request = { ...acceptedBankTrade, paymentMethod: "Cardless ATM Withdrawal",
       messages: [{ credentialKind: "cardless_code" }] } as PurchaseRequest;
     expect(toMobileTradeActions(request, "buyer-1").canConfirmPreparedCardlessCode).toBe(false);
     expect(toMobileTradeActions(request, "buyer-1").canCancel).toBe(false);
+    expect(toMobileTradeActions(request, "buyer-1").canAdjustAmounts).toBe(false);
     const prepared = { ...request, cardlessCodeAwaitingBuyerConfirmation: true };
     expect(toMobileTradeActions(prepared, "buyer-1").canConfirmPreparedCardlessCode).toBe(true);
     expect(toMobileTradeActions(prepared, "buyer-1").canCancel).toBe(true);
+    expect(toMobileTradeActions(prepared, "buyer-1").canAdjustAmounts).toBe(true);
     expect(toMobileTradeActions(prepared, "seller-1").canConfirmPreparedCardlessCode).toBe(false);
     expect(toMobileTradeActions({ ...prepared, sensitivePaymentKind: "cardless_code", sensitivePaymentSharedAt: "2026-10-16T12:00:00Z" }, "buyer-1").canCancel).toBe(false);
   });
