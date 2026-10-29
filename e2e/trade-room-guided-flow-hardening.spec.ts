@@ -536,10 +536,10 @@ test.afterAll(async () => {
   await api.dispose();
 });
 
-async function wheelAndSettle(page: Page, target: Locator, deltaY: number) {
+async function wheelAndSettle(page: Page, target: Locator, deltaY: number, observedEvent: "wheel" | "scroll" = "wheel") {
   await target.hover();
   const token = randomUUID();
-  const diagnostics = await target.evaluateHandle((element, id) => {
+  const diagnostics = await target.evaluateHandle((element, { id, event }) => {
     // Geometry and element identifiers only; never record entered text or values.
     const describe = (node: EventTarget | null) => node instanceof Element ? {
       tag: node.tagName.toLowerCase(),
@@ -583,7 +583,11 @@ async function wheelAndSettle(page: Page, target: Locator, deltaY: number) {
     };
     document.addEventListener("wheel", onDocumentWheel, { capture: true, passive: true });
     element.setAttribute("data-scroll-audit", `${id}:waiting`);
-    const onWheel = () => {
+    const initialTop = element.scrollTop;
+    const observe = () => {
+      // Ignore any pending scroll notification from setting up the midpoint.
+      if (event === "scroll" && element.scrollTop === initialTop) return;
+      element.removeEventListener(event, observe);
       let previous = "";
       let stable = 0;
       let frames = 0;
@@ -602,16 +606,16 @@ async function wheelAndSettle(page: Page, target: Locator, deltaY: number) {
       };
       requestAnimationFrame(sample);
     };
-    element.addEventListener("wheel", onWheel, { once: true });
+    element.addEventListener(event, observe);
     return {
       read: () => ({ before, after: snapshot(), wheels, status: element.getAttribute("data-scroll-audit") }),
       dispose: () => {
         document.removeEventListener("wheel", onDocumentWheel, true);
-        element.removeEventListener("wheel", onWheel);
+        element.removeEventListener(event, observe);
         element.removeAttribute("data-scroll-audit");
       },
     };
-  }, token);
+  }, { id: token, event: observedEvent });
   try {
     await page.mouse.wheel(0, deltaY);
     await expect.poll(() => target.getAttribute("data-scroll-audit"), { timeout: 5_000 }).toBe(`${token}:settled`);
@@ -619,7 +623,7 @@ async function wheelAndSettle(page: Page, target: Locator, deltaY: number) {
     try {
       const snapshot = await diagnostics.evaluate(state => state.read());
       await test.info().attach("chat-wheel-diagnostics", {
-        body: Buffer.from(JSON.stringify({ version: 1, deltaY, ...snapshot }, null, 2)),
+        body: Buffer.from(JSON.stringify({ version: 1, deltaY, observedEvent, ...snapshot }, null, 2)),
         contentType: "application/json",
       });
     } catch {
@@ -647,7 +651,11 @@ async function expectChatScrollIsolation(page: Page, messagePanel: Locator, loca
 
   await messagePanel.evaluate(element => { element.scrollTop = (element.scrollHeight - element.clientHeight) / 2; });
   const interiorTop = await messagePanel.evaluate(element => element.scrollTop);
-  await wheelAndSettle(page, messagePanel, 80);
+  // WebKit's retained failures scrolled correctly without invoking the new
+  // wheel listener. Observe actual inner scrolling for this positive control;
+  // boundary probes still require the wheel event because no scroll is
+  // expected there. All movement and containment assertions stay below.
+  await wheelAndSettle(page, messagePanel, 80, "scroll");
   expect(await messagePanel.evaluate(element => element.scrollTop)).toBeGreaterThan(interiorTop + 10);
   expect(await page.evaluate(() => window.scrollY)).toBeCloseTo(documentTop, 0);
 

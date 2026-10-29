@@ -400,6 +400,137 @@ try {
   assert.deepEqual(receiptScope.userIds, [...new Set([receiptTarget.buyerId, ...receiptAuthorityIds, ...receiptRelatedRequests.flatMap(request => [request.sellerId, request.buyerId])])].sort());
   assert(receiptScope.userIds.length < snapshot.users.length, "Receipt reads must exclude unrelated account payloads");
   passed("Receipt uploads retain canonical counterparties and authorities without unrelated history", { retainedAccounts: receiptScope.userIds.length, totalAccounts: snapshot.users.length });
+
+  // Exercise accepted-trade amount changes through independent application
+  // processes and inspect committed PostgreSQL rows, not process-local caches.
+  // Restore the original amounts before the existing timed payment workload;
+  // the only added status/evidence attempts must fail, preserving its 270 samples.
+  const canonicalTrade = async id => {
+    const result = await pool.query("select payload from alpha_exchange.purchase_requests where id=$1", [id]);
+    assert.equal(result.rowCount, 1);
+    return result.rows[0].payload;
+  };
+  const agreedTerms = request => ({ usdtAmount: request.usdtAmount, fiatAmount: request.fiatAmount,
+    pricePerUsdt: request.pricePerUsdt, status: request.status, tradeId: request.tradeId,
+    tradeCreatedAt: request.tradeCreatedAt, timeline: request.timeline,
+    feePolicyVersion: request.feePolicyVersion, commissionCalculationVersion: request.commissionCalculationVersion });
+  const proposeAcceptedAmount = async (request, value, workerIndex) => {
+    const before = await canonicalTrade(request.id);
+    requireOk(await workers[workerIndex].call("terms", { requestId: request.id, actorUserId: request.sellerId,
+      action: request.paymentMethod === "Cardless ATM Withdrawal" ? "propose_ils_amount" : "propose_amount",
+      value, expectedUpdatedAt: before.updatedAt }));
+    const after = await canonicalTrade(request.id);
+    assert.deepEqual(agreedTerms(after), agreedTerms(before), "A proposal must not silently change accepted financial or lifecycle terms");
+    assert.equal(after.termsProposal.status, "pending");
+    assert.equal(after.amountAdjustmentCount, (before.amountAdjustmentCount ?? 0) + 1);
+    return after;
+  };
+  const approveAcceptedAmount = async (proposal, workerIndex) => {
+    requireOk(await workers[workerIndex].call("terms", { requestId: proposal.id, actorUserId: proposal.buyerId,
+      action: "accept_amount", proposalId: proposal.termsProposal.id }));
+    const after = await canonicalTrade(proposal.id);
+    assert.deepEqual(agreedTerms(after), { ...agreedTerms(proposal),
+      usdtAmount: proposal.termsProposal.usdtAmount, fiatAmount: proposal.termsProposal.fiatAmount,
+      pricePerUsdt: proposal.termsProposal.pricePerUsdt });
+    assert.equal(after.termsProposal.status, "accepted");
+    assert.equal(after.amountAdjustmentCount, proposal.amountAdjustmentCount);
+    return after;
+  };
+  const waitForFinancialLock = async workerId => {
+    const deadline = Date.now() + 10_000;
+    while (Date.now() < deadline) {
+      const waiting = await pool.query(`select 1 from pg_locks l join pg_stat_activity a on a.pid=l.pid
+        where l.locktype='advisory' and l.classid=0 and l.objid=61422917 and not l.granted
+          and a.datname=current_database() and a.application_name=$1`, [`alpha-audit-worker-${workerId}`]);
+      if (waiting.rowCount) return;
+      await new Promise(resolve => setTimeout(resolve, 20));
+    }
+    assert.fail(`Worker ${workerId} must reach the controlled financial-write barrier`);
+  };
+  for (const sellerIndex of [3, 4, 5]) {
+    const siblings = active.filter(request => request.sellerId === `audit-seller-${sellerIndex}`).sort((a, b) => a.id.localeCompare(b.id));
+    assert.equal(siblings.length, 3);
+    const [firstSibling, secondSibling, reservationTarget] = siblings;
+    const originals = await Promise.all(siblings.map(request => canonicalTrade(request.id)));
+    const listingBefore = (await pool.query("select payload from alpha_exchange.listings where id=$1", [firstSibling.listingId])).rows[0].payload;
+    const atm = firstSibling.paymentMethod === "Cardless ATM Withdrawal";
+    const raisedValue = atm ? "1800" : "750";
+    const competingValue = atm ? "3100" : "1000";
+    const increased = await approveAcceptedAmount(await proposeAcceptedAmount(firstSibling, raisedValue, 0), 1);
+    assert(Number(increased.usdtAmount) > Number(originals[0].usdtAmount));
+    assert(Number(increased.fiatAmount) > Number(originals[0].fiatAmount));
+
+    // This proposal fits when created, but another accepted trade can reserve
+    // its available quantity before the buyer responds. Approval must recheck it.
+    const payment = reservationTarget.paymentMethod === "Bank Transfer" ? evidence(reservationTarget, "buyer")
+      : atm ? { ...buyerCommand(reservationTarget, "payment_sent"), input: { ...buyerCommand(reservationTarget, "payment_sent").input,
+        cardlessWithdrawalCode: "482913", cardlessVerificationKind: "date_of_birth", cardlessVerificationValue: "25/08/1995", clientOperationId: randomUUID() } }
+        : buyerCommand(reservationTarget, "funds_received");
+    // Queue the proposal first, then start payment before that proposal commits.
+    // Both independent processes must reach the real financial-write lock; the
+    // later payment must re-read the newly committed proposal and refuse it.
+    const blocker = await pool.connect();
+    let proposing;
+    let paying;
+    let pending;
+    let blockedPayment;
+    try {
+      await blocker.query("select pg_advisory_lock(61422917)");
+      proposing = proposeAcceptedAmount(reservationTarget, competingValue, 2);
+      await waitForFinancialLock(6);
+      paying = workers[3].call(payment.operation, payment.input);
+      await waitForFinancialLock(7);
+    } finally {
+      await blocker.query("select pg_advisory_unlock(61422917)");
+      blocker.release();
+      [pending, blockedPayment] = await Promise.all([proposing, paying]);
+    }
+    assert.equal(blockedPayment.ok, false, "Pending buyer approval must block payment, code sharing, and cash confirmation");
+    if (payment.operation === "evidence") assert.match(blockedPayment.error, /proposed terms before uploading/);
+    else assert.equal(blockedPayment.code, "trade-terms-pending");
+    assert.deepEqual(await canonicalTrade(reservationTarget.id), pending, "Rejected payment must preserve the pending proposal and agreed amount");
+
+    await approveAcceptedAmount(await proposeAcceptedAmount(secondSibling, raisedValue, 3), 0);
+    const unavailableApproval = await workers[1].call("terms", { requestId: pending.id, actorUserId: pending.buyerId,
+      action: "accept_amount", proposalId: pending.termsProposal.id });
+    assert.equal(unavailableApproval.ok, false);
+    assert.equal(unavailableApproval.code, "trade-terms-invalid");
+    assert.match(unavailableApproval.error, /no longer available/);
+    assert.deepEqual(await canonicalTrade(pending.id), pending, "Insufficient sibling inventory must leave the original agreement and proposal intact");
+    requireOk(await workers[2].call("terms", { requestId: pending.id, actorUserId: pending.sellerId,
+      action: "withdraw_terms", proposalId: pending.termsProposal.id }));
+    const withdrawn = await canonicalTrade(pending.id);
+    const unavailableProposal = await workers[3].call("terms", { requestId: pending.id, actorUserId: pending.sellerId,
+      action: atm ? "propose_ils_amount" : "propose_amount", value: competingValue, expectedUpdatedAt: withdrawn.updatedAt });
+    assert.equal(unavailableProposal.ok, false);
+    assert.equal(unavailableProposal.code, "trade-terms-invalid");
+    assert.match(unavailableProposal.error, /available balance or trade limits/);
+    assert.deepEqual(await canonicalTrade(pending.id), withdrawn, "Rejected oversubscription must not consume an adjustment or alter reservations");
+
+    for (const [index, sibling] of [firstSibling, secondSibling].entries()) {
+      const original = originals[index];
+      const restored = await approveAcceptedAmount(await proposeAcceptedAmount(sibling, atm ? original.fiatAmount : original.usdtAmount, index), index + 1);
+      assert.equal(Number(restored.usdtAmount), Number(original.usdtAmount));
+      assert.equal(Number(restored.fiatAmount), Number(original.fiatAmount));
+      assert.equal(Number(restored.pricePerUsdt), Number(original.pricePerUsdt));
+      assert.equal(restored.amountAdjustmentCount, 2);
+      const exhausted = await workers[3].call("terms", { requestId: restored.id, actorUserId: restored.sellerId,
+        action: atm ? "propose_ils_amount" : "propose_amount", value: raisedValue, expectedUpdatedAt: restored.updatedAt });
+      assert.equal(exhausted.ok, false);
+      assert.match(exhausted.error, /two-adjustment limit/);
+    }
+    assert.deepEqual((await pool.query("select payload from alpha_exchange.listings where id=$1", [firstSibling.listingId])).rows[0].payload, listingBefore,
+      "Accepted adjustments change reservations, not the listing's settled inventory or ownership");
+    passed("Accepted amount increases/decreases require buyer approval and preserve sibling reservations", {
+      paymentMethod: firstSibling.paymentMethod, adjustedTrades: 2, acceptedChanges: 4,
+      staleInventoryApprovalsRejected: 1, oversubscribedProposalsRejected: 1, racedPaymentsRejected: 1,
+    });
+  }
+  assert.equal((await pool.query("select count(*)::int as n from alpha_exchange.evidence")).rows[0].n, 0);
+  snapshot = requireOk(await workers[0].call("snapshot"));
+  assert.equal(snapshot.commissionRecords.length, 0);
+  assert.equal(snapshot.purchaseRequests.filter(request => request.status === "accepted").length, 45);
+
   const forbidden = await batch(active.map(request => buyerCommand(request, "completed")));
   assert(forbidden.every(result => !result.ok && result.code === "seller-completion-required"));
   passed("Buyer cannot complete any payment method", { rejected: forbidden.length });

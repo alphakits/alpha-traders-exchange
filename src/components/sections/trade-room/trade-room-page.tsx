@@ -3038,7 +3038,22 @@ function TradeRoomPageSession({
                   onBusyChange={(busy) => {
                     const mutationKey = `${request.id}:trade-terms`;
                     if (busy && !acquireTradeRoomMutation(actionInFlightRef, mutationKey)) return false;
-                    if (!busy) releaseTradeRoomMutation(actionInFlightRef, mutationKey);
+                    if (!busy) {
+                      releaseTradeRoomMutation(actionInFlightRef, mutationKey);
+                      const deferredRoom = deferredSseRoomRef.current;
+                      deferredSseRoomRef.current = null;
+                      if (deferredRoom) {
+                        const currentRoom = roomRef.current;
+                        const reconciledRoom = currentRoom
+                          ? mergeTradeRoomSnapshotPreservingOptimisticMessages(currentRoom, deferredRoom)
+                          : deferredRoom;
+                        if (!currentRoom || !shouldIgnoreRegressiveSnapshot(currentRoom, reconciledRoom, buyerCompletionLockRef.current)) {
+                          roomRef.current = reconciledRoom;
+                          setRoom(reconciledRoom);
+                          writeTradeRoomCache(requestId, actor.id, reconciledRoom);
+                        }
+                      }
+                    }
                     setAdjustingAmount(busy);
                     return true;
                   }}

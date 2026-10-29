@@ -50,14 +50,14 @@ describe("Trade Room secondary actions", () => {
 
   it.each([
     ["buyer-1", false], ["", false], ["seller-1", true], ["owner-1", true], ["admin-1", true],
-  ] as const)("uses the disclosure recipient %s for cancellation and initial amount locks", (actorUserId, mayCancel) => {
+  ] as const)("uses the disclosure recipient %s for cancellation without locking unpaid amounts", (actorUserId, mayCancel) => {
     const viewed = { ...request, timeline: [{
       id: "view-1", type: "bank_details_revealed", actorUserId, actorRole: "buyer",
       message: "Trade bank details viewed", createdAt: "2026-10-16T12:00:00Z",
     }] } as PurchaseRequest;
     expect(canBuyerCancelTrade(viewed, "buyer-1")).toBe(mayCancel);
-    expect(areTradeAmountsLocked(viewed)).toBe(!mayCancel);
-    expect(areTradeAmountsLocked({ ...viewed, status: "accepted" })).toBe(true);
+    expect(areTradeAmountsLocked(viewed)).toBe(false);
+    expect(areTradeAmountsLocked({ ...viewed, status: "accepted" })).toBe(false);
     expect(canBuyerCancelTrade({ ...viewed, sensitivePaymentKind: "bank_details", sensitivePaymentSharedAt: "2026-10-16T12:01:00Z" }, "buyer-1")).toBe(false);
   });
 
