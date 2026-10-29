@@ -33,7 +33,14 @@ export function TradeTermsPanel({ trade, isAr, disabled, onAction }: {
   const editingValue = editorKind === "counter" && !canCounter ? "" : value;
   const quote = calculateTradeTermsQuote(trade, calculationAction, editingValue);
   const includesBuyerFee = trade.feePolicyVersion === "buyer_seller_1pct_v1";
-  if ((!seller || paymentLocked) && !pending) return null;
+  if (!["pending", "accepted", "payment_sent", "funds_received", "usdt_release_pending", "usdt_sent"].includes(trade.status)) return null;
+  if (!seller && !pending) return null;
+  if (paymentLocked && !pending) return <View style={{ padding: 16, gap: 12 }}>
+    <GoldButton disabled variant="outline">{isAr ? "تعديل المبلغ" : "Adjust Amount"}</GoldButton>
+    <Text style={{ color: "#D1D5DB" }}>{isAr
+      ? "المبلغ مقفل في هذه المرحلة. لا يمكن للمشتري أو البائع تعديله بعد الدفع أو مشاركة رمز السحب أو تأكيد النقد. تواصل مع المالك إذا احتجت مساعدة."
+      : "The amount is locked at this stage. Buyers and sellers cannot adjust it after payment, withdrawal-code sharing, or cash confirmation. Contact the owner if you need help."}</Text>
+  </View>;
   async function submit(action: string) {
     if (disabled || inFlight.current || (paymentLocked && !["withdraw_terms", "decline_terms"].includes(action))) return;
     if (["counter_offer", "accept_counter_offer"].includes(action) && !canCounter) return;

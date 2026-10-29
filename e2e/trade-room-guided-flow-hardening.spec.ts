@@ -539,36 +539,45 @@ test.afterAll(async () => {
 async function wheelAndSettle(page: Page, target: Locator, deltaY: number, observedEvent: "wheel" | "scroll" = "wheel") {
   await target.hover();
   const token = randomUUID();
-  await target.evaluate((element, { id, event }) => {
-    element.setAttribute("data-scroll-audit", `${id}:waiting`);
-    const initialTop = element.scrollTop;
-    const observe = () => {
-      // Ignore any pending scroll notification from setting up the midpoint.
-      if (event === "scroll" && element.scrollTop === initialTop) return;
-      element.removeEventListener(event, observe);
-      let previous = "";
-      let stable = 0;
-      let frames = 0;
-      const sample = () => {
-        const current = `${window.scrollY}:${element.scrollTop}`;
-        stable = current === previous ? stable + 1 : 0;
-        previous = current;
-        frames += 1;
-        if (stable >= 6) {
-          element.setAttribute("data-scroll-audit", `${id}:settled`);
-        } else if (frames < 180) {
-          requestAnimationFrame(sample);
-        } else {
-          element.setAttribute("data-scroll-audit", `${id}:unstable`);
-        }
-      };
-      requestAnimationFrame(sample);
-    };
-    element.addEventListener(event, observe);
-  }, { id: token, event: observedEvent });
+  const initialTop = await target.evaluate(element => element.scrollTop);
+  if (observedEvent === "wheel") {
+    await target.evaluate((element, id) => {
+      element.addEventListener("wheel", () => element.setAttribute("data-scroll-audit", id), { once: true, passive: true });
+    }, token);
+  }
   await page.mouse.wheel(0, deltaY);
-  await expect.poll(() => target.getAttribute("data-scroll-audit"), { timeout: 5_000 }).toBe(`${token}:settled`);
-  await target.evaluate(element => element.removeAttribute("data-scroll-audit"));
+  const deadline = Date.now() + 5_000;
+  const remaining = () => Math.max(1, deadline - Date.now());
+  try {
+    // Poll from the test runner: retained WebKit traces show 333 -> 413px
+    // movement while both scroll listeners and in-page animation-frame
+    // observers remain pending. The DOM position is the behavior we need.
+    if (observedEvent === "scroll") {
+      await expect.poll(() => target.evaluate(element => element.scrollTop), {
+        timeout: remaining(), intervals: [50, 100],
+      }).not.toBe(initialTop);
+    } else {
+      // No movement is expected at a boundary, so require actual wheel delivery.
+      await expect.poll(() => target.getAttribute("data-scroll-audit"), {
+        timeout: remaining(), intervals: [50, 100],
+      }).toBe(token);
+    }
+    let previous = "";
+    let stableSince = 0;
+    let samples = 0;
+    await expect.poll(async () => {
+      const position = await target.evaluate(element => `${window.scrollY}:${element.scrollTop}`);
+      if (position !== previous) {
+        previous = position;
+        stableSince = Date.now();
+        samples = 0;
+      }
+      samples += 1;
+      return samples >= 6 && Date.now() - stableSince >= 300;
+    }, { timeout: remaining(), intervals: [50, 100] }).toBe(true);
+  } finally {
+    await target.evaluate(element => element.removeAttribute("data-scroll-audit"));
+  }
 }
 
 for (const locale of ["en", "ar"] as const) {
@@ -625,8 +634,7 @@ for (const locale of ["en", "ar"] as const) {
 
       await messagePanel.evaluate(element => { element.scrollTop = (element.scrollHeight - element.clientHeight) / 2; });
       const interiorTop = await messagePanel.evaluate(element => element.scrollTop);
-      // WebKit's retained failures scrolled correctly without invoking the new
-      // wheel listener. Observe actual inner scrolling for this positive control;
+      // Observe actual inner movement for this positive control;
       // boundary probes still require the wheel event because no scroll is
       // expected there. All movement and containment assertions stay below.
       await wheelAndSettle(page, messagePanel, 80, "scroll");

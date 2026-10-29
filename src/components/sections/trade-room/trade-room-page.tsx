@@ -3408,7 +3408,7 @@ function TradeRoomPageSession({
                   </div>
                 ) : null}
 
-                {(canBuyerCancelTrade(request, actor.id) || canSellerCancelTrade(request, actor.id)) ? (
+                {(isSeller || isActorBuyer) && ["pending", "accepted", "payment_sent", "funds_received", "usdt_release_pending", "usdt_sent"].includes(request.status) ? (
                   <div data-testid="trade-cancel-action" className="space-y-2 rounded-xl border border-white/10 bg-black/20 p-3">
                     <Button type="button" variant="secondary" className="min-h-11 w-full"
                       disabled={(!canBuyerCancelTrade(request, actor.id) && !canSellerCancelTrade(request, actor.id)) || room.hasOpenDispute || cancelBusy || actionBusy || Boolean(evidenceBusy) || adjustingAmount}
@@ -3419,11 +3419,13 @@ function TradeRoomPageSession({
                     <p id="trade-cancel-help" className="text-xs text-[#9CA3AF]">
                       {currencyText(room.hasOpenDispute
                         ? (isAr ? "الإلغاء مقفل أثناء مراجعة النزاع." : "Cancellation is locked while the dispute is under review.")
-                        : request.status === "pending"
-                        ? (isAr ? "يمكن إلغاء الطلب قبل القبول ما دام لم يتم تبادل مال أو نقد أو USDT." : "Cancel this pending request only if no money, cash or USDT has been exchanged.")
                         : canBuyerCancelTrade(request, actor.id) || canSellerCancelTrade(request, actor.id)
-                          ? (isAr ? "الإلغاء متاح قبل بدء الدفع. بعد إظهار تفاصيل البنك يمكن للبائع فقط إلغاء الصفقة غير المدفوعة." : "Cancel only before payment starts. After bank details are revealed, only the seller can cancel the unpaid trade.")
-                          : (isAr ? "بدأ الدفع أو تمت مشاركة تفاصيل السحب، لذا أُقفل الإلغاء. أبلغ عن مشكلة إذا احتجت مساعدة." : "Payment started or withdrawal details were shared. Cancellation is locked; report a problem if needed."))}
+                          ? request.status === "pending"
+                            ? (isAr ? "يمكن إلغاء الطلب قبل القبول ما دام لم يتم تبادل مال أو نقد أو USDT." : "Cancel this pending request only if no money, cash or USDT has been exchanged.")
+                            : (isAr ? "الإلغاء متاح قبل بدء الدفع. بعد إظهار تفاصيل البنك يمكن للبائع فقط إلغاء الصفقة غير المدفوعة." : "Cancel only before payment starts. After bank details are revealed, only the seller can cancel the unpaid trade.")
+                          : !isSeller && canSellerCancelTrade(request, request.sellerId)
+                            ? (isAr ? "تم إظهار تفاصيل البنك. يمكن للبائع فقط إلغاء الصفقة قبل بدء الدفع. تواصل مع المالك إذا احتجت مساعدة." : "Bank details have been revealed. Only the seller can cancel before payment starts. Contact the owner if you need help.")
+                            : (isAr ? "الإلغاء مقفل للمشتري والبائع بعد بدء الدفع أو مشاركة تفاصيل السحب. تواصل مع المالك لمراجعة الصفقة." : "Cancellation is locked for buyers and sellers after payment starts or withdrawal details are shared. Contact the owner to review the trade."))}
                     </p>
                   </div>
                 ) : null}

@@ -1772,6 +1772,26 @@ describe("guided cash-trade completion", () => {
     });
   });
 
+  it("locks collected ATM cash against buyer/seller cancellation and adjustment while retaining the owner's override", async () => {
+    const { requestId, listingId } = seedTrade({ paymentMethod: "Cardless ATM Withdrawal", status: "funds_received" });
+    const request = currentSnapshot().purchaseRequests.find(item => item.id === requestId)!;
+    request.fundsReceivedAt = request.updatedAt;
+    const before = structuredClone(currentSnapshot());
+    for (const [actorUserId, actorRole] of [[BUYER_ID, "buyer"], [SELLER_ID, "approved_seller"]] as const) {
+      await expect(updatePurchaseRequestStatus({ requestId, actorUserId, actorRole, nextStatus: "cancelled" })).rejects.toThrow();
+      await expect(closePurchaseRequestManually({ requestId, actorUserId, actorRole, reason: "Attempt after cash collection" })).rejects.toThrow();
+      await expect(updateTradeTerms({ requestId, actorUserId, action: "propose_amount", value: "200", expectedUpdatedAt: request.updatedAt })).rejects.toThrow();
+      await expect(recalculateCardlessTradeAmount({ requestId, actorUserId, ilsAmount: "600" })).rejects.toThrow();
+    }
+    expect(currentSnapshot().purchaseRequests).toEqual(before.purchaseRequests);
+    expect(currentSnapshot().marketplaceListings).toEqual(before.marketplaceListings);
+    expect(currentSnapshot().commissionRecords).toEqual(before.commissionRecords);
+    await forceCloseTradeByOwner({ requestId, actorUserId: OWNER_ID, reason: "Owner reviewed the ATM dispute" });
+    expect(currentSnapshot().purchaseRequests.find(item => item.id === requestId)).toMatchObject({ status: "cancelled", closedByUserId: OWNER_ID });
+    expect(currentSnapshot().marketplaceListings.find(item => item.id === listingId)?.availableAmount).toBe(before.marketplaceListings.find(item => item.id === listingId)?.availableAmount);
+    expect(currentSnapshot().auditLogs).toContainEqual(expect.objectContaining({ actorUserId: OWNER_ID, reason: "Owner reviewed the ATM dispute" }));
+  });
+
   it("cancels a disclosed ATM code with evidence, an open dispute and a pending proposal in one audited decision", async () => {
     const { requestId } = seedTrade({ paymentMethod: "Cardless ATM Withdrawal", status: "accepted" });
     const request = currentSnapshot().purchaseRequests[0];

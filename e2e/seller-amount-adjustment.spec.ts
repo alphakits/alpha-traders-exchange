@@ -166,6 +166,19 @@ for (const method of methods) {
       } else {
         await sellerPage.getByRole("button", { name: method === methods[0] ? "Confirm Money Received" : "I Collected the ATM Cash", exact: true }).click();
       }
+      await expect.poll(async () => {
+        const collected = await readDb(request);
+        return collected.purchaseRequests.find((r: { id: string }) => r.id === f.id)?.status;
+      }).toBe("funds_received");
+      for (const page of [buyerPage, sellerPage]) {
+        const cancel = page.getByRole("button", { name: "Cancel Trade", exact: true });
+        await expect(cancel).toBeVisible();
+        await expect(cancel).toBeDisabled();
+        await expect(page.getByTestId("trade-cancel-action")).toContainText("Cancellation is locked");
+        const denied = await page.request.patch(`/api/alpha-exchange/purchase-requests/${f.id}`, { data: { status: "cancelled" } });
+        expect(denied.ok()).toBe(false);
+      }
+      await expect(adjust).toBeDisabled();
       if (method === methods[0]) {
         await sellerPage.getByRole("button", { name: "Release USDT", exact: true }).click();
         await sellerPage.getByLabel("Choose USDT release proof", { exact: true }).setInputFiles({ name: "release.png", mimeType: "image/png", buffer: png });

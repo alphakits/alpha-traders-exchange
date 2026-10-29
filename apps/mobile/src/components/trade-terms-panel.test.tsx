@@ -136,3 +136,15 @@ it("blocks a third accepted proposal without hiding the amount limit", () => {
   fireEvent.click(submit);
   expect(onAction).not.toHaveBeenCalled();
 });
+
+
+it.each([false, true])("keeps the native seller adjustment control visible and locked after ATM cash collection, Arabic=%s", isAr => {
+  const onAction = vi.fn();
+  render(<TradeTermsPanel trade={{ ...base, status: "funds_received", actions: { ...base.actions, canAdjustAmounts: false } }} isAr={isAr} disabled={false} onAction={onAction} />);
+  const adjust = screen.getByRole("button", { name: isAr ? "تعديل المبلغ" : "Adjust Amount" }) as HTMLButtonElement;
+  expect(adjust.disabled).toBe(true);
+  expect(screen.getByText(isAr ? /المبلغ مقفل/ : /amount is locked/)).toBeTruthy();
+  fireEvent.click(adjust);
+  expect(onAction).not.toHaveBeenCalled();
+  expect(screen.queryByRole("textbox")).toBeNull();
+});

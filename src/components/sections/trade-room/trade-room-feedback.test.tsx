@@ -636,12 +636,20 @@ describe("visible buyer cancellation", () => {
     expect(navigation.push).not.toHaveBeenCalled();
   });
 
-  it.each(["payment_sent", "funds_received", "usdt_sent", "review_open", "cancelled"] as const)("does not offer unsafe cancellation at %s", async (status) => {
+  it.each(["payment_sent", "funds_received", "usdt_sent", "review_open", "cancelled"] as const)("explains locked cancellation while keeping terminal trades closed at %s", async (status) => {
     const current = room("Cardless ATM Withdrawal", status);
     vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(Response.json(current))));
     render(<TradeRoomPage locale="en" requestId="feedback-request" actor={buyer} />);
     await screen.findByTestId("trade-details");
-    expect(screen.queryByRole("button", { name: "Cancel Trade" })).toBeNull();
+    if (status === "review_open" || status === "cancelled") {
+      expect(screen.queryByRole("button", { name: "Cancel Trade" })).toBeNull();
+    } else {
+      const cancel = screen.getByRole("button", { name: "Cancel Trade" }) as HTMLButtonElement;
+      expect(cancel.disabled).toBe(true);
+      expect(screen.getByTestId("trade-cancel-action").textContent).toContain("Cancellation is locked");
+      fireEvent.click(cancel);
+      expect(window.confirm).not.toHaveBeenCalled();
+    }
   });
 });
 
@@ -731,7 +739,10 @@ describe.each(["Bank Transfer", "Cardless ATM Withdrawal", "Face-to-Face (Meet i
     vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(Response.json(room(method, status)))));
     render(<TradeRoomPage locale="en" requestId="feedback-request" actor={seller} />);
     await screen.findByTestId("trade-details");
-    expect(screen.queryByRole("button", { name: "Cancel Trade" })).toBeNull();
+    const cancel = screen.getByRole("button", { name: "Cancel Trade" }) as HTMLButtonElement;
+    expect(cancel.disabled).toBe(true);
+    fireEvent.click(cancel);
+    expect(window.confirm).not.toHaveBeenCalled();
     expect((screen.getByRole("button", { name: "Adjust Amount" }) as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByTestId("trade-amount-locked")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Adjust USDT to withdrawal amount" })).toBeNull();
@@ -758,8 +769,10 @@ it.each([
   vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(Response.json(current))));
   render(<TradeRoomPage locale="en" requestId="feedback-request" actor={seller} />);
   await screen.findByTestId("trade-details");
-  if (overrides.hasOpenDispute) expect((screen.getByRole("button", { name: "Cancel Trade" }) as HTMLButtonElement).disabled).toBe(true);
-  else expect(screen.queryByRole("button", { name: "Cancel Trade" })).toBeNull();
+  const cancel = screen.getByRole("button", { name: "Cancel Trade" }) as HTMLButtonElement;
+  expect(cancel.disabled).toBe(true);
+  fireEvent.click(cancel);
+  expect(window.confirm).not.toHaveBeenCalled();
   expect((screen.getByRole("button", { name: "Adjust Amount" }) as HTMLButtonElement).disabled).toBe(true);
 });
 
@@ -818,4 +831,20 @@ it("places bank details below upload controls and above cancellation", async () 
   expect(upload.compareDocumentPosition(reveal) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   expect(reveal.compareDocumentPosition(cancel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Adjust Amount" })).toBeNull();
+});
+
+
+it.each(["en", "ar"] as const)("explains the buyer bank-disclosure lock without hiding cancellation in %s", async locale => {
+  const current = room("Bank Transfer", "accepted");
+  Object.assign(current.request, { sensitivePaymentKind: "bank_details", sensitivePaymentSharedAt: current.request.updatedAt });
+  const fetchMock = vi.fn(() => Promise.resolve(Response.json(current)));
+  vi.stubGlobal("fetch", fetchMock);
+  render(<TradeRoomPage locale={locale} requestId="feedback-request" actor={buyer} />);
+  const cancel = await screen.findByRole("button", { name: locale === "ar" ? "إلغاء الصفقة" : "Cancel Trade" }) as HTMLButtonElement;
+  expect(cancel.disabled).toBe(true);
+  expect(screen.getByTestId("trade-cancel-action").textContent).toContain(locale === "ar" ? "يمكن للبائع فقط" : "Only the seller");
+  expect(cancel.getAttribute("aria-describedby")).toBe("trade-cancel-help");
+  fireEvent.click(cancel);
+  expect(window.confirm).not.toHaveBeenCalled();
+  expect(fetchMock).toHaveBeenCalledTimes(1);
 });
