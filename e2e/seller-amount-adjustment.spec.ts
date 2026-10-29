@@ -82,6 +82,14 @@ for (const method of methods) {
         await errorAudit.navigate(sellerPage, () => sellerPage.goto(path));
       }
       await errorAudit.navigate(buyerPage, () => buyerPage.goto(path));
+      // Check the initial layout before clicking an action farther down the page.
+      // Seller acceptance alone must not close the amount correction window.
+      await sellerPage.getByRole("button", { name: "Accept Trade", exact: true }).click();
+      await expect.poll(async () => {
+        const accepted = await readDb(request);
+        return accepted.purchaseRequests.find((r: { id: string }) => r.id === f.id)?.status;
+      }).toBe("accepted");
+      await expect(adjust).toBeEnabled();
       // Both participants keep the room open; proposals and accepted totals must sync without a reload.
       // First increase, then reduce: both directions share the two-turn limit.
       await adjust.click();
@@ -119,9 +127,9 @@ for (const method of methods) {
         const denied = await seller.request.patch(`/api/alpha-exchange/purchase-requests/${f.id}`, {data:{action,value:"100",ilsAmount:"100",amountAdjustmentCount:0,expectedUpdatedAt:limited.updatedAt}});
         expect(denied.ok()).toBe(false);
       }
-      await sellerPage.getByRole("button", { name: "Accept Trade", exact: true }).click();
       await expect(sellerPage.getByRole("button", { name: "Adjust Amount", exact: true })).toBeDisabled();
-      await expect(sellerPage.getByTestId("trade-amount-locked")).toBeVisible();
+      // This is the two-proposal cap, not the irreversible payment boundary.
+      await expect(sellerPage.getByTestId("trade-amount-locked")).toHaveCount(0);
       await errorAudit.navigate(buyerPage, () => buyerPage.reload());
       const before = await readDb(request);
       const locked = before.purchaseRequests.find((r: {id: string}) => r.id === f.id);
@@ -129,8 +137,8 @@ for (const method of methods) {
         const denied = await seller.request.patch(`/api/alpha-exchange/purchase-requests/${f.id}`, {data:{action,value:"100",ilsAmount:"100",expectedUpdatedAt:locked.updatedAt}});
         expect(denied.ok()).toBe(false);
       }
-      const staleApproval = await buyer.request.patch(`/api/alpha-exchange/purchase-requests/${f.id}`, {data:{action:"accept_amount",proposalId:locked.termsProposal.id}});
-      expect(staleApproval.ok()).toBe(false);
+      const duplicateApproval = await buyer.request.patch(`/api/alpha-exchange/purchase-requests/${f.id}`, {data:{action:"accept_amount",proposalId:locked.termsProposal.id}});
+      expect(duplicateApproval.ok()).toBe(true);
       expect(before.marketplaceListings.find((l: {id: string}) => l.id === f.listingId).availableAmount).toBe("1500");
       expect(before.commissionRecords.filter((c: {purchaseRequestId: string}) => c.purchaseRequestId === f.id)).toHaveLength(0);
       if (method === methods[0]) {
@@ -142,6 +150,9 @@ for (const method of methods) {
         await buyerPage.getByRole("button", { name: "Send & Confirm Withdrawal Details", exact: true }).click();
       } else await buyerPage.getByRole("button", { name: "I Handed Over the Cash", exact: true }).click();
       await expect(sellerPage.getByRole("button", { name: "Adjust Amount", exact: true })).toBeDisabled();
+      await expect(sellerPage.getByTestId("trade-amount-locked")).toBeVisible();
+      const staleApproval = await buyer.request.patch(`/api/alpha-exchange/purchase-requests/${f.id}`, {data:{action:"accept_amount",proposalId:locked.termsProposal.id}});
+      expect(staleApproval.ok()).toBe(false);
       if (method === methods[1]) {
         // Either participant may confirm face-to-face cash receipt. The buyer's
         // confirmation already advances both rooms; it must not need repeating.

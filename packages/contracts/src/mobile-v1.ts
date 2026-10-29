@@ -1022,6 +1022,8 @@ export interface MobileTradeDetail extends MobileTradeSummary {
     canAccept: boolean;
     canDecline: boolean;
     canCancel: boolean;
+    /** New servers emit this independently of cancellation; older payloads may omit it. */
+    canAdjustAmounts?: boolean;
     canViewBankDetails: boolean;
     canMarkPaymentSent: boolean;
     canConfirmPreparedCardlessCode?: boolean;

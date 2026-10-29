@@ -1,4 +1,5 @@
 import { canBuyerCancelTrade, canSellerCancelTrade, canSellerDeclineTrade } from "@/lib/trade-room-actions";
+import { areTradeAmountsLocked } from "@/lib/trade-amount-lock";
 import { PrivateContactError } from "@/lib/buyer-contact";
 import type {
   MobileApiErrorCode,
@@ -96,41 +97,42 @@ export function toMobileTradeActions(
   const isBuyer = request.buyerId === userId;
   const isSeller = request.sellerId === userId;
   const isCashTrade = isCashTradePaymentMethod(request.paymentMethod);
+  const canProgress = request.termsProposal?.status !== "pending";
   const actions: MobileTradeDetail["actions"] = {
-    canAccept: isSeller && request.status === "pending" && request.termsProposal?.status !== "pending"
+    canAccept: isSeller && canProgress && request.status === "pending"
       && !(context.sellerCommissionDueCount && context.sellerCommissionDueCount > 0),
     canDecline: canSellerDeclineTrade(request, userId),
     canCancel: canBuyerCancelTrade(request, userId) || (request.status !== "pending" && canSellerCancelTrade(request, userId)),
+    canAdjustAmounts: (isBuyer || isSeller) && !context.hasOpenDispute && !areTradeAmountsLocked(request),
     canViewBankDetails: isBuyer
       && Boolean(request.sellerBankAccountId)
       && isBankTransferPaymentMethod(request.paymentMethod)
       && isBankDetailsDisclosureStage(request.status),
-    canMarkPaymentSent: isBuyer
+    canMarkPaymentSent: isBuyer && canProgress
       && isCashTrade
       && (request.status === "accepted" || (isFaceToFacePaymentMethod(request.paymentMethod) && request.status === "payment_sent")),
-    canConfirmPreparedCardlessCode: isBuyer && request.paymentMethod === "Cardless ATM Withdrawal"
+    canConfirmPreparedCardlessCode: isBuyer && canProgress && request.paymentMethod === "Cardless ATM Withdrawal"
       && request.status === "accepted" && request.cardlessCodeAwaitingBuyerConfirmation === true
       && Boolean(request.messages?.some(message => message.credentialKind === "cardless_code")),
-    canUploadPaymentEvidence: isBuyer
+    canUploadPaymentEvidence: isBuyer && canProgress
       && request.status === "accepted"
       && !isCashTrade,
-    canConfirmFunds: isSeller
-      && !context.hasOpenDispute && request.termsProposal?.status !== "pending"
+    canConfirmFunds: isSeller && canProgress && !context.hasOpenDispute
       && (request.status === "payment_sent" || (isFaceToFacePaymentMethod(request.paymentMethod) && request.status === "accepted")),
-    canBeginRelease: isSeller
+    canBeginRelease: isSeller && canProgress
       && request.status === "funds_received"
       && !isCashTrade,
-    canMarkUsdtSent: isSeller
+    canMarkUsdtSent: isSeller && canProgress
       && !isSellerTradeCompletionAvailable(request.paymentMethod, request.status)
       && isCashTradeUsdtSentConfirmationAvailable(request.paymentMethod, request.status),
-    canUploadReleaseEvidence: isSeller
+    canUploadReleaseEvidence: isSeller && canProgress
       && request.status === "usdt_release_pending"
       && !isCashTrade,
     // Retain the wire field for installed clients; receipt confirmation must
     // never grant buyers the seller's settlement action.
     canConfirmReceived: false,
-    canCompleteTrade: isSeller && isSellerTradeCompletionAvailable(request.paymentMethod, request.status),
-    canCompleteFaceToFace: isSeller
+    canCompleteTrade: isSeller && canProgress && isSellerTradeCompletionAvailable(request.paymentMethod, request.status),
+    canCompleteFaceToFace: isSeller && canProgress
       && isCashTradeCompletionAvailable(request.paymentMethod, request.status),
     canOpenDispute: isBuyer && context.canOpenDispute && !context.hasOpenDispute,
     canSubmitReview: isBuyer
@@ -142,7 +144,7 @@ export function toMobileTradeActions(
       && request.buyerReview?.hidden !== true
       && !request.sellerResponse,
   };
-  if (request.bankTransferProvider === "wise") return { ...actions, canAccept: false, canDecline: false, canCancel: false,
+  if (request.bankTransferProvider === "wise") return { ...actions, canAccept: false, canDecline: false, canCancel: false, canAdjustAmounts: false,
     canViewBankDetails: false, canMarkPaymentSent: false, canConfirmPreparedCardlessCode: false, canUploadPaymentEvidence: false,
     canConfirmFunds: false, canBeginRelease: false, canMarkUsdtSent: false, canUploadReleaseEvidence: false,
     canCompleteTrade: false, canCompleteFaceToFace: false };
