@@ -7,10 +7,13 @@ The local source is this checkout; generated packages and sanitized journals go
 under the ignored `tmp/wise-staging` directory. No credentials, fixture manifests,
 or historical audit results are shipped here.
 
-On 28 October 2026 the connected Vercel and Supabase APIs returned not found for
-those recorded staging resources. Restore access or review replacement identifiers
-in code and rerun all guards before hosted work. The tools do not silently create
-replacement infrastructure.
+On 28 October 2026 connector project lookups returned not found for these resources,
+but both exact targets were recovered without replacement infrastructure. Supabase
+lists the database as the `alpha-usdt-buy-requests-staging` preview branch; the
+explicitly scoped Vercel CLI profile reaches the original protected project.
+Confirm the branch identity, pinned database TLS/CA, and `inspect-config` before
+concluding that a resource is missing. If these checks fail, restore access or
+review replacement identifiers and rerun all guards before hosted work.
 
 Use Node **24.22.1**, installed repository dependencies, and Vercel CLI **65.2.0**.
 The package preparer needs Python available as `CODEX_PRIMARY_RUNTIME_PYTHON`,
@@ -63,6 +66,12 @@ node scripts/wise-staging/audit/run.mjs --execute <absolute-contract-path>
 An uncertain write stops and journals reconciliation information; never rerun it
 with a new run ID to bypass that stop. The audit does not send real funds, contact
 Wise, reset fixtures, replay customer notifications, or delete financial history.
+
+Private bank details are compared while the trade is active. After completion,
+the audit requires an exact 403 denial with no-store caching and redacted data.
+An account edit after completion is checked through the owner's account response;
+the audit explicitly leaves private completed-snapshot semantic equality unproven
+because the normal API no longer discloses those snapshots.
 
 A passing bounded audit does **not** certify a live release. Hosted feature-off
 resolution, cross-instance races, key rotation/recovery, physical-device acceptance,

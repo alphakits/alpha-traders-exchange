@@ -115,7 +115,15 @@ export function operation(label, s, a) {
   if (label === 'publish' || label === 'publish-replay') { need(UUID.test(s.publishOperation ?? ''), 'PUBLICATION_OPERATION_REQUIRED'); return request('buyer', 'POST', ROOT + '/usdt-requests', { terms: { amount: '1000', price: '1.00', currency: 'USD', network: 'TRC20', paymentMethod: 'Bank Transfer', bankTransferProvider: 'wise', city: '' }, operationId: s.publishOperation }, [200, 201]); }
   if (label === 'offer' || label === 'offer-replay') { need(id('listing', s.listingId) && Number.isSafeInteger(s.revision) && s.revision > 0 && UUID.test(s.offerOperation ?? ''), 'OFFER_BINDING_REQUIRED'); return request('seller', 'POST', demand() + '/offers', { listingId: s.listingId, revision: s.revision, price: '1.00', operationId: s.offerOperation }, [200, 201]); }
   if (label === 'match' || label === 'match-replay') { need(id('listing', s.listingId) && id('demand', s.demandId) && id('offer', s.offerId) && Number.isSafeInteger(s.revision) && s.revision > 0, 'MATCH_BINDING_REQUIRED'); return request('buyer', 'POST', ROOT + '/purchase-requests', { listingId: s.listingId, usdtAmount: '1000', receivingNetwork: 'TRC20', paymentMethod: 'Bank Transfer', bankTransferProvider: 'wise', currency: 'USD', buyerWiseAccountId: account('buyer'), buyerReceivingWalletAddress: 'TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE', feePolicyVersion: 'buyer_seller_1pct_v1', usdtDemandId: s.demandId, usdtDemandOfferId: s.offerId, usdtDemandRevision: s.revision, safetyAcknowledged: true }, [200, 201]); }
-  if (['anonymous-details', 'outsider-details', 'admin-details', 'buyer-details'].includes(label)) { purchase(); const actor = label.split('-')[0]; return request(actor === 'anonymous' ? null : actor, 'POST', `${ROOT}/trade-room/${s.purchaseId}/bank-details`, undefined, actor === 'buyer' ? [200] : actor === 'anonymous' ? [401] : [400, 403, 404]); }
+  if (label === 'completed-buyer-details') {
+    purchase(); need(s.completed === true, 'COMPLETED_TRADE_REQUIRED');
+    return request('buyer', 'POST', `${ROOT}/trade-room/${s.purchaseId}/bank-details`, undefined, [403]);
+  }
+  if (['anonymous-details', 'outsider-details', 'admin-details', 'buyer-details'].includes(label)) {
+    purchase(); const actor = label.split('-')[0];
+    if (actor === 'buyer') need(s.completed !== true, 'ACTIVE_DISCLOSURE_STAGE_REQUIRED');
+    return request(actor === 'anonymous' ? null : actor, 'POST', `${ROOT}/trade-room/${s.purchaseId}/bank-details`, undefined, actor === 'buyer' ? [200] : actor === 'anonymous' ? [401] : [400, 403, 404]);
+  }
   if (['premature-release', 'accept', 'funds-received', 'release-pending', 'complete', 'complete-replay'].includes(label)) {
     const body = label.startsWith('complete') ? { action: 'complete_trade' } : { status: ({ 'premature-release': 'usdt_release_pending', accept: 'accepted', 'funds-received': 'funds_received', 'release-pending': 'usdt_release_pending' })[label], ...(label === 'accept' ? { safetyAcknowledged: true } : {}) };
     return request('seller', 'PATCH', purchase(), body, label === 'premature-release' ? [400, 409] : [200]);
@@ -123,7 +131,7 @@ export function operation(label, s, a) {
   throw new Error('OPERATION_FORBIDDEN');
 }
 
-const limits = { 'review-queue': 2, 'buyer-details': 4, 'accounts-buyer': 2, 'accounts-seller': 1, 'demand-read': 2, 'public-listings': 2, 'private-trade': 2 };
+const limits = { 'review-queue': 2, 'buyer-details': 2, 'accounts-buyer': 2, 'accounts-seller': 1, 'demand-read': 2, 'public-listings': 2, 'private-trade': 2 };
 export function validateRequest(q, s, actors, counts = {}, total = 0, nonGet = 0) {
   need(total < 65 && q && typeof q.label === 'string', 'REQUEST_BUDGET_EXCEEDED');
   need((counts[q.label] ?? 0) < (limits[q.label] ?? 1), 'OPERATION_BUDGET_EXCEEDED');
@@ -172,7 +180,7 @@ export async function transport(prepared) {
   await mkdir(HERE, { recursive: true });
   const file = path.join(HERE, `journal-${c.runId}.json`), handle = await open(file, 'wx');
   await handle.close(); // Existing journal prevents resuming/repeating uncertain writes.
-  const state = { runId: c.runId, accounts: {}, reviewVersions: {}, counts: {}, nonGet: 0, http: [], checks: [], deferred: ['Feature-off deployment verification', 'Real-provider/payment acceptance', 'Physical Safari verification'] };
+  const state = { runId: c.runId, accounts: {}, reviewVersions: {}, counts: {}, nonGet: 0, http: [], checks: [], deferred: ['Feature-off deployment verification', 'Real-provider/payment acceptance', 'Physical Safari verification', 'Post-completion private snapshot semantic comparison: completed bank-detail disclosure is forbidden'] };
   const report = { schema: 1, runId: c.runId, projectId: PROJECT, targetRef: REF, deploymentId: c.deploymentId, sourceCommit: c.sourceCommit, status: 'PREFLIGHT_PASS', http: state.http, checks: state.checks, deferred: state.deferred, providerCalls: 0, directDatabaseWrites: 0, productionWrites: 0, realFundsMoved: false };
   const save = () => writeFile(file, JSON.stringify(report, null, 2));
   const jars = Object.fromEntries(Object.keys(actors).map(k => [k, new Map()])); let token;
@@ -204,7 +212,7 @@ export async function transport(prepared) {
     check('HTTP_' + label.replaceAll('-', '_').toUpperCase(), q.statuses.includes(response.status));
     if (label.startsWith('login-')) check('NORMAL_LOGIN_IDENTITY', data.user?.id === actors[q.actor].appId && jar.has('alpha_exchange_session'));
     else if (!['review-queue', 'buyer-details', 'runtime-health'].includes(label)) assertRedacted(data, actors);
-    if (['review-queue', 'buyer-details'].includes(label) || label.startsWith('accounts-')) check('PRIVATE_NO_STORE', /no-store/.test(response.headers.get('cache-control') ?? ''));
+    if (['review-queue', 'buyer-details', 'completed-buyer-details'].includes(label) || label.startsWith('accounts-')) check('PRIVATE_NO_STORE', /no-store/.test(response.headers.get('cache-control') ?? ''));
     return data;
   }
   await save(); return { state, report, call, check, save, file };

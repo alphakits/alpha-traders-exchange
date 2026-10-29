@@ -45,6 +45,45 @@ test('OIDC token is scoped and expires safely; no permissive missing claims', ()
 });
 const labels = ['login-buyer', 'login-seller', 'login-admin', 'login-outsider', 'runtime-health', 'review-queue', 'public-listings', 'workspace', 'demand-read', 'private-trade', 'accounts-buyer', 'accounts-seller', 'create-buyer', 'create-seller', 'review-buyer', 'review-seller', 'stale-review-buyer', 'active-edit-buyer', 'active-edit-seller', 'evidence-buyer', 'evidence-seller', 'pre-review-edit', 'post-completion-edit', 'create-listing', 'approve-listing', 'publish', 'publish-replay', 'offer', 'offer-replay', 'match', 'match-replay', 'anonymous-details', 'outsider-details', 'admin-details', 'buyer-details', 'premature-release', 'accept', 'funds-received', 'release-pending', 'complete', 'complete-replay'];
 test('every planned request validates exact route, role and body', () => { for (const l of labels) validateRequest(operation(l, state(), actors), state(), actors); });
+
+test('completed private details require denial, while active disclosure stays a separate phase', () => {
+  const completed = { ...state(), completed: true };
+  const q = operation('completed-buyer-details', completed, actors);
+  validateRequest(q, completed, actors);
+  assert.equal(q.actor, 'buyer'); assert.deepEqual(q.statuses, [403]);
+  rejects(() => operation('completed-buyer-details', state(), actors), 'COMPLETED_TRADE_REQUIRED');
+  rejects(() => operation('buyer-details', completed, actors), 'ACTIVE_DISCLOSURE_STAGE_REQUIRED');
+  rejects(() => validateRequest({ ...q, statuses: [200, 403] }, completed, actors), 'REQUEST_CONTRACT_MISMATCH');
+});
+
+test('completed disclosure denial is checked for no-store and private-data redaction', async () => {
+  const original = globalThis.fetch; let t;
+  try {
+    t = await transport({ c: { ...contract(), runId: randomUUID() }, actors,
+      api: async () => ({ env: { VERCEL_OIDC_TOKEN: token({ exp: Math.floor(Date.now() / 1000) + 600, project_id: PROJECT, owner_id: TEAM }) } }) });
+    Object.assign(t.state, { purchaseId: 'request-owned', completed: true });
+    globalThis.fetch = async () => new Response(JSON.stringify({ error: 'Private details are unavailable for a completed trade.' }),
+      { status: 403, headers: { 'content-type': 'application/json', 'cache-control': 'private, no-store' } });
+    await t.call('completed-buyer-details');
+    assert(t.report.checks.some(c => c.label === 'PRIVATE_NO_STORE' && c.passed));
+    assert(t.report.deferred.some(reason => reason.startsWith('Post-completion private snapshot')));
+    assert.equal(t.report.http.length, 1);
+  } finally { globalThis.fetch = original; if (t) await unlink(t.file); }
+});
+for (const [name, data, cache, code] of [
+  ['cached denial', { error: 'Unavailable' }, 'public, max-age=60', 'PRIVATE_NO_STORE'],
+  ['bank data in denial', { error: 'Unavailable', accountNumber: ACCOUNTS.buyer }, 'private, no-store', 'PRIVATE_BANK_DATA_EXPOSED'],
+]) test('completed disclosure rejects ' + name, async () => {
+  const original = globalThis.fetch; let t;
+  try {
+    t = await transport({ c: { ...contract(), runId: randomUUID() }, actors,
+      api: async () => ({ env: { VERCEL_OIDC_TOKEN: token({ exp: Math.floor(Date.now() / 1000) + 600, project_id: PROJECT, owner_id: TEAM }) } }) });
+    Object.assign(t.state, { purchaseId: 'request-owned', completed: true });
+    globalThis.fetch = async () => new Response(JSON.stringify(data),
+      { status: 403, headers: { 'content-type': 'application/json', 'cache-control': cache } });
+    await assert.rejects(() => t.call('completed-buyer-details'), { message: code });
+  } finally { globalThis.fetch = original; if (t) await unlink(t.file); }
+});
 test('request mutations, redirects, actor impersonation and real transfer endpoints fail', () => {
   for (const changed of [q => q.route = '/api/admin/reset', q => q.route = 'https://api.wise.com/v1/transfers', q => q.actor = 'outsider', q => q.body.currency = 'ILS', q => q.body.wiseAccountId = 'wise-usd-foreign', q => q.headers = { origin: 'https://evil.invalid' }]) {
     const q = operation('create-listing', state(), actors); changed(q); rejects(() => validateRequest(q, state(), actors), 'REQUEST_CONTRACT_MISMATCH');

@@ -49,11 +49,13 @@ test("runs the unrestricted configured suite and both named rehearsals without w
   assert.ok(webTestStages.every(({ timeout }) => timeout > 0));
 });
 
-test("refuses a container missing the release-acceptance workflow before starting tests", () => {
-  const workflow = ".github/workflows/reliability-shield.yml";
+test("refuses a container missing a required release-test input before starting tests", () => {
   assert.doesNotThrow(() => assertContainerTestInputs(() => true));
-  assert.throws(() => assertContainerTestInputs((input) => input !== workflow),
-    /Required unit-test build input is absent: \.github\/workflows\/reliability-shield\.yml/);
+  for (const required of [".github/workflows/reliability-shield.yml",
+    "supabase/optional-migrations/20260912023000_alpha_exchange_whatsapp_notifications.sql"]) {
+    assert.throws(() => assertContainerTestInputs((input) => input !== required),
+      (error) => error.message === `Required unit-test build input is absent: ${required}`);
+  }
 });
 
 test("both container contexts include only the required GitHub workflow and retain secret exclusions", () => {
@@ -65,6 +67,9 @@ test("both container contexts include only the required GitHub workflow and reta
   // Re-including a parent directory would also admit unrelated files below it.
   assert.deepEqual(rules.filter((line) => line.startsWith("!.github")), [
     "!.github/workflows/reliability-shield.yml",
+  ]);
+  assert.deepEqual(rules.filter((line) => line.startsWith("!supabase/optional-migrations")), [
+    "!supabase/optional-migrations/20260912023000_alpha_exchange_whatsapp_notifications.sql",
   ]);
   const lastInclusion = rules.findLastIndex((line) => line.startsWith("!"));
   for (const exclusion of ["**/.env", "**/.env.*", "**/.git", "**/.git/**", "**/.vercel", "**/.vercel/**",
