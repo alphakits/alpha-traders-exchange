@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { FileClock, MessageCircle, ShieldCheck } from "lucide-react";
 import { localizeCardlessWithdrawalMessage } from "@alpha-traders/contracts";
 import { Button } from "@/components/ui/button";
@@ -131,6 +131,9 @@ export function OwnerTradeHistory({ locale, room, onUpdated }: { locale: "ar" | 
   const sendLock = useRef(false);
   const sendAttempt = useRef<{ message: string; id: string } | null>(null);
   const [sendError, setSendError] = useState("");
+  const chatScrollRef = useRef<HTMLDivElement>(null);
+  const chatWasNearBottomRef = useRef(true);
+  const forceChatScrollRef = useRef(false);
   const isAr = locale === "ar";
   const t = (en: string, ar: string) => isAr ? ar : en;
   const request = room.request;
@@ -151,6 +154,14 @@ export function OwnerTradeHistory({ locale, room, onUpdated }: { locale: "ar" | 
     return t("System", "النظام");
   };
   const messages = [...room.messages].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  useLayoutEffect(() => {
+    const panel = chatScrollRef.current;
+    if (panel && (chatWasNearBottomRef.current || forceChatScrollRef.current)) {
+      panel.scrollTop = panel.scrollHeight;
+      chatWasNearBottomRef.current = true;
+      forceChatScrollRef.current = false;
+    }
+  }, [room.messages]);
   const timeline = [...(request.timeline ?? [])].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   const evidence = room.ownerHistory?.evidenceFiles ?? [request.buyerEvidence, request.sellerEvidence].filter((entry) => entry !== undefined);
   const disputes = room.ownerHistory?.disputes ?? [];
@@ -202,7 +213,19 @@ export function OwnerTradeHistory({ locale, room, onUpdated }: { locale: "ar" | 
     <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
       <section id="history-chat" className={panelClass} aria-labelledby="history-chat-heading">
         <h2 id="history-chat-heading" className="flex items-center gap-2 font-semibold"><MessageCircle className="h-4 w-4 text-[#C9A227]" aria-hidden="true" />{t("Chat history", "سجل المحادثة")} ({messages.length})</h2>
-        {messages.length ? <ol className="mt-4 space-y-3">{messages.map((message) => {
+        <div
+          ref={chatScrollRef}
+          onScroll={(event) => {
+            const panel = event.currentTarget;
+            chatWasNearBottomRef.current = panel.scrollHeight - panel.scrollTop - panel.clientHeight <= 80;
+          }}
+          data-testid="owner-trade-chat-messages"
+          role="region"
+          aria-label={t("Chat messages", "رسائل الدردشة")}
+          tabIndex={0}
+          className="mt-4 h-[min(420px,50dvh)] max-h-[420px] min-h-0 overflow-y-auto overscroll-y-contain rounded-2xl border border-white/10 bg-black/30 p-3 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#C9A227]"
+        >
+        {messages.length ? <ol className="space-y-3">{messages.map((message) => {
           const protectedDetails = message.credentialKind === "cardless_code" && (!message.message || /^Cardless withdrawal (?:details protected|(?:code|details) (?:unavailable|hidden after cash collection)|code redeemed)$/.test(message.message));
           const body = protectedDetails ? t("Protected withdrawal details were shared during this trade.", "تمت مشاركة بيانات سحب محمية خلال هذه الصفقة.")
             : message.credentialKind === "cardless_code" ? localizeCardlessWithdrawalMessage(message.message, locale)
@@ -214,7 +237,8 @@ export function OwnerTradeHistory({ locale, room, onUpdated }: { locale: "ar" | 
             <time dateTime={message.createdAt} className="mt-2 block text-xs text-[#9CA3AF]">{date(message.createdAt)}</time>
             {message.deletedAt ? <p className="mt-1 text-xs text-amber-200">{t("Deleted", "تم الحذف")} · {date(message.deletedAt)}</p> : null}
           </li>;
-        })}</ol> : <p className="mt-4 text-sm text-[#9CA3AF]">{t("No chat messages were recorded for this trade.", "لا توجد رسائل محفوظة لهذه الصفقة.")}</p>}
+        })}</ol> : <p className="text-sm text-[#9CA3AF]">{t("No chat messages were recorded for this trade.", "لا توجد رسائل محفوظة لهذه الصفقة.")}</p>}
+        </div>
         {onUpdated && !request.closedAt && !["cancelled", "declined", "completed", "locked", "review_open"].includes(request.status) ? <form className="mt-4 space-y-3 rounded-xl border border-red-400/40 bg-red-950/20 p-3" onSubmit={async (event) => {
           event.preventDefault();
           if (sendLock.current || !draft.trim()) return;
@@ -227,6 +251,7 @@ export function OwnerTradeHistory({ locale, room, onUpdated }: { locale: "ar" | 
             if (outcome !== "sent") throw new Error(outcome === "rejected"
               ? t("Message access or request limit prevented delivery. Check your session and try again.", "منعت الصلاحيات أو حدود الطلبات إرسال الرسالة. تحقق من جلستك وحاول مجددًا.")
               : t("Message delivery is unconfirmed. Check the chat before retrying. Retrying this unchanged message reuses its reference to prevent duplicates.", "تسليم الرسالة غير مؤكد. تحقق من المحادثة قبل المحاولة مجددًا. إعادة الرسالة نفسها تستخدم مرجعها لمنع التكرار."));
+            forceChatScrollRef.current = true;
             setDraft(""); sendAttempt.current = null;
             try { await onUpdated(); }
             catch { setSendError(t("Message sent, but history could not refresh. Do not resend it.", "تم إرسال الرسالة لكن تعذر تحديث السجل. لا ترسلها مجددًا.")); }

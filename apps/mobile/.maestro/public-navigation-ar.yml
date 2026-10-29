@@ -32,6 +32,14 @@ name: Arabic homepage and guest navigation
 - tapOn: "الرئيسية"
 - tapOn: "فتح القائمة"
 - tapOn: "الأكاديمية"
+# Guest Academy opens the overview; lesson entry still requires sign-in.
+- assertVisible: ".*دورة تداول مجانية للمبتدئين.*"
+- takeScreenshot: academy-public-entry-ar
+- runFlow:
+    file: ../.maestro-helpers/scroll-to-text.yml
+    env:
+      TARGET_TEXT: "ابدأ الدورة المجانية"
+- tapOn: "ابدأ الدورة المجانية"
 - assertVisible: "تجربة دخول مميزة"
 - runFlow:
     file: ../.maestro-helpers/scroll-to-text.yml

@@ -432,7 +432,8 @@ jobs:
   usdt-request-flows:
     name: Buy Requests production flow and accessibility (${{ matrix.browser }})
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    # Allow setup, a cold production build, and all serial browser cases.
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
