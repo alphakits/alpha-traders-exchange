@@ -67,6 +67,12 @@ An uncertain write stops and journals reconciliation information; never rerun it
 with a new run ID to bypass that stop. The audit does not send real funds, contact
 Wise, reset fixtures, replay customer notifications, or delete financial history.
 
+Private bank details are compared while the trade is active. After completion,
+the audit requires an exact 403 denial with no-store caching and redacted data.
+An account edit after completion is checked through the owner's account response;
+the audit explicitly leaves private completed-snapshot semantic equality unproven
+because the normal API no longer discloses those snapshots.
+
 A passing bounded audit does **not** certify a live release. Hosted feature-off
 resolution, cross-instance races, key rotation/recovery, physical-device acceptance,
 ownership-evidence operations, and provider eligibility still need evidence.

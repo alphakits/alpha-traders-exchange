@@ -94,7 +94,8 @@ export async function run(args) {
     check('SYNTHETIC_COMPLETION', (await call('complete')).request?.status === 'review_open');
     check('COMPLETION_REPLAY_IDEMPOTENT', (await call('complete-replay')).request?.status === 'review_open'); s.completed = true;
     check('UNLINKED_BUYER_EDIT_REQUIRES_REVIEW', (await call('post-completion-edit')).account?.ownershipReviewStatus === 'pending_review');
-    check('FROZEN_SNAPSHOTS_SURVIVE_ACCOUNT_EDIT', frozenDetails(await call('buyer-details')) === frozen);
+    const completedDetails = await call('completed-buyer-details');
+    check('COMPLETED_BANK_DETAILS_HIDDEN', typeof completedDetails.error === 'string' && !Object.hasOwn(completedDetails, 'bankDetails'));
     const account = (await call('accounts-buyer')).accounts?.find(a => a.id === s.accounts.buyer);
     check('OWN_ACCOUNT_CHANGED', account?.ownershipReviewStatus === 'pending_review' && account.accountLast4 === ACCOUNTS.buyer.slice(-4));
     await call('private-trade'); await call('public-listings');
@@ -106,6 +107,7 @@ export async function run(args) {
     report.status = 'PASS_BOUNDED_HOSTED_SYNTHETIC_WISE'; report.finishedAt = new Date().toISOString();
     report.created = { accountCount: 2, listingId: s.listingId, demandId: s.demandId, purchaseId: s.purchaseId, receiptCount: 2, commissionCount: 1 };
     report.providerAcceptanceProven = false; report.featureOffProven = false;
+    report.postCompletionSnapshotSemanticsProven = false;
     await t.save(); return { status: report.status, file: t.file, checks: report.checks.length, applicationRequests: report.http.length };
   } catch (error) {
     if (t) {
