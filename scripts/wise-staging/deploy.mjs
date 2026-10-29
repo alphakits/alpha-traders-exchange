@@ -52,7 +52,8 @@ const REQUIRED_FILES = ['Dockerfile.vercel', 'Dockerfile.vercel.dockerignore', '
   'vercel.json', 'package.json', 'package-lock.json', 'next.config.ts', 'src/lib/wise-storage-crypto.ts',
   'src/lib/wise-payments-capability.ts', 'scripts/check-container-web-tests.mjs', 'scripts/test-container-web-tests.mjs',
   'scripts/container-next-config.cjs', 'scripts/container-origin.cjs', 'scripts/container-server.cjs',
-  'apps/mobile/.eas/workflows/iphone-installed-preview.yml', '.github/workflows/reliability-shield.yml'];
+  'apps/mobile/.eas/workflows/iphone-installed-preview.yml', '.github/workflows/reliability-shield.yml',
+  'supabase/optional-migrations/20260912023000_alpha_exchange_whatsapp_notifications.sql'];
 const ROOT_FILES = new Set(['.gitignore', '.vercelignore', '.dockerignore', '.npmrc', 'Dockerfile.vercel',
   'Dockerfile.vercel.dockerignore', 'Dockerfile.vercel.containerignore', 'Dockerfile.discord-worker', 'railway.json',
   'vercel.json', 'package.json', 'package-lock.json', 'next.config.ts', 'next-env.d.ts', 'tsconfig.json',
@@ -163,7 +164,8 @@ export function includedPath(name) {
     || /^(?:src|messages|packages|scripts|patches|public|e2e|docs)\//.test(name)
     || /^apps\/mobile\//.test(name) || /^supabase\/migrations\//.test(name)
     || ['data/alpha-exchange-db.json', 'discord-worker/package.json', 'discord-worker/package-lock.json',
-      '.github/workflows/reliability-shield.yml'].includes(name);
+      '.github/workflows/reliability-shield.yml',
+      'supabase/optional-migrations/20260912023000_alpha_exchange_whatsapp_notifications.sql'].includes(name);
 }
 
 export function parseTree(output) {
@@ -260,8 +262,8 @@ export function validateUpload(rows, manifest) {
     need(expected && includedPath(name) && row.sha === expected.sha && row.size === expected.size, 'UPLOAD_NOT_REVIEWED_SOURCE');
     safe.push({ path: name, sha: row.sha, size: row.size });
   }
-  // The CLI can omit its own ignore files, but cannot silently omit build inputs.
-  need(manifest.every(row => ['.gitignore', '.vercelignore'].includes(row.path) || seen.has(row.path)), 'SOURCE_FILE_OMITTED_FROM_UPLOAD');
+  // CLI 65.2.0 omits these reviewed ignore files; every build input stays required.
+  need(manifest.every(row => ['.gitignore', '.vercelignore', 'apps/mobile/.gitignore'].includes(row.path) || seen.has(row.path)), 'SOURCE_FILE_OMITTED_FROM_UPLOAD');
   need(REQUIRED_FILES.every(name => seen.has(name)), 'REQUIRED_UPLOAD_FILE_MISSING');
   return safe.sort((a, b) => a.path.localeCompare(b.path));
 }

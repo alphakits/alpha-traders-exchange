@@ -36,6 +36,7 @@
 !supabase/
 !supabase/migrations/
 !supabase/migrations/**
+!supabase/optional-migrations/20260912023000_alpha_exchange_whatsapp_notifications.sql
 !public/
 !public/**
 !e2e/
