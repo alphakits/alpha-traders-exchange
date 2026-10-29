@@ -536,12 +536,16 @@ test.afterAll(async () => {
   await api.dispose();
 });
 
-async function wheelAndSettle(page: Page, target: Locator, deltaY: number) {
+async function wheelAndSettle(page: Page, target: Locator, deltaY: number, observedEvent: "wheel" | "scroll" = "wheel") {
   await target.hover();
   const token = randomUUID();
-  await target.evaluate((element, id) => {
+  await target.evaluate((element, { id, event }) => {
     element.setAttribute("data-scroll-audit", `${id}:waiting`);
-    element.addEventListener("wheel", () => {
+    const initialTop = element.scrollTop;
+    const observe = () => {
+      // Ignore any pending scroll notification from setting up the midpoint.
+      if (event === "scroll" && element.scrollTop === initialTop) return;
+      element.removeEventListener(event, observe);
       let previous = "";
       let stable = 0;
       let frames = 0;
@@ -559,8 +563,9 @@ async function wheelAndSettle(page: Page, target: Locator, deltaY: number) {
         }
       };
       requestAnimationFrame(sample);
-    }, { once: true });
-  }, token);
+    };
+    element.addEventListener(event, observe);
+  }, { id: token, event: observedEvent });
   await page.mouse.wheel(0, deltaY);
   await expect.poll(() => target.getAttribute("data-scroll-audit"), { timeout: 5_000 }).toBe(`${token}:settled`);
   await target.evaluate(element => element.removeAttribute("data-scroll-audit"));
@@ -620,7 +625,11 @@ for (const locale of ["en", "ar"] as const) {
 
       await messagePanel.evaluate(element => { element.scrollTop = (element.scrollHeight - element.clientHeight) / 2; });
       const interiorTop = await messagePanel.evaluate(element => element.scrollTop);
-      await wheelAndSettle(page, messagePanel, 80);
+      // WebKit's retained failures scrolled correctly without invoking the new
+      // wheel listener. Observe actual inner scrolling for this positive control;
+      // boundary probes still require the wheel event because no scroll is
+      // expected there. All movement and containment assertions stay below.
+      await wheelAndSettle(page, messagePanel, 80, "scroll");
       expect(await messagePanel.evaluate(element => element.scrollTop)).toBeGreaterThan(interiorTop + 10);
       expect(await page.evaluate(() => window.scrollY)).toBeCloseTo(documentTop, 0);
 

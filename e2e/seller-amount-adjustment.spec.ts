@@ -62,8 +62,6 @@ for (const method of methods) {
       for (const page of [sellerPage, buyerPage]) { errorAudit.observe(page); page.on("dialog", d => void d.accept()); }
       const path = `/en/trade-room/${f.id}`;
       await errorAudit.navigate(sellerPage, () => sellerPage.goto(path));
-      // Seller acceptance alone must not close the amount correction window.
-      await sellerPage.getByRole("button", { name: "Accept Trade", exact: true }).click();
       const adjust = sellerPage.getByRole("button", { name: "Adjust Amount", exact: true });
       await expect(adjust).toBeEnabled();
       await expect(adjust).toBeInViewport();
@@ -84,6 +82,14 @@ for (const method of methods) {
         await errorAudit.navigate(sellerPage, () => sellerPage.goto(path));
       }
       await errorAudit.navigate(buyerPage, () => buyerPage.goto(path));
+      // Check the initial layout before clicking an action farther down the page.
+      // Seller acceptance alone must not close the amount correction window.
+      await sellerPage.getByRole("button", { name: "Accept Trade", exact: true }).click();
+      await expect.poll(async () => {
+        const accepted = await readDb(request);
+        return accepted.purchaseRequests.find((r: { id: string }) => r.id === f.id)?.status;
+      }).toBe("accepted");
+      await expect(adjust).toBeEnabled();
       // Both participants keep the room open; proposals and accepted totals must sync without a reload.
       // First increase, then reduce: both directions share the two-turn limit.
       await adjust.click();
