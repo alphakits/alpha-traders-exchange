@@ -473,6 +473,19 @@ jobs:
           ALPHA_E2E_TEST_SUPPORT: "1"
           ALPHA_E2E_LOOPBACK_ONLY: "1"
         run: npm run build
+      - name: Repeat buyer navigation and cancellation without retries
+        if: matrix.browser == 'webkit'
+        env:
+          PLAYWRIGHT_JSON_OUTPUT_FILE: test-results/usdt-mutation-regression.json
+        run: node ./node_modules/playwright/cli.js test --config=playwright.usdt-requests-offline.config.ts --grep="automated accessibility at 320px|buyer can keep or cancel a request" --repeat-each=3 --retries=0 --max-failures=1 --reporter=list,json
+      - name: Preserve repeated buyer mutation evidence
+        if: always() && matrix.browser == 'webkit'
+        uses: actions/upload-artifact@v4
+        with:
+          name: usdt-mutation-regression
+          path: test-results/
+          if-no-files-found: error
+          retention-days: 14
       - name: Verify isolated Buy Requests flows without retries
         run: node ./node_modules/playwright/cli.js test --config=playwright.usdt-requests-offline.config.ts --reporter=list,json
       - name: Preserve Buy Requests results, accessibility reports and failure traces

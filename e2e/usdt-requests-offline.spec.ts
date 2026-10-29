@@ -1145,8 +1145,16 @@ test("buyer can keep or cancel a request and then publish it again after the coo
   await page.getByRole("button", { name: "Keep request", exact: true }).click();
   expect((await state(page.request)).usdtDemands?.[0].state).toBe("open");
   await page.getByRole("button", { name: "Cancel request", exact: true }).click();
-  await page.getByRole("button", { name: "Confirm cancellation", exact: true }).click();
-  expect((await state(page.request)).usdtDemands?.[0].state).toBe("cancelled");
+  // A click only dispatches the mutation. Read the committed state after the
+  // matching response, never race the browser's PATCH with the fixture GET.
+  const [cancellation] = await Promise.all([
+    page.waitForResponse(response => new URL(response.url()).pathname === `${root}/${demand.id}`
+      && response.request().method() === "PATCH" && response.request().postDataJSON()?.action === "cancel", { timeout: 5_000 }),
+    page.getByRole("button", { name: "Confirm cancellation", exact: true }).click(),
+  ]);
+  expect(cancellation.status(), await cancellation.text()).toBe(200);
+  await expect(page.getByRole("button", { name: "Confirm cancellation", exact: true })).toHaveCount(0);
+  expect((await state(page.request)).usdtDemands?.find(item => item.id === demand.id)?.state).toBe("cancelled");
   await ageDemandPastCooldown(page.request, demand.id); await page.reload();
   await page.getByRole("button", { name: "Publish again", exact: true }).click();
   const form = page.getByRole("form", { name: "Request details" });

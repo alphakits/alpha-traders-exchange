@@ -6,6 +6,16 @@ const marketUrl = new URL("/api/market/center", E2E_BASE_URL).href;
 type Cancellation = { message: string; stack?: string; observedAt: string };
 type DestinationFeed = { url: string; label: string; validateBody: (body: unknown) => boolean };
 type Navigation = { committed: boolean; candidates: Cancellation[]; feed: DestinationFeed };
+
+export function unblockedAccountDestinationFeed(url: string): DestinationFeed {
+  return {
+    url,
+    label: "same counterparty account-safety status",
+    validateBody: body => typeof body === "object" && body !== null && !Array.isArray(body)
+      && Object.keys(body).length === 1 && (body as { blocked?: unknown }).blocked === false,
+  };
+}
+
 const defaultFeed: DestinationFeed = {
   url: marketUrl,
   label: "market feed",
