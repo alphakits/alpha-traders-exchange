@@ -564,7 +564,27 @@ async function wheelAndSettle(page: Page, target: Locator, deltaY: number, obser
       };
       requestAnimationFrame(sample);
     };
-    element.addEventListener(event, observe);
+    if (event === "scroll") {
+      // WebKit can move its composited scroller without delivering a newly
+      // registered scroll listener. The retained failure moved 333 -> 413px
+      // while document scrollY stayed 428px, so observe the actual position.
+      // Movement remains mandatory; boundary probes still require real wheel
+      // delivery and all inner/document containment assertions remain below.
+      const deadline = performance.now() + 4_500;
+      const detectMovement = () => {
+        if (!element.isConnected || element.getAttribute("data-scroll-audit") !== `${id}:waiting`) return;
+        if (element.scrollTop !== initialTop) {
+          observe();
+        } else if (performance.now() < deadline) {
+          requestAnimationFrame(detectMovement);
+        } else {
+          element.setAttribute("data-scroll-audit", `${id}:no-movement`);
+        }
+      };
+      requestAnimationFrame(detectMovement);
+    } else {
+      element.addEventListener(event, observe);
+    }
   }, { id: token, event: observedEvent });
   await page.mouse.wheel(0, deltaY);
   await expect.poll(() => target.getAttribute("data-scroll-audit"), { timeout: 5_000 }).toBe(`${token}:settled`);
@@ -625,8 +645,7 @@ for (const locale of ["en", "ar"] as const) {
 
       await messagePanel.evaluate(element => { element.scrollTop = (element.scrollHeight - element.clientHeight) / 2; });
       const interiorTop = await messagePanel.evaluate(element => element.scrollTop);
-      // WebKit's retained failures scrolled correctly without invoking the new
-      // wheel listener. Observe actual inner scrolling for this positive control;
+      // Observe actual inner movement for this positive control;
       // boundary probes still require the wheel event because no scroll is
       // expected there. All movement and containment assertions stay below.
       await wheelAndSettle(page, messagePanel, 80, "scroll");
