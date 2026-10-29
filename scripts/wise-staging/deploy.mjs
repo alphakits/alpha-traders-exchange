@@ -52,7 +52,8 @@ const REQUIRED_FILES = ['Dockerfile.vercel', 'Dockerfile.vercel.dockerignore', '
   'vercel.json', 'package.json', 'package-lock.json', 'next.config.ts', 'src/lib/wise-storage-crypto.ts',
   'src/lib/wise-payments-capability.ts', 'scripts/check-container-web-tests.mjs', 'scripts/test-container-web-tests.mjs',
   'scripts/container-next-config.cjs', 'scripts/container-origin.cjs', 'scripts/container-server.cjs',
-  'apps/mobile/.eas/workflows/iphone-installed-preview.yml', '.github/workflows/reliability-shield.yml'];
+  'apps/mobile/.eas/workflows/iphone-installed-preview.yml', '.github/workflows/reliability-shield.yml',
+  'supabase/optional-migrations/20260912023000_alpha_exchange_whatsapp_notifications.sql'];
 const ROOT_FILES = new Set(['.gitignore', '.vercelignore', '.dockerignore', '.npmrc', 'Dockerfile.vercel',
   'Dockerfile.vercel.dockerignore', 'Dockerfile.vercel.containerignore', 'Dockerfile.discord-worker', 'railway.json',
   'vercel.json', 'package.json', 'package-lock.json', 'next.config.ts', 'next-env.d.ts', 'tsconfig.json',
@@ -163,7 +164,8 @@ export function includedPath(name) {
     || /^(?:src|messages|packages|scripts|patches|public|e2e|docs)\//.test(name)
     || /^apps\/mobile\//.test(name) || /^supabase\/migrations\//.test(name)
     || ['data/alpha-exchange-db.json', 'discord-worker/package.json', 'discord-worker/package-lock.json',
-      '.github/workflows/reliability-shield.yml'].includes(name);
+      '.github/workflows/reliability-shield.yml',
+      'supabase/optional-migrations/20260912023000_alpha_exchange_whatsapp_notifications.sql'].includes(name);
 }
 
 export function parseTree(output) {

@@ -91,9 +91,11 @@ test('excludes generated, private, environment and dependency files while retain
   for (const file of ['.env', '.env.example', 'src/.env.production', 'private/account.json', 'node_modules/pkg/index.js', 'work/proof.json',
     'test-results/trace.zip', 'e2e/.auth/admin.json', 'e2e/storage-state.json', 'docs/cookies.txt', 'src/client.pem', 'public/files/video.mp4', '.git/config',
     '.github/workflows/other.yml', '.github/CODEOWNERS', '.github/.env', '.github/workflows/.env.production',
-    '.github/workflows/client.pem', '.github/private/account.json']) assert.equal(includedPath(file), false, file);
+    '.github/workflows/client.pem', '.github/private/account.json',
+    'supabase/optional-migrations/unreviewed.sql']) assert.equal(includedPath(file), false, file);
   for (const file of ['src/lib/wise-storage-crypto.ts', 'src/__tests__/wise-storage-postgres.test.ts', 'apps/mobile/.eas/workflows/iphone-installed-preview.yml',
-    'Dockerfile.vercel.containerignore', '.github/workflows/reliability-shield.yml', 'public/images/hero.webp', 'supabase/migrations/valid.sql']) assert.equal(includedPath(file), true, file);
+    'Dockerfile.vercel.containerignore', '.github/workflows/reliability-shield.yml', 'public/images/hero.webp', 'supabase/migrations/valid.sql',
+    'supabase/optional-migrations/20260912023000_alpha_exchange_whatsapp_notifications.sql']) assert.equal(includedPath(file), true, file);
   for (const file of ['../escape', 'C:/escape', '/absolute', 'src\\file', 'src/../file']) assert.throws(() => includedPath(file));
 });
 test('rejects symbolic links, submodules and case-colliding Git paths', () => {
@@ -137,7 +139,8 @@ test('upload permits only the exact mobile ignore-file omission', () => {
     'vercel.json', 'package.json', 'package-lock.json', 'next.config.ts', 'src/lib/wise-storage-crypto.ts',
     'src/lib/wise-payments-capability.ts', 'scripts/check-container-web-tests.mjs', 'scripts/test-container-web-tests.mjs',
     'scripts/container-next-config.cjs', 'scripts/container-origin.cjs', 'scripts/container-server.cjs',
-    'apps/mobile/.eas/workflows/iphone-installed-preview.yml', '.github/workflows/reliability-shield.yml'];
+    'apps/mobile/.eas/workflows/iphone-installed-preview.yml', '.github/workflows/reliability-shield.yml',
+    'supabase/optional-migrations/20260912023000_alpha_exchange_whatsapp_notifications.sql'];
   const entry = name => ({ path: name, sha: digest(Buffer.from(name), 'sha1'), size: Buffer.byteLength(name) });
   const files = [...required, 'src/lib/trade-amount-lock.ts', 'apps/mobile/src/components/trade-terms-panel.tsx'].map(entry);
   const ignored = ['.gitignore', '.vercelignore', 'apps/mobile/.gitignore'].map(entry);
@@ -145,11 +148,14 @@ test('upload permits only the exact mobile ignore-file omission', () => {
   assert.equal(validateUpload(files, manifest).length, files.length);
   assert.equal(validateUpload([...files, ignored[2]], manifest).length, files.length + 1);
   for (const missing of ['src/lib/trade-amount-lock.ts', 'apps/mobile/src/components/trade-terms-panel.tsx',
-    '.github/workflows/reliability-shield.yml', 'Dockerfile.vercel']) {
+    '.github/workflows/reliability-shield.yml', 'Dockerfile.vercel',
+    'supabase/optional-migrations/20260912023000_alpha_exchange_whatsapp_notifications.sql']) {
     assert.throws(() => validateUpload(files.filter(row => row.path !== missing), manifest), /SOURCE_FILE_OMITTED_FROM_UPLOAD/);
   }
   assert.throws(() => validateUpload(files, [...manifest, entry('src/nested/.gitignore')]), /SOURCE_FILE_OMITTED_FROM_UPLOAD/);
   assert.throws(() => validateUpload([...files, { ...ignored[2], sha: '0'.repeat(40) }], manifest), /UPLOAD_NOT_REVIEWED_SOURCE/);
+  const withoutMigration = rows => rows.filter(row => !row.path.startsWith('supabase/optional-migrations/'));
+  assert.throws(() => validateUpload(withoutMigration(files), withoutMigration(manifest)), /REQUIRED_UPLOAD_FILE_MISSING/);
 });
 
 test('requires fresh exact-source zero-push database evidence', () => {

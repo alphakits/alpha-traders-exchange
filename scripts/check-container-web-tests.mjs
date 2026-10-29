@@ -44,6 +44,7 @@ export function assertContainerTestInputs(exists = existsSync) {
     "apps/mobile/src", "apps/mobile/app", "apps/mobile/app.json", "apps/mobile/.eas/workflows/iphone-installed-preview.yml",
     ".dockerignore", "Dockerfile.vercel.dockerignore", "Dockerfile.vercel.containerignore", "railway.json", "vercel.json",
     ".github/workflows/reliability-shield.yml",
+    "supabase/optional-migrations/20260912023000_alpha_exchange_whatsapp_notifications.sql",
   ]) assert.ok(exists(input), `Required unit-test build input is absent: ${input}`);
 }
 
