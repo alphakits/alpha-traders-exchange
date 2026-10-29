@@ -1,7 +1,7 @@
 import { EventEmitter } from "node:events";
 import type { Frame, Page, Request, Response } from "@playwright/test";
 import { describe, expect, it } from "vitest";
-import { createHardNavigationErrorAudit } from "../../e2e/support/hard-navigation-errors";
+import { createHardNavigationErrorAudit, unblockedAccountDestinationFeed } from "../../e2e/support/hard-navigation-errors";
 import { E2E_BASE_URL } from "../../e2e/support/base-url";
 
 const marketUrl = `${E2E_BASE_URL}/api/market/center`;
@@ -59,6 +59,46 @@ const demandFeed = {
       && request.offers?.some(offer => offer.id === "offer-new" && offer.price === "3.25" && offer.state === "open") === true;
   },
 };
+
+describe("accepted Trade Room account-safety reload", () => {
+  const url = `${E2E_BASE_URL}/api/alpha-exchange/user-blocks/offline-seller`;
+  const feed = unblockedAccountDestinationFeed(url);
+
+  it("retains the pre-commit native diagnostic only after a fresh same-counterparty read", async () => {
+    const audit = createHardNavigationErrorAudit("webkit"), fixture = fakePage();
+    const nativeError = refusal(url);
+    await audit.navigate(fixture.page, async () => {
+      fixture.error(nativeError);
+      fixture.commit(); fixture.respondJson({ blocked: false }, { url });
+    }, feed);
+    expect(audit.errors).toEqual([]);
+    expect(audit.report().navigationCancellations).toEqual([expect.objectContaining({
+      message: nativeError.message, stack: nativeError.stack, feedUrl: url, feedStatus: 200,
+    })]);
+  });
+
+  it.each([null, {}, [], { blocked: true }, { blocked: "false" }, { blocked: false, error: "Unavailable" }])(
+    "does not excuse the cancellation for an invalid or changed block contract: %j", async body => {
+      const audit = createHardNavigationErrorAudit("webkit"), fixture = fakePage();
+      const nativeError = refusal(url);
+      await expect(audit.navigate(fixture.page, async () => {
+        fixture.error(nativeError); fixture.commit(); fixture.respondJson(body, { url });
+      }, feed)).rejects.toThrow("did not return a valid snapshot");
+      expect(audit.errors).toEqual([nativeError.message]);
+      expect(audit.report().navigationCancellations).toEqual([]);
+    },
+  );
+
+  it("still fails a native-looking refusal after the new Trade Room commits", async () => {
+    const audit = createHardNavigationErrorAudit("webkit"), fixture = fakePage();
+    const nativeError = refusal(url);
+    await audit.navigate(fixture.page, async () => {
+      fixture.commit(); fixture.error(nativeError); fixture.respondJson({ blocked: false }, { url });
+    }, feed);
+    expect(audit.errors).toEqual([nativeError.message]);
+    expect(audit.report().navigationCancellations).toEqual([]);
+  });
+});
 
 describe("hard-navigation browser error audit", () => {
   it("records the exact WebKit teardown refusal only after a healthy destination", async () => {

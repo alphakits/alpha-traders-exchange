@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { expect, test, type APIRequestContext, type APIResponse } from "@playwright/test";
 import { OFFLINE_ACCOUNTS, OFFLINE_PASSWORD, OFFLINE_HEADERS, seedOfflineFixture } from "../scripts/usdt-request-offline-fixture.mjs";
 import type { DemandWorkspace } from "../src/types/usdt-demand";
-import { createHardNavigationErrorAudit } from "./support/hard-navigation-errors";
+import { createHardNavigationErrorAudit, unblockedAccountDestinationFeed } from "./support/hard-navigation-errors";
 
 async function ok(response: Pick<APIResponse, "ok" | "status" | "text" | "json">) {
   expect(response.ok(), `${response.status()} ${await response.text()}`).toBe(true);
@@ -154,7 +154,12 @@ test("personal Wise USD accounts and Buy Request complete locally with private p
     expect(premature.ok()).toBe(false);
     await ok(await seller.patch(path, { data: { status: "accepted", safetyAcknowledged: true } }));
     phase = "reload accepted Trade Room";
-    await page.reload();
+    // The departing document can cancel its account-safety read in WebKit.
+    // Preserve that exact native diagnostic only if the new main document
+    // reads the same counterparty and proves the expected unblocked state.
+    await browserErrorAudit.navigate(page, () => page.reload(), unblockedAccountDestinationFeed(
+      new URL(`/api/alpha-exchange/user-blocks/${OFFLINE_ACCOUNTS.seller.id}`, baseURL).href,
+    ));
     await expect(page.getByRole("button", { name: "Reveal Bank Details", exact: true })).toBeVisible();
     page.once("dialog", dialog => dialog.accept());
     phase = "reveal payment instructions";
