@@ -3,6 +3,7 @@ import { expect, test, type APIRequestContext, type APIResponse } from "@playwri
 import { OFFLINE_ACCOUNTS, OFFLINE_PASSWORD, OFFLINE_HEADERS, seedOfflineFixture } from "../scripts/usdt-request-offline-fixture.mjs";
 import type { DemandWorkspace } from "../src/types/usdt-demand";
 import { createHardNavigationErrorAudit, unblockedAccountDestinationFeed } from "./support/hard-navigation-errors";
+import { clickConfirmedTradeAction } from "./support/action-dialog";
 
 async function ok(response: Pick<APIResponse, "ok" | "status" | "text" | "json">) {
   expect(response.ok(), `${response.status()} ${await response.text()}`).toBe(true);
@@ -161,9 +162,8 @@ test("personal Wise USD accounts and Buy Request complete locally with private p
       new URL(`/api/alpha-exchange/user-blocks/${OFFLINE_ACCOUNTS.seller.id}`, baseURL).href,
     ));
     await expect(page.getByRole("button", { name: "Reveal Bank Details", exact: true })).toBeVisible();
-    page.once("dialog", dialog => dialog.accept());
     phase = "reveal payment instructions";
-    await page.getByRole("button", { name: "Reveal Bank Details", exact: true }).click();
+    await clickConfirmedTradeAction(page, page.getByRole("button", { name: "Reveal Bank Details", exact: true }));
     await expect(page.getByText("00002002002", { exact: true })).toBeVisible();
     await expect(page.getByText("00001001001", { exact: true })).toBeVisible();
     await expect(page.getByText("ACH routing number", { exact: false })).toBeVisible();

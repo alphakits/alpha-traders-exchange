@@ -5,6 +5,7 @@ import { promisify } from "node:util";
 import { E2E_BASE_URL } from "./support/base-url";
 import { createE2eSellerApprovalVerification } from "./support/seller-verification";
 import { createHardNavigationErrorAudit } from "./support/hard-navigation-errors";
+import { clickConfirmedTradeAction } from "./support/action-dialog";
 
 const scrypt = promisify(scryptCallback);
 const SUPPORT_HEADERS = {
@@ -755,26 +756,16 @@ test("mobile guided cash flow: no photos, wallet privacy, seller-only completion
     viewport,
   });
 
-  const acceptedConfirmations: string[] = [];
-  const confirmAcceptance = async (dialog: import("@playwright/test").Dialog) => {
-    acceptedConfirmations.push(dialog.message());
-    await dialog.accept();
-  };
-  // Face-to-face acceptance requires the terms confirmation and the separate
-  // safe-meeting acknowledgement. A once handler dismisses the second dialog.
-  page.on("dialog", confirmAcceptance);
-  try {
-    const [accepted] = await Promise.all([
-      page.waitForResponse(response => new URL(response.url()).pathname === `/api/alpha-exchange/purchase-requests/${requestId}`
-        && response.request().method() === "PATCH"),
-      page.getByRole("button", { name: localizedTradeActionMatcher("accept-trade") }).first().click(),
-    ]);
-    expect(accepted.ok(), await accepted.text()).toBeTruthy();
-    expect(acceptedConfirmations).toHaveLength(2);
-    expect(acceptedConfirmations[1]).toMatch(/safe public place/i);
-  } finally {
-    page.off("dialog", confirmAcceptance);
-  }
+  // Both the terms and safe-meeting acknowledgement remain explicit, even
+  // when the host browser does not offer JavaScript confirmation popups.
+  const [accepted, acceptedConfirmations] = await Promise.all([
+    page.waitForResponse(response => new URL(response.url()).pathname === `/api/alpha-exchange/purchase-requests/${requestId}`
+      && response.request().method() === "PATCH"),
+    clickConfirmedTradeAction(page, page.getByRole("button", { name: localizedTradeActionMatcher("accept-trade") }).first(), [undefined, /safe public place/i]),
+  ]);
+  expect(accepted.ok(), await accepted.text()).toBeTruthy();
+  expect(acceptedConfirmations).toHaveLength(2);
+  expect(acceptedConfirmations[1]).toMatch(/safe public place/i);
   await expect(page.getByText(/Receive the Cash, Then Confirm|استلم النقد ثم أكد/i).first()).toBeVisible({ timeout: 20_000 });
 
   const beforeCashReceipt = await page.request.get(`/api/alpha-exchange/trade-room/${requestId}`);
@@ -797,11 +788,10 @@ test("mobile guided cash flow: no photos, wallet privacy, seller-only completion
     viewport,
   });
 
-  page.once("dialog", (dialog) => dialog.accept());
   const [cashConfirmed] = await Promise.all([
     page.waitForResponse(response => new URL(response.url()).pathname === `/api/alpha-exchange/purchase-requests/${requestId}`
       && response.request().method() === "PATCH"),
-    page.getByRole("button", { name: localizedTradeActionMatcher("confirm-cash-payment") }).first().click(),
+    clickConfirmedTradeAction(page, page.getByRole("button", { name: localizedTradeActionMatcher("confirm-cash-payment") }).first()),
   ]);
   expect(cashConfirmed.ok(), await cashConfirmed.text()).toBeTruthy();
   await expect(page.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "60");
@@ -840,8 +830,7 @@ test("mobile guided cash flow: no photos, wallet privacy, seller-only completion
   expect(afterConfirmRoom.request?.buyerReceivingWalletAddress).toBe(BUYER_WALLET);
 
   await expect(page.getByText(/How this trade works/i).first()).toBeVisible({ timeout: 20_000 });
-  page.once("dialog", (dialog) => dialog.accept());
-  await page.getByRole("button", { name: localizedTradeActionMatcher("complete-cash-trade") }).first().click();
+  await clickConfirmedTradeAction(page, page.getByRole("button", { name: localizedTradeActionMatcher("complete-cash-trade") }).first());
   await expect(page.getByRole("button", { name: "Return home", exact: true })).toBeVisible({ timeout: 20_000 });
   await expect(page.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "100");
 
@@ -1029,6 +1018,66 @@ for (const locale of ["en", "ar"] as const) {
   });
 }
 
+test("seller workspace accepts an ATM request with native confirmations suppressed and explicit consent", async ({ page }, info) => {
+  test.setTimeout(120_000);
+  const api = await pwRequest.newContext({ baseURL: E2E_BASE_URL });
+  try {
+    const setup = await readDb(api);
+    const listing = (setup.marketplaceListings as Array<Record<string, unknown>>).find(row => row.id === ids.listing)!;
+    Object.assign(listing, { paymentMethod: "Cardless ATM Withdrawal", paymentMethods: ["Cardless ATM Withdrawal"], price: "3.33", minimumTrade: "400" });
+    await writeDb(api, setup);
+    await login(page.request, buyerEmail, buyerPassword);
+    const requestId = await createTradeRequest(page.request, "327.059733", {
+      paymentMethod: "Cardless ATM Withdrawal", bankName: "Bank Leumi", receivingNetwork: "TRC20",
+      cardlessWithdrawalCode: "482913", cardlessVerificationKind: "date_of_birth",
+      cardlessVerificationValue: "01/01/1990", cardlessIlsAmount: "1100",
+    });
+    await login(page.request, sellerEmail, sellerPassword);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.addInitScript(() => { window.confirm = () => false; });
+    const patchRequests: string[] = [];
+    page.on("request", request => {
+      if (request.method() === "PATCH" && new URL(request.url()).pathname === `/api/alpha-exchange/purchase-requests/${requestId}`) {
+        patchRequests.push(request.postData() ?? "");
+      }
+    });
+    await page.goto("/en/usdt-exchange#purchase-requests-section");
+    const card = page.locator(`#purchase-requests-section #trade-${requestId}`);
+    await expect(card).toBeVisible({ timeout: 30_000 });
+    const accept = card.getByRole("button", { name: "Accept", exact: true });
+    await expect(accept).toBeEnabled();
+    await accept.click();
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toBeVisible();
+    await expect(dialog).toContainText("1100");
+    expect(patchRequests).toHaveLength(0);
+    await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+    await expect(dialog).not.toBeVisible();
+    expect(patchRequests).toHaveLength(0);
+    const cancelled = await readDb(api);
+    expect((cancelled.purchaseRequests as Array<Record<string, unknown>>).find(row => row.id === requestId)?.status).toBe("pending");
+    await accept.click();
+    await expect(dialog).toBeVisible();
+    await page.screenshot({ path: info.outputPath("seller-workspace-atm-confirmation-mobile.png") });
+    const [accepted] = await Promise.all([
+      page.waitForResponse(response => new URL(response.url()).pathname === `/api/alpha-exchange/purchase-requests/${requestId}`
+        && response.request().method() === "PATCH"),
+      dialog.getByRole("button", { name: "Confirm", exact: true }).click(),
+    ]);
+    expect(accepted.ok(), await accepted.text()).toBeTruthy();
+    expect(patchRequests).toHaveLength(1);
+    expect(JSON.parse(patchRequests[0])).toMatchObject({ status: "accepted", safetyAcknowledged: false });
+    await expect(page).toHaveURL(new RegExp(`/en/trade-room/${requestId}`));
+    await expect(page.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "20");
+    const saved = await readDb(api);
+    expect((saved.purchaseRequests as Array<Record<string, unknown>>).find(row => row.id === requestId)).toMatchObject({
+      status: "accepted", fiatAmount: "1100.00", usdtAmount: "327.059733",
+    });
+  } finally {
+    await api.dispose();
+  }
+});
+
 test("mobile targeted notification open keeps correct section and CTA without overflow", async ({ page }) => {
   test.setTimeout(180_000);
   const api = await pwRequest.newContext({ baseURL: E2E_BASE_URL });
@@ -1068,24 +1117,14 @@ test("Trade Room Poke is recipient-only, cooldown-protected, reconnect-safe, and
 
     await login(sellerPage.request, sellerEmail, sellerPassword);
     await sellerPage.goto(`/en/trade-room/${requestId}`);
-    const acceptedConfirmations: string[] = [];
-    const confirmAcceptance = async (dialog: import("@playwright/test").Dialog) => {
-      acceptedConfirmations.push(dialog.message());
-      await dialog.accept();
-    };
-    sellerPage.on("dialog", confirmAcceptance);
-    try {
-      const [accepted] = await Promise.all([
-        sellerPage.waitForResponse(response => new URL(response.url()).pathname === `/api/alpha-exchange/purchase-requests/${requestId}`
-          && response.request().method() === "PATCH"),
-        sellerPage.getByRole("button", { name: /Accept Trade/i }).first().click(),
-      ]);
-      expect(accepted.ok(), await accepted.text()).toBeTruthy();
-      expect(acceptedConfirmations).toHaveLength(2);
-      expect(acceptedConfirmations[1]).toMatch(/safe public place/i);
-    } finally {
-      sellerPage.off("dialog", confirmAcceptance);
-    }
+    const [accepted, acceptedConfirmations] = await Promise.all([
+      sellerPage.waitForResponse(response => new URL(response.url()).pathname === `/api/alpha-exchange/purchase-requests/${requestId}`
+        && response.request().method() === "PATCH"),
+      clickConfirmedTradeAction(sellerPage, sellerPage.getByRole("button", { name: /Accept Trade/i }).first(), [undefined, /safe public place/i]),
+    ]);
+    expect(accepted.ok(), await accepted.text()).toBeTruthy();
+    expect(acceptedConfirmations).toHaveLength(2);
+    expect(acceptedConfirmations[1]).toMatch(/safe public place/i);
     await expect(sellerPage.getByText(/Receive the Cash, Then Confirm/i).first()).toBeVisible({ timeout: 20_000 });
 
     await buyerPage.goto(`/en/trade-room/${requestId}`);
@@ -1282,7 +1321,7 @@ for (const paymentMethod of ["Bank Transfer", "Cardless ATM Withdrawal", "Face-t
     const errorAudit = createHardNavigationErrorAudit(browserName);
     for (const page of [buyerPage, sellerPage]) {
       errorAudit.observe(page);
-      page.on("dialog", (dialog) => void dialog.accept());
+      await page.addInitScript(() => { window.confirm = () => false; });
     }
     try {
       await login(buyerContext.request, buyerEmail, buyerPassword);
@@ -1310,7 +1349,7 @@ for (const paymentMethod of ["Bank Transfer", "Cardless ATM Withdrawal", "Face-t
       if (paymentMethod === "Bank Transfer") {
         await errorAudit.navigate(buyerPage, () => buyerPage.goto(path));
         await expect(buyerPage.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "0");
-        await buyerPage.getByRole("button", { name: "Reveal Bank Details", exact: true }).click();
+        await clickConfirmedTradeAction(buyerPage, buyerPage.getByRole("button", { name: "Reveal Bank Details", exact: true }));
         await expect(buyerPage.getByText("9000000000", { exact: true })).toBeVisible();
         await expect(buyerPage.getByText("Guided Flow Seller", { exact: true })).toHaveCount(0);
         await buyerPage.screenshot({ path: testInfo.outputPath("bank-details-before-acceptance-mobile.png"), fullPage: true });
@@ -1318,13 +1357,13 @@ for (const paymentMethod of ["Bank Transfer", "Cardless ATM Withdrawal", "Face-t
       await errorAudit.navigate(sellerPage, () => sellerPage.goto(path));
       await expect(sellerPage.getByTestId("trade-header-notice")).toHaveCount(0);
       await expect(sellerPage.getByRole("button", { name: "Accept Trade", exact: true })).toBeInViewport();
-      await sellerPage.getByRole("button", { name: "Accept Trade", exact: true }).click();
+      await clickConfirmedTradeAction(sellerPage, sellerPage.getByRole("button", { name: "Accept Trade", exact: true }), paymentMethod === "Face-to-Face (Meet in Person)" ? [undefined, /safe public place/i] : [undefined]);
       await expect(sellerPage.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "20");
       await errorAudit.navigate(buyerPage, () => buyerPage.goto(path));
       await expect(buyerPage.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "20");
       const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=", "base64");
       if (paymentMethod === "Bank Transfer") {
-        await buyerPage.getByRole("button", { name: "Reveal Bank Details", exact: true }).click();
+        await clickConfirmedTradeAction(buyerPage, buyerPage.getByRole("button", { name: "Reveal Bank Details", exact: true }));
         await expect(buyerPage.getByText("9000000000", { exact: true })).toBeVisible();
         await buyerPage.getByLabel("Choose payment receipt", { exact: true }).setInputFiles({ name: "receipt.png", mimeType: "image/png", buffer: png });
         await buyerPage.getByRole("button", { name: "Upload Payment Receipt", exact: true }).click();
@@ -1341,13 +1380,13 @@ for (const paymentMethod of ["Bank Transfer", "Cardless ATM Withdrawal", "Face-t
         const [submitted] = await Promise.all([
           buyerPage.waitForResponse(response => new URL(response.url()).pathname === `/api/alpha-exchange/purchase-requests/${requestId}`
             && response.request().method() === "PATCH", { timeout: 15_000 }),
-          buyerPage.getByRole("button", { name: "Send & Confirm Withdrawal Details", exact: true }).click(),
+          clickConfirmedTradeAction(buyerPage, buyerPage.getByRole("button", { name: "Send & Confirm Withdrawal Details", exact: true })),
         ]);
         expect(submitted.ok(), await submitted.text()).toBeTruthy();
         await expect(sellerPage.getByText(/123456/).first()).toBeVisible();
         await sellerPage.screenshot({ path: testInfo.outputPath("atm-shared-after-confirmation-mobile.png"), fullPage: true });
       } else {
-        await buyerPage.getByRole("button", { name: "I Handed Over the Cash", exact: true }).click();
+        await clickConfirmedTradeAction(buyerPage, buyerPage.getByRole("button", { name: "I Handed Over the Cash", exact: true }));
       }
       if (paymentMethod === "Face-to-Face (Meet in Person)") {
         await expect(buyerPage.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "60");
@@ -1367,7 +1406,7 @@ for (const paymentMethod of ["Bank Transfer", "Cardless ATM Withdrawal", "Face-t
         if (route.request().method() === "PATCH") await held;
         await route.continue();
       });
-      await sellerPage.getByRole("button", { name: receiveLabel, exact: true }).click();
+      await clickConfirmedTradeAction(sellerPage, sellerPage.getByRole("button", { name: receiveLabel, exact: true }));
       await expect(sellerPage.getByRole("button", { name: "Processing...", exact: true })).toBeDisabled();
       await expect(sellerPage.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "40");
       release();
@@ -1390,7 +1429,7 @@ for (const paymentMethod of ["Bank Transfer", "Cardless ATM Withdrawal", "Face-t
         await sellerPage.getByRole("button", { name: "Upload Seller Evidence", exact: true }).click();
       } else if (paymentMethod === "Cardless ATM Withdrawal") {
         await expect(sellerPage.getByText(BUYER_WALLET, { exact: true })).toBeVisible();
-        await sellerPage.getByRole("button", { name: "Confirm USDT Sent", exact: true }).click();
+        await clickConfirmedTradeAction(sellerPage, sellerPage.getByRole("button", { name: "Confirm USDT Sent", exact: true }));
         await expect(sellerPage.getByRole("button", { name: "Mark Trade as Completed", exact: true })).toBeVisible();
       } else {
         await expect(sellerPage.getByText(BUYER_WALLET, { exact: true })).toBeVisible();
@@ -1418,7 +1457,7 @@ for (const paymentMethod of ["Bank Transfer", "Cardless ATM Withdrawal", "Face-t
       await sellerPage.setViewportSize({ width: 1440, height: 900 });
       await expect(sellerPage.getByRole("button", { name: "Mark Trade as Completed", exact: true })).toBeVisible();
       await sellerPage.screenshot({ path: testInfo.outputPath("seller-only-seller-desktop.png"), fullPage: true });
-      await sellerPage.getByRole("button", { name: "Mark Trade as Completed", exact: true }).click();
+      await clickConfirmedTradeAction(sellerPage, sellerPage.getByRole("button", { name: "Mark Trade as Completed", exact: true }));
       await expect(buyerPage.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "100");
       await buyerPage.getByPlaceholder("Share your seller feedback...").fill("Completed smoothly in the browser rehearsal.");
       await buyerPage.getByRole("button", { name: "Submit Rating", exact: true }).click();

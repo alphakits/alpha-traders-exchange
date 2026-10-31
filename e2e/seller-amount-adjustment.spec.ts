@@ -3,6 +3,7 @@ import { randomBytes, randomUUID, scryptSync } from "node:crypto";
 import { E2E_BASE_URL } from "./support/base-url";
 import { createE2eSellerApprovalVerification } from "./support/seller-verification";
 import { createHardNavigationErrorAudit } from "./support/hard-navigation-errors";
+import { clickConfirmedTradeAction } from "./support/action-dialog";
 
 const headers = { "x-alpha-test-support": "enabled" };
 const methods = ["Bank Transfer", "Face-to-Face (Meet in Person)", "Cardless ATM Withdrawal"];
@@ -59,7 +60,10 @@ for (const method of methods) {
       const sellerPage = await seller.newPage(), buyerPage = await buyer.newPage();
       seller.setDefaultTimeout(15_000); buyer.setDefaultTimeout(15_000);
       seller.setDefaultNavigationTimeout(20_000); buyer.setDefaultNavigationTimeout(20_000);
-      for (const page of [sellerPage, buyerPage]) { errorAudit.observe(page); page.on("dialog", d => void d.accept()); }
+      for (const page of [sellerPage, buyerPage]) {
+        errorAudit.observe(page);
+        await page.addInitScript(() => { window.confirm = () => false; });
+      }
       const path = `/en/trade-room/${f.id}`;
       await errorAudit.navigate(sellerPage, () => sellerPage.goto(path));
       const adjust = sellerPage.getByRole("button", { name: "Adjust Amount", exact: true });
@@ -84,7 +88,7 @@ for (const method of methods) {
       await errorAudit.navigate(buyerPage, () => buyerPage.goto(path));
       // Check the initial layout before clicking an action farther down the page.
       // Seller acceptance alone must not close the amount correction window.
-      await sellerPage.getByRole("button", { name: "Accept Trade", exact: true }).click();
+      await clickConfirmedTradeAction(sellerPage, sellerPage.getByRole("button", { name: "Accept Trade", exact: true }), method === methods[1] ? [undefined, /safe public place/i] : [undefined]);
       await expect.poll(async () => {
         const accepted = await readDb(request);
         return accepted.purchaseRequests.find((r: { id: string }) => r.id === f.id)?.status;
@@ -147,8 +151,8 @@ for (const method of methods) {
       } else if (method === methods[2]) {
         await buyerPage.locator("#cardless-withdrawal-code").fill("923814");
         await buyerPage.locator("#cardless-verification-value").fill("123456789");
-        await buyerPage.getByRole("button", { name: "Send & Confirm Withdrawal Details", exact: true }).click();
-      } else await buyerPage.getByRole("button", { name: "I Handed Over the Cash", exact: true }).click();
+        await clickConfirmedTradeAction(buyerPage, buyerPage.getByRole("button", { name: "Send & Confirm Withdrawal Details", exact: true }));
+      } else await clickConfirmedTradeAction(buyerPage, buyerPage.getByRole("button", { name: "I Handed Over the Cash", exact: true }));
       await expect(sellerPage.getByRole("button", { name: "Adjust Amount", exact: true })).toBeDisabled();
       await expect(sellerPage.getByTestId("trade-amount-locked")).toBeVisible();
       const staleApproval = await buyer.request.patch(`/api/alpha-exchange/purchase-requests/${f.id}`, {data:{action:"accept_amount",proposalId:locked.termsProposal.id}});
@@ -164,7 +168,7 @@ for (const method of methods) {
           status: "funds_received", usdtAmount: newAmount, fiatAmount: newTotal,
         });
       } else {
-        await sellerPage.getByRole("button", { name: method === methods[0] ? "Confirm Money Received" : "I Collected the ATM Cash", exact: true }).click();
+        await clickConfirmedTradeAction(sellerPage, sellerPage.getByRole("button", { name: method === methods[0] ? "Confirm Money Received" : "I Collected the ATM Cash", exact: true }));
       }
       await expect.poll(async () => {
         const collected = await readDb(request);
@@ -183,8 +187,8 @@ for (const method of methods) {
         await sellerPage.getByRole("button", { name: "Release USDT", exact: true }).click();
         await sellerPage.getByLabel("Choose USDT release proof", { exact: true }).setInputFiles({ name: "release.png", mimeType: "image/png", buffer: png });
         await sellerPage.getByRole("button", { name: "Upload Seller Evidence", exact: true }).click();
-      } else if (method === methods[2]) await sellerPage.getByRole("button", { name: "Confirm USDT Sent", exact: true }).click();
-      await sellerPage.getByRole("button", { name: "Mark Trade as Completed", exact: true }).click();
+      } else if (method === methods[2]) await clickConfirmedTradeAction(sellerPage, sellerPage.getByRole("button", { name: "Confirm USDT Sent", exact: true }));
+      await clickConfirmedTradeAction(sellerPage, sellerPage.getByRole("button", { name: "Mark Trade as Completed", exact: true }));
       await expect(sellerPage.getByRole("heading", { name: "Trade Completed Successfully", exact: true })).toBeVisible({ timeout: 20_000 });
       const repeat = await seller.request.patch(`/api/alpha-exchange/purchase-requests/${f.id}`, { data: { action: "complete_trade", usdtSentConfirmed: true } });
       expect(repeat.ok(), await repeat.text()).toBeTruthy();
