@@ -53,7 +53,7 @@ describe("dependency security installation boundary", () => {
     await installFixture(path.join(root, "node_modules/@test/consumer/node_modules/braces"), braces);
     await installFixture(path.join(root, "apps/mobile/node_modules/node-forge"), forge);
     await installFixture(path.join(root, "packages/shared/node_modules/braces"), braces);
-    expect(await applyDependencySecurityPatches({ root })).toEqual({ packages: 5, patchedFiles: 17 });
+    expect(await applyDependencySecurityPatches({ root })).toEqual({ packages: 5, patchedFiles: 15 });
     expect(await applyDependencySecurityPatches({ root, checkOnly: true })).toEqual({ packages: 5, patchedFiles: 0 });
     expect(await applyDependencySecurityPatches({ root })).toEqual({ packages: 5, patchedFiles: 0 });
   });
@@ -65,8 +65,8 @@ describe("dependency security installation boundary", () => {
 
   it("requires review when the dependency version changes", async () => {
     const root = await fixture();
-    await writeFile(path.join(root, "node_modules/node-forge/package.json"), JSON.stringify({ name: "node-forge", version: "1.4.1" }));
-    await expect(applyDependencySecurityPatches({ root })).rejects.toThrow(/Review the node-forge security backport for version 1.4.1/);
+    await writeFile(path.join(root, "node_modules/node-forge/package.json"), JSON.stringify({ name: "node-forge", version: "1.4.2" }));
+    await expect(applyDependencySecurityPatches({ root })).rejects.toThrow(/Review the node-forge security backport for version 1.4.2/);
     const bracesFile = manifest.packages[0].files[0];
     expect(hash(await readFile(path.join(root, "node_modules/braces", bracesFile.path), "utf8"))).toBe(bracesFile.originalSha256);
   });
