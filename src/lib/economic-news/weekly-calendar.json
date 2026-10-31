@@ -296,12 +296,12 @@
       "scheduledAt": "2026-10-29T12:30:00Z",
       "timing": "exact",
       "kind": "release",
-      "actual": null,
+      "actual": "0.3%",
       "previous": "0.2%",
-      "revised": null,
+      "revised": "0.3%",
       "reference": "September 2026",
-      "publishedAt": null,
-      "sourceUrl": "https://www.bea.gov/news/schedule"
+      "publishedAt": "2026-10-29T12:30:00Z",
+      "sourceUrl": "https://www.bea.gov/news/2026/personal-income-and-outlays-september-2026"
     },
     {
       "id": "official-bea-core-pce-yoy-20261029",
@@ -311,12 +311,12 @@
       "scheduledAt": "2026-10-29T12:30:00Z",
       "timing": "exact",
       "kind": "release",
-      "actual": null,
+      "actual": "3.1%",
       "previous": "3.0%",
       "revised": null,
       "reference": "September 2026",
-      "publishedAt": null,
-      "sourceUrl": "https://www.bea.gov/news/schedule"
+      "publishedAt": "2026-10-29T12:30:00Z",
+      "sourceUrl": "https://www.bea.gov/news/2026/personal-income-and-outlays-september-2026"
     },
     {
       "id": "official-bea-gdp-advance-20261029",
@@ -341,12 +341,12 @@
       "scheduledAt": "2026-10-29T12:30:00Z",
       "timing": "exact",
       "kind": "release",
-      "actual": null,
+      "actual": "0.5%",
       "previous": "0.3%",
-      "revised": null,
+      "revised": "0.3%",
       "reference": "September 2026",
-      "publishedAt": null,
-      "sourceUrl": "https://www.bea.gov/news/schedule"
+      "publishedAt": "2026-10-29T12:30:00Z",
+      "sourceUrl": "https://www.bea.gov/news/2026/personal-income-and-outlays-september-2026"
     },
     {
       "id": "official-bea-pce-yoy-20261029",
@@ -356,12 +356,12 @@
       "scheduledAt": "2026-10-29T12:30:00Z",
       "timing": "exact",
       "kind": "release",
-      "actual": null,
+      "actual": "3.6%",
       "previous": "3.4%",
       "revised": null,
       "reference": "September 2026",
-      "publishedAt": null,
-      "sourceUrl": "https://www.bea.gov/news/schedule"
+      "publishedAt": "2026-10-29T12:30:00Z",
+      "sourceUrl": "https://www.bea.gov/news/2026/personal-income-and-outlays-september-2026"
     },
     {
       "id": "official-dol-initial-claims-20261029",
@@ -371,12 +371,12 @@
       "scheduledAt": "2026-10-29T12:30:00Z",
       "timing": "exact",
       "kind": "release",
-      "actual": null,
+      "actual": "194K",
       "previous": "194K",
-      "revised": null,
+      "revised": "195K",
       "reference": "Week ending 24 Oct 2026",
-      "publishedAt": null,
-      "sourceUrl": "https://www.dol.gov/index.php/newsroom/releases/opa/opa20200701"
+      "publishedAt": "2026-10-29T12:30:00Z",
+      "sourceUrl": "https://www.dol.gov/ui/data.pdf"
     },
     {
       "id": "official-bls-employment-cost-index-20261030",
@@ -417,7 +417,7 @@
       "timing": "exact",
       "kind": "release",
       "actual": null,
-      "previous": null,
+      "previous": "194K",
       "revised": null,
       "reference": "Week ending 31 Oct 2026",
       "publishedAt": null,
@@ -619,5 +619,5 @@
       "sourceUrl": "https://www.dol.gov/newsroom/releases/opa/opa20200701"
     }
   ],
-  "resultsVerifiedAt": "2026-10-28T21:13:48Z"
+  "resultsVerifiedAt": "2026-10-29T12:32:26.729Z"
 }
