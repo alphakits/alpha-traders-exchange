@@ -1,7 +1,7 @@
 import type { PurchaseRequest, SellerReputationSnapshot } from "@/types/alpha-exchange";
 
 /** Facts displayed to users are independent of the platform's computed trust score. */
-export function measureSellerActivity(requests: PurchaseRequest[]) {
+export function measureSellerActivity(requests: PurchaseRequest[], now = Date.now()) {
   const completed = requests.filter(request => ["completed", "review_open", "locked"].includes(request.status) || Boolean(request.completedAt));
   const reviews = completed.map(request => request.buyerReview).filter(review => review && !review.hidden && Number.isFinite(review.rating) && review.rating >= 1 && review.rating <= 5);
   const responseSamples = requests.flatMap(request => {
@@ -9,7 +9,7 @@ export function measureSellerActivity(requests: PurchaseRequest[]) {
     const accepted = [request.tradeCreatedAt, ...(request.timeline ?? [])
       .filter(event => event.type === "request_accepted" || event.type === "price_offer_accepted")
       .map(event => event.createdAt)]
-      .map(value => Date.parse(value ?? "")).filter(value => Number.isFinite(value) && value >= created && value <= Date.now());
+      .map(value => Date.parse(value ?? "")).filter(value => Number.isFinite(value) && value >= created && value <= now);
     if (!Number.isFinite(created) || !accepted.length) return [];
     return [(Math.min(...accepted) - created) / 60_000];
   });

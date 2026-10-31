@@ -217,6 +217,7 @@ import { normalizePreferredLocale } from "@/lib/preferred-locale";
 import { getPriceOfferBounds, normalizeListingPrice, validatePriceOffer } from "@/lib/price-offer";
 import { calculateTradePaymentTotal, calculateBuyerCommissionAmount, calculateSellerCommissionAmount, calculateSellerTotalAlphaDue, calculateLegacySellerCommissionAmount, calculateLegacySellerTotalAlphaDue, COMMISSION_CALCULATION_VERSION, formatCommissionAmount, sumCommissionAmounts, MARKETPLACE_FEE_CUTOVER_VERSION, canonicalizeNonNegativeTradeAmount, canonicalizeTradeAmount, isTradeAmountLessThan, subtractTradeAmounts } from "@/lib/trade-amount";
 import { purgeMarketplaceSmokeTestSnapshot } from "@/lib/marketplace-smoke-test";
+import { historicalReconciliationHash, isOwnerAttestedHistoricalCompletion, prepareHistoricalTradeReconciliation, type HistoricalTradeReconciliationInput } from "@/lib/historical-trade-reconciliation";
 
 const SELLER_EVIDENCE_TRACE_PATH = path.join(process.cwd(), "tmp", "seller-evidence-server.log");
 
@@ -1620,28 +1621,30 @@ function getSellerApprovedAt(db: AlphaExchangeDb, sellerId: string) {
   return approvalEntry?.createdAt;
 }
 
-function buildSellerAchievements(db: AlphaExchangeDb, seller: AlphaExchangeUser): SellerAchievement[] {
+function buildSellerAchievements(db: AlphaExchangeDb, seller: AlphaExchangeUser, evaluatedAt?: string): SellerAchievement[] {
   const sellerRequests = db.purchaseRequests.filter((request) => request.sellerId === seller.id);
   const qualifyingTrades = sellerRequests.filter((request) => {
     if (request.status === "cancelled" || request.status === "declined") return false;
     const hasCommissionRecord = db.commissionRecords.some((record) => record.purchaseRequestId === request.id);
     const hasDispute = db.disputes.some((dispute) => dispute.purchaseRequestId === request.id);
-    return Boolean(request.completedAt) && Boolean(request.usdtSentAt) && hasCommissionRecord && !hasDispute;
+    const ownerAttested = isOwnerAttestedHistoricalCompletion(request) && db.commissionRecords.some(record =>
+      record.purchaseRequestId === request.id && record.paymentStatus === "paid"
+      && record.ownerSettlementAttestation?.operationId === request.historicalCompletion?.operationId
+      && record.ownerSettlementAttestation?.inputFingerprint === request.historicalCompletion?.inputFingerprint);
+    return ((Boolean(request.completedAt) && Boolean(request.usdtSentAt)) || ownerAttested) && hasCommissionRecord && !hasDispute;
   });
 
   const reviews = sellerRequests.filter((request) => Boolean(request.buyerReview)).length;
-  const responseTimes = qualifyingTrades
-    .map((request) => {
-      const submittedAt = new Date(request.createdAt).getTime();
-      const acceptedAt = new Date(request.tradeCreatedAt ?? request.updatedAt).getTime();
-      if (!submittedAt || !acceptedAt || acceptedAt < submittedAt) return 0;
-      return (acceptedAt - submittedAt) / 60000;
-    })
-    .filter((value) => value > 0);
-  const responseTimeMinutes = responseTimes.length ? responseTimes.reduce((sum, value) => sum + value, 0) / responseTimes.length : 0;
+  // An owner recording external completion did not accept the trade as seller.
+  // Unknown acceptance time contributes no response sample or speed award.
+  const responses = measureSellerActivity(qualifyingTrades, evaluatedAt ? Date.parse(evaluatedAt) : Date.now());
+  const responseTimeMinutes = responses.responseSampleCount ? responses.responseTimeMinutes : Number.POSITIVE_INFINITY;
   const completionRate = sellerRequests.length ? (qualifyingTrades.length / sellerRequests.length) * 100 : 0;
   const completedTradeMonths = Array.from(new Set(qualifyingTrades.filter((request) => request.completedAt).map((request) => new Date(request.completedAt!).toISOString().slice(0, 7))));
   const currentAchievements = evaluateSellerAchievements({
+    evaluatedAt,
+    completedTradesWithKnownTime: qualifyingTrades.filter(request => Boolean(request.completedAt)).length,
+    responseSampleCount: responses.responseSampleCount,
     sellerId: seller.id,
     sellerName: publicAccountName(seller),
     rank: seller.sellerPrestigeRank ?? "bronze",
@@ -1808,8 +1811,8 @@ function buildPublicUserProfileDataForUser(input: {
   const trustSnapshot = input.trustSnapshot ?? (isTrustEligibleSeller(user) ? computeSellerReputationSnapshot(db, user.id) : null);
   const buyerRequests = db.purchaseRequests.filter((request) => request.buyerId === user.id);
   const sellerRequests = db.purchaseRequests.filter((request) => request.sellerId === user.id);
-  const completedAsBuyer = buyerRequests.filter((request) => request.status === "completed" || Boolean(request.completedAt)).length;
-  const completedAsSeller = sellerRequests.filter((request) => request.status === "completed" || Boolean(request.completedAt)).length;
+  const completedAsBuyer = buyerRequests.filter((request) => request.status === "completed" || Boolean(request.completedAt) || isOwnerAttestedHistoricalCompletion(request)).length;
+  const completedAsSeller = sellerRequests.filter((request) => request.status === "completed" || Boolean(request.completedAt) || isOwnerAttestedHistoricalCompletion(request)).length;
   const reviewsWritten = buyerRequests.filter((request) => Boolean(request.buyerReview)).length;
   const reviewsReceived = sellerRequests.filter((request) => Boolean(request.buyerReview)).length;
 
@@ -2070,7 +2073,7 @@ function buildSellerReliabilityMap(db: AlphaExchangeDb): Map<string, SellerRelia
   const completed = new Map<string, number>();
   const cancelled = new Map<string, number>();
   for (const request of db.purchaseRequests) {
-    if (request.status === "review_open" || Boolean(request.completedAt)) {
+    if (request.status === "review_open" || Boolean(request.completedAt) || isOwnerAttestedHistoricalCompletion(request)) {
       completed.set(request.sellerId, (completed.get(request.sellerId) ?? 0) + 1);
     } else if (request.status === "cancelled") {
       cancelled.set(request.sellerId, (cancelled.get(request.sellerId) ?? 0) + 1);
@@ -2228,6 +2231,7 @@ function enrichListingsWithSellerData(
       photos: (listing.photos ?? []).map((photo) => sanitizeCounterpartyMediaUrl(photo)).filter(Boolean),
     };
     delete publicListing.bankAccountId;
+    if (!isPublicOwnerIdentity(viewer)) delete publicListing.historicalCompletionReconciliation;
     if (viewerUserId !== listing.sellerId || publicAvailability) delete publicListing.wiseAccountId;
     delete publicListing.sellerProfile;
     // Discard any historical embedded reputation before building the public projection.
@@ -11524,6 +11528,10 @@ export function sanitizePurchaseRequestForActor(request: PurchaseRequest, actorU
     ...request,
     amountAdjustmentCount: getTradeAmountAdjustmentCount(request),
     trustReconciliation: undefined,
+    historicalCompletion: canViewPrivateContent ? request.historicalCompletion : undefined,
+    historicalCompletionSummary: isOwnerAttestedHistoricalCompletion(request) ? {
+      source: "owner_attestation", recordedAt: request.historicalCompletion!.recordedAt, fiatAmountBasis: "saved_quote_reconstruction",
+    } : undefined,
     sellerBankAccountSnapshot: undefined,
     sellerWiseAccountSnapshot: undefined,
     buyerWiseAccountSnapshot: undefined,
@@ -13054,7 +13062,7 @@ export async function getAccountProfileData(userId: string): Promise<{
       averageTradeSize: Number(reputation.averageTradeSize.toFixed(2)),
       promotionHistory: [...(user.sellerPromotionHistory ?? [])].slice(0, 10),
       trustScore: reputation.trustScore,
-      completedTrades: sellerRequests.filter((request) => request.status === "completed" || Boolean(request.completedAt)).length,
+      completedTrades: sellerRequests.filter((request) => request.status === "completed" || Boolean(request.completedAt) || isOwnerAttestedHistoricalCompletion(request)).length,
       activeListings: sellerRequestableListingCount(db, user.id),
       pendingListings: db.marketplaceListings.filter((listing) => listing.sellerId === user.id && isListingPendingApproval(listing)).length,
       averageRating: reputation.rating,
@@ -17918,11 +17926,14 @@ export async function getOwnerBusinessDashboardForAdmin(dbInput?: AlphaExchangeD
   };
   const completionStamp = (request: PurchaseRequest) => {
     if (request.completedAt) return request.completedAt;
+    // Recording an attested external completion does not establish when the
+    // exchange occurred. Retain lifetime credit without inventing a date bucket.
+    if (isOwnerAttestedHistoricalCompletion(request)) return "";
     if (request.status === "completed" || request.status === "locked" || request.status === "review_open") return request.updatedAt;
     return "";
   };
 
-  const completedRequests = db.purchaseRequests.filter((request) => Boolean(completionStamp(request)));
+  const completedRequests = db.purchaseRequests.filter((request) => isOwnerAttestedHistoricalCompletion(request) || Boolean(completionStamp(request)));
   const completedToday = completedRequests.filter((request) => isToday(completionStamp(request)));
   const completedThisWeek = completedRequests.filter((request) => isThisWeek(completionStamp(request)));
   const evidenceByTrade = new Map(db.tradeEvidenceFiles.map((entry) => [`${entry.purchaseRequestId}:${entry.side}`, entry]));
@@ -18020,8 +18031,10 @@ export async function getOwnerBusinessDashboardForAdmin(dbInput?: AlphaExchangeD
       responseTimeMinutes: Number(snapshot.responseTimeMinutes.toFixed(2)),
     }));
 
-  // A carried shortfall is part of an existing fee, never newly generated revenue.
-  const generatedCommissions = db.commissionRecords.filter(record => record.source !== "tolerance_carry_forward");
+  // A carried shortfall is part of an existing fee. An owner-attested historical
+  // fee has a recording time, not an established revenue occurrence time.
+  const generatedCommissions = db.commissionRecords.filter(record => record.source !== "tolerance_carry_forward"
+    && record.ownerSettlementAttestation?.source !== "owner_attestation");
   const todayCommission = sumCommissionAmounts(generatedCommissions.filter((record) => isToday(record.createdAt)).map(record => record.commissionAmount));
   const weekCommission = sumCommissionAmounts(generatedCommissions.filter((record) => isThisWeek(record.createdAt)).map(record => record.commissionAmount));
   const monthCommission = sumCommissionAmounts(generatedCommissions.filter((record) => isThisMonth(record.createdAt)).map(record => record.commissionAmount));
@@ -19034,6 +19047,113 @@ export async function forceCompleteTradeByAdmin(input: { requestId: string; reas
   });
   await result.deferredTrustWrite?.();
   return result.request;
+}
+
+/**
+ * Prepare a historical correction without persistence, provider calls, delivery
+ * or maintenance. Operational callers can inspect the exact changed rows first.
+ */
+export function prepareHistoricalTradeSnapshotForOwner(db: AlphaExchangeDb, input: HistoricalTradeReconciliationInput, recordedAt: string) {
+  const plan = prepareHistoricalTradeReconciliation(db, input, recordedAt);
+  const snapshot = plan.snapshot;
+  const sellerIndex = snapshot.users.findIndex(user => user.id === plan.summary.sellerId);
+  const seller = snapshot.users[sellerIndex];
+  if (!isTrustEligibleSeller(seller)) throw new Error("Historical reconciliation requires an approved or suspended seller account.");
+  if (plan.changed) {
+    const oldSnapshot = snapshot.trustSnapshots.find(entry => entry.sellerId === seller.id)?.snapshot;
+    const sellerRequests = snapshot.purchaseRequests.filter(request => request.sellerId === seller.id);
+    const reputation = calculateSellerTrustSnapshot({ seller, requests: sellerRequests,
+      listings: snapshot.marketplaceListings.filter(listing => listing.sellerId === seller.id),
+      commissions: snapshot.commissionRecords.filter(record => record.sellerId === seller.id),
+      enforcementRecords: getMarketplaceEnforcementRecords(snapshot), marketplacePosition: oldSnapshot?.marketplacePosition,
+      now: Date.parse(recordedAt) });
+    reputation.totalUsdtVolume = Math.max(Number(reputation.totalUsdtVolume.toFixed(6)), seller.lifetimeCompletedVolumeUsdt ?? 0);
+    const previousRank = seller.sellerPrestigeRank ?? oldSnapshot?.level ?? resolveSellerPrestigeRank(seller.lifetimeCompletedVolumeUsdt ?? 0);
+    const rank = seller.sellerRankOverride?.rank ?? resolveSellerPrestigeRankWithFloor(reputation.totalUsdtVolume, previousRank);
+    reputation.level = rank;
+    reputation.lifetimeCompletedVolumeUsdt = reputation.totalUsdtVolume;
+    Object.assign(reputation, buildPrestigeFieldsForSnapshot({ volumeUsdt: reputation.totalUsdtVolume, rank, isOverridden: Boolean(seller.sellerRankOverride) }));
+    const nextSeller = { ...seller, lifetimeCompletedVolumeUsdt: reputation.totalUsdtVolume, sellerPrestigeRank: rank, updatedAt: recordedAt };
+    nextSeller.sellerAchievements = buildSellerAchievements(snapshot, nextSeller, recordedAt);
+    const operationSuffix = historicalReconciliationHash(input.operationId).slice(0, 32);
+    if (!seller.sellerRankOverride && levelRank(rank) > levelRank(previousRank)) {
+      const promotion: SellerPromotionHistoryEntry = { id: `promotion-historical-${operationSuffix}`, rank, previousRank,
+        promotedAt: recordedAt, lifetimeCompletedVolumeUsdt: reputation.totalUsdtVolume, source: "automatic",
+        triggerTradeId: input.requestId, actorUserId: input.actorUserId, reason: "Earned volume reconciled from an owner-attested historical completion." };
+      nextSeller.sellerPromotionHistory = [promotion, ...(seller.sellerPromotionHistory ?? [])].slice(0, 200);
+      snapshot.auditLogs.unshift({ id: `audit-historical-promotion-${operationSuffix}`, action: "seller_prestige_promoted",
+        actorUserId: input.actorUserId, targetUserId: seller.id, purchaseRequestId: input.requestId, listingId: input.listingId,
+        createdAt: recordedAt, reason: input.reason, details: "Earned prestige promotion recorded with the historical reconciliation; notifications suppressed.",
+        oldValue: { rank: previousRank, lifetimeCompletedVolumeUsdt: seller.lifetimeCompletedVolumeUsdt ?? 0 },
+        newValue: { rank, lifetimeCompletedVolumeUsdt: reputation.totalUsdtVolume, operationId: input.operationId } });
+    }
+    snapshot.users[sellerIndex] = nextSeller;
+    const trustIndex = snapshot.trustSnapshots.findIndex(entry => entry.sellerId === seller.id);
+    const trustRecord = { sellerId: seller.id, snapshot: reputation, updatedAt: recordedAt };
+    if (trustIndex === -1) snapshot.trustSnapshots.push(trustRecord);
+    else snapshot.trustSnapshots[trustIndex] = trustRecord;
+    if (!oldSnapshot || Math.round(oldSnapshot.trustScore * 10) !== Math.round(reputation.trustScore * 10)) {
+      snapshot.trustScoreHistory.unshift({ id: `trust-score-historical-${operationSuffix}`, sellerId: seller.id,
+        oldScore: oldSnapshot?.trustScore ?? 0, newScore: reputation.trustScore,
+        reason: "Owner-attested historical completion reconciled without notification delivery.",
+        triggeredBy: input.actorUserId, createdAt: recordedAt });
+    }
+  }
+  const reconciledSeller = snapshot.users[sellerIndex];
+  const buyerRequests = snapshot.purchaseRequests.filter(request => request.buyerId === plan.summary.buyerId
+    && (["completed", "review_open", "locked"].includes(request.status) || Boolean(request.completedAt)));
+  const buyerVolume = Number(buyerRequests.reduce((sum, request) => sum + toNumber(request.usdtAmount), 0).toFixed(6));
+  const derived = { seller: { id: seller.id, completedTrades: snapshot.purchaseRequests.filter(request => request.sellerId === seller.id
+      && (["completed", "review_open", "locked"].includes(request.status) || Boolean(request.completedAt))).length,
+    lifetimeCompletedVolumeUsdt: reconciledSeller.lifetimeCompletedVolumeUsdt, rank: reconciledSeller.sellerPrestigeRank },
+    buyer: { id: plan.summary.buyerId, completedTrades: buyerRequests.length, lifetimeCompletedVolumeUsdt: buyerVolume,
+      rank: getBuyerPrestigeProgress(buyerVolume).rank } };
+  const operationSuffix = historicalReconciliationHash(input.operationId).slice(0, 32);
+  const patch = {
+    request: snapshot.purchaseRequests.find(request => request.id === input.requestId),
+    listing: snapshot.marketplaceListings.find(listing => listing.id === input.listingId),
+    commission: snapshot.commissionRecords.find(record => record.id === plan.summary.commissionId),
+    seller: { id: reconciledSeller.id, updatedAt: reconciledSeller.updatedAt,
+      lifetimeCompletedVolumeUsdt: reconciledSeller.lifetimeCompletedVolumeUsdt, sellerPrestigeRank: reconciledSeller.sellerPrestigeRank,
+      sellerPromotionHistory: reconciledSeller.sellerPromotionHistory, sellerAchievements: reconciledSeller.sellerAchievements },
+    trust: snapshot.trustSnapshots.find(entry => entry.sellerId === seller.id),
+    trustHistory: snapshot.trustScoreHistory.filter(entry => entry.id === `trust-score-historical-${operationSuffix}`),
+    audit: snapshot.auditLogs.filter(entry => entry.id === `audit-historical-${operationSuffix}` || entry.id === `audit-historical-promotion-${operationSuffix}`),
+  };
+  return { ...plan, derived, patch, patchHash: historicalReconciliationHash(patch) };
+}
+
+const HISTORICAL_RECONCILIATION_WRITE_TABLES = ["purchase_requests", "listings", "commissions", "audit_logs",
+  ...USER_PROFILE_TABLES, "trust_snapshots", "trust_score_history"] as const satisfies readonly SnapshotTableName[];
+
+/** Dry-run by default. This is an operational helper, not a public trade route. */
+export async function reconcileHistoricalTradeByOwner(input: HistoricalTradeReconciliationInput & {
+  apply?: boolean; recordedAt?: string; expectedStateHash?: string; expectedPlanHash?: string; expectedPatchHash?: string;
+}) {
+  const repository = await getAlphaExchangeRepository();
+  // Avoid normal lifecycle maintenance and incidental payload normalization.
+  const db = await repository.loadSnapshot();
+  const recordedAt = input.recordedAt ?? nowIso();
+  let prepared = prepareHistoricalTradeSnapshotForOwner(db, input, recordedAt);
+  if (input.apply !== true) return { ...prepared, applied: false };
+  if (!input.recordedAt || !/^[a-f0-9]{64}$/.test(input.expectedStateHash ?? "")
+    || !/^[a-f0-9]{64}$/.test(input.expectedPlanHash ?? "") || !/^[a-f0-9]{64}$/.test(input.expectedPatchHash ?? "")) {
+    throw new Error("Historical reconciliation apply requires the exact reviewed time, state, plan and patch hashes.");
+  }
+  const assertReviewed = (plan: ReturnType<typeof prepareHistoricalTradeSnapshotForOwner>) => {
+    if (plan.stateHash !== input.expectedStateHash || plan.planHash !== input.expectedPlanHash
+      || (plan.changed && plan.patchHash !== input.expectedPatchHash)) throw new Error("The historical reconciliation changed after review. Prepare a fresh plan.");
+  };
+  assertReviewed(prepared);
+  if (!prepared.changed) return { ...prepared, applied: false };
+  await repository.saveSnapshot(prepared.snapshot, { selectedTables: HISTORICAL_RECONCILIATION_WRITE_TABLES,
+    rebaseOnLatest: latest => {
+      prepared = prepareHistoricalTradeSnapshotForOwner(latest, input, recordedAt);
+      assertReviewed(prepared);
+      return prepared.snapshot;
+    } });
+  invalidateAlphaExchangeStoreCache();
+  return { ...prepared, applied: prepared.changed };
 }
 
 export async function purgeMarketplaceSmokeTestByAdmin(input: { listingId: string; actorUserId: string }) {

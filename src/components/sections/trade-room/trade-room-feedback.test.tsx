@@ -640,6 +640,35 @@ describe.each(["en", "ar"] as const)("completed-trade history navigation (%s)", 
   });
 });
 
+describe.each(["en", "ar"] as const)("owner-recorded offline completion (%s)", (locale) => {
+  it.each([
+    ["Bank Transfer", buyer],
+    ["Cardless ATM Withdrawal", buyer],
+    ["Face-to-Face (Meet in Person)", seller],
+  ])("shows truthful completion and quote details for %s", async (paymentMethod, actor) => {
+    const current = room(paymentMethod, "completed");
+    const recordedAt = "2026-09-23T00:00:00.000Z";
+    Object.assign(current.request, {
+      pricePerUsdt: "3.20", fiatAmount: "323.20", feePolicyVersion: "buyer_seller_1pct_v1",
+      historicalCompletionSummary: {
+        source: "owner_attestation", recordedAt, fiatAmountBasis: "saved_quote_reconstruction",
+      } satisfies PurchaseRequest["historicalCompletionSummary"],
+    });
+    const fetchMock = vi.fn<typeof fetch>(() => Promise.resolve(Response.json(current)));
+    vi.stubGlobal("fetch", fetchMock);
+    render(<TradeRoomPage locale={locale} requestId="feedback-request" actor={actor} />);
+    const completion = await screen.findByTestId("historical-completion");
+    expect(completion.textContent).toContain(locale === "ar" ? "وقت تسجيل مالك المنصة" : "Recorded by owner:");
+    expect(completion.textContent).toContain(locale === "ar" ? "لم يُسجّل وقت الإتمام الفعلي" : "The actual offline completion time was not recorded.");
+    const quote = screen.getByTestId("inclusive-payment-total");
+    expect(quote.textContent).toContain(locale === "ar" ? "المبلغ المحسوب وفق السعر المحفوظ" : "Amount calculated from the saved quote");
+    expect(quote.textContent).toContain(locale === "ar" ? "لا يلزم دفع جديد" : "No new payment is needed");
+    expect(quote.textContent).not.toContain(locale === "ar" ? "ادفع هذا الإجمالي مرة واحدة" : "Pay this total once");
+    expect(screen.getByRole("main").textContent).not.toContain(locale === "ar" ? "أكد البائع استلام الدفع وإرسال USDT" : "Seller confirmed payment and USDT delivery");
+    expect(fetchMock.mock.calls.every(([, init]) => !init?.method || init.method === "GET")).toBe(true);
+  });
+});
+
 it.each(["en", "ar"] as const)("puts pending terms decisions first in %s", async (locale) => {
   const base = room("Cardless ATM Withdrawal", "accepted");
   const current = { ...base, request: { ...base.request, termsProposal: { id: "terms-1", kind: "amount_correction", status: "pending", usdtAmount: "100", fiatAmount: "310", pricePerUsdt: "3.10", createdAt: base.request.updatedAt } } };

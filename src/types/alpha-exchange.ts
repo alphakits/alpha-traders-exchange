@@ -443,7 +443,31 @@ export interface SellerReputationSnapshot {
 export type PublicSellerReputationSnapshot = Omit<SellerReputationSnapshot,
   "totalUsdtVolume" | "estimatedCommissionPaid" | "revenueGenerated" | "averageTradeSize" | "publicVolumeRange" | "remainingVolumeToNextRank" | "prestigeProgressPercent" | "lifetimeCompletedVolumeUsdt" | "prestigeVolumeUsdt" | "profileViews" | "listingViews" | "monthlyGrowthPercent" | "customerSatisfaction">;
 
+/** Server-owned provenance for an explicitly attested historical correction. */
+export interface HistoricalOwnerAttestation {
+  source: "owner_attestation";
+  operationId: string;
+  inputFingerprint: string;
+  recordedAt: string;
+  recordedByUserId: string;
+  reason: string;
+}
+
+export interface HistoricalTradeCompletion extends HistoricalOwnerAttestation {
+  offlineCompletionConfirmed: true;
+  originalTerms: { status: PurchaseRequestStatus; usdtAmount: string; fiatAmount: string; pricePerUsdt: string };
+  reconciledUsdtAmount: string;
+  reconstructedFiatAmount: string;
+  /** A saved quote calculation, not evidence of the cash amount received. */
+  fiatAmountBasis: "saved_quote_reconstruction";
+  listingTotalUsdt: string;
+  preservedCompletedRequestIds: string[];
+  stateHash: string;
+  planHash: string;
+}
+
 export interface MarketplaceListing {
+  historicalCompletionReconciliation?: HistoricalOwnerAttestation & { requestId: string };
   id: string;
   sellerId: string;
   sellerDisplayName: string;
@@ -862,6 +886,9 @@ export interface AdminAnnouncementRun {
 }
 
 export interface PurchaseRequest {
+  historicalCompletion?: HistoricalTradeCompletion;
+  /** Safe display provenance, derived server-side from the private marker. */
+  historicalCompletionSummary?: { source: "owner_attestation"; recordedAt: string; fiatAmountBasis: "saved_quote_reconstruction" };
   usdtDemandId?: string;
   usdtDemandOfferId?: string;
   feePolicyVersion?: "buyer_seller_1pct_v1";
@@ -954,6 +981,8 @@ export interface PurchaseRequest {
 export type CommissionPaymentStatus = "pending" | "paid" | "overdue";
 
 export interface CommissionRecord {
+  /** Paid according to the named owner's attestation; never provider proof. */
+  ownerSettlementAttestation?: HistoricalOwnerAttestation;
   id: string;
   /** Immutable calculation boundary copied from the originating request. */
   commissionCalculationVersion?: "usdt_6dp_v2";
