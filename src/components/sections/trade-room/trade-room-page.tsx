@@ -6,6 +6,7 @@ import { publicAccountName } from "@/lib/public-account-identity";
 
 import { currencyText } from "@/components/ui/currency-text";
 import { ACTION_FEEDBACK_REVEALED, ActionFeedback, useActionFeedbackState } from "@/components/ui/action-feedback";
+import { useActionDialog } from "@/components/ui/use-action-dialog";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import { AlertTriangle, BellRing, CheckCircle2, ChevronDown, Clock3, Copy, LoaderCircle, MessageCircle, Paperclip, ShieldCheck, Upload } from "lucide-react";
 import Image from "next/image";
@@ -33,6 +34,7 @@ import {
   canSellerCancelTrade,
   canSellerDeclineTrade,
   releaseTradeRoomMutation,
+  tradeActionConfirmationKey,
 } from "@/lib/trade-room-actions";
 import { clearTradeRoomCache, readTradeRoomCache, writeTradeRoomCache } from "@/lib/trade-room-client";
 import { postTradeReview, TradeReviewTimeoutError } from "@/lib/trade-review-client";
@@ -1368,6 +1370,7 @@ function TradeRoomPageSession({
   const [hasCanonicalRoom, setHasCanonicalRoom] = useState(false);
   const [sectionNavigation, setSectionNavigation] = useState<{ id: TradeRoomDeepLinkTarget; href: string; revision: number } | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const { confirmAction, actionDialog } = useActionDialog(isAr, `${actor.id}:${requestId}:${canonicalSessionReady}:${Boolean(room)}:${isLoading}`);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [statusFeedback, setStatusFeedback, statusMessageFeedbackKey] = useActionFeedbackState<{ message: string; stage: PurchaseRequest["status"] } | null>(null);
   const statusMessage = statusFeedback?.stage === room?.request.status ? statusFeedback?.message ?? null : null;
@@ -1450,6 +1453,15 @@ function TradeRoomPageSession({
   const perfSseReceivedTsRef = useRef<number | null>(null);
   const perfSsePublishedAtRef = useRef<number | null>(null);
   const roomRef = useRef<TradeRoomData | null>(null);
+  const isConfirmedTradeCurrent = useCallback((confirmedRequest: PurchaseRequest, allowOpenDispute = false) => {
+    const currentRoom = roomRef.current;
+    if (currentRoom && (allowOpenDispute || !currentRoom.hasOpenDispute)
+      && tradeActionConfirmationKey(currentRoom.request) === tradeActionConfirmationKey(confirmedRequest)) return true;
+    setActionError(isAr
+      ? "تغيّرت الصفقة أثناء التأكيد. راجع تفاصيلها الحالية وحاول مجددًا."
+      : "The trade changed while you were confirming. Review its current details and try again.");
+    return false;
+  }, [isAr, setActionError]);
   const lastRoomSyncAtRef = useRef(0);
   const lastResumeAtRef = useRef(0);
   const backgroundRefreshInFlightRef = useRef(false);
@@ -1991,6 +2003,8 @@ function TradeRoomPageSession({
   );
   const canShowBuyerReceipt = Boolean(request?.buyerEvidence && (!isSeller || sellerCanViewBuyerReceipt));
   const sellerEvidenceUploadOpen = Boolean(isSeller && request?.status === "usdt_release_pending");
+  const canManuallyCloseTrade = Boolean(request?.status === "pending" && !room?.hasOpenDispute
+    && (canBuyerCancelTrade(request, actor.id) || canSellerCancelTrade(request, actor.id)));
   const activeTimeline = useMemo(
     () => groupTradeTimelineEntries(request?.timeline ?? [], isAr),
     [isAr, request?.timeline],
@@ -2050,11 +2064,11 @@ function TradeRoomPageSession({
   }, [bankDetailsAccountId, bankDetailsRequestId, canRevealBankDetails, setBankDetailsError]);
 
   const handleRevealBankDetails = useCallback(async () => {
-    if (!bankDetailsRequestId || bankDetailsBusy) return;
-    const confirmed = window.confirm(isSeller ? (isAr ? "إظهار تفاصيل حسابات الدفع الخاصة لهذه الصفقة؟" : "View the private payment account details for this trade?") : isAr
+    if (!request || !bankDetailsRequestId || bankDetailsBusy) return;
+    const confirmed = await confirmAction(isSeller ? (isAr ? "إظهار تفاصيل حسابات الدفع الخاصة لهذه الصفقة؟" : "View the private payment account details for this trade?") : isAr
       ? "بعد إظهار تفاصيل البنك لن يمكنك إلغاء الصفقة. يمكن للبائع إلغاؤها فقط ما دام الدفع لم يبدأ. هل تريد المتابعة؟"
       : "Revealing bank details locks your cancellation option. Only the seller can cancel while payment has not started. Continue?");
-    if (!confirmed) return;
+    if (!confirmed || !isConfirmedTradeCurrent(request, true)) return;
     setBankDetailsBusy(true);
     setBankDetailsError(null);
     try {
@@ -2088,7 +2102,7 @@ function TradeRoomPageSession({
     } finally {
       setBankDetailsBusy(false);
     }
-  }, [actor.id, bankDetailsBusy, bankDetailsRequestId, fetchRoom, isAr, isSeller, requestId, setBankDetailsError]);
+  }, [actor.id, bankDetailsBusy, bankDetailsRequestId, confirmAction, fetchRoom, isAr, isConfirmedTradeCurrent, isSeller, request, requestId, setBankDetailsError]);
 
   const selectedStepEvent = useMemo(() => {
     if (!request) return null;
@@ -2145,13 +2159,13 @@ function TradeRoomPageSession({
 
   const handleStatusUpdate = useCallback(async (action: StatusPrimaryAction) => {
     const nextStatus = action.nextStatus;
-    if (!request || !room) return;
+    if (!request || !room || actionInFlightRef.current || !isConfirmedTradeCurrent(request)) return;
     let sellerSafetyAcknowledged = false;
     if (nextStatus === "accepted" && isFaceToFacePaymentMethod(request.paymentMethod)) {
-      sellerSafetyAcknowledged = window.confirm(isAr
+      sellerSafetyAcknowledged = await confirmAction(isAr
         ? "أؤكد أنني قرأت إرشادات اللقاء الآمن وسألتقي في مكان عام وآمن دون مشاركة معلومات شخصية غير ضرورية."
         : "I confirm that I read the safe-meeting guidance and will meet in a safe public place without sharing unnecessary personal information.");
-      if (!sellerSafetyAcknowledged) return;
+      if (!sellerSafetyAcknowledged || !isConfirmedTradeCurrent(request)) return;
     }
     const cardlessDetails = parseCardlessWithdrawalDetails({ withdrawalCode: cardlessCode, verificationKind: cardlessVerificationKind, verificationValue: cardlessVerificationValue });
     const isCardlessSubmission = nextStatus === "payment_sent" && isCardlessAtmPaymentMethod(request.paymentMethod);
@@ -2318,7 +2332,7 @@ function TradeRoomPageSession({
       setActionBusy(false);
       void fetchRoom(true);
     }
-  }, [actor, cardlessCode, cardlessVerificationKind, cardlessVerificationValue, hasPreparedCardlessDetails, fetchRoom, isAr, request, requestId, room, router, setActionError, setStatusMessage, startBuyerCompletionSuccessFlow, streamConnected]);
+  }, [actor, cardlessCode, cardlessVerificationKind, cardlessVerificationValue, confirmAction, hasPreparedCardlessDetails, fetchRoom, isAr, isConfirmedTradeCurrent, request, requestId, room, router, setActionError, setStatusMessage, startBuyerCompletionSuccessFlow, streamConnected]);
 
   const handleSendMessage = useCallback(async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -2596,7 +2610,7 @@ function TradeRoomPageSession({
   }, [actor.id, buyerEvidenceFile, fetchRoom, isAr, request, requestId, room, sellerEvidenceFile, setActionError, setStatusMessage]);
 
   const handlePrimaryAction = useCallback(async () => {
-    if (!primaryAction) return;
+    if (!primaryAction || actionInFlightRef.current) return;
     if (primaryAction.mode === "status" && primaryAction.nextStatus === "payment_sent" && isCardlessAtmTrade && !hasPreparedCardlessDetails) {
       const parsed = parseCardlessWithdrawalDetails({ withdrawalCode: cardlessCode, verificationKind: cardlessVerificationKind, verificationValue: cardlessVerificationValue });
       if (!parsed.ok) {
@@ -2623,10 +2637,10 @@ function TradeRoomPageSession({
     if (isSeller && request?.feePolicyVersion === "buyer_seller_1pct_v1" && ["accepted", "funds_received"].includes(primaryAction.nextStatus ?? "")) {
       const receipt = primaryAction.nextStatus === "funds_received" ? tradePaymentReceiptConfirmation(isAr ? "ar" : "en", request.currency, request.fiatAmount, true) : primaryAction.confirmationMessage ?? "";
       const message = `${receipt}\n${sellerFeeResponsibilityNotice(isAr ? "ar" : "en")}`;
-      if (!window.confirm(message)) return;
-    } else if (primaryAction.confirmationMessage && !window.confirm(primaryAction.confirmationMessage)) return;
+      if (!await confirmAction(message)) return;
+    } else if (primaryAction.confirmationMessage && !await confirmAction(primaryAction.confirmationMessage)) return;
     await handleStatusUpdate(primaryAction);
-  }, [buyerEvidenceFile, cardlessCode, cardlessVerificationKind, cardlessVerificationValue, hasPreparedCardlessDetails, handleStatusUpdate, handleUploadEvidence, isAr, isCardlessAtmTrade, primaryAction, sellerEvidenceFile, setActionError, isSeller, request?.feePolicyVersion, request?.fiatAmount, request?.currency]);
+  }, [buyerEvidenceFile, cardlessCode, cardlessVerificationKind, cardlessVerificationValue, confirmAction, hasPreparedCardlessDetails, handleStatusUpdate, handleUploadEvidence, isAr, isCardlessAtmTrade, primaryAction, sellerEvidenceFile, setActionError, isSeller, request?.feePolicyVersion, request?.fiatAmount, request?.currency]);
 
   const handleOpenDispute = useCallback(async () => {
     if (!request) return;
@@ -2672,7 +2686,7 @@ function TradeRoomPageSession({
           ? "ألغِ الصفقة فقط إذا لم يرسل أو يستلم أي طرف مالًا أو نقدًا أو USDT، ولم تتم مشاركة رمز سحب أو إثبات دفع. إذا بدأ التبادل، أكمل الصفقة أو افتح نزاعًا. هل تريد المتابعة؟"
           : "Cancel only if neither participant has sent or received money, cash or USDT, and no withdrawal code or payment evidence has been shared. If the exchange started, complete the trade or open a dispute. Continue?")
       : (isAr ? "هل تريد إلغاء هذا الطلب قبل قبوله؟" : "Cancel this request before it is accepted?");
-    if (!window.confirm(confirmation)) return;
+    if (!await confirmAction(confirmation) || !isConfirmedTradeCurrent(request)) return;
     const mutationKey = `${request.id}:cancel`;
     if (!acquireTradeRoomMutation(actionInFlightRef, mutationKey)) return;
     setCancelBusy(true);
@@ -2699,11 +2713,11 @@ function TradeRoomPageSession({
       setCancelBusy(false);
       void fetchRoom(true);
     }
-  }, [actor.id, cancelBusy, fetchRoom, isAr, request, room?.hasOpenDispute, router, setStatusMessage]);
+  }, [actor.id, cancelBusy, confirmAction, fetchRoom, isAr, isConfirmedTradeCurrent, request, room?.hasOpenDispute, router, setStatusMessage]);
 
   const handleDeclineTrade = useCallback(async () => {
     if (!request || !canSellerDeclineTrade(request, actor.id) || actionBusy || room?.hasOpenDispute) return;
-    const confirmed = window.confirm(isAr
+    const confirmed = await confirmAction(isAr
       ? "ارفض الطلب فقط إذا لم يتم تبادل أي أموال أو نقد أو USDT. رفض صفقة تمت فعليًا بهدف تجنب العمولة مخالفة خطيرة وقد يؤدي إلى تقييد حساب البائع أو إيقافه نهائيًا. هل تريد المتابعة؟"
       : "Decline only if no money, cash, or USDT has been exchanged. Declining a completed trade to avoid commission is a serious violation and may result in seller restrictions or permanent suspension. Continue?");
     if (!confirmed) return;
@@ -2713,10 +2727,10 @@ function TradeRoomPageSession({
       mode: "status",
       nextStatus: "declined",
     });
-  }, [actionBusy, actor.id, handleStatusUpdate, isAr, request, room?.hasOpenDispute]);
+  }, [actionBusy, actor.id, confirmAction, handleStatusUpdate, isAr, request, room?.hasOpenDispute]);
 
   const handleManualCloseTrade = useCallback(async () => {
-    if (!request || manualCloseBusy) return;
+    if (!request || !canManuallyCloseTrade || manualCloseBusy || !isConfirmedTradeCurrent(request)) return;
     const reason = manualCloseReason.trim();
     const explanation = manualCloseExplanation.trim();
     if (!reason) {
@@ -2757,7 +2771,7 @@ function TradeRoomPageSession({
       setManualCloseBusy(false);
       void fetchRoom(true);
     }
-  }, [actor.id, fetchRoom, isAr, manualCloseBusy, manualCloseExplanation, manualCloseReason, request, requestId, room, setStatusMessage]);
+  }, [actor.id, canManuallyCloseTrade, fetchRoom, isAr, isConfirmedTradeCurrent, manualCloseBusy, manualCloseExplanation, manualCloseReason, request, requestId, room, setStatusMessage]);
 
   const handleSubmitBuyerReview = useCallback(async () => {
     if (actionBusy || Boolean(actionInFlightRef.current)) {
@@ -3077,6 +3091,7 @@ function TradeRoomPageSession({
 
   return (
     <main data-complete={showSuccessScreen ? "true" : undefined} className="alpha-trade-room min-h-screen bg-[#050505] px-3 py-4 text-white md:px-5 md:py-5 xl:px-6">
+      {actionDialog}
       <div className="mx-auto flex max-w-[1500px] flex-col gap-4 xl:gap-5">
         <header data-testid="trade-room-summary" className="space-y-2 rounded-2xl border border-[#C9A227]/25 bg-[#0E0E0E] p-3 sm:p-4">
           {isCardlessAtmTrade ? (
@@ -3516,7 +3531,7 @@ function TradeRoomPageSession({
                   </div>
                 ) : null}
 
-                {request.status === "pending" ? (
+                {canManuallyCloseTrade ? (
                   <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-3">
                     <div className="flex items-center justify-between gap-2">
                       <p className="text-sm text-red-100">{isAr ? "إغلاق يدوي للصفقة" : "Manual trade close"}</p>

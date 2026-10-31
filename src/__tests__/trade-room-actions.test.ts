@@ -5,6 +5,7 @@ import {
   canSellerCancelTrade,
   canSellerDeclineTrade,
   releaseTradeRoomMutation,
+  tradeActionConfirmationKey,
 } from "@/lib/trade-room-actions";
 import type { PurchaseRequest } from "@/types/alpha-exchange";
 import { areTradeAmountsLocked } from "@/lib/trade-amount-lock";
@@ -92,5 +93,82 @@ describe("Trade Room secondary actions", () => {
     const prepared = { ...request, paymentMethod: "Cardless ATM Withdrawal", messages: [{ credentialKind: "cardless_code" }] } as PurchaseRequest;
     expect(canSellerDeclineTrade(prepared, "seller-1")).toBe(true);
     expect(canBuyerCancelTrade(prepared, "buyer-1")).toBe(true);
+  });
+});
+
+describe("trade action consent", () => {
+  const confirmedRequest: PurchaseRequest = {
+    ...request,
+    listingId: "listing-1",
+    buyerName: "Buyer One",
+    usdtAmount: "327.059733",
+    fiatAmount: "1100",
+    pricePerUsdt: "3.33",
+    currency: "ILS",
+    network: "TRC20",
+    paymentMethod: "Cardless ATM Withdrawal",
+    feePolicyVersion: "buyer_seller_1pct_v1",
+    buyerReceivingWalletAddress: "buyer-wallet-1",
+    timeline: [],
+    createdAt: "2026-10-29T10:00:00Z",
+    updatedAt: "2026-10-29T10:00:00Z",
+  };
+
+  it.each([
+    ["the agreed amount changes", { usdtAmount: "356.792050", fiatAmount: "1200" }],
+    ["the agreed price changes", { pricePerUsdt: "3.30" }],
+    ["the receiving wallet changes", { buyerReceivingWalletAddress: "buyer-wallet-2" }],
+    ["the payment route changes", { paymentMethod: "Bank Transfer", bankName: "A bank", sellerBankAccountId: "account-1" }],
+    ["the buyer changes", { buyerId: "buyer-2" }],
+    ["a new amount proposal arrives", { termsProposal: {
+      id: "proposal-1", kind: "amount_correction", status: "pending",
+      usdtAmount: "356.792050", fiatAmount: "1200", pricePerUsdt: "3.33", createdAt: "2026-10-29T10:01:00Z",
+    } }],
+  ] satisfies Array<[string, Partial<PurchaseRequest>]>)("requires fresh consent when %s", (_, changed) => {
+    expect(tradeActionConfirmationKey({ ...confirmedRequest, ...changed }))
+      .not.toBe(tradeActionConfirmationKey(confirmedRequest));
+  });
+
+  it("keeps consent valid when chat and read receipts refresh without changing the trade", () => {
+    const refreshed: PurchaseRequest = {
+      ...confirmedRequest,
+      updatedAt: "2026-10-29T10:02:00Z",
+      messages: [{
+        id: "message-1", purchaseRequestId: confirmedRequest.id, kind: "user",
+        senderUserId: confirmedRequest.buyerId, senderRole: "buyer", message: "I am ready.",
+        createdAt: "2026-10-29T10:01:00Z", seenAt: "2026-10-29T10:02:00Z",
+        readByUserIds: [confirmedRequest.buyerId, confirmedRequest.sellerId],
+      }],
+      pokeState: { buyerToSellerAt: "2026-10-29T10:01:30Z" },
+    };
+    expect(tradeActionConfirmationKey(refreshed)).toBe(tradeActionConfirmationKey(confirmedRequest));
+  });
+
+  it.each([
+    { paymentSentAt: "2026-10-29T10:02:00Z" },
+    { sensitivePaymentKind: "cardless_code", sensitivePaymentSharedAt: "2026-10-29T10:02:00Z" },
+    { sensitivePaymentKind: "bank_details", sensitivePaymentSharedAt: "2026-10-29T10:02:00Z" },
+  ] satisfies Partial<PurchaseRequest>[])("invalidates consent for payment progress even when status is stale: %j", (progress) => {
+    const accepted: PurchaseRequest = { ...confirmedRequest, status: "accepted" };
+    expect(tradeActionConfirmationKey({ ...accepted, ...progress }))
+      .not.toBe(tradeActionConfirmationKey(accepted));
+  });
+
+  it("keeps a prepared ATM credential private until the buyer confirms, then invalidates earlier consent", () => {
+    const prepared: PurchaseRequest = {
+      ...confirmedRequest,
+      status: "accepted",
+      cardlessCodeAwaitingBuyerConfirmation: true,
+      messages: [{
+        id: "credential-1", purchaseRequestId: confirmedRequest.id, kind: "user",
+        senderUserId: confirmedRequest.buyerId, senderRole: "buyer", message: "[Private payment details]",
+        credentialKind: "cardless_code", confidential: true,
+        createdAt: "2026-10-29T10:01:00Z", readByUserIds: [confirmedRequest.buyerId],
+      }],
+    };
+    expect(tradeActionConfirmationKey({ ...prepared, updatedAt: "2026-10-29T10:03:00Z" }))
+      .toBe(tradeActionConfirmationKey(prepared));
+    expect(tradeActionConfirmationKey({ ...prepared, cardlessCodeAwaitingBuyerConfirmation: false }))
+      .not.toBe(tradeActionConfirmationKey(prepared));
   });
 });

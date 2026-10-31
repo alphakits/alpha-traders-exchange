@@ -18,8 +18,9 @@ import { calculateFiatAmount, calculateTradeBuyerFiatFee, calculateTradePaymentT
 
 import { brandText, currencyText, moneyText } from "@/components/ui/currency-text";
 import { ActionFeedback, useActionFeedbackState } from "@/components/ui/action-feedback";
+import { useActionDialog } from "@/components/ui/use-action-dialog";
 import { isCardlessWithdrawalBank, parseCardlessWithdrawalDetails, validateCardlessIlsAmount, calculateCardlessUsdtAmount, getPurchaseMinimumTrade, cardlessPaymentAmountNotice, type CardlessVerificationKind } from "@alpha-traders/contracts";
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { createPortal } from "react-dom";
 import dynamic from "next/dynamic";
 import { useSearchParams } from "next/navigation";
@@ -59,7 +60,7 @@ import { appendLoginJourneyServerTimeline, appendLoginJourneyStep, finalizeLogin
 import { formatListingId, formatTradeId } from "@/lib/format-id";
 import { replaceExchangeEntityIdsWithHints } from "@/lib/alpha-exchange-display";
 import { prefetchTradeRoom } from "@/lib/trade-room-client";
-import { canBuyerCancelTrade } from "@/lib/trade-room-actions";
+import { canBuyerCancelTrade, tradeActionConfirmationKey } from "@/lib/trade-room-actions";
 import { getTradeRoomConversationDestination } from "@/lib/trade-room-notification-destination";
 import { commissionPaymentDestination, getCommissionPaymentNotificationDestination } from "@/lib/commission-payment-destination";
 import { groupOwnTrades } from "@/lib/trades-workspace";
@@ -1378,6 +1379,7 @@ export function UsdtExchangePage({
   // Read the same principal as the header in this render. Mirroring it through
   // an effect can briefly retain a previous account after sign-out.
   const sessionUser = canonicalSession ? canonicalSession.user : initialSessionUser ?? null;
+  const { confirmAction, actionDialog } = useActionDialog(isAr, `${sessionUser?.id ?? "signed-out"}:${canonicalSession?.isResolving ?? false}`);
   const interfaceAccess = getInterfaceAccess(sessionUser);
   const buyRequestsHref = buyRequestsDestination(sessionUser, usdtRequestsEnabled);
   const [buyerProfileSummary, setBuyerProfileSummary] = useState<BuyerRankSummary | null>(null);
@@ -1413,6 +1415,10 @@ export function UsdtExchangePage({
   const sellerProfileAbortControllerRef = useRef<AbortController | null>(null);
   const [sellerApplication, setSellerApplication] = useState<SellerApplication | null>(null);
   const [myRequests, setMyRequests] = useState<PurchaseRequest[]>([]);
+  const sellerActionContextRef = useRef({ userId: sessionUser?.id, requests: myRequests });
+  useLayoutEffect(() => {
+    sellerActionContextRef.current = { userId: sessionUser?.id, requests: myRequests };
+  }, [myRequests, sessionUser?.id]);
   const [purchaseRequestsState, setPurchaseRequestsState] = useState<"loading" | "ready" | "error">("loading");
   const purchaseRequestsReadRef = useRef<{ userId: string; controller: AbortController; promise: Promise<PurchaseRequest[] | null> } | null>(null);
   const purchaseRequestsSnapshotRef = useRef<{ userId: string; loadedAt: number; requests: PurchaseRequest[] } | null>(null);
@@ -1501,6 +1507,7 @@ export function UsdtExchangePage({
   const commissionPayableAmountDue = sellerCommissionStatus?.payableAmountDue
     ?? (sellerCommissionStatus?.pendingCount === 1 ? sellerCommissionStatus.amountDue : 0);
   const [requestActionKey, setRequestActionKey] = useState<string | null>(null);
+  const requestActionInFlightRef = useRef<string | null>(null);
   const qaCommissionResetAttemptedRef = useRef(false);
   const [listingCreateForm, setListingCreateForm] = useState<ListingCreateForm>({
     availableAmount: "",
@@ -4687,14 +4694,26 @@ export function UsdtExchangePage({
     options?: { safetyAcknowledged?: boolean },
   ) {
     const actionKey = `${requestId}:${nextStatus}`;
-    if (requestActionKey) return;
+    if (requestActionInFlightRef.current || requestActionKey) return;
     const targetRequest = myRequests.find((request) => request.id === requestId);
-    if (targetRequest?.feePolicyVersion === "buyer_seller_1pct_v1" && ["accepted", "funds_received"].includes(nextStatus)
-      && !window.confirm(`${sellerFeeResponsibilityNotice(isAr ? "ar" : "en")}\n${targetRequest.currency} ${targetRequest.fiatAmount}`)) return;
-    const isPriceOffer = targetRequest?.priceMode === "buyer_offer";
-    setRequestActionKey(actionKey);
+    if (!targetRequest || !sessionUser) return;
+    const confirmingUserId = sessionUser.id;
+    const isPriceOffer = targetRequest.priceMode === "buyer_offer";
     const safetyAcknowledged = options?.safetyAcknowledged === true;
+    requestActionInFlightRef.current = actionKey;
     try {
+      if (targetRequest.feePolicyVersion === "buyer_seller_1pct_v1" && ["accepted", "funds_received"].includes(nextStatus)
+        && !await confirmAction(`${sellerFeeResponsibilityNotice(isAr ? "ar" : "en")}\n${targetRequest.currency} ${targetRequest.fiatAmount}`)) return;
+      const currentContext = sellerActionContextRef.current;
+      const currentRequest = currentContext.requests.find((request) => request.id === requestId);
+      if (currentContext.userId !== confirmingUserId || !currentRequest
+        || tradeActionConfirmationKey(currentRequest) !== tradeActionConfirmationKey(targetRequest)) {
+        setSellerWorkspaceMessage(isAr
+          ? "تغيّرت الصفقة أثناء التأكيد. راجع تفاصيلها الحالية وحاول مجددًا."
+          : "The trade changed while you were confirming. Review its current details and try again.");
+        return;
+      }
+      setRequestActionKey(actionKey);
       const response = await fetch(`/api/alpha-exchange/purchase-requests/${requestId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -4723,6 +4742,7 @@ export function UsdtExchangePage({
     } catch {
       setSellerWorkspaceMessage(isAr ? "تعذر الاتصال بالخادم الآن. حاول مرة أخرى." : "Unable to reach the server right now. Please try again.");
     } finally {
+      if (requestActionInFlightRef.current === actionKey) requestActionInFlightRef.current = null;
       setRequestActionKey(null);
     }
   }
@@ -5166,6 +5186,7 @@ export function UsdtExchangePage({
 
   return (
     <section className="section-container page-shell exchange-marketplace-shell overflow-x-clip">
+      {actionDialog}
       {statusMessage && !selectedListing ? (
         <ActionFeedback revealKey={statusMessageFeedbackKey} className="mb-4 rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-[#FDE68A]">
           {currencyText(statusMessage)}

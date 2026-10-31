@@ -29,6 +29,15 @@ function deferredResponse() {
   return { promise, resolve };
 }
 
+async function answerActionDialog(confirm = true) {
+  const dialog = screen.getByRole("dialog");
+  const message = within(dialog).getByRole("heading").textContent;
+  await act(async () => {
+    fireEvent.click(within(dialog).getByRole("button", { name: confirm ? /^(Confirm|تأكيد)$/ : /^(Cancel|إلغاء)$/ }));
+  });
+  return message;
+}
+
 class RoomStream extends EventTarget {
   static instances: RoomStream[] = [];
   close = vi.fn();
@@ -46,7 +55,11 @@ beforeEach(() => {
   RoomStream.instances = [];
   vi.stubGlobal("EventSource", RoomStream);
   vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
-  vi.spyOn(window, "confirm").mockReturnValue(true);
+  // Embedded browsers may suppress native confirmations. Every financial
+  // action below must use the visible in-page confirmation instead.
+  vi.spyOn(window, "confirm").mockImplementation(() => { throw new Error("Native dialogs are unavailable"); });
+  Object.defineProperty(HTMLDialogElement.prototype, "showModal", { configurable: true, value() { this.open = true; } });
+  Object.defineProperty(HTMLDialogElement.prototype, "close", { configurable: true, value() { this.open = false; } });
   vi.spyOn(window, "scrollTo").mockImplementation(() => {});
   Element.prototype.scrollIntoView = vi.fn();
   Element.prototype.scrollTo = vi.fn();
@@ -147,6 +160,72 @@ it("keeps a pending buyer room free of the seller's private commission controls"
   expect(screen.queryByText(/Pay all outstanding commission/)).toBeNull();
 });
 
+it.each(["en", "ar"] as const)("accepts an ATM trade in %s with native dialogs unavailable, explicit consent, and no duplicate request", async (locale) => {
+  const initial = room("Cardless ATM Withdrawal", "pending");
+  const current = { ...initial, request: { ...initial.request, feePolicyVersion: "buyer_seller_1pct_v1", usdtAmount: "327.059733", fiatAmount: "1100.00", pricePerUsdt: "3.33" } };
+  const response = deferredResponse();
+  const fetchMock = vi.fn((_url: string, init?: RequestInit) => init?.method === "PATCH" ? response.promise : Promise.resolve(Response.json(current)));
+  vi.stubGlobal("fetch", fetchMock);
+  render(<TradeRoomPage locale={locale} requestId="feedback-request" actor={seller} />);
+  const accept = await screen.findByRole("button", { name: locale === "ar" ? "قبول الطلب" : "Accept Trade" });
+  const patches = () => fetchMock.mock.calls.filter(([, init]) => init?.method === "PATCH");
+
+  fireEvent.click(accept);
+  fireEvent.click(accept);
+  expect(screen.getAllByRole("dialog")).toHaveLength(1);
+  expect(patches()).toHaveLength(0);
+  await answerActionDialog(false);
+  expect(patches()).toHaveLength(0);
+  expect(screen.queryByRole("dialog")).toBeNull();
+
+  fireEvent.click(accept);
+  fireEvent.click(accept);
+  await answerActionDialog();
+  fireEvent.click(accept);
+  expect(patches()).toHaveLength(1);
+  expect(JSON.parse(String(patches()[0][1]?.body))).toMatchObject({ status: "accepted" });
+  expect(window.confirm).not.toHaveBeenCalled();
+  await act(async () => response.resolve(Response.json({ request: { ...current.request, status: "accepted", updatedAt: "2026-09-22T00:00:02.000Z" } })));
+  expect(screen.getByRole("progressbar").getAttribute("aria-valuenow")).toBe("20");
+  expect(screen.queryByRole("button", { name: locale === "ar" ? "قبول الطلب" : "Accept Trade" })).toBeNull();
+});
+
+it("requires both terms and safe-meeting consent before accepting face-to-face with native dialogs unavailable", async () => {
+  const current = room("Face-to-Face (Meet in Person)", "pending");
+  const response = deferredResponse();
+  const fetchMock = vi.fn((_url: string, init?: RequestInit) => init?.method === "PATCH" ? response.promise : Promise.resolve(Response.json(current)));
+  vi.stubGlobal("fetch", fetchMock);
+  render(<TradeRoomPage locale="en" requestId="feedback-request" actor={seller} />);
+  const accept = await screen.findByRole("button", { name: "Accept Trade" });
+  fireEvent.click(accept);
+  await answerActionDialog();
+  expect(fetchMock.mock.calls.some(([, init]) => init?.method === "PATCH")).toBe(false);
+  expect(await answerActionDialog(false)).toContain("safe public place");
+  expect(fetchMock.mock.calls.some(([, init]) => init?.method === "PATCH")).toBe(false);
+  fireEvent.click(accept);
+  await answerActionDialog();
+  expect(await answerActionDialog()).toContain("safe public place");
+  const patches = fetchMock.mock.calls.filter(([, init]) => init?.method === "PATCH");
+  expect(patches).toHaveLength(1);
+  expect(JSON.parse(String(patches[0][1]?.body))).toMatchObject({ status: "accepted", safetyAcknowledged: true });
+  expect(window.confirm).not.toHaveBeenCalled();
+  await act(async () => response.resolve(Response.json({ request: { ...current.request, status: "accepted", updatedAt: "2026-09-22T00:00:02.000Z" } })));
+});
+
+it("requires fresh consent if live terms change while the acceptance dialog is open", async () => {
+  let current = room("Cardless ATM Withdrawal", "pending");
+  const fetchMock = vi.fn<typeof fetch>(() => Promise.resolve(Response.json(current)));
+  vi.stubGlobal("fetch", fetchMock);
+  render(<TradeRoomPage locale="en" requestId="feedback-request" actor={seller} />);
+  fireEvent.click(await screen.findByRole("button", { name: "Accept Trade" }));
+  expect(screen.getByRole("dialog")).toBeTruthy();
+  current = { ...current, request: { ...current.request, fiatAmount: "400.00", usdtAmount: "125", updatedAt: "2026-09-22T00:00:02.000Z" } };
+  await act(async () => RoomStream.instances.at(-1)!.snapshot(current));
+  await answerActionDialog();
+  expect(fetchMock.mock.calls.every(([, init]) => !init?.method)).toBe(true);
+  expect(await screen.findByText("The trade changed while you were confirming. Review its current details and try again.")).toBeTruthy();
+});
+
 it.each(["completed", "review_open", "locked"] as const)("keeps a %s notification focused on its review target after a completed-state refresh", async (status) => {
   navigation.search = new URLSearchParams("action=review-trade");
   window.history.replaceState(null, "", "/?action=review-trade#status-banner");
@@ -178,6 +257,7 @@ it.each(["fetch", "body"])("confirms a committed trade action after a stalled %s
   vi.stubGlobal("fetch", fetchMock);
   await act(async () => { render(<TradeRoomPage locale="en" requestId="feedback-request" actor={seller} />); });
   fireEvent.click(screen.getByRole("button", { name: "Accept Trade" }));
+  await answerActionDialog();
   await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
   expect(screen.getByRole("progressbar").getAttribute("aria-valuenow")).toBe("20");
   expect(screen.queryByRole("button", { name: "Processing..." })).toBeNull();
@@ -205,6 +285,7 @@ it.each([
   const label = action === "cancel" ? "Cancel Trade" : action === "adjust" ? "Propose corrected amount" : "Poke Seller";
   const button = screen.getByRole("button", { name: label });
   fireEvent.click(button); fireEvent.click(button);
+  if (action === "cancel") await answerActionDialog();
   await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
   expect((screen.getByRole("button", { name: label }) as HTMLButtonElement).disabled).toBe(false);
   expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "POST" || init?.method === "PATCH")).toHaveLength(1);
@@ -241,6 +322,7 @@ it("does not leave a trade when cancellation returns an unconfirmed success body
   vi.stubGlobal("fetch", vi.fn((_url: string, init?: RequestInit) => Promise.resolve(Response.json(init?.method === "PATCH" ? {} : current))));
   render(<TradeRoomPage locale="en" requestId="feedback-request" actor={seller} />);
   fireEvent.click(await screen.findByRole("button", { name: "Cancel Trade" }));
+  await answerActionDialog();
   await screen.findByText("Cancellation could not be confirmed. Check the trade status before trying again.");
   expect(navigation.push).not.toHaveBeenCalled();
 });
@@ -315,7 +397,8 @@ it.each([
   vi.stubGlobal("fetch", fetchMock);
   render(<TradeRoomPage locale="en" requestId="feedback-request" actor={seller} />);
   fireEvent.click(await screen.findByRole("button", { name: "Mark Trade as Completed" }));
-  expect(window.confirm).toHaveBeenCalled();
+  await answerActionDialog();
+  expect(window.confirm).not.toHaveBeenCalled();
   expect(await screen.findByRole("heading", { name: "Trade Completed Successfully" })).toBeTruthy();
   const calls = fetchMock.mock.calls.filter(([, init]) => init?.method === "PATCH");
   expect(calls).toHaveLength(1);
@@ -339,6 +422,7 @@ describe.each(["Bank Transfer", "Cardless ATM Withdrawal", "Face-to-Face (Meet i
     expect(screen.getAllByRole("button", { name: label })).toHaveLength(1);
     fireEvent.click(button);
     fireEvent.click(button);
+    if (method !== "Bank Transfer") await answerActionDialog();
     expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "PATCH")).toHaveLength(1);
     expect(screen.getByRole("progressbar").getAttribute("aria-valuenow")).toBe("40");
     expect((screen.getByRole("button", { name: "Processing..." }) as HTMLButtonElement).disabled).toBe(true);
@@ -369,6 +453,10 @@ describe.each(["Bank Transfer", "Cardless ATM Withdrawal", "Face-to-Face (Meet i
       ? Response.json({ error: "Temporarily unavailable" }, { status: 503 }) : Response.json(current))));
     render(<TradeRoomPage locale="en" requestId="feedback-request" actor={seller} />);
     fireEvent.click(await screen.findByRole("button", { name: "Accept Trade" }));
+    await answerActionDialog();
+    if (method === "Face-to-Face (Meet in Person)") {
+      expect(await answerActionDialog()).toContain("safe public place");
+    }
     const error = await screen.findByRole("alert");
     expect(error.textContent).toContain("Temporarily unavailable");
     expect(document.getElementById("action-required")!.contains(error)).toBe(true);
@@ -614,10 +702,11 @@ describe("visible buyer cancellation", () => {
     expect(card.compareDocumentPosition(screen.getByTestId("trade-details")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     fireEvent.click(cancel);
     fireEvent.click(cancel);
+    await answerActionDialog();
     const patches = fetchMock.mock.calls.filter(([, init]) => init?.method === "PATCH");
     expect(patches).toHaveLength(1);
     expect(JSON.parse(String(patches[0][1]?.body))).toEqual({ status: "cancelled" });
-    expect(window.confirm).toHaveBeenCalledOnce();
+    expect(window.confirm).not.toHaveBeenCalled();
     expect(navigation.push).not.toHaveBeenCalled();
     await act(async () => response.resolve(Response.json({ request: { ...current.request, status: "cancelled" } })));
     await waitFor(() => expect(navigation.push).toHaveBeenCalledWith("/usdt-exchange"));
@@ -626,13 +715,13 @@ describe("visible buyer cancellation", () => {
   it("allows leaving an accepted cardless request before code submission", async () => {
     const current = room("Cardless ATM Withdrawal", "accepted");
     vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(Response.json(current))));
-    vi.mocked(window.confirm).mockReturnValue(false);
     render(<TradeRoomPage locale="en" requestId="feedback-request" actor={buyer} />);
     const cancel = await screen.findByRole("button", { name: "Cancel Trade" });
     const code = screen.getByLabelText("1. Withdrawal code");
     expect(cancel.compareDocumentPosition(code) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     fireEvent.click(cancel);
-    expect(window.confirm).toHaveBeenCalledOnce();
+    expect(await answerActionDialog(false)).toContain("Cancel only if neither participant");
+    expect(window.confirm).not.toHaveBeenCalled();
     expect(navigation.push).not.toHaveBeenCalled();
   });
 
@@ -670,10 +759,11 @@ describe.each(["Bank Transfer", "Cardless ATM Withdrawal", "Face-to-Face (Meet i
     const cancel = await screen.findByRole("button", { name: "Cancel Trade" });
     expect(cancel.compareDocumentPosition(screen.getByTestId("trade-details")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     fireEvent.click(cancel);
+    await answerActionDialog();
     await waitFor(() => expect(fetch.mock.calls.filter(([, init]) => init?.method === "PATCH")).toHaveLength(1));
     const patch = fetch.mock.calls.find(([, init]) => init?.method === "PATCH")!;
     expect(JSON.parse(String(patch[1]?.body))).toMatchObject({ status: "declined" });
-    expect(window.confirm).toHaveBeenCalledOnce();
+    expect(window.confirm).not.toHaveBeenCalled();
   });
 
   it("allows accepted amount editing until a confirmed payment update arrives", async () => {
@@ -716,6 +806,7 @@ describe.each(["Bank Transfer", "Cardless ATM Withdrawal", "Face-to-Face (Meet i
     expect(document.getElementById("action-required")!.contains(cancel)).toBe(true);
     fireEvent.click(cancel);
     fireEvent.click(cancel);
+    await answerActionDialog();
     const patches = fetch.mock.calls.filter(([, init]) => init?.method === "PATCH");
     expect(patches).toHaveLength(1);
     expect(JSON.parse(String(patches[0][1]?.body))).toEqual({ status: "cancelled" });
@@ -731,6 +822,7 @@ describe.each(["Bank Transfer", "Cardless ATM Withdrawal", "Face-to-Face (Meet i
     vi.stubGlobal("fetch", fetch);
     render(<TradeRoomPage locale="en" requestId="feedback-request" actor={seller} />);
     fireEvent.click(await screen.findByRole("button", { name: "Cancel Trade" }));
+    await answerActionDialog();
     expect(await screen.findByText("Payment has already started. Refresh the trade.")).toBeTruthy();
     expect(navigation.push).not.toHaveBeenCalled();
   });
@@ -750,11 +842,11 @@ describe.each(["Bank Transfer", "Cardless ATM Withdrawal", "Face-to-Face (Meet i
 });
 
 it("requires the seller's confirmation before cancelling", async () => {
-  vi.mocked(window.confirm).mockReturnValue(false);
   const fetch = vi.fn<(url: string, init?: RequestInit) => Promise<Response>>(() => Promise.resolve(Response.json(room("Bank Transfer", "accepted"))));
   vi.stubGlobal("fetch", fetch);
   render(<TradeRoomPage locale="en" requestId="feedback-request" actor={seller} />);
   fireEvent.click(await screen.findByRole("button", { name: "Cancel Trade" }));
+  await answerActionDialog(false);
   expect(fetch.mock.calls.some(([, init]) => init?.method === "PATCH")).toBe(false);
   expect(navigation.push).not.toHaveBeenCalled();
 });
@@ -805,16 +897,15 @@ it.each([
   const current = { ...base, request: { ...base.request, fiatAmount: "3232.00", usdtAmount: "1000", pricePerUsdt: "3.20", feePolicyVersion: "buyer_seller_1pct_v1" } };
   const fetchMock = vi.fn((_url: string, init?: RequestInit) => Promise.resolve(init?.method === "PATCH" ? Response.json({ request: { ...current.request, status: "funds_received" } }) : Response.json(current)));
   vi.stubGlobal("fetch", fetchMock);
-  vi.mocked(window.confirm).mockReturnValue(false);
   render(<TradeRoomPage locale="en" requestId="feedback-request" actor={seller} />);
   const confirm = await screen.findByRole("button", { name: button });
   expect(screen.getByTestId("inclusive-payment-total").textContent).toContain("ILS 3,232.00");
   expect(screen.getByTestId("inclusive-payment-total").textContent).toContain("Buyer’s 1% fee included.");
   fireEvent.click(confirm);
-  expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining("I confirm I received the full ILS 3,232.00, including the buyer’s 1% fee"));
+  expect(await answerActionDialog(false)).toContain("I confirm I received the full ILS 3,232.00, including the buyer’s 1% fee");
   expect(fetchMock.mock.calls.some(([, init]) => init?.method === "PATCH")).toBe(false);
-  vi.mocked(window.confirm).mockReturnValue(true);
   fireEvent.click(confirm);
+  await answerActionDialog();
   await waitFor(() => expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "PATCH")).toHaveLength(1));
   expect(JSON.parse(String(fetchMock.mock.calls.find(([, init]) => init?.method === "PATCH")?.[1]?.body))).toMatchObject({ status: "funds_received" });
 });
@@ -847,4 +938,44 @@ it.each(["en", "ar"] as const)("explains the buyer bank-disclosure lock without 
   fireEvent.click(cancel);
   expect(window.confirm).not.toHaveBeenCalled();
   expect(fetchMock).toHaveBeenCalledTimes(1);
+});
+
+it.each(["en", "ar"] as const)("removes pending manual-close controls when the buyer's bank-disclosure lock arrives in %s", async locale => {
+  const current = room("Bank Transfer", "pending");
+  const fetchMock = vi.fn<typeof fetch>(() => Promise.resolve(Response.json(current)));
+  vi.stubGlobal("fetch", fetchMock);
+  render(<TradeRoomPage locale={locale} requestId="feedback-request" actor={buyer} />);
+  fireEvent.click(await screen.findByRole("button", { name: locale === "ar" ? "إغلاق الصفقة" : "Close Trade" }));
+  const reason = await screen.findByLabelText(locale === "ar" ? "سبب إغلاق الصفقة" : "Trade close reason");
+  fireEvent.change(reason, { target: { value: "Please close this request" } });
+  const disclosed = { ...current, request: { ...current.request,
+    sensitivePaymentKind: "bank_details", sensitivePaymentSharedAt: "2026-09-22T00:00:01.000Z",
+    updatedAt: "2026-09-22T00:00:01.000Z",
+  } };
+  await act(async () => RoomStream.instances.at(-1)!.snapshot(disclosed));
+  expect(screen.queryByLabelText(locale === "ar" ? "سبب إغلاق الصفقة" : "Trade close reason")).toBeNull();
+  expect(screen.queryByRole("button", { name: locale === "ar" ? "تأكيد الإغلاق اليدوي" : "Confirm Manual Close" })).toBeNull();
+  expect(screen.getByTestId("trade-cancel-action").textContent).toContain(locale === "ar" ? "يمكن للبائع فقط" : "Only the seller");
+  expect(fetchMock.mock.calls.every(([, init]) => !init?.method)).toBe(true);
+});
+
+it("preserves the seller's pending close control after buyer bank disclosure", async () => {
+  const current = room("Bank Transfer", "pending");
+  Object.assign(current.request, { sensitivePaymentKind: "bank_details", sensitivePaymentSharedAt: current.request.updatedAt });
+  vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(Response.json(current))));
+  render(<TradeRoomPage locale="en" requestId="feedback-request" actor={seller} />);
+  const close = await screen.findByRole("button", { name: "Close Trade" }) as HTMLButtonElement;
+  expect(close.disabled).toBe(false);
+  fireEvent.click(close);
+  expect(screen.getByLabelText("Trade close reason")).toBeTruthy();
+});
+
+it.each([buyer, seller])("hides pending manual close from $role after recorded payment progress", async actor => {
+  const current = room("Cardless ATM Withdrawal", "pending");
+  Object.assign(current.request, { fundsReceivedAt: current.request.updatedAt });
+  vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(Response.json(current))));
+  render(<TradeRoomPage locale="en" requestId="feedback-request" actor={actor} />);
+  await screen.findByTestId("trade-room-summary");
+  expect(screen.queryByRole("button", { name: "Close Trade" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Confirm Manual Close" })).toBeNull();
 });
