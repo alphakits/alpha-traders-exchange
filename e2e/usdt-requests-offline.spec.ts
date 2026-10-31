@@ -1059,6 +1059,10 @@ for (const role of ["buyer", "seller"] as const) {
       await landscapeToggle.click();
       const landscapeEntry = landscapeToggle.locator("..").getByRole("link", { name: "Buy Requests", exact: true });
       await landscapeEntry.scrollIntoViewIfNeeded();
+      // A native scroll can move the page beneath its sticky header without
+      // exposing the link inside the menu. Verify actionability before measuring.
+      await landscapeEntry.click({ trial: true });
+      await expect(landscapeEntry).toBeInViewport({ ratio: 1 });
       const bounds = await landscapeEntry.boundingBox();
       expect(bounds).not.toBeNull(); expect(bounds!.y).toBeGreaterThanOrEqual(0); expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(320);
       await landscapeEntry.click();
