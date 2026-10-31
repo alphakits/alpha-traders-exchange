@@ -1233,7 +1233,20 @@ test("12-hour requests allow free edits, enforce two publications, and lock afte
       expect((await state(buyerTwo)).purchaseRequests).toHaveLength(1);
       expect((await state(buyerTwo)).usdtDemands!.find(item => item.id === other.id)).toEqual(saved);
     } finally { await buyerTwo.dispose(); }
-    await page.goto(`/en/usdt-exchange/requests/${demand.id}`);
+    // A native WebKit refusal can arrive while this hard navigation tears
+    // down the old market poll. Require the new document's exact same-origin
+    // feed to succeed before classifying that bounded cancellation.
+    await browserErrorAudit.navigate(page, () => page.goto(`/en/usdt-exchange/requests/${demand.id}`), {
+      url: new URL("/api/market/center", baseURL).href,
+      label: "offline market feed",
+      validateBody: (body) => {
+        const snapshot = body as { snapshot?: { pairs?: Record<string, { price?: number }> } } | null;
+        return ["btcUsdt", "ethUsdt", "usdtIls"].every((key) => {
+          const price = snapshot?.snapshot?.pairs?.[key]?.price;
+          return typeof price === "number" && Number.isFinite(price) && price > 0;
+        });
+      },
+    });
     await expect(page.getByTestId("request-card")).toBeVisible();
     await page.screenshot({ path: info.outputPath("two-request-policy.png"), fullPage: true });
   } finally { await seller.dispose(); }
