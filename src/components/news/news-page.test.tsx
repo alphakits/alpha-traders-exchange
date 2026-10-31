@@ -95,7 +95,7 @@ describe("USD News page", () => {
     fireEvent.click(document.querySelector("article summary")!);
     vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify({ ...initial,
       resultsVerifiedAt: new Date(now).toISOString(), events: [{ ...earlier, actual: "0%" }] })));
-    await act(async () => { await vi.advanceTimersByTimeAsync(300_000); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
     expect(document.querySelector<HTMLDetailsElement>("article details")?.open).toBe(true);
     expect(document.querySelector("article dd")?.textContent).toBe("0%");
     expect(screen.getByText(/Results checked:/)).toBeTruthy();
@@ -149,7 +149,7 @@ describe("USD News page", () => {
     expect(document.querySelector("article details")?.hasAttribute("open")).toBe(false);
     expect(screen.queryByText(/News updates are delayed|تحديث الأخبار متأخر|may be out of date/)).toBeNull();
     expect(document.querySelector('a[href^="http"]')).toBeNull();
-    await act(async () => { await vi.advanceTimersByTimeAsync(299_999); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(14_999); });
     expect(fetch).not.toHaveBeenCalled();
     await act(async () => { await vi.advanceTimersByTimeAsync(1); });
     expect(fetch).toHaveBeenCalledTimes(1);
@@ -166,6 +166,19 @@ describe("USD News page", () => {
     expect(document.querySelector("article summary bdi[dir='ltr']")?.textContent).toBe("0%");
     expect(document.querySelector("article dd")?.textContent).toBe("0%");
     expect(screen.getAllByText("Forecast").length).toBeGreaterThan(0);
+  });
+  it("keeps a stored result during a storage outage and resumes at 15 seconds", async () => {
+    const confirmed: NewsFeed = { ...feed, mode: "weekly", officialUpdates: "active", officialStorageAvailable: true,
+      events: [{ ...event, scheduledAt: "2026-09-22T12:30:00Z", actual: "0.4%" }] };
+    render(<NewsPage locale="en" initialFeed={confirmed} initialNow={now} />);
+    vi.mocked(fetch).mockImplementation(async () => new Response(JSON.stringify({ ...confirmed, officialStorageAvailable: false, events: [] })));
+    await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
+    expect(document.querySelector("article summary bdi[dir='ltr']")?.textContent).toBe("0.4%");
+    expect(screen.getByText(/Result updates are currently delayed/)).toBeTruthy();
+    vi.mocked(fetch).mockImplementation(async () => new Response(JSON.stringify(confirmed)));
+    await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(screen.getByText(/Official sources checked every minute/)).toBeTruthy();
   });
   it("hides expired weekly coverage even before a successful API refresh", () => {
     render(<NewsPage locale="en" initialFeed={{ ...feed, mode: "weekly", coverageEnd: new Date(now).toISOString() }} initialNow={now} />);
