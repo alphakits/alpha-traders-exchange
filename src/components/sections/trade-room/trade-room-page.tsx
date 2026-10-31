@@ -1983,6 +1983,7 @@ function TradeRoomPageSession({
   const waitingEstimate = request ? getWaitingEstimate(request, isSeller, isAr, isOverdueTrade) : null;
   const deliveryConfirmation = request ? getDeliveryConfirmation(request, isAr) : null;
   const showSuccessScreen = request?.status === "review_open" || request?.status === "completed" || request?.status === "locked";
+  const isHistoricalCompletion = showSuccessScreen && request?.historicalCompletionSummary?.source === "owner_attestation";
   const isBuyerCompletionSyncInFlight = Boolean(
     request
     && request.buyerId === actor.id
@@ -3083,7 +3084,7 @@ function TradeRoomPageSession({
                 <p>{isAr ? "طريقة الدفع" : "Payment Method"}: {currencyText(requestPaymentMethodLabel)}</p>
                 <p>{currencyText(isAr ? "السعر لكل USDT" : "Price per USDT")}: <bdi dir="ltr">{currencyText(`${request.currency} ${(toNumber(request.pricePerUsdt) || (toNumber(request.fiatAmount) / Math.max(1, toNumber(request.usdtAmount)))).toFixed(2)}`)} / <span className="currency-usdt">USDT</span></bdi></p>
                 {request.bankName ? <p>{isCardlessAtmTrade ? (isAr ? "بنك السحب" : "Withdrawal bank") : (isAr ? "البنوك المعتمدة" : "Supported Banks")}: <bdi dir="auto">{currencyText(requestBankNamesLabel)}</bdi></p> : null}
-                {request.closedAt ? <p className="text-red-300">{isAr ? "سبب إغلاق الصفقة" : "Close reason"}: {currencyText(request.closeReason ?? (isAr ? "غير محدد" : "Not specified"))}</p> : null}
+                {request.closedAt ? <p className="text-red-300">{isHistoricalCompletion ? (isAr ? "سبب الإغلاق السابق" : "Earlier close reason") : (isAr ? "سبب إغلاق الصفقة" : "Close reason")}: {currencyText(request.closeReason ?? (isAr ? "غير محدد" : "Not specified"))}</p> : null}
                 <UserSafetyActions context="trade" locale={locale} targetUserId={isSeller ? request.buyerId : request.sellerId} viewerSignedIn />
               </div>
             </details>
@@ -3100,8 +3101,8 @@ function TradeRoomPageSession({
             </p>
           ) : null}
           <div data-testid="inclusive-payment-total" className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-3 text-sm">
-            <p>{isSeller ? (isAr ? "الإجمالي المطلوب استلامه من المشتري" : "Full amount to collect from buyer") : (isAr ? "الإجمالي المطلوب دفعه للبائع" : "Full amount to pay the seller")}: <bdi dir="ltr" className="currency-money font-semibold">{currencyText(`${request.currency} ${toNumber(request.fiatAmount).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`)}</bdi></p>
-            {request.feePolicyVersion === "buyer_seller_1pct_v1" ? <p className="commission-notice">{currencyText(isAr ? "يشمل عمولة المشتري 1%. ادفع هذا الإجمالي مرة واحدة. للبائع: تأكد من استلامه كاملًا قبل إرسال USDT." : "Buyer’s 1% fee included. Pay this total once. Seller: confirm full receipt before sending USDT.")}</p> : null}
+            <p>{isHistoricalCompletion ? (isAr ? "المبلغ المحسوب وفق السعر المحفوظ" : "Amount calculated from the saved quote") : isSeller ? (isAr ? "الإجمالي المطلوب استلامه من المشتري" : "Full amount to collect from buyer") : (isAr ? "الإجمالي المطلوب دفعه للبائع" : "Full amount to pay the seller")}: <bdi dir="ltr" className="currency-money font-semibold">{currencyText(`${request.currency} ${toNumber(request.fiatAmount).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`)}</bdi></p>
+            {isHistoricalCompletion ? <p>{isAr ? "أكد مالك المنصة إتمام هذه الصفقة خارج الموقع. المبلغ المعروض محسوب من السعر والرسوم المحفوظة؛ لم يُسجّل مبلغ الدفع الفعلي خارج الموقع. لا يلزم دفع جديد لهذه الصفقة." : "The owner confirmed this trade was completed outside the site. The displayed amount uses the saved price and fees; the actual offline payment amount was not recorded. No new payment is needed for this trade."}</p> : request.feePolicyVersion === "buyer_seller_1pct_v1" ? <p className="commission-notice">{currencyText(isAr ? "يشمل عمولة المشتري 1%. ادفع هذا الإجمالي مرة واحدة. للبائع: تأكد من استلامه كاملًا قبل إرسال USDT." : "Buyer’s 1% fee included. Pay this total once. Seller: confirm full receipt before sending USDT.")}</p> : null}
           </div>
           <div className="flex items-center justify-between gap-3">
             <h1 className="min-w-0 text-base font-semibold sm:text-lg">{isAr ? "الصفقة" : "Trade"} <bdi dir="ltr">{currencyText(formatTradeId(request.displayNumber, request.tradeId ?? request.id))}</bdi></h1>
@@ -3143,7 +3144,7 @@ function TradeRoomPageSession({
                       : "Your trade has been fully completed and recorded."}
                   </p>
                   <p>
-                    {currencyText(isAr ? "أكد البائع إكمال الصفقة. يمكنك الآن إرسال تقييمك." : "The seller confirmed completion. You can now submit your review.")}
+                    {currencyText(isHistoricalCompletion ? (isAr ? "سجّل مالك المنصة إتمام الصفقة خارج الموقع. يمكنك الآن إرسال تقييمك." : "The owner recorded the offline completion. You can now submit your review.") : (isAr ? "أكد البائع إكمال الصفقة. يمكنك الآن إرسال تقييمك." : "The seller confirmed completion. You can now submit your review."))}
                   </p>
                   <p>
                     {isAr
@@ -3244,7 +3245,7 @@ function TradeRoomPageSession({
               {isSeller ? (
                 <div className="rounded-xl border border-emerald-400/30 bg-black/20 p-4">
                   <p className="font-medium text-white">{isAr ? "تم إغلاق الصفقة كمكتملة" : "Trade closed as completed"}</p>
-                  <p className="commission-notice mt-1 text-sm">{isAr ? "يمكنك تقييم المشتري أو العودة للرئيسية. تبقى العمولة مستحقة حتى السداد." : "You can review the buyer or return home. Commission remains due until paid."}</p>
+                  <p className="commission-notice mt-1 text-sm">{isHistoricalCompletion ? (isAr ? "يمكنك تقييم المشتري أو العودة للرئيسية." : "You can review the buyer or return home.") : (isAr ? "يمكنك تقييم المشتري أو العودة للرئيسية. تبقى العمولة مستحقة حتى السداد." : "You can review the buyer or return home. Commission remains due until paid.")}</p>
                   {request.sellerBuyerReview ? <p className="mt-3">{isAr ? "تم حفظ تقييمك للمشتري" : "Your buyer review is saved"} · {request.sellerBuyerReview.rating}/5</p> : (
                     <details className="mt-3">
                       <summary className="cursor-pointer rounded-xl border border-white/20 p-3 font-semibold">{isAr ? "قيّم المشتري" : "Review buyer"}</summary>
@@ -3261,7 +3262,13 @@ function TradeRoomPageSession({
                   <Button type="button" variant="secondary" className="mt-3 min-h-11 w-full" disabled={actionBusy || reviewBusy} onClick={() => router.push("/usdt-exchange")}>{isAr ? "العودة للرئيسية" : "Return home"}</Button>
                 </div>
               ) : null}
-              {isFaceToFaceTrade || isCardlessAtmTrade ? (
+              {isHistoricalCompletion ? (
+                <div data-testid="historical-completion" className="space-y-2">
+                  <p>{isAr ? "سجّل مالك المنصة إتمام هذه الصفقة خارج الموقع." : "The owner recorded this trade as completed offline."}</p>
+                  <p>{currencyText(isAr ? `وقت تسجيل مالك المنصة: ${new Date(request.historicalCompletionSummary!.recordedAt).toLocaleString(dateLocale)}` : `Recorded by owner: ${new Date(request.historicalCompletionSummary!.recordedAt).toLocaleString(dateLocale)}`)}</p>
+                  <p>{isAr ? "لم يُسجّل وقت الإتمام الفعلي خارج الموقع." : "The actual offline completion time was not recorded."}</p>
+                </div>
+              ) : isFaceToFaceTrade || isCardlessAtmTrade ? (
                 <>
                   <p>{isCardlessAtmTrade
                     ? (isAr ? "تم تسجيل صفقة السحب دون بطاقة كمكتملة." : "The Cardless ATM trade has been recorded as complete.")
