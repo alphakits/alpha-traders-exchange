@@ -12312,6 +12312,34 @@ type ClosePurchaseRequestInput = {
   explanation?: string;
 };
 
+/** Legacy manual closure must observe the same payment boundary as cancellation. */
+function assertManualTradeCloseAllowed(db: AlphaExchangeDb, request: PurchaseRequest, input: ClosePurchaseRequestInput) {
+  const actor = db.users.find((user) => user.id === input.actorUserId);
+  const isParticipant = request.buyerId === input.actorUserId || request.sellerId === input.actorUserId;
+  const isAdmin = Boolean(actor && (hasRole(actor, "admin") || hasRole(actor, "owner")));
+  if (!actor || actor.disabled || (!isParticipant && !isAdmin)) {
+    throw new Error("You are not allowed to close this trade.");
+  }
+  if (request.status === "review_open" || request.status === "completed" || request.status === "locked") {
+    throw new Error("Completed trades cannot be closed manually.");
+  }
+  if (request.status === "declined") throw new Error("Declined trades cannot be closed again.");
+  if (request.status === "cancelled" && request.closedAt) return actor.role;
+  if (!isAdmin && request.status !== "pending") {
+    throw new Error("Trades cannot be closed manually after seller acceptance.");
+  }
+  if (request.buyerId === input.actorUserId && hasRevealedBankDetails(request)) {
+    throw new TradeBlockedError("buyer-cancellation-locked", "Bank details have been revealed. Only the seller can cancel while the trade is unpaid.", request.id);
+  }
+  if (db.disputes.some((dispute) => dispute.purchaseRequestId === request.id && dispute.status === "open")) {
+    throw new TradeBlockedError("trade-disputed", "This trade is paused while an admin reviews the open dispute.", request.id);
+  }
+  // The owner retains the dedicated, reasoned override; this legacy route
+  // must not let a stale pending status bypass stored evidence or disclosure.
+  assertTradeCanBeForceClosed(db, request);
+  return actor.role;
+}
+
 export async function closePurchaseRequestManually(input: ClosePurchaseRequestInput): Promise<PurchaseRequest> {
   return closePurchaseRequestManuallyAttempt(input, 0);
 }
@@ -12324,27 +12352,13 @@ async function closePurchaseRequestManuallyAttempt(
   const requestIndex = db.purchaseRequests.findIndex((item) => item.id === input.requestId);
   if (requestIndex === -1) throw new Error("Trade not found.");
   const request = db.purchaseRequests[requestIndex];
-  const isParticipant = request.buyerId === input.actorUserId || request.sellerId === input.actorUserId;
-  const isAdmin = input.actorRole === "admin" || input.actorRole === "owner";
-  if (!isParticipant && !isAdmin) {
-    throw new Error("You are not allowed to close this trade.");
-  }
-  if (request.status === "review_open" || request.status === "completed" || request.status === "locked") {
-    throw new Error("Completed trades cannot be closed manually.");
-  }
-  if (request.status === "declined") {
-    throw new Error("Declined trades cannot be closed again.");
-  }
+  const actorRole = assertManualTradeCloseAllowed(db, request, input);
   if (request.status === "cancelled" && request.closedAt) {
     // A retry can read legacy payload fields. Apply the same participant DTO
     // projection as the normal path so a repeated close cannot expose old
     // Buyer contact metadata or user-authored direct-contact content.
-    return sanitizePurchaseRequestForActor(enrichRequestWithEvidence(db, request, input.actorUserId), input.actorUserId, input.actorRole);
+    return sanitizePurchaseRequestForActor(enrichRequestWithEvidence(db, request, input.actorUserId), input.actorUserId, actorRole);
   }
-  if (!isAdmin && request.status !== "pending") {
-    throw new Error("Trades cannot be closed manually after seller acceptance.");
-  }
-  if (isAdmin) assertTradeCanBeForceClosed(db, request);
 
   const closeReason = String(input.reason ?? "").trim();
   const closeExplanation = String(input.explanation ?? "").trim();
@@ -12354,7 +12368,6 @@ async function closePurchaseRequestManuallyAttempt(
   assertNoExchangeDirectContact(closeReason, closeExplanation);
 
   const now = nowIso();
-  const actorRole = resolveActorRole(db, input.actorUserId);
   const archivedActionReminders = archiveSatisfiedTradeActionReminders(db, request, now);
   const next: PurchaseRequest = {
     ...request,
@@ -12396,8 +12409,18 @@ async function closePurchaseRequestManuallyAttempt(
         updatedAt: listing.updatedAt,
       }
     : null;
+  const publications: DeferredNotificationPublication[] = [];
   if (listing && listing.activeTradeRequestId === request.id) {
-    await unlockListingAfterCancelledTrade(db, listing, input.actorUserId, request, closeReason);
+    // Releasing an expired listing also creates notifications. Keep those
+    // queued with the close alerts until canonical payment guards commit.
+    tradeMutationPublications.set(db, {
+      notifications: publications, trustNotifications: [], trustEvents: [], promotionEmails: [], calculatingTrust: false,
+    });
+    try {
+      await unlockListingAfterCancelledTrade(db, listing, input.actorUserId, request, closeReason);
+    } finally {
+      tradeMutationPublications.delete(db);
+    }
   }
 
   db.purchaseRequests[requestIndex] = next;
@@ -12416,7 +12439,7 @@ async function closePurchaseRequestManuallyAttempt(
   const participantRecipientIds = [request.buyerId, request.sellerId];
   for (const recipientUserId of new Set(participantRecipientIds)) {
     const closedByRecipient = recipientUserId === input.actorUserId;
-    pushNotification(db, {
+    const publication = pushNotification(db, {
       userId: recipientUserId,
       category: "trade",
       title: "Trade closed",
@@ -12429,7 +12452,9 @@ async function closePurchaseRequestManuallyAttempt(
       relatedListingId: request.listingId,
       relatedHref: requestDetailsHref(request.id),
       whatsappEvent: "trade_cancelled",
+      deferRealtime: true,
     });
+    if (publication) publications.push(publication);
   }
 
   try {
@@ -12445,7 +12470,7 @@ async function closePurchaseRequestManuallyAttempt(
         ) {
           throw new ConcurrentTradeMutationError();
         }
-        if (isAdmin && hasIrreversibleTradeProgress(canonicalSnapshot, canonicalRequest)) {
+        if (assertManualTradeCloseAllowed(canonicalSnapshot, canonicalRequest, input) !== actorRole) {
           throw new ConcurrentTradeMutationError();
         }
         const canonicalListing = canonicalSnapshot.marketplaceListings.find((candidate) => candidate.id === request.listingId);
@@ -12476,6 +12501,7 @@ async function closePurchaseRequestManuallyAttempt(
     throw error;
   }
   const enriched = enrichRequestWithEvidence(db, db.purchaseRequests[requestIndex]);
+  for (const publication of publications) publishNotificationPublication(publication);
   publishArchivedTradeActionReminders(archivedActionReminders);
   publishRealtimeEvent({
     type: "trade.status_changed",
@@ -12487,7 +12513,7 @@ async function closePurchaseRequestManuallyAttempt(
       publishedAtEpochMs: Date.now(),
     },
   });
-  return sanitizePurchaseRequestForActor(enriched, input.actorUserId, input.actorRole);
+  return sanitizePurchaseRequestForActor(enriched, input.actorUserId, actorRole);
 }
 
 export async function postTradeRoomMessage(input: {

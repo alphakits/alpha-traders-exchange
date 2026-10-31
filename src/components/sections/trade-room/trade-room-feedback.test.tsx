@@ -939,3 +939,43 @@ it.each(["en", "ar"] as const)("explains the buyer bank-disclosure lock without 
   expect(window.confirm).not.toHaveBeenCalled();
   expect(fetchMock).toHaveBeenCalledTimes(1);
 });
+
+it.each(["en", "ar"] as const)("removes pending manual-close controls when the buyer's bank-disclosure lock arrives in %s", async locale => {
+  const current = room("Bank Transfer", "pending");
+  const fetchMock = vi.fn<typeof fetch>(() => Promise.resolve(Response.json(current)));
+  vi.stubGlobal("fetch", fetchMock);
+  render(<TradeRoomPage locale={locale} requestId="feedback-request" actor={buyer} />);
+  fireEvent.click(await screen.findByRole("button", { name: locale === "ar" ? "إغلاق الصفقة" : "Close Trade" }));
+  const reason = await screen.findByLabelText(locale === "ar" ? "سبب إغلاق الصفقة" : "Trade close reason");
+  fireEvent.change(reason, { target: { value: "Please close this request" } });
+  const disclosed = { ...current, request: { ...current.request,
+    sensitivePaymentKind: "bank_details", sensitivePaymentSharedAt: "2026-09-22T00:00:01.000Z",
+    updatedAt: "2026-09-22T00:00:01.000Z",
+  } };
+  await act(async () => RoomStream.instances.at(-1)!.snapshot(disclosed));
+  expect(screen.queryByLabelText(locale === "ar" ? "سبب إغلاق الصفقة" : "Trade close reason")).toBeNull();
+  expect(screen.queryByRole("button", { name: locale === "ar" ? "تأكيد الإغلاق اليدوي" : "Confirm Manual Close" })).toBeNull();
+  expect(screen.getByTestId("trade-cancel-action").textContent).toContain(locale === "ar" ? "يمكن للبائع فقط" : "Only the seller");
+  expect(fetchMock.mock.calls.every(([, init]) => !init?.method)).toBe(true);
+});
+
+it("preserves the seller's pending close control after buyer bank disclosure", async () => {
+  const current = room("Bank Transfer", "pending");
+  Object.assign(current.request, { sensitivePaymentKind: "bank_details", sensitivePaymentSharedAt: current.request.updatedAt });
+  vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(Response.json(current))));
+  render(<TradeRoomPage locale="en" requestId="feedback-request" actor={seller} />);
+  const close = await screen.findByRole("button", { name: "Close Trade" }) as HTMLButtonElement;
+  expect(close.disabled).toBe(false);
+  fireEvent.click(close);
+  expect(screen.getByLabelText("Trade close reason")).toBeTruthy();
+});
+
+it.each([buyer, seller])("hides pending manual close from $role after recorded payment progress", async actor => {
+  const current = room("Cardless ATM Withdrawal", "pending");
+  Object.assign(current.request, { fundsReceivedAt: current.request.updatedAt });
+  vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(Response.json(current))));
+  render(<TradeRoomPage locale="en" requestId="feedback-request" actor={actor} />);
+  await screen.findByTestId("trade-room-summary");
+  expect(screen.queryByRole("button", { name: "Close Trade" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Confirm Manual Close" })).toBeNull();
+});

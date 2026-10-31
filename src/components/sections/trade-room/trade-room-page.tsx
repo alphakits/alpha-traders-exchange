@@ -2003,6 +2003,8 @@ function TradeRoomPageSession({
   );
   const canShowBuyerReceipt = Boolean(request?.buyerEvidence && (!isSeller || sellerCanViewBuyerReceipt));
   const sellerEvidenceUploadOpen = Boolean(isSeller && request?.status === "usdt_release_pending");
+  const canManuallyCloseTrade = Boolean(request?.status === "pending" && !room?.hasOpenDispute
+    && (canBuyerCancelTrade(request, actor.id) || canSellerCancelTrade(request, actor.id)));
   const activeTimeline = useMemo(
     () => groupTradeTimelineEntries(request?.timeline ?? [], isAr),
     [isAr, request?.timeline],
@@ -2728,7 +2730,7 @@ function TradeRoomPageSession({
   }, [actionBusy, actor.id, confirmAction, handleStatusUpdate, isAr, request, room?.hasOpenDispute]);
 
   const handleManualCloseTrade = useCallback(async () => {
-    if (!request || manualCloseBusy) return;
+    if (!request || !canManuallyCloseTrade || manualCloseBusy || !isConfirmedTradeCurrent(request)) return;
     const reason = manualCloseReason.trim();
     const explanation = manualCloseExplanation.trim();
     if (!reason) {
@@ -2769,7 +2771,7 @@ function TradeRoomPageSession({
       setManualCloseBusy(false);
       void fetchRoom(true);
     }
-  }, [actor.id, fetchRoom, isAr, manualCloseBusy, manualCloseExplanation, manualCloseReason, request, requestId, room, setStatusMessage]);
+  }, [actor.id, canManuallyCloseTrade, fetchRoom, isAr, isConfirmedTradeCurrent, manualCloseBusy, manualCloseExplanation, manualCloseReason, request, requestId, room, setStatusMessage]);
 
   const handleSubmitBuyerReview = useCallback(async () => {
     if (actionBusy || Boolean(actionInFlightRef.current)) {
@@ -3529,7 +3531,7 @@ function TradeRoomPageSession({
                   </div>
                 ) : null}
 
-                {request.status === "pending" ? (
+                {canManuallyCloseTrade ? (
                   <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-3">
                     <div className="flex items-center justify-between gap-2">
                       <p className="text-sm text-red-100">{isAr ? "إغلاق يدوي للصفقة" : "Manual trade close"}</p>
