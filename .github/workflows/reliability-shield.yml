@@ -362,12 +362,12 @@ jobs:
           if-no-files-found: error
           retention-days: 14
       - name: Repeat bilingual chat scroll containment without retries
-        if: matrix.shard == 4
+        if: matrix.shard == 2
         env:
           PLAYWRIGHT_JSON_OUTPUT_FILE: test-results/webkit-scroll-containment.json
         run: node ./node_modules/playwright/cli.js test --config=playwright.webkit.config.ts e2e/trade-room-guided-flow-hardening.spec.ts --grep="commission notices and mixed-language chat" --repeat-each=3 --retries=0 --max-failures=1 --reporter=list,json
       - name: Preserve repeated chat scroll evidence
-        if: always() && matrix.shard == 4
+        if: always() && matrix.shard == 2
         uses: actions/upload-artifact@v4
         with:
           name: webkit-scroll-containment
