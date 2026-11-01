@@ -38,6 +38,7 @@ import { useWorkspaceViewport } from "@/components/sections/usdt-exchange/use-de
 import { BuyerRankCard } from "@/components/ui/buyer-rank-card";
 import { SellerRankCard } from "@/components/ui/seller-rank-card";
 import { useSellerRankSummary } from "@/components/sections/usdt-exchange/use-seller-rank-summary";
+import { useBuyerRankSummary } from "@/components/sections/usdt-exchange/use-buyer-rank-summary";
 import { RankBadge, RankEmblem } from "@/components/ui/rank-badge";
 import { accountRoleIdentity } from "@/lib/account-role-identity";
 import { rankSurfaceTone } from "@/lib/rank-identity";
@@ -85,7 +86,6 @@ import { isRequestableMarketplaceListing } from "@/lib/requestable-listing";
 import { compareMarketplaceSellers } from "@/lib/marketplace-seller-order";
 import { cn } from "@/lib/utils";
 import { getOfficialOwnerWhatsAppUrl } from "@/lib/official-contact";
-import { deriveBuyerRankSummary, type BuyerRankSummary } from "@/lib/buyer-rank";
 import { purchaseBlockDestination, readPurchaseResponse } from "@/lib/purchase-response";
 import { navigateAfterSuccess } from "@/lib/client-success-navigation";
 import { isPayoutBankSupported, syncListingBankSelection } from "@/lib/seller-listing-bank-selection";
@@ -1382,7 +1382,6 @@ export function UsdtExchangePage({
   const { confirmAction, actionDialog } = useActionDialog(isAr, `${sessionUser?.id ?? "signed-out"}:${canonicalSession?.isResolving ?? false}`);
   const interfaceAccess = getInterfaceAccess(sessionUser);
   const buyRequestsHref = buyRequestsDestination(sessionUser, usdtRequestsEnabled);
-  const [buyerProfileSummary, setBuyerProfileSummary] = useState<BuyerRankSummary | null>(null);
   const [listings, setListings] = useState<MarketplaceListing[]>([]);
   // The server-backed session is authoritative for seller-application eligibility.
   // The initial value is only a bootstrap snapshot and can have stale roles.
@@ -1763,39 +1762,11 @@ export function UsdtExchangePage({
     fetchProfile: tracedReadFetch,
   });
 
-  const refreshBuyerProfileSummary = useCallback(async () => {
-    if (!sessionUser || hasSellerWorkspaceAccess) {
-      setBuyerProfileSummary(null);
-      return;
-    }
-
-    try {
-      const response = await tracedReadFetch("Buyer profile summary loading", "/api/auth/profile", { cache: "no-store" });
-      if (!response.ok) {
-        setWorkspaceError(safeErrorMessage("workspace", isAr));
-        return;
-      }
-      const payload = (await response.json()) as {
-        stats?: {
-          kind?: string;
-          activeTrades?: number;
-          completedTrades?: number;
-          reviewsGiven?: number;
-          lifetimeCompletedVolumeUsdt?: number;
-        };
-      };
-      if (payload.stats?.kind !== "buyer") return;
-      setBuyerProfileSummary(deriveBuyerRankSummary({
-        activeTrades: Number(payload.stats.activeTrades ?? 0),
-        completedTrades: Number(payload.stats.completedTrades ?? 0),
-        reviewsGiven: Number(payload.stats.reviewsGiven ?? 0),
-        lifetimeCompletedVolumeUsdt: Number(payload.stats.lifetimeCompletedVolumeUsdt ?? 0),
-      }));
-    } catch {
-      // Preserve current state and disclose that the live summary is not ready.
-      setWorkspaceError(safeErrorMessage("workspace", isAr));
-    }
-  }, [hasSellerWorkspaceAccess, isAr, sessionUser, tracedReadFetch]);
+  const { summary: buyerProfileSummary, error: buyerRankError } = useBuyerRankSummary({
+    buyerId: !hasSellerWorkspaceAccess && !isSessionResolving && sessionUser && accountRoleIdentity(sessionUser) === "buyer" ? sessionUser.id : undefined,
+    requests: myRequests,
+    fetchProfile: tracedReadFetch,
+  });
 
   useEffect(() => () => {
     for (const timer of discordSharePollTimersRef.current) window.clearTimeout(timer);
@@ -2541,11 +2512,6 @@ export function UsdtExchangePage({
     if (isSessionResolving) return;
     setNotificationsInitialized(true);
   }, [isSessionResolving, notificationsInitialized, sessionUser]);
-
-  useEffect(() => {
-    if (!sessionUser || hasSellerWorkspaceAccess) return;
-    void refreshBuyerProfileSummary();
-  }, [hasSellerWorkspaceAccess, myRequests, refreshBuyerProfileSummary, sessionUser]);
 
   useEffect(() => {
     if (!sessionUser || !notificationsInitialized) return;
@@ -5205,7 +5171,7 @@ export function UsdtExchangePage({
             workspace={integrateWorkspace ? workspaceNavigation : undefined}
           >
               {welcomeRole === "buyer" ? (
-                <BuyerRankCard summary={buyerProfileSummary} locale={isAr ? "ar" : "en"} />
+                <BuyerRankCard summary={buyerProfileSummary} error={buyerRankError} locale={isAr ? "ar" : "en"} />
               ) : null}
               {welcomeRole === "approved_seller" ? (
                 <SellerRankCard summary={sellerRankSummary} error={sellerRankError} locale={isAr ? "ar" : "en"} />
@@ -5225,7 +5191,7 @@ export function UsdtExchangePage({
                 </div>
                 <div className="rounded-2xl border border-white/10 bg-black/25 p-3">
                   <p className="text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF]">{welcomeRole === "approved_seller" ? (isAr ? "مستوى البائع" : "Seller Level") : welcomeRole === "buyer" ? (isAr ? "رتبة المشتري" : "Buyer Rank") : (isAr ? "دور الحساب" : "Account Role")}</p>
-                  <div className="mt-2">{welcomeRole === "approved_seller" ? <RankBadge rank={sellerRankSummary?.sellerLevel ?? sellerOverviewStats.reputation?.level} locale={isAr ? "ar" : "en"} audience="seller" /> : welcomeRole === "buyer" ? <RankBadge rank={buyerProfileSummary?.key} locale={isAr ? "ar" : "en"} audience="buyer" /> : <RoleBadge variant={welcomeRole} locale={isAr ? "ar" : "en"} />}</div>
+                  <div className="mt-2">{welcomeRole === "approved_seller" ? <RankBadge rank={sellerRankSummary?.sellerLevel ?? sellerOverviewStats.reputation?.level} locale={isAr ? "ar" : "en"} audience="seller" /> : welcomeRole === "buyer" ? (buyerProfileSummary ? <RankBadge rank={buyerProfileSummary.key} locale={isAr ? "ar" : "en"} audience="buyer" /> : null) : <RoleBadge variant={welcomeRole} locale={isAr ? "ar" : "en"} />}</div>
                 </div>
                 <div className="rounded-2xl border border-white/10 bg-black/25 p-3">
                   <p className="text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF]">{welcomeRole === "owner" ? (isAr ? "هوية المالك العامة" : "Public owner identity") : (isAr ? "معرّف AT" : "AT ID")}</p>

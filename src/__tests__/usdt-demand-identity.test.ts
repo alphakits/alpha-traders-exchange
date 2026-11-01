@@ -100,13 +100,15 @@ describe("request counterparty public facts", () => {
     expect(identity()).toMatchObject({ completedPurchases: 6, buyerProgress: { rank: "silver", nextRank: "gold", progressPercent: 0 } });
   });
 
-  it("rounds summed completed purchase volume consistently with the account buyer profile", async () => {
+  it("retains exact purchase volume consistently across account, public profile and request identity", async () => {
     db.purchaseRequests.push(purchase("buyer", "seller", "completed", "14999.994"), purchase("buyer", "seller", "completed", "0.002"));
     install();
     const account = await getAccountProfileData("buyer");
     expect(account.stats.kind).toBe("buyer");
-    expect(account.stats).toMatchObject({ buyerLevel: "silver", lifetimeCompletedVolumeUsdt: 15000 });
-    expect(identity().buyerProgress).toEqual({ rank: "silver", nextRank: "gold", progressPercent: 0 });
+    expect(account.stats).toMatchObject({ buyerLevel: "bronze", lifetimeCompletedVolumeUsdt: 14999.996, amountToNextLevelUsdt: 0.004 });
+    expect(identity().buyerProgress).toEqual({ rank: "bronze", nextRank: "silver", progressPercent: 100 });
+    const publicProfile = await getPublicUserProfileRouteData({ username: profileRoutes.publicAccountUsername("buyer"), viewerUserId: "seller" });
+    expect(publicProfile?.profile.buyerRank).toBe("bronze");
   });
 
   it("matches the real seller profile rank from completed outcomes", async () => {

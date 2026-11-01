@@ -1846,7 +1846,9 @@ function mergeMatchingPurchaseRequest(latest: PurchaseRequest, incoming: Purchas
   // because terminal cancellation has the greater ordinary lifecycle rank.
   const predatesHistoricalCompletion = latest.historicalCompletion
     && !matchesHistoricalOperation(latest.historicalCompletion, incoming.historicalCompletion);
-  const preferred = predatesHistoricalCompletion ? latest : incomingRank !== latestRank
+  const predatesBuyerVolumeCredit = latest.buyerVolumeCredit
+    && !isDeepStrictEqual(latest.buyerVolumeCredit, incoming.buyerVolumeCredit);
+  const preferred = predatesHistoricalCompletion || predatesBuyerVolumeCredit ? latest : incomingRank !== latestRank
     ? (incomingRank > latestRank ? incoming : latest)
     : (incomingUpdatedAt > latestUpdatedAt ? incoming : latest);
   return {
@@ -1874,6 +1876,19 @@ function mergeMatchingPurchaseRequest(latest: PurchaseRequest, incoming: Purchas
       reviewUnlockedAt: latest.reviewUnlockedAt,
       buyerSafetyAcknowledged: latest.buyerSafetyAcknowledged,
       sellerSafetyAcknowledged: latest.sellerSafetyAcknowledged,
+      updatedAt: newerIsoValue(latest.updatedAt, incoming.updatedAt) ?? latest.updatedAt,
+    } : {}),
+    ...(latest.buyerVolumeCredit ? {
+      // A background writer cannot erase or retarget an owner-attested buyer
+      // credit. Deliberate corrections use a locked canonical rebase instead.
+      buyerVolumeCredit: latest.buyerVolumeCredit,
+      buyerId: latest.buyerId,
+      sellerId: latest.sellerId,
+      listingId: latest.listingId,
+      tradeId: latest.tradeId,
+      usdtAmount: latest.usdtAmount,
+      status: ["completed", "review_open", "locked"].includes(preferred.status) ? preferred.status : latest.status,
+      completedAt: latest.completedAt,
       updatedAt: newerIsoValue(latest.updatedAt, incoming.updatedAt) ?? latest.updatedAt,
     } : {}),
     // These terms were disclosed when the request was created. An older
@@ -3101,15 +3116,20 @@ export class AlphaExchangeRepository {
     const pool = this.pool;
     if (this.usesMemoryFallback || !pool) {
       const source = getLatestAvailableFallbackSnapshot();
+      const requests = source.purchaseRequests.filter((request) => request.buyerId === userId || request.sellerId === userId);
+      const buyerTradeIds = new Set(requests.filter((request) => request.buyerId === userId).map((request) => request.tradeId ?? request.id));
       return attachVersion({
         ...emptySnapshotCollections(),
         users: cloneSnapshot(source.users.filter((user) => user.id === userId)),
         sellerApplications: cloneSnapshot(source.sellerApplications.filter((application) => application.userId === userId)),
         authSessions: cloneSnapshot(source.authSessions.filter((session) => session.userId === userId)),
-        purchaseRequests: cloneSnapshot(source.purchaseRequests.filter((request) => request.buyerId === userId || request.sellerId === userId)),
+        purchaseRequests: cloneSnapshot(requests),
         marketplaceListings: cloneSnapshot(source.marketplaceListings.filter((listing) => listing.sellerId === userId)),
         commissionRecords: cloneSnapshot(source.commissionRecords.filter((record) => record.buyerId === userId || record.sellerId === userId)),
         trustSnapshots: cloneSnapshot(source.trustSnapshots.filter((snapshot) => snapshot.sellerId === userId)),
+        marketplaceEnforcementRecords: cloneSnapshot((source.marketplaceEnforcementRecords ?? []).filter((record) => record.sellerId === userId)),
+        // Legacy fallback reviews predate the durable request.buyerReview field.
+        sellerReviews: cloneSnapshot((source.sellerReviews ?? []).filter((review) => review.buyerId === userId && buyerTradeIds.has(review.tradeId))),
       }, getVersion(source));
     }
 
@@ -3122,7 +3142,8 @@ export class AlphaExchangeRepository {
          coalesce((select jsonb_agg(payload order by sort_index asc) from alpha_exchange.purchase_requests where buyer_id = $1 or seller_id = $1), '[]'::jsonb) as purchase_requests,
          coalesce((select jsonb_agg(payload order by sort_index asc) from alpha_exchange.listings where seller_id = $1), '[]'::jsonb) as listings,
          coalesce((select jsonb_agg(payload order by sort_index asc) from alpha_exchange.commissions where buyer_id = $1 or seller_id = $1), '[]'::jsonb) as commissions,
-         coalesce((select jsonb_agg(payload order by sort_index asc) from alpha_exchange.trust_snapshots where seller_id = $1), '[]'::jsonb) as trust_snapshots`,
+         coalesce((select jsonb_agg(payload order by sort_index asc) from alpha_exchange.trust_snapshots where seller_id = $1), '[]'::jsonb) as trust_snapshots,
+         coalesce((select jsonb_agg(payload order by sort_index asc) from alpha_exchange.marketplace_enforcement_records where seller_id = $1), '[]'::jsonb) as marketplace_enforcement_records`,
       [userId],
     );
     const row = result.rows[0];
@@ -3134,6 +3155,7 @@ export class AlphaExchangeRepository {
       "listings",
       "commissions",
       "trust_snapshots",
+      "marketplace_enforcement_records",
     ] as const satisfies readonly SnapshotTableName[];
     return attachVersion(
       snapshotFromAggregatedRow(row, tableNames),

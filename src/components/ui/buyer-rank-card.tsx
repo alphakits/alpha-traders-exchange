@@ -1,12 +1,19 @@
 import { RankBadge, RankEmblem } from "@/components/ui/rank-badge";
 import { currencyText } from "@/components/ui/currency-text";
-import { deriveBuyerRankSummary, type BuyerRankSummary } from "@/lib/buyer-rank";
+import type { BuyerRankSummary } from "@/lib/buyer-rank";
 
-const initialRank = deriveBuyerRankSummary({ lifetimeCompletedVolumeUsdt: 0, completedTrades: 0, reviewsGiven: 0, activeTrades: 0 });
-
-export function BuyerRankCard({ summary, locale }: { summary?: BuyerRankSummary | null; locale: "en" | "ar" }) {
-  const rank = summary ?? initialRank;
+export function BuyerRankCard({ summary, error = false, locale }: { summary?: BuyerRankSummary | null; error?: boolean; locale: "en" | "ar" }) {
   const isAr = locale === "ar";
+  if (!summary) {
+    return <div className="buyer-rank-hero-card mt-5" role="status" aria-busy={!error}>
+      <p className="text-sm text-[#E0EDFF]">{isAr ? "تقدم رتبة المشتري" : "Buyer rank progress"}</p>
+      <p className="mt-2 text-xs text-[#C6CEDB]">{error
+        ? (isAr ? "تعذر تحميل تقدم المشتريات. أعد تحميل الصفحة للمحاولة مجدداً." : "Purchase progress could not be loaded. Refresh the page to try again.")
+        : (isAr ? "جارٍ تحميل إجمالي مشترياتك ورتبتك…" : "Loading your purchase total and rank…")}</p>
+    </div>;
+  }
+  const rank = summary;
+  const displayedProgress = rank.nextRank && rank.remainingVolumeUsdt > 0 ? Math.min(99, Math.round(rank.progressPercent)) : Math.round(rank.progressPercent);
   return (
     <div className="buyer-rank-hero-card mt-5" data-profile-rank={rank.key}>
       <div className="flex items-center gap-3">
@@ -19,9 +26,9 @@ export function BuyerRankCard({ summary, locale }: { summary?: BuyerRankSummary 
       <p className="mt-3 text-sm leading-relaxed text-[#C6CEDB]">{currencyText(isAr ? rank.descriptionAr : rank.description)}</p>
       <div className="mt-5 rounded-2xl border border-white/10 bg-black/25 p-4">
         <div className="flex items-center justify-between gap-3 text-[10px] uppercase tracking-[0.12em] text-[#B5C3D9]">
-          <span>{isAr ? "التقدم نحو الرتبة التالية" : "Progress to next rank"}</span><span>{Math.round(rank.progressPercent)}%</span>
+          <span>{isAr ? "التقدم نحو الرتبة التالية" : "Progress to next rank"}</span><span>{displayedProgress}%</span>
         </div>
-        <div role="progressbar" aria-label={isAr ? "تقدم رتبة المشتري" : "Buyer rank progress"} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(rank.progressPercent)} className="mt-3 h-2.5 overflow-hidden rounded-full bg-white/10">
+        <div role="progressbar" aria-label={isAr ? "تقدم رتبة المشتري" : "Buyer rank progress"} aria-valuemin={0} aria-valuemax={100} aria-valuenow={displayedProgress} className="mt-3 h-2.5 overflow-hidden rounded-full bg-white/10">
           <div className={`buyer-rank-progress buyer-rank-progress--${rank.key} h-full rounded-full transition-[width] duration-700`} style={{ width: `${rank.progressPercent}%` }} />
         </div>
         <div className="mt-4 grid grid-cols-2 gap-3">
@@ -33,6 +40,7 @@ export function BuyerRankCard({ summary, locale }: { summary?: BuyerRankSummary 
           <RankBadge rank={rank.nextRank ?? rank.key} locale={locale} audience="buyer" />
         </div>
       </div>
+      {error ? <p role="status" className="mt-3 text-xs text-amber-200">{isAr ? "تعذر التحديث. تظهر آخر بيانات تم تحميلها." : "Could not refresh. Showing your last loaded progress."}</p> : null}
     </div>
   );
 }
