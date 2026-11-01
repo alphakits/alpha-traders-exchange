@@ -1,5 +1,6 @@
 "use client";
 
+import { currencyText } from "@/components/ui/currency-text";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { CalendarDays, ChevronDown, Clock3, RefreshCw } from "lucide-react";
@@ -198,7 +199,7 @@ export function NewsPage({ locale, initialFeed, initialNow, eventId }: {
     <div className="section-container py-6 sm:py-9" dir={isAr ? "rtl" : "ltr"}>
       <div className={styles.page}>
         <div className={styles.header}>
-          <h1 className={styles.heading}>{isAr ? "أخبار الدولار" : "USD news"}</h1>
+          <h1 className={styles.heading}>{currencyText(isAr ? "أخبار الدولار" : "USD news")}</h1>
           <Button variant="secondary" size="sm" className={styles.refresh} loading={refreshing} loadingLabel={isAr ? "جارٍ التحقق…" : "Checking…"} aria-label={isAr ? "تحديث الأخبار" : "Refresh news"} onClick={() => { setRefreshFeedback(null); setRefreshKey((value) => value + 1); }}><span className="inline-flex items-center gap-2"><RefreshCw className="h-4 w-4" aria-hidden="true" />{isAr ? "تحديث" : "Refresh"}</span></Button>
         </div>
         {refreshFeedback ? <p role="status" className={`mt-3 text-sm ${refreshFeedback === "failed" ? "text-amber-200" : "text-[#C7CDD6]"}`}>{refreshMessages[refreshFeedback]}</p> : null}

@@ -1,5 +1,6 @@
 "use client";
 
+import { formatMoneyNumber } from "@/lib/accent-text";
 import { useEffect, useId, useState } from "react";
 import { ArrowRight, RefreshCw } from "lucide-react";
 import { Link } from "@/i18n/navigation";
@@ -47,14 +48,14 @@ export function TradeRequestGroups({ requests, userId, side, locale }: {
   }
   return <div className="space-y-8">
     <section aria-labelledby={`${id}-active-trades`}>
-      <h2 id={`${id}-active-trades`} className="mb-4 text-xl font-semibold">{side === "seller" ? (isAr ? "الطلبات النشطة" : "Active requests") : (isAr ? "الطلبات النشطة" : "Active requests")} <span className="text-[#F4D87A]">({groups.active.length})</span></h2>
+      <h2 id={`${id}-active-trades`} className="mb-4 text-xl font-semibold">{side === "seller" ? (isAr ? "الطلبات النشطة" : "Active requests") : (isAr ? "الطلبات النشطة" : "Active requests")} <span className="text-[#F4D87A]">({formatMoneyNumber(groups.active.length)})</span></h2>
       {groups.active.length ? <div className="grid gap-3 md:grid-cols-2">{groups.active.map(request => tradeCard(request))}</div> : <p className="rounded-2xl border border-white/10 p-5 text-sm text-[#9CA3AF]">{isAr ? "لا توجد طلبات نشطة حالياً." : "No active requests right now."}</p>}
     </section>
     <section aria-labelledby={`${id}-completed-trades`}>
-      <h2 id={`${id}-completed-trades`} className="mb-4 text-xl font-semibold">{side === "seller" ? (isAr ? "مبيعاتك المكتملة" : "Your completed sales") : (isAr ? "مشترياتك المكتملة" : "Your completed purchases")} <span className="text-[#9CA3AF]">({groups.completed.length})</span></h2>
+      <h2 id={`${id}-completed-trades`} className="mb-4 text-xl font-semibold">{side === "seller" ? (isAr ? "مبيعاتك المكتملة" : "Your completed sales") : (isAr ? "مشترياتك المكتملة" : "Your completed purchases")} <span className="text-[#9CA3AF]">({formatMoneyNumber(groups.completed.length)})</span></h2>
       {groups.completed.length ? <div className="grid gap-3 md:grid-cols-2">{groups.completed.map(request => tradeCard(request, true))}</div> : <p className="rounded-2xl border border-white/10 p-5 text-sm text-[#9CA3AF]">{isAr ? "ستظهر صفقاتك المكتملة هنا." : "Your completed trades will appear here."}</p>}
     </section>
-    {groups.closed.length ? <details className="rounded-2xl border border-white/10 p-4"><summary className="cursor-pointer py-2 text-sm text-[#9CA3AF]">{isAr ? "الطلبات الملغاة والمرفوضة" : "Cancelled and declined requests"} ({groups.closed.length})</summary><div className="mt-4 grid gap-3 md:grid-cols-2">{groups.closed.map(request => tradeCard(request))}</div></details> : null}
+    {groups.closed.length ? <details className="rounded-2xl border border-white/10 p-4"><summary className="cursor-pointer py-2 text-sm text-[#9CA3AF]">{isAr ? "الطلبات الملغاة والمرفوضة" : "Cancelled and declined requests"} ({formatMoneyNumber(groups.closed.length)})</summary><div className="mt-4 grid gap-3 md:grid-cols-2">{groups.closed.map(request => tradeCard(request))}</div></details> : null}
   </div>;
 }
 

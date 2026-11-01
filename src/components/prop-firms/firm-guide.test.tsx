@@ -31,7 +31,7 @@ describe("visitor account-selection and payout flow", () => {
     expect(cost.textContent).toContain("$49");
     expect(cost.textContent).toContain("$149 per XFA");
     field("topstep-billing", "no-activation");
-    fireEvent.click(screen.getByRole("button", { name: "150K" }));
+    fireEvent.click(screen.getByRole("button", { name: "$150,000" }));
     expect(cost.textContent).toContain("$229");
     expect(cost.textContent).toContain("$0 per XFA");
     expect(new URL(window.location.href).searchParams.get("size")).toBe("150000");
@@ -43,7 +43,7 @@ describe("visitor account-selection and payout flow", () => {
     fireEvent.click(screen.getByRole("button", { name: locale === "en" ? "Calculate" : "احسب النتيجة" }));
     const calculator = document.getElementById("payout-calculator")!;
     expect(calculator.textContent).toContain("$1,770");
-    fireEvent.click(screen.getByRole("button", { name: "100K" }));
+    fireEvent.click(screen.getByRole("button", { name: "$100,000" }));
     expect(document.getElementById("payout-calculator")!.textContent).not.toContain("$1,770");
     expect((document.getElementById("payout-profit") as HTMLInputElement).value).toBe("");
   });
@@ -53,9 +53,9 @@ describe("visitor account-selection and payout flow", () => {
     vi.stubGlobal("navigator", { ...navigator, clipboard: { writeText } });
     guide({ initialProgram: firm.programs[1].id, initialSize: 150000 });
     expect((document.getElementById("firm-program") as HTMLSelectElement).value).toBe(firm.programs[1].id);
-    expect(screen.getByRole("button", { name: "150K" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByRole("button", { name: "$150,000" }).getAttribute("aria-pressed")).toBe("true");
     expect(document.getElementById("payout-bestDay")).not.toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "100K" }));
+    fireEvent.click(screen.getByRole("button", { name: "$100,000" }));
     fireEvent.click(screen.getByRole("button", { name: "Share this guide" }));
     await screen.findByRole("button", { name: "Link copied" });
     const copied = new URL(writeText.mock.calls[0][0]);
@@ -68,10 +68,10 @@ describe("visitor account-selection and payout flow", () => {
     const mffu = propFirms.find(f => f.slug === "my-funded-futures")!;
     guide({ firm: mffu, initialProgram: "missing", initialSize: -1 });
     expect((document.getElementById("firm-program") as HTMLSelectElement).value).toBe("rapid");
-    expect(screen.getByRole("button", { name: "50K" }).getAttribute("aria-pressed")).toBe("true");
-    fireEvent.click(screen.getByRole("button", { name: "150K" }));
+    expect(screen.getByRole("button", { name: "$50,000" }).getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(screen.getByRole("button", { name: "$150,000" }));
     field("firm-program", "rapid-eod");
-    expect(screen.queryByRole("button", { name: "150K" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "$150,000" })).toBeNull();
     expect(document.querySelectorAll('button[aria-pressed="true"]')).toHaveLength(1);
     expect(document.body.textContent).not.toMatch(/NaN|undefined/);
   });
@@ -82,7 +82,7 @@ describe("visitor account-selection and payout flow", () => {
     field("payout-dashboardAvailable", "1000"); field("payout-share", "90"); field("payout-requested", "1000"); field("payout-fee", "30");
     fireEvent.click(screen.getByRole("button", { name: "Calculate" }));
     const calculator = document.getElementById("payout-calculator")!;
-    expect(within(calculator).getByText("$870")).toBeTruthy();
+    expect(within(calculator).getByText("$870", { selector: "strong" })).toBeTruthy();
     expect(calculator.textContent).toContain("This is not a payout approval");
     expect(calculator.textContent).not.toContain("The numerical conditions are met");
     field("payout-fee", "901");

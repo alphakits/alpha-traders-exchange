@@ -34,7 +34,7 @@ export const CryptoMarketCard = memo(function CryptoMarketCard({ symbol, locale 
       <span className="rounded-md bg-white/5 px-2 py-1 text-xs text-[#BFC6CF]">5m</span>
     </div>
     <p className="mt-2 truncate text-2xl font-semibold tabular-nums tracking-tight text-emerald-300" data-chart-price>
-      <bdi dir="ltr">{last ? `$${last.close.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "—"}</bdi>
+      <bdi dir="ltr">{currencyText(last ? `$${last.close.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "—")}</bdi>
     </p>
     <div className="mt-3 min-h-[112px]" data-chart-viewport>
       {chart ? <CandlestickChart candles={chart.candles} label={label} locale={locale} /> : <div className="flex aspect-[356/148] items-center justify-center text-center text-xs text-[#9CA3AF]">
@@ -65,9 +65,9 @@ function ReferenceMarketCard({ snapshot, locale }: { snapshot: MarketSnapshot | 
       <p className="text-xs font-medium tracking-wide text-[#F4D87A]"><bdi dir="ltr">{currencyText("USD / ILS")}</bdi></p>
       <span className="rounded-md bg-white/5 px-2 py-1 text-xs text-[#BFC6CF]">5m</span>
     </div>
-    <p className="mt-2 text-2xl font-semibold tabular-nums tracking-tight text-emerald-300"><bdi dir="ltr">{price ? `₪${price.toFixed(5)}` : "—"}</bdi></p>
+    <p className="mt-2 text-2xl font-semibold tabular-nums tracking-tight text-emerald-300"><bdi dir="ltr">{currencyText(price ? `₪${price.toFixed(5)}` : "—")}</bdi></p>
     <div className="mt-3 min-h-[112px]">
-      {candles.length ? <CandlestickChart candles={candles} label="USD / ILS" locale={locale} reference /> : <div className="flex aspect-[356/148] items-center justify-center text-xs text-[#9CA3AF]">{isAr ? "بانتظار سعر مرجعي محدّث" : "Waiting for a fresh reference"}</div>}
+      {candles.length ? <CandlestickChart candles={candles} label="USD / ILS" locale={locale} reference /> : <div className="flex aspect-[356/148] items-center justify-center text-xs text-[#9CA3AF]">{currencyText(isAr ? "بانتظار سعر مرجعي محدّث" : "Waiting for a fresh reference")}</div>}
     </div>
     <p className="mt-2 text-xs text-[#9CA3AF]">{currencyText(isAr ? "مرجع USD/ILS لعروض USDT · عينات ٥ دقائق" : "USD/ILS benchmark for USDT listings · 5m samples")}</p>
     <p className="mt-1 text-xs text-[#858D99]">{snapshot?.pairs.usdtIls.source} · {timestamp ? new Date(timestamp).toLocaleTimeString(locale, { hour12: false }) : "—"}</p>

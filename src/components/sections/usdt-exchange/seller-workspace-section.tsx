@@ -1,4 +1,5 @@
 "use client";
+import { formatMoneyNumber } from "@/lib/accent-text";
 import { sellerFeeResponsibilityNotice } from "@alpha-traders/contracts";
 import { WiseAccountSelect, type WiseAccountSummary } from "./wise-account-select";
 import { UserPresence } from "@/components/ui/user-presence";
@@ -64,7 +65,7 @@ function ListingCreateSection({
         <span aria-hidden="true" className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[#C9A227]/35 bg-[#C9A227]/10 text-sm font-semibold text-[#D4AF37]">
           {number}
         </span>
-        <h4 id={id} tabIndex={-1} className="min-w-0 flex-1 scroll-mt-28 text-base font-semibold leading-6 text-white outline-none">{title}</h4>
+        <h4 id={id} tabIndex={-1} className="min-w-0 flex-1 scroll-mt-28 text-base font-semibold leading-6 text-white outline-none">{currencyText(title)}</h4>
         <span aria-hidden="true" className="shrink-0 text-[#D4AF37]">{icon}</span>
       </div>
       <div className="min-w-0 space-y-4">{children}</div>
@@ -533,8 +534,8 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                       ) : null}
                       <div className="space-y-1 text-xs">
                         <div className="flex justify-between">
-                          <span className="text-red-300">{isAr ? "المبلغ المستحق" : "Amount outstanding"}</span>
-                          <span className="font-bold text-white text-sm">{currencyText(formatUsdt(commissionTotalAmountDue))}</span>
+                          <span className="text-red-300">{currencyText(isAr ? "المبلغ المستحق" : "Amount outstanding")}</span>
+                          <span className="font-bold text-white text-sm">{moneyText(formatUsdt(commissionTotalAmountDue))}</span>
                         </div>
                         {sellerCommissionStatus.relatedTradeDisplayNumber ? (
                           <div className="flex justify-between">
@@ -574,8 +575,8 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
               </HelpDetails>
               {selectedCommissionPayment?.feePolicyVersion === "buyer_seller_1pct_v1" ? (
                 <div className="commission-notice commission-notice-panel space-y-2 rounded-xl border p-3 text-sm">
-                  <p className="commission-notice">{isAr ? "عمولتك كبائع (1%)" : "Your seller fee (1%)"}: <span className="text-emerald-300">{currencyText(formatUsdt(selectedCommissionPayment.sellerFeeAmount ?? 0))}</span></p>
-                  <p>{isAr ? "حصة المشتري المستحقة لألفا (1%)" : "Buyer share payable to Alpha (1%)"}: <span className="text-emerald-300">{currencyText(formatUsdt(selectedCommissionPayment.buyerFeeCollectedAmount ?? 0))}</span></p>
+                  <p className="commission-notice">{isAr ? "عمولتك كبائع (1%)" : "Your seller fee (1%)"}: <span className="text-emerald-300">{formatUsdt(selectedCommissionPayment.sellerFeeAmount ?? 0)}</span></p>
+                  <p>{isAr ? "حصة المشتري المستحقة لألفا (1%)" : "Buyer share payable to Alpha (1%)"}: <span className="text-emerald-300">{formatUsdt(selectedCommissionPayment.buyerFeeCollectedAmount ?? 0)}</span></p>
                   <p className="commission-notice">{currencyText(sellerFeeResponsibilityNotice(isAr ? "ar" : "en"))}</p>
                 </div>
               ) : null}
@@ -609,7 +610,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                               ? (isAr ? "عمولة صادرة عن الإدارة" : "Admin-issued commission")
                               : (isAr ? "سجل العمولة" : "Commission record"))}
                         </span>
-                        <span className="text-[#FDE68A]">{currencyText(formatExactCommissionUsdt(record.paymentAmountDue ?? record.amountDue))}</span>
+                        <span className="text-[#FDE68A]">{moneyText(formatExactCommissionUsdt(record.paymentAmountDue ?? record.amountDue))}</span>
                       </Button>
                     ))}
                   </div>
@@ -649,7 +650,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                 <div className="flex items-center gap-3 rounded-xl border border-[#C9A227]/20 bg-[#C9A227]/5 px-4 py-3 mt-1">
                   <div className="flex-1">
                     <p className="commission-notice text-xs text-[#9CA3AF]">{isAr ? "يجب أن تستلم المنصة" : "Platform must receive"}</p>
-                    <p className="select-all text-2xl font-bold text-white">{currencyText(formatExactCommissionUsdt(commissionPayableAmountDue))}</p>
+                    <p className="select-all text-2xl font-bold text-white">{moneyText(formatExactCommissionUsdt(commissionPayableAmountDue))}</p>
                   </div>
                   <Button
                     type="button"
@@ -673,7 +674,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                 {!isLegacyPendingCommissionPayment ? <CommissionNetworkFeeNotice isAr={isAr} /> : null}
                 {sellerCommissionStatus && sellerCommissionStatus.pendingCount > 1 ? (
                   <p className="commission-notice text-xs text-[#D1D5DB]">
-                    {currencyText(isAr ? `إجمالي المستحق ${formatUsdt(commissionTotalAmountDue)} موزع على ${sellerCommissionStatus.pendingCount} عمولات. هذه الدفعة تسدد العمولة المحددة أعلاه فقط.` : `Total outstanding: ${formatUsdt(commissionTotalAmountDue)} across ${sellerCommissionStatus.pendingCount} commissions. This payment settles only the selected commission above.`)}
+                    {moneyText(isAr ? `إجمالي المستحق ${formatUsdt(commissionTotalAmountDue)} موزع على ${sellerCommissionStatus.pendingCount} عمولات. هذه الدفعة تسدد العمولة المحددة أعلاه فقط.` : `Total outstanding: ${formatUsdt(commissionTotalAmountDue)} across ${sellerCommissionStatus.pendingCount} commissions. This payment settles only the selected commission above.`)}
                   </p>
                 ) : null}
                 <p className="rounded-lg border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-xs leading-5 text-amber-100">
@@ -849,7 +850,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                         <div className="flex-1 min-w-0">
                           <p className="font-semibold text-white text-sm">{isAr ? "محفظة شخصية" : "Personal Wallet"}</p>
                           <p className="text-xs text-[#6B7280] mt-0.5">TronLink · Trust Wallet · SafePal · Ledger</p>
-                          <p className="commission-notice text-xs text-[#9CA3AF] mt-2 leading-relaxed">{isAr ? "أرسل المبلغ الدقيق من محفظتك. نتحقق من الاستلام ونحدّث العمولة تلقائيًا." : "Send the exact amount from your wallet. We verify receipt and update your commission automatically."}</p>
+                          <p className="commission-notice text-xs text-[#9CA3AF] mt-2 leading-relaxed">{currencyText(isAr ? "أرسل المبلغ الدقيق من محفظتك. نتحقق من الاستلام ونحدّث العمولة تلقائيًا." : "Send the exact amount from your wallet. We verify receipt and update your commission automatically.")}</p>
                         </div>
                         <ChevronRight className="mt-3 h-4 w-4 shrink-0 text-[#6B7280] group-hover:text-[#C9A227]" />
                       </button>
@@ -940,9 +941,9 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                           ))}
                         </ol>
                         <p className="text-xs text-[#93C5FD] pt-1">
-                          {isAr
+                          {currencyText(isAr
                             ? "إذا رفضت Binance المبلغ بسبب الحد الأدنى للسحب، استخدم محفظة على الشبكة المختارة أو منصة أخرى. لا تغيّر أو تقرّب المبلغ المطلوب."
-                            : "If Binance rejects the amount because of its withdrawal minimum, use a wallet on the selected network or another exchange. Never change or round the required amount."}
+                            : "If Binance rejects the amount because of its withdrawal minimum, use a wallet on the selected network or another exchange. Never change or round the required amount.")}
                         </p>
                       </div>
                     )}
@@ -1141,7 +1142,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                         disabled={index + 1 > listingStep}
                         onClick={() => changeListingStep((index + 1) as 1 | 2 | 3)}
                         className={cn("alpha-step-tab flex min-h-12 w-full items-center justify-center gap-2 rounded-xl border px-2 py-2 text-sm disabled:opacity-45", listingStep === index + 1 ? "border-[#C9A227]/60 bg-[#C9A227]/10 text-[#F4D87A]" : index + 1 < listingStep ? "border-emerald-400/25 bg-emerald-400/5 text-emerald-200" : "border-white/10 text-[#D1D5DB]")}>
-                        <span aria-hidden="true" className="inline-flex h-5 w-5 shrink-0 items-center justify-center">{index + 1 < listingStep ? <Check className="h-4 w-4" /> : index === 0 ? <Wallet className="h-4 w-4" /> : index === 1 ? <WalletCards className="h-4 w-4" /> : <CheckCircle2 className="h-4 w-4" />}</span>{label}
+                        <span aria-hidden="true" className="inline-flex h-5 w-5 shrink-0 items-center justify-center">{index + 1 < listingStep ? <Check className="h-4 w-4" /> : index === 0 ? <Wallet className="h-4 w-4" /> : index === 1 ? <WalletCards className="h-4 w-4" /> : <CheckCircle2 className="h-4 w-4" />}</span>{currencyText(label)}
                       </button>
                     </li>
                   ))}
@@ -1149,7 +1150,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                 {listingCreateResult?.tone !== "success" ? <div aria-hidden="true" className="h-1 overflow-hidden rounded-full bg-white/10"><div className="alpha-step-progress h-full rounded-full bg-[#D4AF37]" style={{ width: `${listingStep / 3 * 100}%` }} /></div> : null}
                 <div className={cn("min-w-0 space-y-4", listingStep === 3 && "hidden")}>
                   <ListingCreateSection hidden={listingStep !== 1} id="create-amount-heading" number={1} icon={<Wallet className="h-4 w-4" />} title={isAr ? "الكمية والسعر" : "Amount & price"}>
-                    {props.wiseEnabled || isWiseListing ? <div className="space-y-2"><label htmlFor="create-bank-provider" className="block text-sm font-medium">{isAr ? "مسار الدفع والعملة" : "Payment route and currency"}</label><select id="create-bank-provider" value={listingCreateForm.bankTransferProvider ?? "israeli_bank"} onChange={event => setListingCreateForm(previous => ({ ...previous, bankTransferProvider: event.target.value as "israeli_bank" | "wise", currency: event.target.value === "wise" ? "USD" : "ILS", price: "", paymentMethods: ["Bank Transfer"], wiseAccountId: "", bankAccountId: "", bankName: "" }))} className="min-h-11 w-full rounded-lg border border-white/20 bg-[#111] px-3"><option value="israeli_bank">{isAr ? "الطرق المحلية · ILS" : "Local payment methods · ILS"}</option><option value="wise" disabled={!props.wiseEnabled}>{isAr ? "تحويل بنكي ← Wise · USD" : "Bank transfer → Wise · USD"}</option></select>{isWiseListing ? <p className="text-xs text-amber-200">{isAr ? "الأسعار بالدولار؛ لا يوجد تحويل تلقائي من الشيكل ولا ضمان أن USDT يساوي دولارًا واحدًا." : "Prices are in USD; there is no automatic ILS conversion or assumption that 1 USDT equals 1 USD."}</p> : null}</div> : null}
+                    {props.wiseEnabled || isWiseListing ? <div className="space-y-2"><label htmlFor="create-bank-provider" className="block text-sm font-medium">{isAr ? "مسار الدفع والعملة" : "Payment route and currency"}</label><select id="create-bank-provider" value={listingCreateForm.bankTransferProvider ?? "israeli_bank"} onChange={event => setListingCreateForm(previous => ({ ...previous, bankTransferProvider: event.target.value as "israeli_bank" | "wise", currency: event.target.value === "wise" ? "USD" : "ILS", price: "", paymentMethods: ["Bank Transfer"], wiseAccountId: "", bankAccountId: "", bankName: "" }))} className="min-h-11 w-full rounded-lg border border-white/20 bg-[#111] px-3"><option className="currency-money" value="israeli_bank">{isAr ? "الطرق المحلية · ILS" : "Local payment methods · ILS"}</option><option className="currency-money" value="wise" disabled={!props.wiseEnabled}>{isAr ? "تحويل بنكي ← Wise · USD" : "Bank transfer → Wise · USD"}</option></select>{isWiseListing ? <p className="text-xs text-amber-200">{currencyText(isAr ? "الأسعار بالدولار؛ لا يوجد تحويل تلقائي من الشيكل ولا ضمان أن USDT يساوي دولارًا واحدًا." : "Prices are in USD; there is no automatic ILS conversion or assumption that 1 USDT equals 1 USD.")}</p> : null}</div> : null}
                     <div className="grid min-w-0 gap-4 sm:grid-cols-2">
                 <div className="min-w-0 space-y-2">
                   <FieldLabel className="text-sm normal-case tracking-normal" htmlFor="create-available" required>{currencyText(isAr ? "USDT المتاح" : "Available USDT")}</FieldLabel>
@@ -1182,11 +1183,11 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                   <p className={`text-sm transition-colors duration-200 ${
                     listingCreatePriceInvalid ? "text-red-300" : listingCreatePriceValid ? "text-emerald-300" : "text-[#9CA3AF]"
                   }`}>
-                    {currencyText(isWiseListing ? (isAr ? "أدخل السعر المتفق عليه لكل USDT بالدولار USD." : "Enter the agreed USD price per USDT.") : !marketReferenceAvailable ? (isAr ? "بانتظار سعر USD/ILS محدّث" : "Waiting for a fresh USD/ILS quote") : listingCreatePriceInvalid
+                    {isWiseListing ? (isAr ? "أدخل السعر المتفق عليه لكل USDT بالدولار USD." : "Enter the agreed USD price per USDT.") : !marketReferenceAvailable ? (isAr ? "بانتظار سعر USD/ILS محدّث" : "Waiting for a fresh USD/ILS quote") : listingCreatePriceInvalid
                       ? (isAr ? `السعر يتجاوز الحد الأقصى المسموح (${formatIls(maxAllowedListingPrice)}).` : `Price exceeds maximum allowed (${formatIls(maxAllowedListingPrice)}).`)
                       : listingCreatePriceValid
                         ? (isAr ? `السعر صالح. الحد الأقصى المسموح هو ${formatIls(maxAllowedListingPrice)}.` : `Valid price. Maximum allowed is ${formatIls(maxAllowedListingPrice)}.`)
-                        : (isAr ? `أدخل سعراً لا يتجاوز ${formatIls(maxAllowedListingPrice)}.` : `Enter a price up to ${formatIls(maxAllowedListingPrice)}.`))}
+                        : (isAr ? `أدخل سعراً لا يتجاوز ${formatIls(maxAllowedListingPrice)}.` : `Enter a price up to ${formatIls(maxAllowedListingPrice)}.`)}
                   </p>
                 </div>
                 <div className="min-w-0 space-y-2">
@@ -1200,17 +1201,17 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                 </div>
                     </div>
               {!isWiseListing ? <HelpDetails title={isAr ? "سعر السوق وحدود السعر" : "Market price details"} className={listingCreateGuardCardTone}>
-                <p className="text-sm font-semibold text-[#D4AF37]">{isAr ? "حماية سعر السوق المباشر" : "Live Market Price Guard"}</p>
+                <p className="text-sm font-semibold text-[#D4AF37]">{currencyText(isAr ? "حماية سعر السوق المباشر" : "Live Market Price Guard")}</p>
                 <p className={`mt-1 text-sm ${marketReferenceAvailable ? "text-emerald-300" : "text-amber-200"}`}>
                   {marketReferenceAvailable ? (marketSnapshot?.pairs.usdtIls.quoteStatus === "closed" ? (isAr ? "آخر إغلاق" : "LAST CLOSE") : (isAr ? "مباشر" : "LIVE")) : (isAr ? "بانتظار سعر USD/ILS محدّث. النشر متوقف مؤقتاً." : "Waiting for a fresh USD/ILS quote. Publishing is paused.")}
                 </p>
                 <div className="mt-2 grid gap-1 sm:grid-cols-2">
                   <p>{currencyText("USD / ILS")} = <span className="font-semibold text-white">{currencyText(marketPricePerUsdt > 0 ? `₪${marketPricePerUsdt.toFixed(5)}` : "—")}</span></p>
-                  <p>{isAr ? "أقصى سعر للعرض" : "Maximum listing price"}: <span className="font-semibold text-white">{currencyText(marketReferenceAvailable ? formatIls(maxAllowedListingPrice) : "—")}</span></p>
-                  {listingCreateAmount > 0 ? <p className="sm:col-span-2">{moneyText(listingCreateForm.availableAmount)} {currencyText("USDT")} ≈ <span className="font-semibold text-white">{currencyText(formatIls(listingCreateAmount * marketPricePerUsdt))}</span></p> : null}
+                  <p>{currencyText(isAr ? "أقصى سعر للعرض" : "Maximum listing price")}: <span className="font-semibold text-white">{moneyText(marketReferenceAvailable ? formatIls(maxAllowedListingPrice) : "—")}</span></p>
+                  {listingCreateAmount > 0 ? <p className="sm:col-span-2">{moneyText(listingCreateForm.availableAmount)} {currencyText("USDT")} ≈ <span className="font-semibold text-white">{moneyText(formatIls(listingCreateAmount * marketPricePerUsdt))}</span></p> : null}
                 </div>
               </HelpDetails> : null}
-                  <h5 className="border-t border-white/10 pt-4 text-sm font-semibold text-white">{isAr ? "حدود الطلب (USDT)" : "Order limits (USDT)"}</h5>
+                  <h5 className="border-t border-white/10 pt-4 text-sm font-semibold text-white">{currencyText(isAr ? "حدود الطلب (USDT)" : "Order limits (USDT)")}</h5>
                     <div className="grid min-w-0 gap-4 sm:grid-cols-2">
                 <div className="min-w-0 space-y-2">
                   <FieldLabel className="text-sm normal-case tracking-normal" htmlFor="create-min-trade" required>{currencyText(isAr ? "أدنى صفقة (USDT)" : "Minimum Trade (USDT)")}</FieldLabel>
@@ -1388,12 +1389,12 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                   <p className="text-sm font-semibold text-white">{isAr ? "ملخص عرضك" : "Your listing"}</p>
                   <dl className="mt-3 space-y-3 text-sm">
                     <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-                      <dt className="text-[#9CA3AF]">{isAr ? "الكمية المتاحة" : "Available"}</dt>
+                      <dt className="text-[#9CA3AF]">{currencyText(isAr ? "الكمية المتاحة" : "Available")}</dt>
                       <dd data-testid="create-summary-amount" dir="ltr" className="min-w-0 break-words font-medium">{moneyText(listingCreateForm.availableAmount || "0")} {currencyText("USDT")}</dd>
                     </div>
                     <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
                       <dt className="text-[#9CA3AF]">{currencyText(isAr ? "السعر لكل USDT" : "Price per USDT")}</dt>
-                      <dd dir="ltr" className="min-w-0 break-words font-medium">{currencyText(formatListingFiat(listingCreatePrice || 0))}</dd>
+                      <dd dir="ltr" className="min-w-0 break-words font-medium">{moneyText(formatListingFiat(listingCreatePrice || 0))}</dd>
                     </div>
                     <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
                       <dt className="text-[#9CA3AF]">{isAr ? "حدود الصفقة" : "Trade range"}</dt>
@@ -1415,11 +1416,11 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                         <dd className="break-words text-white">{listingCreateSelectedBanks.map((bank) => getIsraeliBankDisplayName(bank, locale)).join(isAr ? "، " : ", ")}</dd>
                       </div>
                     ) : null}
-                    {isWiseListing ? <div className="space-y-1"><dt className="text-[#9CA3AF]">{isAr ? "حساب استلام USD" : "USD receiving account"}</dt><dd><bdi>{props.wiseAccounts?.find(account => account.id === listingCreateForm.wiseAccountId)?.accountHolderName}</bdi> · <bdi dir="ltr">****{props.wiseAccounts?.find(account => account.id === listingCreateForm.wiseAccountId)?.accountLast4}</bdi></dd></div> : null}
+                    {isWiseListing ? <div className="space-y-1"><dt className="text-[#9CA3AF]">{currencyText(isAr ? "حساب استلام USD" : "USD receiving account")}</dt><dd><bdi>{props.wiseAccounts?.find(account => account.id === listingCreateForm.wiseAccountId)?.accountHolderName}</bdi> · <bdi dir="ltr">****{props.wiseAccounts?.find(account => account.id === listingCreateForm.wiseAccountId)?.accountLast4}</bdi></dd></div> : null}
                   </dl>
                   <div className="mt-4 space-y-1 border-t border-white/10 pt-4">
                     <p className="text-sm text-[#9CA3AF]">{isAr ? "القيمة الإجمالية للعرض" : "Total listing value"}</p>
-                    <p data-testid="create-summary-total" dir="ltr" className="break-words text-2xl font-semibold">{currencyText(formatListingFiat(listingCreateTotalIls))}</p>
+                    <p data-testid="create-summary-total" dir="ltr" className="break-words text-2xl font-semibold">{moneyText(formatListingFiat(listingCreateTotalIls))}</p>
                     <p className="commission-notice text-sm text-[#9CA3AF]">{isAr ? "قبل عمولة المنصة على الصفقات المكتملة." : "Before platform commission on completed trades."}</p>
                   </div>
                 </div>
@@ -1443,7 +1444,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                     <AlertTriangle aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0" />
                     <div className="min-w-0 space-y-2 text-sm">
                       <p className="font-medium">
-                        {currencyText(!isWiseListing && !marketReferenceAvailable ? (isAr ? "بانتظار سعر USD/ILS محدّث" : "Waiting for a fresh USD/ILS quote") : listingCreatePriceInvalid ? (isAr ? `السعر يتجاوز الحد الأقصى المسموح (${formatIls(maxAllowedListingPrice)})` : `Price exceeds maximum allowed (${formatIls(maxAllowedListingPrice)})`) : (isAr ? "راجع التفاصيل أدناه قبل الإرسال" : "Check the details below before submitting"))}
+                        {moneyText(!isWiseListing && !marketReferenceAvailable ? (isAr ? "بانتظار سعر USD/ILS محدّث" : "Waiting for a fresh USD/ILS quote") : listingCreatePriceInvalid ? (isAr ? `السعر يتجاوز الحد الأقصى المسموح (${formatIls(maxAllowedListingPrice)})` : `Price exceeds maximum allowed (${formatIls(maxAllowedListingPrice)})`) : (isAr ? "راجع التفاصيل أدناه قبل الإرسال" : "Check the details below before submitting"))}
                       </p>
                       {!listingCreateSelectedMethods.length ? <p className="text-amber-200">{isAr ? "اختر طريقة دفع واحدة على الأقل." : "Choose at least one payment method."}</p> : null}
                       {listingCreateTradeRangeInvalid ? <p className="text-amber-200">{currencyText(isAr ? "يجب أن يكون الحد الأقصى للصفقة أكبر من الحد الأدنى وألا يتجاوز كمية USDT المتاحة." : "Maximum trade must be greater than minimum trade and less than or equal to available USDT.")}</p> : null}
@@ -1601,17 +1602,17 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                 <div className="space-y-3">
                   {sellerRequestSections.action.length ? (
                     <div className="rounded-xl border border-[#C9A227]/35 bg-[#C9A227]/10 px-3 py-2 text-xs font-medium text-[#FDE68A]">
-                      {isAr ? "تحتاج إلى إجراء منك" : "Requires Your Action"} · {sellerRequestSections.action.length}
+                      {isAr ? "تحتاج إلى إجراء منك" : "Requires Your Action"} · {formatMoneyNumber(sellerRequestSections.action.length)}
                     </div>
                   ) : null}
                   {sellerRequestSections.active.length ? (
                     <div className="rounded-xl border border-white/15 bg-black/25 px-3 py-2 text-xs font-medium text-white">
-                      {isAr ? "صفقات نشطة" : "Active Trades"} · {sellerRequestSections.active.length}
+                      {isAr ? "صفقات نشطة" : "Active Trades"} · {formatMoneyNumber(sellerRequestSections.active.length)}
                     </div>
                   ) : null}
                   {sellerRequestSections.waiting.length ? (
                     <div className="rounded-xl border border-[#6CAEFF]/35 bg-[#6CAEFF]/10 px-3 py-2 text-xs font-medium text-[#BFDBFE]">
-                      {isAr ? "قيد الانتظار" : "Waiting"} · {sellerRequestSections.waiting.length}
+                      {isAr ? "قيد الانتظار" : "Waiting"} · {formatMoneyNumber(sellerRequestSections.waiting.length)}
                     </div>
                   ) : null}
                 </div>
@@ -1676,7 +1677,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                   <p>{isAr ? "الشبكات المفضلة" : "Preferred Networks"}: <span className="text-white"><bdi dir="ltr">{currencyText(sessionUser?.preferredNetworks?.join(", ") || "TRC20")}</bdi></span></p>
                   <p>{isAr ? "التقييم" : "Rating"}: <span className="text-white"><bdi dir="ltr">{(sellerOverviewStats.reputation?.rating ?? 4.5).toFixed(2)}</bdi></span></p>
                   <p>{isAr ? "نسبة النجاح" : "Success Rate"}: <span className="text-white"><bdi dir="ltr">{sellerOverviewStats.successRate.toFixed(1)}{isAr ? "٪" : "%"}</bdi></span></p>
-                  <p>{isAr ? "الصفقات المكتملة" : "Completed Trades"}: <span className="text-white"><bdi dir="ltr">{sellerOverviewStats.completedTrades}</bdi></span></p>
+                  <p>{isAr ? "الصفقات المكتملة" : "Completed Trades"}: <span className="text-white"><bdi dir="ltr">{formatMoneyNumber(sellerOverviewStats.completedTrades)}</bdi></span></p>
                   <p>{currencyText(isAr ? "إجمالي حجم USDT" : "Total USDT Volume")}: <span className="text-white"><bdi dir="ltr">{currencyText(`${Math.trunc(sellerOverviewStats.totalUsdtSold).toLocaleString("en-US")} USDT`)}</bdi></span></p>
                   <p>{isAr ? "العروض الحالية" : "Current Listings"}: <span className="text-white"><bdi dir="ltr">{sellerOverviewStats.activeListings}</bdi></span></p>
                   <p>{isAr ? "متوسط وقت الاستجابة" : "Average Response Time"}: <span className="text-white">{currencyText(sellerOverviewStats.averageResponseTime)}</span></p>

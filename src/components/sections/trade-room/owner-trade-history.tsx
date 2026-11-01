@@ -1,5 +1,6 @@
 "use client";
 
+import { formatMoneyNumber } from "@/lib/accent-text";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { FileClock, MessageCircle, ShieldCheck } from "lucide-react";
 import { localizeCardlessWithdrawalMessage, OWNER_TRADE_CHAT_MESSAGE_MAX_LENGTH } from "@alpha-traders/contracts";
@@ -119,7 +120,7 @@ export function OwnerTradeHistoryPage({ locale, requestId }: Props) {
           {isAr ? "العودة إلى طلبات الشراء" : "Back to purchases"}
         </a>
         {loading && !visibleRoom ? <p role="status" className={panelClass}>{isAr ? "جاري تحميل سجل غرفة الصفقة…" : "Loading trade room history…"}</p> : null}
-        {error ? <div role="alert" className={panelClass}><p>{error}</p><Button type="button" variant="secondary" className="mt-3" onClick={() => setAttempt((value) => value + 1)}>{isAr ? "إعادة المحاولة" : "Retry"}</Button></div> : null}
+        {error ? <div role="alert" className={panelClass}><p>{currencyText(error)}</p><Button type="button" variant="secondary" className="mt-3" onClick={() => setAttempt((value) => value + 1)}>{isAr ? "إعادة المحاولة" : "Retry"}</Button></div> : null}
         {visibleRoom ? <OwnerTradeHistory key={requestId} locale={locale} room={visibleRoom} onUpdated={() => setAttempt((value) => value + 1)} /> : null}
       </div>
     </main>
@@ -187,8 +188,8 @@ export function OwnerTradeHistory({ locale, room, onUpdated }: { locale: "ar" | 
       <p className="mt-2 text-xs text-[#9CA3AF]">{t("All times are shown in Israel time.", "جميع الأوقات معروضة حسب توقيت إسرائيل.")}</p>
       <p className="mt-3 text-sm text-emerald-200">{currencyText(statusLabels[request.status])}</p>
       <nav aria-label={t("Trade history sections", "أقسام سجل الصفقة")} className="mt-4 flex flex-wrap gap-2">
-        <a className={linkClass} href="#history-chat"><MessageCircle className="h-4 w-4" aria-hidden="true" />{t("Chat", "المحادثة")} ({messages.length})</a>
-        <a className={linkClass} href="#history-timeline"><FileClock className="h-4 w-4" aria-hidden="true" />{t("Timeline", "السجل الزمني")} ({timeline.length})</a>
+        <a className={linkClass} href="#history-chat"><MessageCircle className="h-4 w-4" aria-hidden="true" />{t("Chat", "المحادثة")} ({formatMoneyNumber(messages.length)})</a>
+        <a className={linkClass} href="#history-timeline"><FileClock className="h-4 w-4" aria-hidden="true" />{t("Timeline", "السجل الزمني")} ({formatMoneyNumber(timeline.length)})</a>
         <a className={linkClass} href="#history-evidence">{t("Evidence & reviews", "الإثباتات والتقييمات")}</a>
         {disputes.length || auditLogs.length ? <a className={linkClass} href="#history-audit">{t("Disputes & audit", "النزاعات وسجل الإجراءات")}</a> : null}
         {onUpdated ? <a className={linkClass} href="#owner-trade-actions">{t("Owner Actions", "إجراءات المالك")}</a> : null}
@@ -206,7 +207,7 @@ export function OwnerTradeHistory({ locale, room, onUpdated }: { locale: "ar" | 
           [t("Network", "الشبكة"), request.network], [t("Bank", "البنك"), request.bankName ?? "—"],
           [t("Created", "تاريخ الإنشاء"), date(request.createdAt)], [t("Completed", "تاريخ الإكمال"), date(request.completedAt)],
           [t("Last update", "آخر تحديث"), date(request.updatedAt)],
-        ].map(([label, value]) => <div key={label}><dt className="text-xs text-[#9CA3AF]">{label}</dt><dd dir="auto" className="mt-1 break-words">{currencyText(value)}</dd></div>)}
+        ].map(([label, value]) => <div key={label}><dt className="text-xs text-[#9CA3AF]">{currencyText(label)}</dt><dd dir="auto" className="mt-1 break-words">{currencyText(value)}</dd></div>)}
       </dl>
       {request.buyerReceivingWalletAddress ? <p className="mt-4 break-all text-sm"><span className="text-[#9CA3AF]">{t("Buyer wallet", "محفظة المشتري")}: </span><bdi dir="ltr">{request.buyerReceivingWalletAddress}</bdi></p> : null}
       {request.buyerNotes ? <p dir="auto" className="mt-3 whitespace-pre-wrap text-sm"><span className="text-[#9CA3AF]">{t("Buyer notes", "ملاحظات المشتري")}: </span>{currencyText(request.buyerNotes)}</p> : null}
@@ -220,7 +221,7 @@ export function OwnerTradeHistory({ locale, room, onUpdated }: { locale: "ar" | 
 
     <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
       <section id="history-chat" className={panelClass} aria-labelledby="history-chat-heading">
-        <h2 id="history-chat-heading" className="flex items-center gap-2 font-semibold"><MessageCircle className="h-4 w-4 text-[#C9A227]" aria-hidden="true" />{t("Chat history", "سجل المحادثة")} ({messages.length})</h2>
+        <h2 id="history-chat-heading" className="flex items-center gap-2 font-semibold"><MessageCircle className="h-4 w-4 text-[#C9A227]" aria-hidden="true" />{t("Chat history", "سجل المحادثة")} ({formatMoneyNumber(messages.length)})</h2>
         <div
           ref={chatScrollRef}
           onScroll={(event) => {
@@ -275,7 +276,7 @@ export function OwnerTradeHistory({ locale, room, onUpdated }: { locale: "ar" | 
       </section>
 
       <section id="history-timeline" className={panelClass} aria-labelledby="history-timeline-heading">
-        <h2 id="history-timeline-heading" className="flex items-center gap-2 font-semibold"><FileClock className="h-4 w-4 text-[#C9A227]" aria-hidden="true" />{t("Full trade timeline", "السجل الزمني الكامل للصفقة")} ({timeline.length})</h2>
+        <h2 id="history-timeline-heading" className="flex items-center gap-2 font-semibold"><FileClock className="h-4 w-4 text-[#C9A227]" aria-hidden="true" />{t("Full trade timeline", "السجل الزمني الكامل للصفقة")} ({formatMoneyNumber(timeline.length)})</h2>
         {timeline.length ? <ol className="mt-4 space-y-3">{timeline.map((event) => <li key={event.id} className="border-s-2 border-[#C9A227]/35 ps-3 text-sm">
           <p dir="auto" className="whitespace-pre-wrap break-words">{currencyText(localizeTradeRoomSystemMessage(event.message, locale).text)}</p>
           <p className="mt-1 text-xs text-[#D1D5DB]">{currencyText(actorLabel(event.actorUserId, event.actorRole))}</p>
@@ -291,7 +292,7 @@ export function OwnerTradeHistory({ locale, room, onUpdated }: { locale: "ar" | 
         <TradeEvidenceViewer requestId={request.id} evidence={file} isAr={locale === "ar"} className="inline-flex min-h-11 items-center break-all text-start text-[#FDE68A] underline underline-offset-4" />
       </li>)}</ul> : <p className="mt-3 text-sm text-[#9CA3AF]">{t("No payment evidence is attached to this trade.", "لا توجد إثباتات دفع مرفقة بهذه الصفقة.")}</p>}
       <div className="mt-4 grid gap-3 sm:grid-cols-2">{reviews.map(({ label, review }) => <div key={label} className="rounded-xl border border-white/10 p-3 text-sm">
-        <h3 className="font-medium">{label}</h3>
+        <h3 className="font-medium">{currencyText(label)}</h3>
         {review ? <><p className="mt-2 text-[#FDE68A]">{review.rating}/5{review.hidden ? ` · ${t("Hidden", "مخفي")}` : ""}</p><p dir="auto" className="mt-2 whitespace-pre-wrap break-words">{currencyText(review.comment)}</p><time dateTime={review.createdAt} className="mt-2 block text-xs text-[#9CA3AF]">{date(review.createdAt)}</time></> : <p className="mt-2 text-[#9CA3AF]">{t("No review submitted.", "لم يتم إرسال تقييم.")}</p>}
       </div>)}</div>
       {request.sellerResponse ? <div className="mt-3 rounded-xl border border-white/10 p-3 text-sm"><h3 className="font-medium">{t("Seller response", "رد البائع")}</h3><p dir="auto" className="mt-2 whitespace-pre-wrap break-words">{currencyText(request.sellerResponse.message)}</p><time dateTime={request.sellerResponse.createdAt} className="mt-2 block text-xs text-[#9CA3AF]">{date(request.sellerResponse.createdAt)}</time></div> : null}

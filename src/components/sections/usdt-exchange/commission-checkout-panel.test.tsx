@@ -18,8 +18,8 @@ async function flush() { await act(async () => { for (let i = 0; i < 16; i++) aw
 it.each([false, true])("discloses the carried balance after a verified payment (Arabic=%s)", async isAr => {
   fetchMock.mockResolvedValue(response({ ...ready, status: "paid", pendingCount: 0, totalDueUsdt: 0, carriedShortfallUsdt: 2 }));
   render(<CommissionCheckoutPanel isAr={isAr} />);
-  await screen.findByText(isAr ? /المتبقي للعمولة التالية/ : /Remaining for your next commission/);
-  expect(screen.getByText("2 USDT")).toBeTruthy();
+  const carried = await screen.findByText(isAr ? /المتبقي للعمولة التالية/ : /Remaining for your next commission/);
+  expect(carried.textContent).toContain("2 USDT");
   expect(screen.queryByRole("checkbox")).toBeNull();
   expect(screen.queryByText(/Paid\. No commission due\./)).toBeNull();
 });
@@ -167,7 +167,7 @@ it("Arabic uses the same owner-free workflow and localized entry", async () => {
 });
 it("changed commission group does not show instructions to resend", async () => {
   fetchMock.mockResolvedValue(response({ ...waiting, status: "changed" })); render(<CommissionCheckoutPanel isAr={false} />);
-  await screen.findByText(/The amount due changed/); expect(screen.queryByText(wallet)).toBeNull();
+  expect((await screen.findByRole("alert")).textContent).toContain("The amount due changed"); expect(screen.queryByText(wallet)).toBeNull();
 });
 it("embedded checkout refreshes the seller workspace once after canonical paid status", async () => {
   const onSettled = vi.fn();

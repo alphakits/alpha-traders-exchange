@@ -1,5 +1,6 @@
 "use client";
 
+import { formatMoneyNumber } from "@/lib/accent-text";
 import { currencyText } from "@/components/ui/currency-text";
 import { UserPresence } from "@/components/ui/user-presence";
 
@@ -137,8 +138,8 @@ export function OwnerPendingListingsDashboard({ locale = "en" }: { locale?: "ar"
                     <p>{t("Seller Trust Score:", "درجة ثقة البائع:")} <span className="text-white">{Math.round(listing.sellerReputation?.trustScore ?? 0)}%</span></p>
                     <p>{t("Seller Level:", "رتبة البائع:")} <span className="text-white capitalize">{sellerLevelLabel(listing.sellerReputation?.level ?? "bronze")}</span></p>
                     <p>{t("Lifetime Completed Trades:", "إجمالي الصفقات المكتملة:")} <span className="text-white">{(listing.sellerReputation?.completedTrades ?? 0).toLocaleString(isArabic ? "ar-IL" : "en-IL")}</span></p>
-                    <p>{t("Amount:", "الكمية:")} <bdi dir="ltr" className="text-white">{currencyText(`${listing.availableAmount} USDT`)}</bdi></p>
-                    <p>{t("Price:", "السعر:")} <bdi dir="ltr" className="text-white">{currencyText(`${listing.price} ${listing.currency}`)}</bdi></p>
+                    <p>{currencyText(t("Amount:", "الكمية:"))} <bdi dir="ltr" className="text-white">{currencyText(`${listing.availableAmount} USDT`)}</bdi></p>
+                    <p>{currencyText(t("Price:", "السعر:"))} <bdi dir="ltr" className="text-white">{currencyText(`${listing.price} ${listing.currency}`)}</bdi></p>
                     <p>{t("Currency:", "العملة:")} <bdi dir="ltr" className="text-white">{listing.currency || "ILS"}</bdi></p>
                     <p>{t("Network:", "الشبكة:")} <bdi dir="ltr" className="text-white">{listing.network}</bdi></p>
                     <p>{t("Payment Methods:", "طرق الدفع:")} <bdi dir="auto" className="text-white">{listingPaymentMethodsLabel(listing)}</bdi></p>
@@ -180,8 +181,8 @@ export function OwnerPendingListingsDashboard({ locale = "en" }: { locale?: "ar"
                 <p>{t("Member Since:", "عضو منذ:")} <span className="text-white">{sellerHistory.listing?.sellerProfile?.memberSince ? new Date(sellerHistory.listing.sellerProfile.memberSince).getFullYear() : "—"}</span></p>
                 <p>{t("Online Status:", "حالة الاتصال:")} <span className="text-white">{sellerHistory.listing && <UserPresence userId={sellerHistory.listing.sellerId} initial={sellerHistory.listing.sellerProfile} isAr={isArabic} />}</span></p>
                 <p>{t("Languages:", "اللغات:")} <bdi dir="auto" className="text-white">{sellerHistory.listing?.sellerProfile?.languages.map((language) => spokenLanguageLabelForLocale(language, locale)).join(isArabic ? "، " : ", ") || "—"}</bdi></p>
-                <p>{t("Total Listings:", "إجمالي العروض:")} <span className="text-white">{sellerHistory.sellerListings.length}</span></p>
-                <p>{t("Completed Trades:", "الصفقات المكتملة:")} <span className="text-white">{sellerHistory.completedTrades}</span></p>
+                <p>{t("Total Listings:", "إجمالي العروض:")} <span className="text-white">{formatMoneyNumber(sellerHistory.sellerListings.length)}</span></p>
+                <p>{t("Completed Trades:", "الصفقات المكتملة:")} <span className="text-white">{formatMoneyNumber(sellerHistory.completedTrades)}</span></p>
                 <p>{t("Pending Requests:", "الطلبات المعلّقة:")} <span className="text-white">{sellerHistory.pendingTrades}</span></p>
               </CardContent>
             </Card>

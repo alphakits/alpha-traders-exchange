@@ -1,5 +1,6 @@
 "use client";
 
+import { currencyText } from "@/components/ui/currency-text";
 import { useState } from "react";
 import { ListingCard } from "./usdt-exchange-page";
 import { PublicAccountId } from "@/components/ui/public-account-id";
@@ -29,7 +30,7 @@ export function ListingDesignPreview({ locale }: { locale: "en" | "ar" }) {
     <p role="status" className="mb-4 text-sm">{feedback || "Preview buttons show feedback only."}</p>
     <div className="mb-5 flex flex-wrap items-center gap-4">
       <label>Card width <select className="rounded border bg-slate-900 p-2" value={cardWidth} onChange={e => setCardWidth(Number(e.target.value))}>{[248, 288, 328, 343, 358, 380, 398, 448, 560, 740, 1120].map(width => <option key={width} value={width}>{width}px</option>)}</select></label>
-      <label><input type="checkbox" checked={largeAmount} onChange={e => setLargeAmount(e.target.checked)} /> Very long amount</label>
+      <label><input type="checkbox" checked={largeAmount} onChange={e => setLargeAmount(e.target.checked)} />{currencyText(" Very long amount")}</label>
     </div>
     <div className="flex flex-wrap items-start gap-6">
       {([{ width: cardWidth, rank: "diamond", amount: largeAmount ? "999999999999" : "15000" }] as const).map(({width, rank, amount}) => <section key={width} style={{ width, maxWidth: "100%" }}>

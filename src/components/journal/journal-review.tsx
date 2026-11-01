@@ -1,4 +1,5 @@
 "use client";
+import { currencyText } from "@/components/ui/currency-text";
 import { useEffect, useRef, useState } from "react";
 import { Check, LoaderCircle, SlidersHorizontal, Star } from "lucide-react";
 import type { JournalAdapter } from "@/lib/journal/client";
@@ -28,7 +29,7 @@ export function ReviewForm({ initial,locale,adapter,onSaved,onDirty }: {
   }}>
     <fieldset className="j-form-lock" disabled={busy}>
     <div className="j-panel-head"><div><span className="j-kicker">{t("REFLECT & RESET","راجع واستعد")}</span><h2>{review.period==="week"?t("Weekly notes","ملاحظات الأسبوع"):t("Session notes","ملاحظات الجلسة")}</h2></div><span className="j-pill">{t("Private","خاصة")}</span></div>
-    {error && <p className="j-error" role="alert">{error}</p>}
+    {error && <p className="j-error" role="alert">{currencyText(error)}</p>}
     <div className="j-form-grid">{fields.map(([key,en,ar,placeholder],index)=><div className="j-field j-reflection-field" key={key}><div className="j-reflection-label"><span className="j-reflection-emoji" aria-hidden="true">{["📝","✨","💡","🎯"][index]}</span><label htmlFor={`journal-review-${key}`}>{t(en,ar)}</label></div><textarea id={`journal-review-${key}`} rows={4} dir="auto" maxLength={4000} value={review[key]} placeholder={placeholder} onChange={e=>change({...review,[key]:e.target.value})}/></div>)}</div>
     <div className="j-review-footer"><fieldset className="j-fieldset"><legend>{t("How was your execution?","كيف كان تنفيذك؟")}</legend><div className="j-rating">{[1,2,3,4,5].map(n=><button key={n} type="button" aria-label={`${t("Execution score","تقييم التنفيذ")} ${n}/5`} aria-pressed={review.rating===n} className={`${review.rating===n?"selected ":""}${review.rating!==null&&n<=review.rating?"filled":""}`} onClick={()=>change({...review,rating:review.rating===n?null:n})}><Star size={17} aria-hidden="true"/><span>{n}</span></button>)}</div></fieldset>
       <div><span className="j-save-status" role="status">{message}</span><button className="j-btn primary" disabled={busy}>{busy?<LoaderCircle size={16} className="j-spin"/>:<Check size={16}/>} {t("Save review","حفظ المراجعة")}</button></div>
@@ -51,16 +52,16 @@ export function RulesForm({ initial,locale,adapter,onSaved,onDirty }: {initial:J
     <fieldset className="j-form-lock" disabled={busy}>
     <div className="j-panel-head"><div><span className="j-kicker">{t("YOUR PROCESS","طريقتك")}</span><h2>{t("Trading rules","قواعد التداول")}</h2></div><SlidersHorizontal size={22} className="j-gold"/></div>
     <p className="j-section-copy">{t("Set your own limits. The journal flags them in your review; it does not control your broker.","حدد حدودك الخاصة. يظهر السجل التنبيهات في المراجعة ولا يتحكم بحساب الوسيط.")}</p>
-    {error && <p className="j-error" role="alert">{error}</p>}
+    {error && <p className="j-error" role="alert">{currencyText(error)}</p>}
     <div className="j-form-grid">
-      <label className="j-field"><span>{t("Daily loss limit · USD","حد الخسارة اليومي · USD")}</span><input value={limit} dir="ltr" inputMode="decimal" onChange={e=>setLimit(e.target.value)}/></label>
+      <label className="j-field"><span>{currencyText(t("Daily loss limit · USD","حد الخسارة اليومي · USD"))}</span><input className="currency-money" value={limit} dir="ltr" inputMode="decimal" onChange={e=>setLimit(e.target.value)}/></label>
       <label className="j-field"><span>{t("Maximum trades per day","أقصى عدد صفقات يومياً")}</span><input type="number" min={1} max={100} value={settings.maxTradesPerDay} onChange={e=>setSettings({...settings,maxTradesPerDay:Number(e.target.value)})}/></label>
       <label className="j-field j-span-2"><span>{t("Journal timezone","المنطقة الزمنية للسجل")}</span><select value={settings.timezone} onChange={e=>setSettings({...settings,timezone:e.target.value})}>
         {[...new Set([settings.timezone,"Asia/Jerusalem","Europe/Bucharest","America/New_York","Europe/London","Asia/Dubai","Asia/Singapore","UTC"])].map(zone=><option key={zone} value={zone}>{zone.replaceAll("_"," ")}</option>)}
       </select><small>{t("Dates you enter stay exactly as recorded. This controls “Today” and “This week”.","تبقى التواريخ المدخلة كما سجلتها. هذا الإعداد يحدد «اليوم» و«هذا الأسبوع».")}</small></label>
       <label className="j-field j-span-2"><span>{t("My trading plan","خطة التداول الخاصة بي")}</span><textarea maxLength={4000} rows={7} dir="auto" value={settings.rules} onChange={e=>setSettings({...settings,rules:e.target.value})} placeholder={t("Example: wait for my setup, define risk before entry, review after the session.","مثال: أنتظر الإعداد، أحدد المخاطرة قبل الدخول، وأراجع بعد الجلسة.")}/></label>
     </div>
-    <div className="j-review-footer"><p className="j-hint">{t("Journal currency: USD. No automatic currency conversion.","عملة السجل: USD. لا يوجد تحويل تلقائي للعملات.")}</p><div><span className="j-save-status" role="status">{message}</span><button className="j-btn primary" disabled={busy}>{busy?<LoaderCircle className="j-spin" size={16}/>:<Check size={16}/>} {t("Save rules","حفظ القواعد")}</button></div></div>
+    <div className="j-review-footer"><p className="j-hint">{currencyText(t("Journal currency: USD. No automatic currency conversion.","عملة السجل: USD. لا يوجد تحويل تلقائي للعملات."))}</p><div><span className="j-save-status" role="status">{message}</span><button className="j-btn primary" disabled={busy}>{busy?<LoaderCircle className="j-spin" size={16}/>:<Check size={16}/>} {t("Save rules","حفظ القواعد")}</button></div></div>
     </fieldset>
   </form>;
 }

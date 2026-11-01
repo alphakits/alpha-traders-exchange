@@ -1,3 +1,4 @@
+import { currencyText } from "@/components/ui/currency-text";
 import { Link } from "@/i18n/navigation";
 import { buildFaqSchema, buildPageMetadata, serializeJsonLd } from "@/lib/seo";
 import { buttonVariants } from "@/components/ui/button";
@@ -49,7 +50,7 @@ export default async function StartPage({ params }: { params: Promise<{ locale: 
       <div className="space-y-4">
         <p className="section-label">Alpha Traders Academy & Exchange</p>
         <h1 className="page-title">{isAr ? "ابدأ من المسار المناسب لك" : "Start with the right Alpha Traders path"}</h1>
-        <p className="page-subtitle">{isAr ? "ابدأ بالأساسيات مجانًا، أو تعرّف على ICT Mentorship مع مارك إذا عندك خبرة وبدك تشتغل على التطبيق. ولشراء أو بيع USDT مقابل الشيكل، استكشف دليل Alpha Exchange." : "Start with the foundations for free, or explore ICT Mentorship with Mark if you have experience and want to work on applying it. For buying or selling USDT with Israeli shekels, explore the Alpha Exchange guide."}</p>
+        <p className="page-subtitle">{currencyText(isAr ? "ابدأ بالأساسيات مجانًا، أو تعرّف على ICT Mentorship مع مارك إذا عندك خبرة وبدك تشتغل على التطبيق. ولشراء أو بيع USDT مقابل الشيكل، استكشف دليل Alpha Exchange." : "Start with the foundations for free, or explore ICT Mentorship with Mark if you have experience and want to work on applying it. For buying or selling USDT with Israeli shekels, explore the Alpha Exchange guide.")}</p>
       </div>
       <div className="grid gap-4 md:grid-cols-2">
         <div className="rounded-3xl border border-[#C9A227]/30 bg-[#0B0B0B]/90 p-6">
@@ -59,10 +60,10 @@ export default async function StartPage({ params }: { params: Promise<{ locale: 
           <Link href="/learn-trading-free" className={buttonVariants({ className: "mt-5" })}>{isAr ? "استكشف المسار المجاني" : "Explore the Free Path"}</Link>
         </div>
         <div className="rounded-3xl border border-[#6CAEFF]/30 bg-[#0B0B0B]/90 p-6">
-          <p className="text-sm font-semibold text-[#93C5FD]">Alpha Exchange · USDT / ILS</p>
-          <h2 className="mt-2 text-2xl font-semibold">{isAr ? "استكشف سوق USDT / ILS" : "Explore the USDT / ILS Marketplace"}</h2>
+          <p className="text-sm font-semibold text-[#93C5FD]">{currencyText("Alpha Exchange · USDT / ILS")}</p>
+          <h2 className="mt-2 text-2xl font-semibold">{currencyText(isAr ? "استكشف سوق USDT / ILS" : "Explore the USDT / ILS Marketplace")}</h2>
           <p className="mt-3 text-sm leading-7 text-[#D1D5DB]">{isAr ? "تعرف على مسار P2P والبائعين المعتمدين وطرق الدفع وإشارات الثقة قبل تسجيل الدخول." : "Understand the P2P workflow, approved sellers, payment methods and trust signals before signing in."}</p>
-          <Link href="/buy-usdt-israel" className={buttonVariants({ variant: "secondary", className: "mt-5" })}>{isAr ? "دليل USDT / ILS" : "USDT / ILS Guide"}</Link>
+          <Link href="/buy-usdt-israel" className={buttonVariants({ variant: "secondary", className: "mt-5" })}>{currencyText(isAr ? "دليل USDT / ILS" : "USDT / ILS Guide")}</Link>
         </div>
       </div>
       <LearningNextStep locale={locale} />
@@ -82,14 +83,14 @@ export default async function StartPage({ params }: { params: Promise<{ locale: 
           },
         ].map((item) => (
           <div key={item.title} className="rounded-2xl border border-white/10 bg-[#0B0B0B]/90 p-5">
-            <h2 className="font-semibold text-white">{item.title}</h2>
-            <p className="mt-2 text-sm leading-7 text-[#D1D5DB]">{item.text}</p>
+            <h2 className="font-semibold text-white">{currencyText(item.title)}</h2>
+            <p className="mt-2 text-sm leading-7 text-[#D1D5DB]">{currencyText(item.text)}</p>
           </div>
         ))}
       </div>
       <div id="faq" className="rounded-3xl border border-white/10 bg-[#0B0B0B]/90 p-6">
         <h2 className="text-xl font-semibold">{isAr ? "أسئلة البداية" : "Getting started FAQ"}</h2>
-        <div className="mt-4 space-y-4">{faqs.map((faq) => <div key={faq.question}><h3 className="font-semibold">{faq.question}</h3><p className="mt-1 text-sm leading-7 text-[#D1D5DB]">{faq.answer}</p></div>)}</div>
+        <div className="mt-4 space-y-4">{faqs.map((faq) => <div key={faq.question}><h3 className="font-semibold">{currencyText(faq.question)}</h3><p className="mt-1 text-sm leading-7 text-[#D1D5DB]">{currencyText(faq.answer)}</p></div>)}</div>
       </div>
     </div>
   </section>;

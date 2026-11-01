@@ -65,12 +65,15 @@ export function receiptDate(value: string | null, locale: "ar" | "en") {
   }).format(new Date(value)) + " UTC";
 }
 
-export function tradeReceiptRows(receipt: TradeCompletionReceipt, locale: "ar" | "en"): Array<[string, string]> {
+type ReceiptDisplayRow = [label: string, value: string, isMoney?: boolean];
+
+export function tradeReceiptDisplayRows(receipt: TradeCompletionReceipt, locale: "ar" | "en"): ReceiptDisplayRow[] {
   const t = (en: string, ar: string) => locale === "ar" ? ar : en;
   const missing = t("Not recorded", "غير مسجل");
   const methods: Record<string, string> = { "Bank Transfer": t("Bank transfer", "تحويل بنكي"), "Cardless ATM": t("Cardless ATM", "سحب من الصراف دون بطاقة"), "Face-to-Face": t("Face-to-Face", "لقاء شخصي"), "Wise (USD)": t("Wise (USD)", "Wise (دولار أمريكي)") };
   const method = Object.hasOwn(methods, receipt.paymentMethod) ? (methods[receipt.paymentMethod] ?? missing) : missing;
-  const money = (value: string | null, currency = receipt.currency) => value === null ? missing : `${value} ${currency}`;
+  const moneyRow = (label: string, value: string | null, currency = receipt.currency): ReceiptDisplayRow =>
+    value === null ? [label, missing] : [label, `${value} ${currency}`, true];
   return [
     [t("Receipt number", "رقم الإيصال"), receipt.receiptNumber],
     [t("Trade", "الصفقة"), receipt.tradeReference],
@@ -78,17 +81,21 @@ export function tradeReceiptRows(receipt: TradeCompletionReceipt, locale: "ar" |
     [t("Seller", "البائع"), receipt.sellerPublicId],
     [t("Requested", "وقت الطلب"), receiptDate(receipt.createdAt, locale)],
     [t("Completed", "وقت الإتمام"), receiptDate(receipt.completedAt, locale)],
-    [t("USDT amount", "كمية USDT"), money(receipt.usdtAmount, "USDT")],
-    [t("Price per USDT", "السعر لكل USDT"), money(receipt.pricePerUsdt)],
-    [t("Trade subtotal", "قيمة الصفقة قبل الرسوم"), money(receipt.baseFiatAmount)],
-    [t("Buyer fee included in payment", "رسوم المشتري المشمولة بالدفع"), money(receipt.buyerFeeFiat)],
-    [receipt.fiatAmountBasis ? t("Payment total reconstructed from saved quote", "إجمالي الدفع المحسوب من السعر المحفوظ") : t("Recorded payment total to seller", "إجمالي الدفع المسجل للبائع"), money(receipt.fiatAmount)],
-    [t("Buyer platform fee (USDT equivalent)", "رسوم المشتري للمنصة بما يعادل USDT"), money(receipt.buyerFeeUsdt, "USDT")],
-    [t("Seller platform fee", "رسوم البائع للمنصة"), money(receipt.sellerFeeUsdt, "USDT")],
-    [t("Total platform fees assessed", "إجمالي رسوم المنصة المسجلة"), money(receipt.totalPlatformFeeUsdt, "USDT")],
+    moneyRow(t("USDT amount", "كمية USDT"), receipt.usdtAmount, "USDT"),
+    moneyRow(t("Price per USDT", "السعر لكل USDT"), receipt.pricePerUsdt),
+    moneyRow(t("Trade subtotal", "قيمة الصفقة قبل الرسوم"), receipt.baseFiatAmount),
+    moneyRow(t("Buyer fee included in payment", "رسوم المشتري المشمولة بالدفع"), receipt.buyerFeeFiat),
+    moneyRow(receipt.fiatAmountBasis ? t("Payment total reconstructed from saved quote", "إجمالي الدفع المحسوب من السعر المحفوظ") : t("Recorded payment total to seller", "إجمالي الدفع المسجل للبائع"), receipt.fiatAmount),
+    moneyRow(t("Buyer platform fee (USDT equivalent)", "رسوم المشتري للمنصة بما يعادل USDT"), receipt.buyerFeeUsdt, "USDT"),
+    moneyRow(t("Seller platform fee", "رسوم البائع للمنصة"), receipt.sellerFeeUsdt, "USDT"),
+    moneyRow(t("Total platform fees assessed", "إجمالي رسوم المنصة المسجلة"), receipt.totalPlatformFeeUsdt, "USDT"),
     [t("Network", "الشبكة"), receipt.network],
     [t("Payment method", "طريقة الدفع"), method],
   ];
+}
+
+export function tradeReceiptRows(receipt: TradeCompletionReceipt, locale: "ar" | "en"): Array<[string, string]> {
+  return tradeReceiptDisplayRows(receipt, locale).map(([label, value]) => [label, value]);
 }
 
 export function receiptNotice(receipt: TradeCompletionReceipt, locale: "ar" | "en") {

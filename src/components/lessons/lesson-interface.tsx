@@ -1,5 +1,6 @@
 "use client";
 
+import { currencyText } from "@/components/ui/currency-text";
 import { PAGE_SECTION_NAVIGATION_EVENT, pageSectionFromEvent } from "@/lib/page-section-navigation";
 import Image from "next/image";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -332,7 +333,7 @@ export function LessonInterface({
               else return;
               event.preventDefault();setActivePanel(panels[nextIndex].id);
               document.getElementById(`study-tab-${panels[nextIndex].id}`)?.focus();
-            }}>{panel.label}</button>)}
+            }}>{currencyText(panel.label)}</button>)}
           </div>
           {panels.map(panel=><div role="tabpanel" id={`study-panel-${panel.id}`} key={panel.id} aria-labelledby={`study-tab-${panel.id}`} tabIndex={0} hidden={activePanel!==panel.id} className={activePanel===panel.id ? styles.studyPanel : undefined}>
             {activePanel===panel.id || visitedPanels.has(panel.id) ? <>

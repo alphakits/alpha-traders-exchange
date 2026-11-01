@@ -1,5 +1,6 @@
 "use client";
 
+import { currencyText } from "@/components/ui/currency-text";
 import { Handshake, House, Newspaper, Store, UserRound } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import type { ComponentType } from "react";
@@ -124,7 +125,7 @@ export function MobileBottomNavigation({ locale }: { locale: AppLocale }) {
                   <Icon className="h-[1.15rem] w-[1.15rem]" aria-hidden={true} />
                 </span>
                 <span className="max-w-full whitespace-nowrap text-[10px] font-semibold leading-none min-[390px]:text-[11px]">
-                  {destination.label}
+                  {currencyText(destination.label)}
                 </span>
               </Link>
             );

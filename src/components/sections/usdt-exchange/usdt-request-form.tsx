@@ -1,5 +1,6 @@
 "use client";
 
+import { currencyText } from "@/components/ui/currency-text";
 import { useState, type FormEvent } from "react";
 import { calculateCardlessUsdtAmount, calculateTradePaymentTotal, parseCardlessCashAmount } from "@alpha-traders/contracts";
 import { formatIls, formatUsdt } from "@/lib/usdt-demand-format";
@@ -107,7 +108,7 @@ export function RequestForm({ ar, terms, setTerms, cash, setCash, reference, wis
     onInvalidCapture={event => setSubmissionError(ar ? "صحّح الحقل المحدد قبل المتابعة." : (event.target as HTMLInputElement).validationMessage)}>
     <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
       <div><h2 className="text-xl font-semibold">{editing ? text("Edit your request", "تعديل طلبك") : mode === "renew" ? text("Publish your request again", "نشر طلبك مجددًا") : text("Your request", "طلبك")}</h2>
-        <p className="mt-2 text-sm leading-6 text-gray-400">{text("Set the amount and price you want. Sellers can respond with their prices.", "حدّد الكمية والسعر المطلوبين. يمكن للبائعين الرد بأسعارهم.")}</p></div>
+        <p className="mt-2 text-sm leading-6 text-gray-400">{currencyText(text("Set the amount and price you want. Sellers can respond with their prices.", "حدّد الكمية والسعر المطلوبين. يمكن للبائعين الرد بأسعارهم."))}</p></div>
       <span className="rounded-full bg-emerald-400/10 px-3 py-1.5 text-xs font-medium text-emerald-300">{text("Free to post", "النشر مجاني")}</span>
     </div>
     {stale && <div role="alert" className="mb-6 rounded-xl border border-amber-300/30 bg-amber-300/10 p-4">
@@ -120,32 +121,32 @@ export function RequestForm({ ar, terms, setTerms, cash, setCash, reference, wis
         <div><label htmlFor="request-payment" className="text-sm font-medium">{text("Payment method", "طريقة الدفع")}</label>
           <select id="request-payment" className={field} value={terms.paymentMethod} onChange={event => setTerms({ ...terms, paymentMethod: event.target.value as DemandTerms["paymentMethod"], city: event.target.value === "Face-to-Face (Meet in Person)" ? terms.city : "", ...(wise ? { currency: undefined, bankTransferProvider: undefined, price: "" } : {}) })}>
             {paymentMethods.map(method => <option key={method} value={method}>{paymentLabel(method, ar)}</option>)}
-          </select><p className="mt-2 text-xs leading-5 text-gray-400">{text("Choose how you will pay the seller.", "اختر كيفية دفع المبلغ للبائع.")}</p>
+          </select><p className="mt-2 text-xs leading-5 text-gray-400">{currencyText(text("Choose how you will pay the seller.", "اختر كيفية دفع المبلغ للبائع."))}</p>
         </div>
         {terms.paymentMethod === "Bank Transfer" && (wiseDraftEnabled || wise) && <div>
           <label htmlFor="request-bank-provider" className="text-sm font-medium">{text("Bank transfer provider", "مزود التحويل البنكي")}</label>
           <select id="request-bank-provider" className={field} value={wise ? "wise" : "israeli_bank"} onChange={event => setTerms({ ...terms, bankTransferProvider: event.target.value === "wise" ? "wise" : undefined, currency: event.target.value === "wise" ? "USD" : undefined, price: "" })}>
-            <option value="israeli_bank">{text("Israeli bank · ILS", "بنك إسرائيلي · شيكل")}</option>
-            <option value="wise" disabled={!wiseDraftEnabled}>Wise · USD</option>
+            <option className="currency-money" value="israeli_bank">{text("Israeli bank · ILS", "بنك إسرائيلي · شيكل")}</option>
+            <option className="currency-money" value="wise" disabled={!wiseDraftEnabled}>Wise · USD</option>
           </select>
-          <p className="mt-2 text-xs leading-5 text-gray-400">{text("Changing the currency clears the price. Enter a new price in the selected currency.", "يؤدي تغيير العملة إلى مسح السعر. أدخل سعرًا جديدًا بالعملة المحددة.")}</p>
+          <p className="mt-2 text-xs leading-5 text-gray-400">{currencyText(text("Changing the currency clears the price. Enter a new price in the selected currency.", "يؤدي تغيير العملة إلى مسح السعر. أدخل سعرًا جديدًا بالعملة المحددة."))}</p>
         </div>}
         <div><label htmlFor="request-network" className="text-sm font-medium">{text("Network", "الشبكة")}</label>
           <select id="request-network" className={field} value={terms.network} onChange={event => setTerms({ ...terms, network: event.target.value as DemandTerms["network"] })}>{networks.map(network => <option key={network}>{network}</option>)}</select>
           <p className="mt-2 text-xs leading-5 text-gray-400">{text("Use the network supported by your receiving wallet.", "اختر الشبكة التي تدعمها محفظتك المستلمة.")}</p>
         </div>
-        {atm ? <div><label htmlFor="request-cash" className="text-sm font-medium">{text("ATM cash total incl. 1% fee (ILS)", "إجمالي النقد شامل رسوم 1% (شيكل)")}</label>
-          <select id="request-cash" className={moneyField} value={cash} onChange={event => setCash(event.target.value)} aria-describedby="request-amount-help">{cashOptions.map(amount => <option key={amount} value={amount}>₪{formatIls(amount)}</option>)}</select>
-          <p id="request-amount-help" className="mt-2 text-xs leading-5 text-gray-400">{text("Choose the exact cash amount. Your USDT is calculated after including the buyer fee.", "اختر مبلغ النقد بالضبط. تُحسب كمية USDT بعد احتساب رسوم المشتري.")}</p>
-          <p className="mt-2 text-sm text-emerald-300"><bdi dir="ltr">{formatUsdt(formTerms.amount)} USDT</bdi></p>
-        </div> : <div><label htmlFor="request-amount" className="text-sm font-medium">{text("Amount (USDT)", "المبلغ (USDT)")}</label>
+        {atm ? <div><label htmlFor="request-cash" className="text-sm font-medium">{currencyText(text("ATM cash total incl. 1% fee (ILS)", "إجمالي النقد شامل رسوم 1% (شيكل)"))}</label>
+          <select id="request-cash" className={moneyField} value={cash} onChange={event => setCash(event.target.value)} aria-describedby="request-amount-help">{cashOptions.map(amount => <option className="currency-money" key={amount} value={amount}>₪{formatIls(amount)}</option>)}</select>
+          <p id="request-amount-help" className="mt-2 text-xs leading-5 text-gray-400">{currencyText(text("Choose the exact cash amount. Your USDT is calculated after including the buyer fee.", "اختر مبلغ النقد بالضبط. تُحسب كمية USDT بعد احتساب رسوم المشتري."))}</p>
+          <p className="mt-2 text-sm text-emerald-300"><bdi className="currency-money" dir="ltr">{formatUsdt(formTerms.amount)} USDT</bdi></p>
+        </div> : <div><label htmlFor="request-amount" className="text-sm font-medium">{currencyText(text("Amount (USDT)", "المبلغ (USDT)"))}</label>
           <GroupedDecimalInput key={amountKey} id="request-amount" className={moneyField} required value={terms.amount} onValueChange={amount => { setTerms({ ...terms, amount }); setSubmissionError(""); }} maxIntegerDigits={9} maxFractionDigits={6} placeholder="5,000" autoComplete="off" aria-describedby="request-amount-help" aria-invalid={Boolean(terms.amount && amountError) || undefined} />
           <div role="group" className="mt-2 flex flex-wrap gap-2" aria-label={text("Quick amounts", "كميات سريعة")}>{["500", "1000", "5000"].map(amount => <button key={amount} type="button" className="min-h-11 rounded-lg border border-blue-400/30 bg-blue-400/[0.06] px-3 text-xs tabular-nums text-emerald-300 hover:border-blue-300/60 hover:bg-blue-400/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300" onClick={() => { setTerms({ ...terms, amount }); setAmountKey(key => key + 1); setSubmissionError(""); }}>{formatUsdt(amount)} USDT</button>)}</div>
-          <p id="request-amount-help" className="mt-2 text-xs leading-5 text-gray-400">{text("Enter the full amount you want to receive, with up to 6 decimal places.", "أدخل كامل الكمية التي تريد استلامها، حتى 6 منازل عشرية.")}</p>
+          <p id="request-amount-help" className="mt-2 text-xs leading-5 text-gray-400">{currencyText(text("Enter the full amount you want to receive, with up to 6 decimal places.", "أدخل كامل الكمية التي تريد استلامها، حتى 6 منازل عشرية."))}</p>
         </div>}
-        <div><label htmlFor="request-price" className="text-sm font-medium">{wise ? text("Requested price per USDT (USD)", "السعر المطلوب لكل USDT (USD)") : text("Requested price per USDT (ILS)", "السعر المطلوب لكل USDT (شيكل)")}</label>
+        <div><label htmlFor="request-price" className="text-sm font-medium">{currencyText(wise ? text("Requested price per USDT (USD)", "السعر المطلوب لكل USDT (USD)") : text("Requested price per USDT (ILS)", "السعر المطلوب لكل USDT (شيكل)"))}</label>
           <GroupedDecimalInput key={`${priceKey}:${wise}`} id="request-price" className={moneyField} required value={terms.price} onValueChange={price => { setTerms({ ...terms, price }); setSubmissionError(""); }} maxIntegerDigits={4} maxFractionDigits={2} placeholder={wise ? "1.00" : "3.30"} autoComplete="off" aria-describedby="request-price-help" aria-invalid={Boolean(terms.price && priceError) || undefined} />
-          {!wise && <button type="button" className="mt-2 min-h-11 rounded-lg px-2 text-xs font-medium text-blue-300 underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300 disabled:opacity-40" disabled={!quoteAvailable} onClick={() => { if (reference) { setTerms({ ...terms, price: formatIls(reference.price).replace(/,/g, "") }); setPriceKey(key => key + 1); setSubmissionError(""); } }}>{text("Use reference price", "استخدام السعر المرجعي")}</button>}
+          {!wise && <button type="button" className="mt-2 min-h-11 rounded-lg px-2 text-xs font-medium text-blue-300 underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300 disabled:opacity-40" disabled={!quoteAvailable} onClick={() => { if (reference) { setTerms({ ...terms, price: formatIls(reference.price).replace(/,/g, "") }); setPriceKey(key => key + 1); setSubmissionError(""); } }}>{currencyText(text("Use reference price", "استخدام السعر المرجعي"))}</button>}
           <p id="request-price-help" className="mt-2 text-xs leading-5 text-gray-400"><RequestMoneyText>{wise ? text("Enter your requested USD price. This is a negotiated price, not a currency conversion or a guaranteed USDT/USD rate.", "أدخل السعر المطلوب بالدولار. هذا سعر تفاوضي وليس تحويل عملة أو سعر USDT/USD مضمونًا.") : quoteAvailable ? text(`Allowed price: ₪${formatIls(reference!.minimum)}–₪${formatIls(reference!.maximum)}. Your price never changes automatically.`, `السعر المسموح: ₪${formatIls(reference!.minimum)}–₪${formatIls(reference!.maximum)}. لا يتغير سعرك تلقائيًا.`) : text("A fresh reference is needed before publishing.", "يلزم مرجع سعر حديث قبل النشر.")}</RequestMoneyText></p>
         </div>
         {meeting && <div className="sm:col-span-2"><label htmlFor="request-city" className="text-sm font-medium">{text("Meeting city", "مدينة اللقاء")}</label>

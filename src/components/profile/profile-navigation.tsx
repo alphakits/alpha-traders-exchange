@@ -1,5 +1,6 @@
 "use client";
 
+import { currencyText } from "@/components/ui/currency-text";
 import { BookOpen, Crown, GraduationCap, LayoutDashboard, List, Settings, UserRound, WalletCards } from "lucide-react";
 import { Link } from "@/i18n/navigation";
 import { cn } from "@/lib/utils";
@@ -39,7 +40,7 @@ export function ProfileSectionTabs({ locale, value, onChange }: {
         onChange(sections[next].key);
         document.getElementById(`profile-tab-${sections[next].key}`)?.focus();
       }}
-    >{section.label}</button>)}
+    >{currencyText(section.label)}</button>)}
   </div>;
 }
 
@@ -75,7 +76,7 @@ export function ProfileQuickActions({ locale, admin, owner, seller, trading, use
       className={cn("profile-quick-action", index === 0 && "profile-quick-action--primary", owner && index === 0 && "profile-quick-action--owner")}
     >
       <Icon aria-hidden="true" />
-      <span>{label}</span>
+      <span>{currencyText(label)}</span>
     </Link>)}
     {journalEnabled ? <Link href="/journal" className="profile-quick-action profile-quick-action--journal"><BookOpen aria-hidden="true" /><span>{isAr ? "سجل التداول" : "Trading journal"}</span></Link> : <div className="profile-quick-action profile-quick-action--journal" aria-label={isAr ? "سجل التداول — قريبًا" : "Trading journal — coming soon"}>
       <BookOpen aria-hidden="true" />

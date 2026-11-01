@@ -1,5 +1,6 @@
 "use client";
 
+import { currencyText } from "@/components/ui/currency-text";
 import { AlertTriangle, RefreshCcw, Home } from "lucide-react";
 import { usePathname } from "next/navigation";
 import { Link } from "@/i18n/navigation";
@@ -58,7 +59,7 @@ export function ErrorContent({
           <h1
             className="alpha-reveal-rise alpha-delay-2 text-2xl font-semibold text-white md:text-3xl"
           >
-            {title}
+            {currencyText(title)}
           </h1>
 
           <p

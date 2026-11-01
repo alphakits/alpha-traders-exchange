@@ -84,7 +84,7 @@ describe("seller response form", () => {
     expect(screen.getByText("Select an eligible listing for the current request to continue.")).toBeTruthy();
     view.rerender(<SellerResponseForm {...input} reference={null} />);
     expect(submitButton().disabled).toBe(true);
-    expect(screen.getByText(/Waiting for a fresh price reference/)).toBeTruthy();
+    expect(view.container.querySelector('p[id$="-reason"]')?.textContent).toContain("Waiting for a fresh price reference");
   });
 
   it("requires a compatible inclusive ATM total and lets the seller match the requested price", () => {
@@ -92,7 +92,7 @@ describe("seller response form", () => {
     input.current = { ...input.current, paymentMethod: "Cardless ATM Withdrawal", amount: calculateCardlessUsdtAmount("5000", "3.20", true)! };
     const view = render(<SellerResponseForm {...input} offerPrice="3.10" />);
     expect(submitButton().disabled).toBe(true);
-    expect(screen.getByText(/At this price,/).textContent).toContain("must be ₪100–₪10,000");
+    expect(view.container.querySelector('p[id$="-reason"]')?.textContent).toContain("At this price, the total including the buyer fee must be ₪100–₪10,000");
     fireEvent.click(screen.getByRole("button", { name: /Match requested price/ }));
     expect(input.onPriceChange).toHaveBeenCalledWith("3.20");
     view.rerender(<SellerResponseForm {...input} offerPrice="3.20" />);

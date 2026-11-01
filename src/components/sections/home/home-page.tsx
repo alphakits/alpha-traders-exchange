@@ -121,7 +121,7 @@ export async function HomePage({
         <div className="flex flex-col gap-3 rounded-2xl border border-white/10 bg-[#0B0B0B]/80 p-5 md:flex-row md:items-center md:justify-between">
           <div>
             <p className="text-sm font-semibold text-white">{isRtl ? "جديد في Alpha Traders؟" : "New to Alpha Traders?"}</p>
-            <p className="mt-1 text-sm text-[#9CA3AF]">{isRtl ? "تعلّم مجانًا أو استكشف تداول USDT / ILS." : "Learn for free or explore USDT / ILS trading."}</p>
+            <p className="mt-1 text-sm text-[#9CA3AF]">{currencyText(isRtl ? "تعلّم مجانًا أو استكشف تداول USDT / ILS." : "Learn for free or explore USDT / ILS trading.")}</p>
           </div>
           <Link href="/start" className={cn(buttonVariants({ variant: "secondary" }), "shrink-0")}>
             {isRtl ? "ابدأ من هنا" : "Start Here"}
@@ -478,7 +478,7 @@ export async function HomePage({
                     ? courseSource.courseBySlug[course.slug as keyof typeof courseSource.courseBySlug].valueAr
                     : courseSource.courseBySlug[course.slug as keyof typeof courseSource.courseBySlug].value
                   ).slice(0, 3).map((item) => (
-                    <p key={item}>• {item}</p>
+                    <p key={item}>• {currencyText(item)}</p>
                   ))}
                 </div>
               ) : null}

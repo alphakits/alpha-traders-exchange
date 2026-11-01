@@ -1,5 +1,6 @@
 "use client";
 
+import { currencyText } from "@/components/ui/currency-text";
 import { useEffect, useRef, useState } from "react";
 import {
   displayAnalyticsCount, initialLiveAnalyticsState, LIVE_ANALYTICS_TIME_ZONE,
@@ -66,7 +67,7 @@ export function OwnerLiveAnalyticsPanel({ locale }: { locale: "ar" | "en" }) {
   }).format(new Date(value)) : "—";
   const metric = (label: string, value: unknown) => (
     <div key={label} className="min-w-0 rounded-xl border border-white/10 bg-black/20 p-4">
-      <dt className="text-sm text-[#9CA3AF]">{label}</dt>
+      <dt className="text-sm text-[#9CA3AF]">{currencyText(label)}</dt>
       <dd className="mt-1 text-2xl font-semibold tabular-nums text-white" dir="ltr">{displayAnalyticsCount(value)}</dd>
     </div>
   );

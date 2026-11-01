@@ -1,4 +1,5 @@
 import { brandedTradeReceiptEmail, tradeReceiptDocument } from "@/lib/trade-receipt-render";
+import { emailDisplayHtml, emailDisplayText, escapeHtml } from "@/lib/email-display-text";
 import type { TradeCompletionReceipt } from "@alpha-traders/contracts";
 import { randomUUID } from "node:crypto";
 import { previewEmailSubject, previewPreparedEmailFailure } from "./email-preview-safety";
@@ -153,15 +154,6 @@ export function clearMarketplaceEmailAttempts() {
   clearMarketplaceEmailAttemptsFromDisk();
 }
 
-function escapeHtml(value: string) {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
-}
-
 function localizedActionUrl(locale: MarketplaceEmailLocale, actionPath: string) {
   const normalizedPath = actionPath.startsWith("/") ? actionPath : `/${actionPath}`;
   return new URL(`/${locale}${normalizedPath}`, getSiteUrl()).toString();
@@ -183,15 +175,15 @@ export function buildMarketplaceEmail(input: MarketplaceEmailPayload) {
     ar: redactPrivateContactDetails(input.title.ar),
     en: redactPrivateContactDetails(input.title.en),
   };
-  const title = { ar: escapeHtml(safeTitle.ar), en: escapeHtml(safeTitle.en) };
+  const title = { ar: emailDisplayHtml(safeTitle.ar), en: emailDisplayHtml(safeTitle.en) };
   const safeMessage = {
     ar: redactPrivateContactDetails(input.message.ar),
     en: redactPrivateContactDetails(input.message.en),
   };
-  const message = { ar: escapeHtml(safeMessage.ar), en: escapeHtml(safeMessage.en) };
+  const message = { ar: emailDisplayHtml(safeMessage.ar), en: emailDisplayHtml(safeMessage.en) };
   const actionLabel = {
-    ar: escapeHtml(input.actionLabel.ar),
-    en: escapeHtml(input.actionLabel.en),
+    ar: emailDisplayHtml(input.actionLabel.ar, "onGold"),
+    en: emailDisplayHtml(input.actionLabel.en, "onGold"),
   };
   const safeActionPath = redactPrivateContactDetails(input.actionPath);
   const safeActionUrl = {
@@ -207,28 +199,28 @@ export function buildMarketplaceEmail(input: MarketplaceEmailPayload) {
   const includedLocales: MarketplaceEmailLocale[] = input.recipientLocale
     ? [input.recipientLocale]
     : ["ar", "en"];
-  const subject = `${includedLocales.map((locale) => safeTitle[locale]).join(" | ")} | ${BRAND_NAME}`;
+  const subject = `${includedLocales.map((locale) => emailDisplayText(safeTitle[locale])).join(" | ")} | ${BRAND_NAME}`;
 
   const textSections: Record<MarketplaceEmailLocale, string[]> = {
     ar: [
       `مرحبًا ${safeRecipientName || "المتداول"}،`,
       "",
-      safeTitle.ar,
-      safeMessage.ar,
+      emailDisplayText(safeTitle.ar),
+      emailDisplayText(safeMessage.ar),
       safeReferenceLabel ? `المرجع: ${safeReferenceLabel}` : "",
       "",
-      `${input.actionLabel.ar}: ${safeActionUrl.ar}`,
+      `${emailDisplayText(input.actionLabel.ar)}: ${safeActionUrl.ar}`,
       "",
       "هذه رسالة مرتبطة بحسابك وتكمّل الإشعار الموجود في حسابك على Alpha Exchange.",
     ],
     en: [
       `Hello ${safeRecipientName || "Trader"},`,
       "",
-      safeTitle.en,
-      safeMessage.en,
+      emailDisplayText(safeTitle.en),
+      emailDisplayText(safeMessage.en),
       safeReferenceLabel ? `Reference: ${safeReferenceLabel}` : "",
       "",
-      `${input.actionLabel.en}: ${safeActionUrl.en}`,
+      `${emailDisplayText(input.actionLabel.en)}: ${safeActionUrl.en}`,
       "",
       "This transactional email complements the notification in your Alpha Exchange account.",
     ],

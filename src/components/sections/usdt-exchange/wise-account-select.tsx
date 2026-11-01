@@ -66,7 +66,7 @@ export function WiseAccountSelect({ locale, accounts, loading = false, value, on
       : (isAr ? "حساب Wise الشخصي لاستلام USD" : "Your personal Wise account for receiving USD")}</label>
     <select id={id} required value={value} disabled={disabled || loading || !hasReviewed} onChange={event => onChange(event.target.value)} aria-describedby={`${id}-help`} className="min-h-11 w-full min-w-0 rounded-lg border border-white/20 bg-[#111] px-3 text-white">
       <option value="">{loading ? (isAr ? "جارٍ تحميل الحسابات…" : "Loading accounts…") : (isAr ? "اختر حسابك الذي تمت مراجعة ملكيته" : "Choose your ownership-reviewed account")}</option>
-      {accounts.map(account => <option key={account.id} value={account.id} disabled={account.ownershipReviewStatus !== "manually_reviewed"}>
+      {accounts.map(account => <option className="currency-money" key={account.id} value={account.id} disabled={account.ownershipReviewStatus !== "manually_reviewed"}>
         {`${account.accountHolderName} · USD · ****${account.accountLast4} · ${account.ownershipReviewStatus === "manually_reviewed" ? (isAr ? "تمت مراجعة الملكية" : "Ownership reviewed") : account.ownershipReviewStatus === "rejected" ? (isAr ? "رُفضت المراجعة" : "Review rejected") : (isAr ? "بانتظار المراجعة" : "Review pending")}`}
       </option>)}
     </select>

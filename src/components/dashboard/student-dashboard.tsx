@@ -1,5 +1,6 @@
 "use client";
 
+import { formatMoneyNumber } from "@/lib/accent-text";
 import { useEffect, useState } from "react";
 import { useLocale } from "next-intl";
 import { CalendarClock, CheckCircle2, Clock3, FileText, PlayCircle } from "lucide-react";
@@ -70,7 +71,7 @@ export function StudentDashboard() {
           <CardContent className="space-y-3">
             <Progress value={overallProgress} label={isAr ? "تقدم الدورة" : "Course progress"} />
             <p className="text-sm text-[#9CA3AF]">
-              <bdi dir="ltr">{snapshot.completedLessons}/{lessons.length}</bdi> {isAr ? "دروس مكتملة" : "lessons completed"}
+              <bdi dir="ltr">{snapshot.completedLessons}/{formatMoneyNumber(lessons.length)}</bdi> {isAr ? "دروس مكتملة" : "lessons completed"}
             </p>
           </CardContent>
         </Card>

@@ -1,5 +1,6 @@
 "use client";
 
+import { currencyText } from "@/components/ui/currency-text";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { LockKeyhole, Phone } from "lucide-react";
 import { normalizeRegistrationWhatsApp } from "@alpha-traders/contracts";
@@ -139,7 +140,7 @@ function BuyerContactForm({ locale, phone, setPhone, saving, error, onSubmit, on
       <form className="mt-5 space-y-4" onSubmit={event => void onSubmit(event)}>
         <label className="block text-sm" htmlFor="buyer-private-phone">{isAr ? "رقم الهاتف أو واتساب (مطلوب)" : "Phone or WhatsApp number (required)"}</label>
         <Input id="buyer-private-phone" type="tel" inputMode="tel" autoComplete="tel" dir="ltr" required maxLength={30} disabled={saving} value={phone} onChange={event => setPhone(event.target.value)} aria-invalid={Boolean(error)} aria-describedby={error ? "buyer-contact-error" : undefined} placeholder="+972 50 123 4567" autoFocus />
-        {error ? <p id="buyer-contact-error" role="alert" className="text-sm text-red-300">{error}</p> : null}
+        {error ? <p id="buyer-contact-error" role="alert" className="text-sm text-red-300">{currencyText(error)}</p> : null}
         <Button type="submit" className="w-full" loading={saving} loadingLabel={isAr ? "جاري الحفظ…" : "Saving…"}>{isAr ? "حفظ الرقم والمتابعة" : "Save number and continue"}</Button>
         <Button type="button" variant="ghost" className="w-full" disabled={saving} onClick={() => void onSignOut()}>{isAr ? "تسجيل الخروج" : "Sign out"}</Button>
       </form>

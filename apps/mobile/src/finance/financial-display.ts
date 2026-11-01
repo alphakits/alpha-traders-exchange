@@ -1,3 +1,5 @@
+import { formatMoneyNumber } from "@alpha-traders/contracts";
+
 export const DEFAULT_USD_ILS_DISPLAY_RATE = 3.05;
 
 type FinancialValue = string | number | null | undefined;
@@ -33,12 +35,16 @@ export function formatCount(value: FinancialValue) {
   return formatFinancialNumber(value, { maximumFractionDigits: 0 });
 }
 
-export function formatWholeUsdtNumber(value: FinancialValue) {
-  return Math.trunc(financialNumber(value)).toLocaleString("en-US");
+export function formatUsdtNumber(value: FinancialValue) {
+  // Preserve the stored scale, including significant six-decimal commission digits.
+  const raw = String(value ?? 0).trim();
+  return /^[+-]?[\p{Nd}][\p{Nd},٬]*(?:[.٫]\p{Nd}+)?$/u.test(raw)
+    ? formatMoneyNumber(raw)
+    : formatMoneyNumber(financialNumber(value));
 }
 
-export function formatUsdt(value: FinancialValue, maximumFractionDigits = 0) {
-  if (maximumFractionDigits === 0) return `${formatWholeUsdtNumber(value)} USDT`;
+export function formatUsdt(value: FinancialValue, maximumFractionDigits?: number) {
+  if (maximumFractionDigits === undefined) return `${formatUsdtNumber(value)} USDT`;
   return `${formatFinancialNumber(value, { maximumFractionDigits })} USDT`;
 }
 

@@ -48,7 +48,7 @@ function TradeCard({ trade, onPress, usdIlsRate }: { trade: MobileTradeSummary; 
     >
       <View style={[styles.cardTop, isRTL && styles.rowReverse]}>
         <View style={styles.tradeIdentity}>
-          <Text style={[styles.tradeNumber, isRTL && styles.rtlText]}>
+          <Text preserveNumbers style={[styles.tradeNumber, isRTL && styles.rtlText]}>
             {t("tradeNumber")} #{trade.displayNumber ?? trade.id.slice(-6).toUpperCase()}
           </Text>
           <Text style={[styles.side, isRTL && styles.rtlText]}>
@@ -64,11 +64,11 @@ function TradeCard({ trade, onPress, usdIlsRate }: { trade: MobileTradeSummary; 
       <View style={styles.divider} />
       <View style={[styles.amountRow, isRTL && styles.rowReverse]}>
         <View>
-          <Text style={[styles.amount, isRTL && styles.rtlText]}>{usdtAmount}</Text>
+          <Text monetary style={[styles.amount, isRTL && styles.rtlText]}>{usdtAmount}</Text>
           <Text style={[styles.payment, isRTL && styles.rtlText]}>{mobilePaymentMethodLabel(trade.paymentMethod, locale)}</Text>
         </View>
         <View style={styles.fiatBlock}>
-          <Text style={[styles.fiat, isRTL && styles.rtlText]}>{usdAmount}</Text>
+          <Text monetary style={[styles.fiat, isRTL && styles.rtlText]}>{usdAmount}</Text>
           <Text style={[styles.updated, isRTL && styles.rtlText]}>{t("updatedAt")} {shortDate(trade.updatedAt, locale)}</Text>
         </View>
       </View>

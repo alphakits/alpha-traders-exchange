@@ -157,7 +157,7 @@ function sellerBadgeLabel(badge: string, isAr: boolean) {
   if (badge === "trusted_seller") return isAr ? "بائع موثوق" : "Trusted Seller";
   if (badge === "most_active") return isAr ? "الأكثر نشاطًا" : "Most Active";
   if (badge === "platinum_seller") return isAr ? "بائع بلاتيني" : "Platinum Seller";
-  if (badge === "trades_1000_plus" || badge === "thousand_trades") return isAr ? "+1000 صفقة" : "1000+ Trades";
+  if (badge === "trades_1000_plus" || badge === "thousand_trades") return isAr ? "+1,000 صفقة" : "1,000+ Trades";
   if (isAr) return "إنجاز للبائع";
   return badge.replaceAll("_", " ");
 }
@@ -450,11 +450,11 @@ export default async function PublicUserProfilePage({
               <div className="grid gap-4 md:grid-cols-3">
                 <div className="rounded-xl border border-white/10 bg-black/20 p-4">
                   <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "صفقات مكتملة" : "Completed trades"}</p>
-                  <p className="mt-1 text-xl font-semibold text-white">{data.stats?.completedAsBuyer ?? 0}</p>
+                  <p className="mt-1 text-xl font-semibold text-white">{currencyText(data.stats?.completedAsBuyer ?? 0)}</p>
                 </div>
                 <div className="rounded-xl border border-white/10 bg-black/20 p-4">
                   <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "تقييمات مكتوبة" : "Reviews written"}</p>
-                  <p className="mt-1 text-xl font-semibold text-white">{data.stats?.reviewsWritten ?? 0}</p>
+                  <p className="mt-1 text-xl font-semibold text-white">{currencyText(data.stats?.reviewsWritten ?? 0)}</p>
                 </div>
                 <div className="rounded-xl border border-white/10 bg-black/20 p-4">
                   <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "الهدف التالي" : "Next milestone"}</p>
@@ -475,10 +475,10 @@ export default async function PublicUserProfilePage({
 
         {data.stats ? (
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            <Card className="border-white/10 bg-[#0B0B0B]/85"><CardContent className="p-5"><p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "كمشتري" : "As buyer"}</p><p className="mt-1 text-xl font-semibold text-white">{data.stats.completedAsBuyer}</p></CardContent></Card>
-            <Card className="border-white/10 bg-[#0B0B0B]/85"><CardContent className="p-5"><p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "كبائع" : "As seller"}</p><p className="mt-1 text-xl font-semibold text-white">{data.stats.completedAsSeller}</p></CardContent></Card>
-            <Card className="border-white/10 bg-[#0B0B0B]/85"><CardContent className="p-5"><p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "تقييمات مستلمة" : "Reviews received"}</p><p className="mt-1 text-xl font-semibold text-white">{data.stats.reviewsReceived}</p></CardContent></Card>
-            <Card className="border-white/10 bg-[#0B0B0B]/85"><CardContent className="p-5"><p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "العروض النشطة" : "Active listings"}</p><p className="mt-1 text-xl font-semibold text-white">{data.stats.activeListings}</p></CardContent></Card>
+            <Card className="border-white/10 bg-[#0B0B0B]/85"><CardContent className="p-5"><p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "كمشتري" : "As buyer"}</p><p className="mt-1 text-xl font-semibold text-white">{currencyText(data.stats.completedAsBuyer)}</p></CardContent></Card>
+            <Card className="border-white/10 bg-[#0B0B0B]/85"><CardContent className="p-5"><p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "كبائع" : "As seller"}</p><p className="mt-1 text-xl font-semibold text-white">{currencyText(data.stats.completedAsSeller)}</p></CardContent></Card>
+            <Card className="border-white/10 bg-[#0B0B0B]/85"><CardContent className="p-5"><p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "تقييمات مستلمة" : "Reviews received"}</p><p className="mt-1 text-xl font-semibold text-white">{currencyText(data.stats.reviewsReceived)}</p></CardContent></Card>
+            <Card className="border-white/10 bg-[#0B0B0B]/85"><CardContent className="p-5"><p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "العروض النشطة" : "Active listings"}</p><p className="mt-1 text-xl font-semibold text-white">{currencyText(data.stats.activeListings)}</p></CardContent></Card>
           </div>
         ) : null}
       </div>

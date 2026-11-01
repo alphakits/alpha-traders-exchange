@@ -18,7 +18,7 @@ import { useLocale } from "../src/i18n/locale-context";
 import {
   formatCount,
   formatCurrencyAmountAsUsd,
-  formatWholeUsdtNumber,
+  formatUsdtNumber,
 } from "../src/finance/financial-display";
 import { useUsdDisplayRate } from "../src/finance/use-usd-display-rate";
 
@@ -200,9 +200,9 @@ function ListingReviewCard({ listing, isAr, isRTL, onReview }: { listing: Mobile
         <Text style={[styles.cardTitle, isRTL && styles.rtlText]}>#{listing.displayNumber ?? listing.id.slice(-6)} · {listing.sellerDisplayName}</Text>
         <Text style={styles.pendingBadge}>{isAr ? "معلق" : "Pending"}</Text>
       </View>
-      <Text style={[styles.amount, isRTL && styles.rtlText]}>{formatWholeUsdtNumber(listing.availableAmount)} USDT · {formatCurrencyAmountAsUsd(listing.price, listing.currency, usdIlsRate, 4)}</Text>
+      <Text style={[styles.amount, isRTL && styles.rtlText]}>{formatUsdtNumber(listing.availableAmount)} USDT · {formatCurrencyAmountAsUsd(listing.price, listing.currency, usdIlsRate, 4)}</Text>
       <Text style={[styles.body, isRTL && styles.rtlText]}>{listing.network} · {listing.paymentMethods.join(" · ")}</Text>
-      <Text style={[styles.body, isRTL && styles.rtlText]}>{isAr ? "الحدود" : "Limits"}: {formatWholeUsdtNumber(listing.minimumTrade)}–{formatWholeUsdtNumber(listing.maximumTrade)} USDT</Text>
+      <Text style={[styles.body, isRTL && styles.rtlText]}>{isAr ? "الحدود" : "Limits"}: {formatUsdtNumber(listing.minimumTrade)}–{formatUsdtNumber(listing.maximumTrade)} USDT</Text>
       {listing.sellerDescription ? <Text style={[styles.description, isRTL && styles.rtlText]}>{listing.sellerDescription}</Text> : null}
       <GoldButton onPress={() => onReview({ target: "listing", id: listing.id, decision: "approve", title: isAr ? "الموافقة على العرض" : "Approve listing", reasonRequired: false })}>{isAr ? "موافقة" : "Approve"}</GoldButton>
       <GoldButton onPress={() => onReview({ target: "listing", id: listing.id, decision: "request_changes", title: isAr ? "طلب تعديلات" : "Request changes", reasonRequired: true })} variant="outline">{isAr ? "طلب تعديلات" : "Request changes"}</GoldButton>

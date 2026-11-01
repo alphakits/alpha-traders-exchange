@@ -1,5 +1,6 @@
 "use client";
 
+import { formatMoneyNumber } from "@/lib/accent-text";
 import { buildTradeRoomDestination } from "@/lib/trade-room-destination";
 import { useWiseAccounts } from "./wise-account-select";
 import type { ListingCreateForm } from "./seller-workspace-section";
@@ -450,7 +451,7 @@ export function CompactTradeTimeline({ events, isAr }: { events: TradeTimelineEn
           {new Date(event.createdAt).toLocaleTimeString(isAr ? "ar-IL-u-nu-latn" : "en-IL", { hour: "2-digit", minute: "2-digit", timeZone: ISRAEL_TIME_ZONE })}
         </span>
         {currencyText(message)}
-        {count > 1 ? <span className="ms-1 text-xs text-[#9CA3AF]">×{count}</span> : null}
+        {count > 1 ? <span className="ms-1 text-xs text-[#9CA3AF]">×{formatMoneyNumber(count)}</span> : null}
       </span>
     </div>
   );
@@ -1151,7 +1152,7 @@ export const ListingCard = memo(function ListingCard({ listing, isAr, marketPric
                   <p className={cn("seller-asset-usdt-value text-[#D6FFE7]", availableAmountClassName)}>
                     {moneyText(formattedAvailableAmount)}
                   </p>
-                  <span className="compact-listing__amount-unit currency-usdt">USDT</span>
+                  <span className="currency-money compact-listing__amount-unit currency-usdt">USDT</span>
                 </div>
               </div>
 
@@ -1162,7 +1163,7 @@ export const ListingCard = memo(function ListingCard({ listing, isAr, marketPric
             </div>
             <div className={cn("rounded-xl border p-3 seller-rank-price seller-card-keymetric min-w-0", `seller-rank-price--${isOwnerListing ? "legendary" : sellerRankKey}`)}>
               <p className="text-[11px] uppercase tracking-[0.16em] text-[#D4AF37]">
-                {isAr ? "سعر العرض" : "Listing Price"}
+                {currencyText(isAr ? "سعر العرض" : "Listing Price")}
               </p>
               <p className="seller-price-value mt-2 text-4xl font-semibold leading-none text-[#6EE7B7] md:text-5xl">
                 {moneyText(toNumber(listing.price).toLocaleString("en-IL", { minimumFractionDigits: 2, maximumFractionDigits: 2 }))}
@@ -1176,7 +1177,7 @@ export const ListingCard = memo(function ListingCard({ listing, isAr, marketPric
             <span>{currencyText("USDT / ILS")}</span>
             <span className="seller-live-market-badge">{isAr ? "مباشر" : "Live"}</span>
             <span className="compact-listing__market-price font-semibold">{marketPricePerUsdt > 0 ? moneyText(marketPricePerUsdt.toFixed(5)) : "—"}</span>
-          </div> : <p className="p-2 text-xs text-[#D1D5DB]">{isAr ? "السعر والإجمالي بالدولار USD. لا يوجد تحويل تلقائي للعملة." : "Price and total are in USD. No automatic currency conversion."}</p>}
+          </div> : <p className="p-2 text-xs text-[#D1D5DB]">{currencyText(isAr ? "السعر والإجمالي بالدولار USD. لا يوجد تحويل تلقائي للعملة." : "Price and total are in USD. No automatic currency conversion.")}</p>}
         </div>
         <div className="compact-listing__stats grid grid-cols-4 gap-1.5 text-center text-xs">
           <div className={cn("rounded-xl border border-white/10 bg-black/25 p-3 text-[#D1D5DB] transition duration-300 hover:bg-black/35", `seller-rank-microcard seller-rank-microcard--${isOwnerListing ? "legendary" : sellerRankKey}`)}>
@@ -1209,7 +1210,7 @@ export const ListingCard = memo(function ListingCard({ listing, isAr, marketPric
               <div className="mt-1 flex flex-wrap gap-1.5">
                 {normalizePaymentMethodList(listing.paymentMethods, listing.paymentMethod).map((method) => (
                   <span key={`${listing.id}-${method}`} className="max-w-full break-words rounded-full border border-white/15 bg-white/[0.03] px-2 py-0.5 text-[11px] text-[#D1D5DB]">
-                    {currencyText(paymentMethodLabel(method, isAr))}{listing.bankTransferProvider === "wise" && method === "Bank Transfer" ? " · Wise · USD" : ""}
+                    {currencyText(paymentMethodLabel(method, isAr))}{currencyText(listing.bankTransferProvider === "wise" && method === "Bank Transfer" ? " · Wise · USD" : "")}
                   </span>
                 ))}
               </div>
@@ -1217,7 +1218,7 @@ export const ListingCard = memo(function ListingCard({ listing, isAr, marketPric
           </div>
           <div className="seller-card-info-panel min-w-0 space-y-1.5 rounded-xl border border-white/10 bg-black/25 p-3">
             {normalizePaymentMethodList(listing.paymentMethods, listing.paymentMethod).some(isCardlessAtmPaymentMethod)
-              ? <p>{isAr ? "الحد الأقصى؛ كمية ATM تُحسب من الرمز" : "Maximum; ATM quantity follows the code"}: <span className="text-white">{currencyText(`${Math.min(toNumber(listing.maximumTrade) || toNumber(listing.availableAmount), toNumber(listing.availableAmount)).toLocaleString("en-US", { maximumFractionDigits: 6 })} USDT`)}</span></p>
+              ? <p>{currencyText(isAr ? "الحد الأقصى؛ كمية ATM تُحسب من الرمز" : "Maximum; ATM quantity follows the code")}: <span className="text-white">{currencyText(`${Math.min(toNumber(listing.maximumTrade) || toNumber(listing.availableAmount), toNumber(listing.availableAmount)).toLocaleString("en-US", { maximumFractionDigits: 6 })} USDT`)}</span></p>
               : <p>{isAr ? "حدود الصفقة" : "Trade limits"}: <span className="text-white">{currencyText(`${Math.trunc(toNumber(listing.minimumTrade)).toLocaleString("en-US")} – ${Math.trunc(toNumber(listing.maximumTrade)).toLocaleString("en-US")} USDT`)}</span></p>}
             <p>
               {isAr ? "مسار الصفقة" : "Trade flow"}:{" "}
@@ -1294,7 +1295,7 @@ export const ListingCard = memo(function ListingCard({ listing, isAr, marketPric
             >
               <span className="inline-flex items-center gap-2">
                 <BadgePercent className="h-4 w-4" />
-                {isAr ? "قدّم عرض سعر" : "Make an Offer"}
+                {currencyText(isAr ? "قدّم عرض سعر" : "Make an Offer")}
               </span>
               <span className="text-[11px] font-medium text-[#D1D5DB]">
                 {currencyText(isAr ? "±₪0.35 من سعر الإعلان" : "Within ±₪0.35 of listing price")}
@@ -5069,7 +5070,7 @@ export function UsdtExchangePage({
                 <span className="font-semibold text-white">{buyerOverviewStats.completed}</span>
               </div>
               <div className="flex items-center justify-between rounded-xl border border-white/10 bg-black/20 px-3 py-2">
-                <span>{isAr ? "متوسط سعر الشراء" : "Average Purchase Price"}</span>
+                <span>{currencyText(isAr ? "متوسط سعر الشراء" : "Average Purchase Price")}</span>
                 <span className="space-y-1 text-end font-semibold text-white">{buyerOverviewStats.averagePurchasePrices.length ? buyerOverviewStats.averagePurchasePrices.map(({ currency, price }) => <bdi key={currency} dir="ltr" className="block">{currencyText(`${price.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`)}</bdi>) : "—"}</span>
               </div>
             </div>
@@ -5404,7 +5405,7 @@ export function UsdtExchangePage({
                 <select value={currencyFilter} onChange={(event) => setCurrencyFilter(event.target.value)} className="flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 py-2 text-sm text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C9A227] focus-visible:ring-offset-1 focus-visible:ring-offset-[#050505]">
                   <option value="all">{isAr ? "العملة: الكل" : "Currency: All"}</option>
                   {uniqueCurrencies.map((currency) => (
-                    <option key={currency} value={currency}>{currency}</option>
+                    <option className="currency-money" key={currency} value={currency}>{currency}</option>
                   ))}
                 </select>
                 <select value={paymentMethodFilter} onChange={(event) => setPaymentMethodFilter(event.target.value)} className="flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 py-2 text-sm text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C9A227] focus-visible:ring-offset-1 focus-visible:ring-offset-[#050505]">
@@ -5423,7 +5424,7 @@ export function UsdtExchangePage({
                 <select value={sortBy} onChange={(event) => setSortBy(event.target.value as "trust-desc" | "price-asc" | "amount-desc" | "trades-desc" | "rating-desc" | "response-fast" | "newest")} className="flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 py-2 text-sm text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C9A227] focus-visible:ring-offset-1 focus-visible:ring-offset-[#050505]">
                   <option value="trust-desc">{isAr ? "ترتيب: أفضل البائعين" : "Sort: Best Sellers"}</option>
                   <option value="price-asc">{mixedPriceCurrencies ? (isAr ? "السعر: مجمّع حسب العملة" : "Price: grouped by currency") : (isAr ? "الترتيب: أقل سعر" : "Sort: Lowest Price")}</option>
-                  <option value="amount-desc">{isAr ? "الترتيب: أعلى كمية USDT" : "Sort: Highest Available USDT"}</option>
+                  <option className="currency-money" value="amount-desc">{isAr ? "الترتيب: أعلى كمية USDT" : "Sort: Highest Available USDT"}</option>
                   <option value="trades-desc">{isAr ? "الترتيب: أكثر صفقات مكتملة" : "Sort: Most Completed Trades"}</option>
                   <option value="rating-desc">{isAr ? "الترتيب: أعلى تقييم" : "Sort: Highest Rating"}</option>
                   <option value="response-fast">{isAr ? "الترتيب: أسرع استجابة" : "Sort: Fastest Response Time"}</option>

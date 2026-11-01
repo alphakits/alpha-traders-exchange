@@ -1,3 +1,4 @@
+import { formatMoneyNumber } from "@/lib/accent-text";
 import { OwnerPrivateContact } from "@/components/profile/owner-private-contact";
 import { AccountVerificationBadges } from "@/components/profile/account-verification-badges";
 import { brandText, currencyText } from "@/components/ui/currency-text";
@@ -573,7 +574,7 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, vi
                 <div>
                   <p className="text-sm text-[#D1D5DB]">{isAr ? "متوسط التقييم" : "Average rating"}</p>
                   <p className="text-xl font-semibold text-white">{reviewStats.averageRating.toFixed(2)}★</p>
-                  <p className="text-xs text-[#9CA3AF]">{reviewStats.reviewCount} {isAr ? "تقييم" : "reviews"}</p>
+                  <p className="text-xs text-[#9CA3AF]">{formatMoneyNumber(reviewStats.reviewCount)} {isAr ? "تقييم" : "reviews"}</p>
                 </div>
               </div>
               {latestReview ? (
@@ -584,7 +585,7 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, vi
                     <details className="group min-w-0">
                       <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-[#D1D5DB] hover:border-[#C9A227]/30 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C9A227] [&::-webkit-details-marker]:hidden">
                         <span className="min-w-0 group-open:hidden">
-                          {isAr ? "عرض التقييمات السابقة" : "Show older reviews"} ({olderReviews.length})
+                          {isAr ? "عرض التقييمات السابقة" : "Show older reviews"} ({formatMoneyNumber(olderReviews.length)})
                         </span>
                         <span className="hidden min-w-0 group-open:inline">
                           {isAr ? "إخفاء التقييمات السابقة" : "Hide older reviews"}

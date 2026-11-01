@@ -1,4 +1,4 @@
-import { receiptNotice, tradeReceiptRows } from "@alpha-traders/contracts";
+import { receiptNotice, tradeReceiptDisplayRows } from "@alpha-traders/contracts";
 import { sellerFeeResponsibilityNotice, tradePaymentReceiptConfirmation, tradeChatTextDirection, TRADE_CHAT_MESSAGE_MAX_LENGTH, OWNER_TRADE_CHAT_MESSAGE_MAX_LENGTH } from "@alpha-traders/contracts";
 import { BrandedText as Text } from "../components/branded-text";
 import { AttentionSiren } from "../components/attention-siren";
@@ -110,11 +110,11 @@ function stageInstruction(
   return t("tradeEnded");
 }
 
-function DetailRow({ label, value, isRTL, commissionNotice }: { label: string; value: string; isRTL: boolean; commissionNotice?: boolean }) {
+function DetailRow({ label, value, isRTL, commissionNotice, monetary = false }: { label: string; value: string; isRTL: boolean; commissionNotice?: boolean; monetary?: boolean }) {
   return (
     <View style={[styles.detailRow, isRTL && styles.rowReverse]}>
-      <Text style={[styles.detailLabel, commissionNotice && { color: colors.commissionNotice }, isRTL && styles.rtlText]}>{label}</Text>
-      <Text selectable style={[styles.detailValue, isRTL && styles.rtlText]}>{value}</Text>
+      <Text monetary={monetary} style={[styles.detailLabel, commissionNotice && { color: colors.commissionNotice }, isRTL && styles.rtlText]}>{label}</Text>
+      <Text monetary={monetary} preserveNumbers={!monetary} selectable style={[styles.detailValue, isRTL && styles.rtlText]}>{value}</Text>
     </View>
   );
 }
@@ -740,7 +740,7 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
         <View collapsable={false} onLayout={(event) => recordGuidanceLayout("hero", event)} style={styles.heroCard}>
           <View style={[styles.heroTop, isRTL && styles.rowReverse]}>
             <View style={styles.heroIdentity}>
-              <Text accessibilityRole="header" style={[styles.tradeNumber, isRTL && styles.rtlText]}>
+              <Text preserveNumbers accessibilityRole="header" style={[styles.tradeNumber, isRTL && styles.rtlText]}>
                 {t("tradeNumber")} #{trade.displayNumber ?? trade.id.slice(-6).toUpperCase()}
               </Text>
               <Text style={[styles.counterparty, isRTL && styles.rtlText]}>{t("tradingWith")} {trade.counterpartyDisplayName}</Text>
@@ -776,16 +776,16 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
 
         {trade.completionReceipt ? <View style={styles.summaryCard}>
           <Text accessibilityRole="header" style={[styles.sectionTitle, isRTL && styles.rtlText]}>{isRTL ? "إيصال الصفقة" : "Trade receipt"}</Text>
-          {tradeReceiptRows(trade.completionReceipt, locale).map(([label, value]) => <DetailRow key={label} isRTL={isRTL} label={label} value={value} />)}
+          {tradeReceiptDisplayRows(trade.completionReceipt, locale).map(([label, value, isMoney]) => <DetailRow monetary={isMoney} key={label} isRTL={isRTL} label={label} value={value} />)}
           <Text style={[styles.timelineDate, isRTL && styles.rtlText]}>{receiptNotice(trade.completionReceipt, locale)}</Text>
         </View> : null}
         <View style={styles.summaryCard}>
           {trade.feePolicyVersion === "buyer_seller_1pct_v1" ? <Text style={[styles.commissionNotice, isRTL && styles.rtlText]}>{trade.side === "seller"
             ? sellerFeeResponsibilityNotice(locale)
             : (isRTL ? "عمولتك كمشتري 1% مشمولة في إجمالي الدفع للبائع، وتستلم كامل كمية USDT المتفق عليها." : "Your buyer fee of 1% is included in the payment total to the seller. You receive the full agreed USDT amount.")}</Text> : null}
-          <DetailRow isRTL={isRTL} label={t("tradeAmount")} value={formatUsdt(trade.usdtAmount)} />
-          <DetailRow isRTL={isRTL} label={t("unitPrice")} value={formatCurrencyAmountAsUsd(trade.pricePerUsdt, trade.currency, usdIlsRate, 4)} />
-          <DetailRow isRTL={isRTL} commissionNotice={trade.feePolicyVersion === "buyer_seller_1pct_v1"} label={trade.feePolicyVersion === "buyer_seller_1pct_v1" ? (isRTL ? "الإجمالي للبائع (يشمل عمولة المشتري 1%)" : "Total to seller (includes buyer 1%)") : t("tradeValue")} value={`${trade.currency} ${Number(trade.fiatAmount).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} />
+          <DetailRow monetary isRTL={isRTL} label={t("tradeAmount")} value={formatUsdt(trade.usdtAmount)} />
+          <DetailRow monetary isRTL={isRTL} label={t("unitPrice")} value={formatCurrencyAmountAsUsd(trade.pricePerUsdt, trade.currency, usdIlsRate, 4)} />
+          <DetailRow monetary isRTL={isRTL} commissionNotice={trade.feePolicyVersion === "buyer_seller_1pct_v1"} label={trade.feePolicyVersion === "buyer_seller_1pct_v1" ? (isRTL ? "الإجمالي للبائع (يشمل عمولة المشتري 1%)" : "Total to seller (includes buyer 1%)") : t("tradeValue")} value={`${trade.currency} ${Number(trade.fiatAmount).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} />
           <DetailRow isRTL={isRTL} label={t("selectPayment")} value={mobilePaymentMethodLabel(trade.paymentMethod, locale)} />
           {isCardlessAtm && trade.bankName ? <DetailRow isRTL={isRTL} label={locale === "ar" ? "بنك السحب" : "Withdrawal bank"} value={trade.bankName} /> : null}
           <DetailRow isRTL={isRTL} label={t("tradeSide")} value={trade.side === "buyer" ? t("purchaseSide") : t("saleSide")} />
@@ -794,7 +794,7 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
         {trade.receivingWalletAddress ? (
           <View collapsable={false} onLayout={(event) => recordGuidanceLayout("wallet", event)} style={styles.section}>
             <Text accessibilityRole="header" style={[styles.sectionTitle, isRTL && styles.rtlText]}>{t("receivingWalletLabel")} · {trade.network}</Text>
-            <Text selectable style={[styles.wallet, isRTL && styles.rtlText]}>{trade.receivingWalletAddress}</Text>
+            <Text preserveNumbers selectable style={[styles.wallet, isRTL && styles.rtlText]}>{trade.receivingWalletAddress}</Text>
           </View>
         ) : null}
 
@@ -821,7 +821,7 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
           <View key={`withdrawal-${message.createdAt}-${index}`} style={[styles.section, styles.importantPanel]}>
             <Text accessibilityRole="header" style={[styles.sectionTitle, isRTL && styles.rtlText]}><AttentionSiren />{t("withdrawalDetailsTitle")}</Text>
             {trade.bankName ? <DetailRow isRTL={isRTL} label={t("bankName")} value={trade.bankName} /> : null}
-            <Text selectable style={[styles.messageText, chatTextStyle(message.message, isRTL)]}>{message.message}</Text>
+            <Text preserveNumbers selectable style={[styles.messageText, chatTextStyle(message.message, isRTL)]}>{message.message}</Text>
           </View>
         )) : null}
 
@@ -1128,7 +1128,7 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
                     {tradeChatRoleLabel(message.isOwnerMessage ? "owner" : message.participantRole ?? (isOwn ? trade.side : trade.side === "buyer" ? "seller" : "buyer"), locale)}
                     {isOwn ? (locale === "ar" ? " · أنت" : " · You") : ""}
                   </Text>
-                  <Text style={[styles.messageText, chatTextStyle(message.message, isRTL)]}>{message.message}</Text>
+                  <Text preserveNumbers style={[styles.messageText, chatTextStyle(message.message, isRTL)]}>{message.message}</Text>
                   <View style={styles.messageFooter}>
                     <Text style={styles.messageTime}>{new Date(message.createdAt).toLocaleTimeString(locale === "ar" ? "ar-IL" : "en-IL", { hour: "2-digit", minute: "2-digit" })}</Text>
                     {message.status ? <Text style={styles.messageTime}>{tradeChatStatusLabel(message.status, locale)}</Text> : null}

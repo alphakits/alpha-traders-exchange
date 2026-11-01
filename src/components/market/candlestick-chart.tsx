@@ -29,7 +29,7 @@ export const CandlestickChart = memo(function CandlestickChart({ candles, label,
       const price = max - (max - min) * index / 2;
       return <g key={index}>
         <line x1="8" x2="280" y1={y(price)} y2={y(price)} stroke="#ffffff0c" />
-        <text x="288" y={y(price) + 4} fontSize="11" fill="#929aa7">{formatPrice(price)}</text>
+        <text x="288" y={y(price) + 4} fontSize="11" fill="#34d399">{formatPrice(price)}</text>
       </g>;
     })}
     {candles.filter((candle) => candle.time >= start).map((candle) => {
@@ -41,8 +41,8 @@ export const CandlestickChart = memo(function CandlestickChart({ candles, label,
       </g>;
     })}
     <line x1="8" x2="280" y1={y(last.close)} y2={y(last.close)} stroke={color} strokeOpacity=".45" strokeDasharray="2 4" />
-    <rect x="284" y={y(last.close) - 8} width="72" height="17" rx="3" fill={color} />
-    <text x="288" y={y(last.close) + 4} fontSize="11" fill="white">{formatPrice(last.close)}</text>
+    <rect x="284" y={y(last.close) - 8} width="72" height="17" rx="3" fill="#052e23" stroke={color} />
+    <text x="288" y={y(last.close) + 4} fontSize="11" fill="#6ee7b7">{formatPrice(last.close)}</text>
     <text x="10" y="140" fontSize="11" fill="#929aa7">{time(start)}</text>
     <text x="278" y="140" textAnchor="end" fontSize="11" fill="#929aa7">{time(last.time)} UTC</text>
   </svg>;

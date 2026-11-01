@@ -19,6 +19,8 @@ const jsx = (type, props) => typeof type === 'function' ? type(props ?? {}) : ({
 function loader(env = {}, sessionUser = null) {
   const cache = new Map();
   const allowed = {
+    '@/components/ui/currency-text': 'src/components/ui/currency-text.tsx',
+    '@/lib/accent-text': 'packages/contracts/src/display-amount.ts',
     '@/lib/site-url': 'src/lib/site-url.ts',
     '@/lib/seo': 'src/lib/seo.ts',
     '@/lib/seo-indexing': 'src/lib/seo-indexing.ts',
@@ -69,7 +71,7 @@ function walk(value, predicate) {
   return [...(predicate(value) ? [value] : []), ...walk(value.props?.children, predicate)];
 }
 function text(value) {
-  if (Array.isArray(value)) return value.map(text).join(' ');
+  if (Array.isArray(value)) return value.map(text).join('');
   if (value && typeof value === 'object') return value.type === 'script' ? '' : text(value.props?.children);
   return value == null || typeof value === 'boolean' ? '' : String(value);
 }

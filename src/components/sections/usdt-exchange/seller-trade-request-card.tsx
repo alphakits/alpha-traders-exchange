@@ -70,7 +70,7 @@ export function SellerTradeRequestCard({ request, workspace }: {
           <time dateTime={updatedAt} className="ms-auto text-xs text-[#9CA3AF]">{new Date(updatedAt).toLocaleDateString(dateLocale)}</time>
         </div>
         {request.priceMode === "buyer_offer" ? (
-          <p className="text-xs font-medium text-[#F4D87A]">{isAr ? "عرض سعر" : "Price offer"} · {currencyText(`₪${toNumber(request.pricePerUsdt).toFixed(2)}`)}/<span className="currency-usdt">USDT</span></p>
+          <p className="text-xs font-medium text-[#F4D87A]">{currencyText(isAr ? "عرض سعر" : "Price offer")} · {currencyText(`₪${toNumber(request.pricePerUsdt).toFixed(2)}`)}/<span className="currency-money currency-usdt">USDT</span></p>
         ) : null}
         {isCardlessAtm ? (
           <p className="break-words text-sm text-[#D1D5DB]">
@@ -165,7 +165,7 @@ export function SellerTradeRequestCard({ request, workspace }: {
               <div className="col-span-2"><dt>{isAr ? "طريقة الدفع" : "Payment method"}</dt><dd>{currencyText(paymentMethodEmoji(request.paymentMethod))} {currencyText(paymentMethodLabel(request.paymentMethod, isAr))}</dd></div>
               <div><dt>{isAr ? "الشبكة" : "Network"}</dt><dd>{request.network}</dd></div>
               <div><dt>{currencyText(isAr ? "السعر لكل USDT" : "Price per USDT")}</dt><dd>{currencyText(`${(toNumber(request.pricePerUsdt) || (toNumber(request.fiatAmount) / Math.max(1, toNumber(request.usdtAmount)))).toFixed(2)} ${request.currency || "ILS"}`)}</dd></div>
-              {request.priceMode === "buyer_offer" ? <div><dt>{isAr ? "سعر العرض الأصلي" : "Original listing price"}</dt><dd>{currencyText(`${toNumber(request.listingPriceAtRequest).toFixed(2)} ${request.currency || "ILS"}`)}</dd></div> : null}
+              {request.priceMode === "buyer_offer" ? <div><dt>{currencyText(isAr ? "سعر العرض الأصلي" : "Original listing price")}</dt><dd>{currencyText(`${toNumber(request.listingPriceAtRequest).toFixed(2)} ${request.currency || "ILS"}`)}</dd></div> : null}
               <div><dt>{isAr ? "العرض" : "Listing"}</dt><dd>{currencyText(shortListingRef({ id: request.listingId, displayNumber: myListingsById.get(request.listingId)?.displayNumber }))}</dd></div>
               <div><dt>{isAr ? "تاريخ الإرسال" : "Submitted"}</dt><dd>{new Date(request.createdAt).toLocaleString(dateLocale)}</dd></div>
               {request.completedAt ? <div><dt>{isAr ? "اكتملت" : "Completed"}</dt><dd>{new Date(request.completedAt).toLocaleString(dateLocale)}</dd></div> : null}

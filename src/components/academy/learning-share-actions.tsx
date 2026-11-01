@@ -1,4 +1,5 @@
 "use client";
+import { currencyText } from "@/components/ui/currency-text";
 
 import { useEffect, useState } from "react";
 import { Gift, Sparkles } from "lucide-react";
@@ -57,7 +58,7 @@ export function LearningShareActions({ locale, destination = "mentorship", refer
         </div>
         <div className={styles.amountPanel}>
           <span className={styles.rewardLabel}>{isAr ? "مكافأتك" : "Your reward"}</span>
-          <span className={`${styles.amount} currency-money`} dir="ltr"><span className={styles.currency}>₪</span>1,200</span>
+          <span className={`${styles.amount} currency-money`} dir="ltr"><span className={styles.currency}>{currencyText("₪")}</span>1,200</span>
           <span className={styles.perPerson}>{isAr ? "عن كل شخص بيسجّل عن طريقك" : "For every person who enrols through you"}</span>
         </div>
       </div>
@@ -66,7 +67,7 @@ export function LearningShareActions({ locale, destination = "mentorship", refer
           { title: isAr ? "شارك الكورس" : "Share the course", text: isAr ? "ابعث الرابط للي حاب يتعلّم." : "Send the link to someone who wants to learn." },
           { title: isAr ? "خليه يذكر اسمك" : "Ask them to mention you", text: isAr ? "وقت التسجيل، يحكي لمارك إنه من طرفك." : "When enrolling, they tell Mark you referred them." },
           { title: isAr ? "استلم مكافأتك" : "Receive your reward", text: isAr ? "بعد تأكيد تسجيله بالكورس مع مارك." : "Once their course enrolment with Mark is confirmed." },
-        ].map((step, index) => <li key={index}><span className={styles.stepNumber} aria-hidden="true">{index + 1}</span><div><h3>{step.title}</h3><p>{step.text}</p></div></li>)}
+        ].map((step, index) => <li key={index}><span className={styles.stepNumber} aria-hidden="true">{index + 1}</span><div><h3>{currencyText(step.title)}</h3><p>{currencyText(step.text)}</p></div></li>)}
       </ol>
       <p className={styles.repeat}><Sparkles size={17} aria-hidden="true" /><span>{isAr ? "مش بس أول مرة — المكافأة بتتكرر مع كل شخص جديد بيسجّل عن طريقك." : "Every enrolment counts. Receive the reward again for each new person who enrols through you."}</span></p>
     </> : <>

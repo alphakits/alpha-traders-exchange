@@ -1,3 +1,4 @@
+import { currencyText } from "@/components/ui/currency-text";
 import { CalendarDays, Check, ChevronDown, Clock3, FileText, Folder } from "lucide-react";
 import { newsEventStatus, newsEventTitle, newsResultSummary, type NewsEvent, type NewsLocale } from "@/lib/economic-news/model";
 import styles from "./news-page.module.css";
@@ -23,7 +24,7 @@ export function EventCard({ event, locale, timeZone, now, selected = false, week
   const toneLabel = isAr ? { positive: "إيجابي", negative: "سلبي", neutral: "محايد" }[meaning.tone]
     : { positive: "Positive", negative: "Negative", neutral: "Neutral" }[meaning.tone];
   const resultMeaning = <span className={`${styles.resultMeaning} ${resultTone}`} aria-label={`${toneLabel}: ${meaning.label}`}>
-    <span className={styles.resultSign} aria-hidden="true">{meaning.tone === "positive" ? "+" : meaning.tone === "negative" ? "−" : "·"}</span>{meaning.label}
+    <span className={styles.resultSign} aria-hidden="true">{meaning.tone === "positive" ? "+" : meaning.tone === "negative" ? "−" : "·"}</span>{currencyText(meaning.label)}
   </span>;
   const title = newsEventTitle(event, locale);
   const labels = isAr ? {
@@ -50,13 +51,13 @@ export function EventCard({ event, locale, timeZone, now, selected = false, week
           <div className={styles.eventMeta}>
             <span className={styles.eventKind}>
               {event.kind === "speech" ? <FileText size={14} aria-hidden="true" /> : <Folder size={14} aria-hidden="true" />}
-              <bdi>USD</bdi><span aria-hidden="true">·</span>{event.kind === "speech" ? (isAr ? "خطاب / بيان" : "Speech / statement") : (isAr ? "بيانات اقتصادية" : "Economic release")}
+              <bdi className="currency-money">USD</bdi><span aria-hidden="true">·</span>{event.kind === "speech" ? (isAr ? "خطاب / بيان" : "Speech / statement") : (isAr ? "بيانات اقتصادية" : "Economic release")}
             </span>
             <span className={`${styles.status} ${released || published ? styles.confirmed : ""}`}>
               {released || published ? <Check size={13} aria-hidden="true" /> : null}{labels[status]}
             </span>
           </div>
-          <h3 id={`title-${event.id}`} className={styles.eventTitle} dir="auto">{title}</h3>
+          <h3 id={`title-${event.id}`} className={styles.eventTitle} dir="auto">{currencyText(title)}</h3>
           <div className={styles.eventWhen}>
             <span><CalendarDays size={16} aria-hidden="true" /><time dateTime={event.scheduledAt}>{formatNewsDate(event.scheduledAt, locale, timeZone, false)}</time></span>
             <span><Clock3 size={16} aria-hidden="true" />{event.timing === "exact"
@@ -73,7 +74,7 @@ export function EventCard({ event, locale, timeZone, now, selected = false, week
           {event.kind === "release" || released ? (
             <dl className={styles.results} style={{ gridTemplateColumns: `repeat(${resultItems.length}, minmax(0, 1fr))` }}>
               {resultItems.map((item) => <div key={item.label} className={styles.resultCell}>
-                <dt>{item.label}</dt>
+                <dt>{currencyText(item.label)}</dt>
                 <dd data-result-tone={item.result && released ? meaning.tone : undefined} className={item.value === null ? styles.missing : item.tone}>{item.value === null ? item.missing : <bdi dir="ltr">{item.value}</bdi>}</dd>
               </div>)}
             </dl>
@@ -82,7 +83,7 @@ export function EventCard({ event, locale, timeZone, now, selected = false, week
           {event.revised !== null || event.corrected ? <p className={styles.revision}>{isAr ? "تتضمن البيانات مراجعة من المصدر." : "Includes a source revision."}</p> : null}
           <div className={styles.detailBody}>
             <p className={styles.context}>{newsEventContext(event, locale)}</p>
-            {isAr && event.titleAr !== event.title ? <p dir="ltr">{event.title}</p> : null}
+            {isAr && event.titleAr !== event.title ? <p dir="ltr">{currencyText(event.title)}</p> : null}
             {event.reference ? <p>{isAr ? "الفترة: " : "Period: "}<bdi>{event.reference}</bdi></p> : null}
             {released ? <p>{newsResultSummary(event, locale)}</p> : null}
             {event.revised !== null ? <p>{isAr ? "السابق بعد المراجعة: " : "Revised previous: "}<bdi dir="ltr">{event.revised}</bdi></p> : null}

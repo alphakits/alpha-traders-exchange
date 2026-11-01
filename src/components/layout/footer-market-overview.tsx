@@ -1,7 +1,7 @@
 "use client";
 
 import { marketFeedStatus } from "@/lib/market-feed-status";
-import { currencyText } from "@/components/ui/currency-text";
+import { currencyText, moneyText } from "@/components/ui/currency-text";
 import type { AppLocale } from "@/i18n/routing";
 import { useMarketFeed } from "@/components/market/use-market-feed";
 import type { MarketPair, MarketPairKey } from "@/types/market";
@@ -94,7 +94,7 @@ export function FooterMarketOverview({ locale }: { locale: AppLocale }) {
               <bdi dir="ltr" className="me-auto whitespace-nowrap">{currencyText(pair.label)}</bdi>
               <span className="flex shrink-0 items-center gap-2 sm:gap-3">
                 <bdi dir="ltr" className="whitespace-nowrap font-semibold text-white">
-                  {currencyText(formatPrice(pair.key, pair.price))}
+                  {moneyText(formatPrice(pair.key, pair.price))}
                 </bdi>
                 <bdi dir="ltr" className={`min-w-[4.25rem] whitespace-nowrap text-end ${changeColor}`}>
                   {currencyText(formatChange(pair.changePercent))}

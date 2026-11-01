@@ -1,5 +1,6 @@
 "use client";
 
+import { formatMoneyNumber } from "@/lib/accent-text";
 import { currencyText } from "@/components/ui/currency-text";
 import { ActionFeedback, useActionFeedbackState } from "@/components/ui/action-feedback";
 import { useId, useRef, useState } from "react";
@@ -286,7 +287,7 @@ export function MarketplaceEnforcementOwnerPanel({ locale, sellerId, initialStat
           <div className="space-y-3 rounded-2xl border border-white/10 bg-black/30 p-4">
             <div>
               <p className="text-sm font-semibold text-white">{isAr ? "فرض رسوم استعادة السوق" : "Issue Marketplace Recovery Fee"}</p>
-              <p className="mt-1 text-xs text-[#9CA3AF]">{isAr ? "اختر مبلغ الرسوم قبل فرض التقييد ليتمكن البائع من رؤية رسوم الاستعادة الدقيقة." : "Choose the fee amount before issuing the restriction so the seller can see the exact recovery charge."}</p>
+              <p className="mt-1 text-xs text-[#9CA3AF]">{currencyText(isAr ? "اختر مبلغ الرسوم قبل فرض التقييد ليتمكن البائع من رؤية رسوم الاستعادة الدقيقة." : "Choose the fee amount before issuing the restriction so the seller can see the exact recovery charge.")}</p>
             </div>
             <div className="grid gap-3 md:grid-cols-2">
               <label className="space-y-1.5 text-sm text-[#D1D5DB]">
@@ -381,7 +382,7 @@ export function MarketplaceEnforcementOwnerPanel({ locale, sellerId, initialStat
                 <p className="font-semibold text-white">{currencyText(localizedAuditAction(entry.action, locale))}</p>
                 <p className="mt-0.5 text-[#9CA3AF]">{currencyText(formatDate(entry.createdAt, locale))}</p>
                 {entry.reason ? <p className="mt-1">{isAr ? "السبب" : "Reason"}: {currencyText(localizedComplianceText(entry.reason, locale))}</p> : null}
-                {entry.evidenceReferences?.length ? <p className="mt-1 text-[#C9A227]">{isAr ? "الإثبات" : "Evidence"}: {entry.evidenceReferences.length} {isAr ? "مرفقات" : "attachment(s)"}</p> : null}
+                {entry.evidenceReferences?.length ? <p className="mt-1 text-[#C9A227]">{isAr ? "الإثبات" : "Evidence"}: {formatMoneyNumber(entry.evidenceReferences.length)} {isAr ? "مرفقات" : "attachment(s)"}</p> : null}
               </div>
             )) : <p className="text-sm text-[#9CA3AF]">{isAr ? "لا يوجد نشاط امتثال حتى الآن." : "No compliance activity yet."}</p>}
           </div>

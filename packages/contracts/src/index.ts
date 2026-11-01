@@ -18,3 +18,4 @@ export * from "./price-offer";
 export * from "./commission-amount";
 export * from "./listing-trade-limits";
 export * from "./trade-receipt";
+export * from "./display-amount";

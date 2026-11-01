@@ -1,5 +1,6 @@
 "use client";
 
+import { formatMoneyNumber } from "@/lib/accent-text";
 import { ActionFeedback } from "@/components/ui/action-feedback";
 import { useState, useRef, useId } from "react";
 import { Loader2, CheckCircle2, AlertCircle, Send } from "lucide-react";
@@ -452,7 +453,7 @@ export function ContactForm({
             </ActionFeedback>
           )}
           <span className="text-xs text-white/30" aria-live="polite">
-            {values.message.length}/4000
+            {formatMoneyNumber(values.message.length)}/4000
           </span>
         </div>
       </div>

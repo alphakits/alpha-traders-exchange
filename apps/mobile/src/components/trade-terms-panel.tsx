@@ -1,6 +1,7 @@
+import { MoneyInput } from "./money-input";
 import { BrandedText as Text } from "./branded-text";
 import { useRef, useState } from "react";
-import { TextInput, View, Switch } from "react-native";
+import { View, Switch } from "react-native";
 import type { MobileTradeDetail } from "@alpha-traders/contracts";
 import { calculateTradeTermsQuote, getTradeAmountAdjustmentCount, MAX_TRADE_AMOUNT_ADJUSTMENTS } from "@alpha-traders/contracts";
 import { GoldButton } from "./gold-button";
@@ -55,7 +56,7 @@ export function TradeTermsPanel({ trade, isAr, disabled, onAction }: {
       {paymentLocked || counterProposalLocked ? <Text style={{ color: "#D1D5DB" }}>{paymentLocked
         ? (isAr ? "المبلغ مقفل بعد إرسال الدفعة أو مشاركة رمز السحب أو تأكيد النقد أو بدء إرسال USDT." : "The amount is locked after payment is sent, a withdrawal code is shared, cash is confirmed, or USDT release starts.")
         : (isAr ? "العرض المقابل متاح فقط قبل قبول الصفقة." : "Counter-offers are only available before the trade is accepted.")}</Text> : null}
-      <Text style={{ color: "white", writingDirection: "ltr" }}>{proposal.usdtAmount} USDT · {trade.currency} {proposal.fiatAmount} · {proposal.pricePerUsdt} / USDT</Text>
+      <Text monetary style={{ writingDirection: "ltr" }}>{proposal.usdtAmount} USDT · {trade.currency} {proposal.fiatAmount} · {proposal.pricePerUsdt} / USDT</Text>
       {includesBuyerFee ? <Text style={{ color: "#FDE68A" }}>{isAr ? "الإجمالي يشمل عمولة المشتري 1%. لا تُضف العمولة مرة أخرى." : "Total includes the buyer’s 1% fee. Do not add it again."}</Text> : null}
       <Text style={{ color: "white" }}>{isAr ? "راجع الشروط الدقيقة قبل الموافقة." : "Review the exact terms before accepting."}</Text>
       {seller ? <GoldButton disabled={disabled} onPress={() => void submit("withdraw_terms")}>{isAr ? "سحب الاقتراح" : "Withdraw proposal"}</GoldButton> : <>
@@ -73,11 +74,11 @@ export function TradeTermsPanel({ trade, isAr, disabled, onAction }: {
         <GoldButton disabled={disabled || limitReached} variant={unit === "ILS" ? "gold" : "outline"} onPress={() => { setAmountUnit("ILS"); setValue(""); }}>{isAr ? "إجمالي الدفع بالشيكل" : "Total ILS payment"}</GoldButton>
       </View> : null}
       <Text style={{ color: "white" }}>{counter ? (isAr ? "السعر بالشيكل لكل USDT" : "Price in ILS per USDT") : cardless ? (isAr ? "مبلغ السحب الجديد بالشيكل" : "New withdrawal amount (ILS)") : unit === "ILS" ? (isAr ? "إجمالي الدفع بالشيكل شامل عمولة المشتري إن وجدت" : "Total ILS payment including buyer fee if applicable") : (isAr ? "كمية USDT الصحيحة" : "Correct USDT amount")}</Text>
-      <TextInput accessibilityLabel={counter ? "Counter price ILS" : cardless ? "New withdrawal amount (ILS)" : unit === "ILS" ? "Total ILS payment" : "Correct USDT amount"} keyboardType="decimal-pad" value={editingValue} onChangeText={next => { if (!canCounter) setEditorKind("amount"); setValue(next); }} editable={!disabled && !limitReached} placeholder={counter ? trade.pricePerUsdt : unit === "ILS" ? trade.fiatAmount : trade.usdtAmount} placeholderTextColor="#999" style={{ color: "white", borderColor: "#777", borderWidth: 1, borderRadius: 8, padding: 12, textAlign: "left" }} />
+      <MoneyInput accessibilityLabel={counter ? "Counter price ILS" : cardless ? "New withdrawal amount (ILS)" : unit === "ILS" ? "Total ILS payment" : "Correct USDT amount"} keyboardType="decimal-pad" value={editingValue} onChangeText={next => { if (!canCounter) setEditorKind("amount"); setValue(next); }} editable={!disabled && !limitReached} placeholder={counter ? trade.pricePerUsdt : unit === "ILS" ? trade.fiatAmount : trade.usdtAmount} placeholderTextColor="#999" style={{ color: "white", borderColor: "#777", borderWidth: 1, borderRadius: 8, padding: 12, textAlign: "left" }} />
       {!counter && cardless ? <Text style={{ color: "white" }}>{isAr ? "من 100 إلى 10,000 شيكل بمضاعفات 100. تُحسب كمية USDT مع احتساب عمولة المشتري إن وجدت. بعد الموافقة يجب إرسال رمز يطابق الإجمالي الجديد." : "100–10,000 ILS in steps of 100. USDT is calculated with the buyer fee included when applicable. After approval, send a code matching the new total."}</Text> : null}
       {quote ? <View accessibilityLiveRegion="polite" style={{ gap: 6 }}>
-        <Text style={{ color: "white", writingDirection: "ltr" }}>{trade.usdtAmount} → {quote.usdtAmount} USDT</Text>
-        <Text style={{ color: "white", writingDirection: "ltr" }}>{trade.currency} {quote.fiatAmount}</Text>
+        <Text monetary style={{ writingDirection: "ltr" }}>{trade.usdtAmount} → {quote.usdtAmount} USDT</Text>
+        <Text monetary style={{ writingDirection: "ltr" }}>{trade.currency} {quote.fiatAmount}</Text>
         {includesBuyerFee ? <Text style={{ color: "#FDE68A" }}>{isAr ? "الإجمالي يشمل عمولة المشتري 1%. لا تُضف العمولة مرة أخرى." : "Total includes the buyer’s 1% fee. Do not add it again."}</Text> : null}
         <Text style={{ color: "#D1D5DB" }}>{isAr ? `العمولة والخصم من العرض على ${quote.usdtAmount} USDT عند الإكمال.` : `Commission and listing deduction use ${quote.usdtAmount} USDT on completion.`}</Text>
       </View> : null}

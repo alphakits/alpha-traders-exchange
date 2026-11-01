@@ -1,5 +1,6 @@
 "use client";
 
+import { currencyText } from "@/components/ui/currency-text";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { BellRing, Check, Mail, Smartphone, X } from "lucide-react";
 import { NATIVE_WEB_BRIDGE_VERSION } from "@alpha-traders/contracts";
@@ -233,7 +234,7 @@ export function BrowserPushPrompt({ locale }: { locale: AppLocale }) {
         <button type="button" className={actionClass} disabled={busy} onClick={() => void sendTestAlert()}>{isAr ? "إرسال تنبيه تجريبي" : "Send test alert"}</button>
         <span className="text-xs text-[#A9A69B]">{isAr ? "اختبر الإشعارات على أجهزتك المتصلة، ثم تحقق من ظهور التنبيه على جهازك." : "Test alerts on your connected devices, then check your device to confirm it appears."}</span>
       </div> : null}
-      {notice ? <p role="status" className="mt-3 text-sm text-[#F5D878]">{notice}</p> : null}
+      {notice ? <p role="status" className="mt-3 text-sm text-[#F5D878]">{currencyText(notice)}</p> : null}
       <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-[#A9A69B]">
         <span>{isAr ? "تذكير بحد أقصى مرتين يومياً أثناء استخدامك للمنصة." : "At most two reminders a day while you use Alpha."}</span>
         <button type="button" className="min-h-11 underline underline-offset-4" disabled={busy} onClick={() => void snooze()}>{isAr ? "ذكّرني بعد أسبوع" : "Remind me in 7 days"}</button>

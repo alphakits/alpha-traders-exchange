@@ -1,3 +1,4 @@
+import { currencyText } from "@/components/ui/currency-text";
 import type { CSSProperties } from "react";
 import { ArrowUpRight, BookOpen, CalendarCheck, CheckCheck, Landmark, ShieldCheck } from "lucide-react";
 import { Link } from "@/i18n/navigation";
@@ -32,7 +33,7 @@ export function FirmDirectory({ locale }: { locale: "ar" | "en" }) {
         {[ar ? "اختَر الشركة والبرنامج." : "Choose a firm and program.", ar ? "حدّد حجم حسابك وافهم الشروط." : "Select your size. Understand the rules.", ar ? "احسب سحبك وافتح المصدر للتأكيد." : "Estimate your payout. Check the source."].map((v, i) => <p key={i}><span className={s.stepNumber}>{i + 1}</span>{v}</p>)}
       </div>
     </div>
-    <p className={s.notice}>{ar ? "حجم الحساب المعلن هو قوة شرائية، وليس مبلغاً تقدر تسحبه. القواعد تعتمد على البرنامج وتاريخ الشراء؛ شروط حسابك الفعلية في لوحة الشركة هي المرجع عند اختلافها." : "The advertised account size is buying power, not cash you can withdraw. Rules depend on the program and purchase date; your own account’s terms take priority when they differ."}</p>
+    <p className={s.notice}>{currencyText(ar ? "حجم الحساب المعلن هو قوة شرائية، وليس مبلغاً تقدر تسحبه. القواعد تعتمد على البرنامج وتاريخ الشراء؛ شروط حسابك الفعلية في لوحة الشركة هي المرجع عند اختلافها." : "The advertised account size is buying power, not cash you can withdraw. Rules depend on the program and purchase date; your own account’s terms take priority when they differ.")}</p>
   </div>;
 }
 
