@@ -30,6 +30,7 @@ import { PrivateProfileHeader } from "@/components/profile/private-profile-heade
 import { AccountNotificationPreferences } from "@/components/profile/account-notification-preferences";
 import { NewsPreferences } from "@/components/news/news-preferences";
 import { getInterfaceAccess } from "@alpha-traders/contracts";
+import { runClientRequest } from "@/lib/client-request-deadline";
 
 type AccountProfilePayload = {
   profile: {
@@ -237,6 +238,13 @@ type ProfileFormState = {
   showEmailPublic: boolean;
 };
 
+type ProfileRead = {
+  scope: string | null | undefined;
+  epoch: number;
+  controller: AbortController;
+  promise: Promise<AccountProfilePayload>;
+};
+
 function normalizeRoleValues(values: Array<string | undefined>) {
   return values.map((value) => String(value ?? "").toLowerCase().trim()).filter(Boolean);
 }
@@ -359,7 +367,17 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [], journalE
   const canonicalSessionResolving = canonicalSession?.isResolving ?? false;
   const canonicalSessionError = canonicalSession?.error ?? false;
   const refreshCanonicalSession = canonicalSession?.refresh;
-  const [payload, setPayload] = useState<AccountProfilePayload | null>(null);
+  const [storedPayload, setPayload] = useState<AccountProfilePayload | null>(null);
+  // Hide another account's private profile in this render, before effect cleanup.
+  const payload = !hasCanonicalSession || storedPayload?.profile.id === canonicalUser?.id ? storedPayload : null;
+  const profileScope = hasCanonicalSession ? canonicalUser?.id ?? null : undefined;
+  const profileScopeRef = useRef(profileScope);
+  const sessionResolvingRef = useRef(canonicalSessionResolving);
+  profileScopeRef.current = profileScope;
+  sessionResolvingRef.current = canonicalSessionResolving;
+  const profileReadRef = useRef<ProfileRead | null>(null);
+  const profileReadEpochRef = useRef(0);
+  const [profileRefreshError, setProfileRefreshError] = useState(false);
   const presence = useLiveUserPresence(payload?.profile.id, payload?.profile);
   const [sessionRoles, setSessionRoles] = useState<string[]>(initialSessionRoles);
   const [loading, setLoading] = useState(true);
@@ -430,8 +448,24 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [], journalE
     showEmailPublic: false,
   });
 
+  const cancelProfileRead = useCallback(() => {
+    profileReadEpochRef.current += 1;
+    profileReadRef.current?.controller.abort();
+    profileReadRef.current = null;
+  }, []);
+
+  useEffect(() => {
+    cancelProfileRead();
+    setProfileRefreshError(false);
+    return cancelProfileRead;
+  }, [cancelProfileRead, profileScope]);
+
   const applyProfilePayload = useCallback((data: AccountProfilePayload, resetDraft = false) => {
+    if (!data?.profile?.id || (profileScopeRef.current !== undefined && data.profile.id !== profileScopeRef.current)) return false;
+    // A completed save supersedes any older read that began before the write.
+    if (resetDraft) cancelProfileRead();
     setPayload(data);
+    setProfileRefreshError(false);
     setAvatarUrl(data.profile.profilePhotoUrl ?? "");
     setCoverUrl(data.profile.coverBannerUrl ?? "");
     const nextForm: ProfileFormState = {
@@ -454,17 +488,40 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [], journalE
     if (profileRoles.length) {
       setSessionRoles(normalizeRoleValues(profileRoles));
     }
-  }, []);
+    return true;
+  }, [cancelProfileRead]);
 
-  const refreshProfile = useCallback(async (signal?: AbortSignal) => {
-    const response = await fetch("/api/auth/profile", { cache: "no-store", signal });
-    if (!response.ok) {
-      if (response.status === 401) void refreshCanonicalSession?.({ force: true });
-      throw new Error("PROFILE_FETCH_FAILED");
-    }
-    const data = (await response.json()) as AccountProfilePayload;
-    applyProfilePayload(data);
-    return data;
+  const refreshProfile = useCallback((): Promise<AccountProfilePayload> => {
+    const scope = profileScopeRef.current;
+    if (scope === null || sessionResolvingRef.current) return Promise.reject(new Error("PROFILE_SESSION_UNAVAILABLE"));
+    const current = profileReadRef.current;
+    if (current && current.scope === scope && !current.controller.signal.aborted) return current.promise;
+    current?.controller.abort();
+    const epoch = ++profileReadEpochRef.current;
+    const controller = new AbortController();
+    const pending: ProfileRead = { scope, epoch, controller, promise: Promise.resolve(null as never) };
+    profileReadRef.current = pending;
+    pending.promise = (async () => {
+      try {
+        const data = await runClientRequest(controller, 15_000, async (signal) => {
+          const response = await fetch("/api/auth/profile", { cache: "no-store", signal });
+          if (!response.ok) {
+            if (response.status === 401 && profileReadEpochRef.current === epoch && profileScopeRef.current === scope) void refreshCanonicalSession?.({ force: true });
+            throw new Error("PROFILE_FETCH_FAILED");
+          }
+          return await response.json() as AccountProfilePayload;
+        });
+        if (controller.signal.aborted || profileReadEpochRef.current !== epoch || profileScopeRef.current !== scope) throw new DOMException("Request cancelled", "AbortError");
+        if (!applyProfilePayload(data)) throw new Error("PROFILE_IDENTITY_MISMATCH");
+        return data;
+      } catch (error) {
+        if (profileReadEpochRef.current === epoch && profileScopeRef.current === scope && !(error instanceof DOMException && error.name === "AbortError")) setProfileRefreshError(true);
+        throw error;
+      } finally {
+        if (profileReadRef.current === pending) profileReadRef.current = null;
+      }
+    })();
+    return pending.promise;
   }, [applyProfilePayload, refreshCanonicalSession]);
 
   useEffect(() => {
@@ -509,7 +566,6 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [], journalE
       setLoading(false);
       return;
     }
-    const controller = new AbortController();
     let mounted = true;
 
     void (async () => {
@@ -522,12 +578,12 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [], journalE
 
       for (let attempt = 0; attempt < 2; attempt += 1) {
         try {
-          await refreshProfile(controller.signal);
+          await refreshProfile();
           if (!mounted) return;
           setLoading(false);
           return;
         } catch {
-          if (!mounted || controller.signal.aborted) return;
+          if (!mounted) return;
           if (attempt === 0) continue;
           if (!keepCurrentProfile) setMessage(isAr ? "تعذر تحميل الهوية." : "Failed to load identity.");
           setLoading(false);
@@ -537,56 +593,51 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [], journalE
 
     return () => {
       mounted = false;
-      controller.abort();
     };
   }, [canonicalSessionError, canonicalSessionResolving, canonicalUser, hasCanonicalSession, isAr, refreshProfile, setMessage]);
 
-  const scheduleProfileRefreshFromNotification = useCallback(() => {
+  const scheduleProfileRefresh = useCallback(() => {
+    if (document.visibilityState === "hidden" || navigator.onLine === false) return;
     if (profileRefreshTimeoutRef.current) clearTimeout(profileRefreshTimeoutRef.current);
     profileRefreshTimeoutRef.current = setTimeout(() => {
+      profileRefreshTimeoutRef.current = null;
+      if (document.visibilityState === "hidden" || navigator.onLine === false) return;
       void refreshProfile().catch(() => undefined);
     }, 150);
   }, [refreshProfile]);
 
   useAuthenticatedNotificationStream({
-    enabled: Boolean(payload),
-    onNotifications: scheduleProfileRefreshFromNotification,
+    enabled: Boolean(payload) && !canonicalSessionResolving,
+    onNotifications: scheduleProfileRefresh,
   });
 
+  const profileId = payload?.profile.id;
   useEffect(() => {
-    if (!payload) return;
-
-    const controller = new AbortController();
-    let active = true;
-    const scheduleRefresh = () => {
-      if (!active) return;
-      if (profileRefreshTimeoutRef.current) clearTimeout(profileRefreshTimeoutRef.current);
-      profileRefreshTimeoutRef.current = setTimeout(() => {
-        if (!active) return;
-        void refreshProfile(controller.signal).catch(() => undefined);
-      }, 150);
-    };
-    const onFocus = () => scheduleRefresh();
+    if (!profileId) return;
     const onVisibilityChange = () => {
-      if (document.visibilityState === "visible") scheduleRefresh();
+      if (document.visibilityState === "visible") scheduleProfileRefresh();
     };
 
-    window.addEventListener("focus", onFocus);
-    window.addEventListener("alpha-profile-updated", scheduleRefresh);
+    // Owner corrections can intentionally suppress notifications. Reconcile an
+    // open foreground profile even when the notification stream is quiet.
+    const interval = window.setInterval(scheduleProfileRefresh, 30_000);
+    window.addEventListener("focus", scheduleProfileRefresh);
+    window.addEventListener("online", scheduleProfileRefresh);
+    window.addEventListener("alpha-profile-updated", scheduleProfileRefresh);
     document.addEventListener("visibilitychange", onVisibilityChange);
 
     return () => {
-      active = false;
-      controller.abort();
+      window.clearInterval(interval);
       if (profileRefreshTimeoutRef.current) {
         clearTimeout(profileRefreshTimeoutRef.current);
         profileRefreshTimeoutRef.current = null;
       }
-      window.removeEventListener("focus", onFocus);
-      window.removeEventListener("alpha-profile-updated", scheduleRefresh);
+      window.removeEventListener("focus", scheduleProfileRefresh);
+      window.removeEventListener("online", scheduleProfileRefresh);
+      window.removeEventListener("alpha-profile-updated", scheduleProfileRefresh);
       document.removeEventListener("visibilitychange", onVisibilityChange);
     };
-  }, [payload, refreshProfile]);
+  }, [profileId, scheduleProfileRefresh]);
 
   async function handlePhotoUpload(file: File) {
     setPhotoUploading(true);
@@ -719,7 +770,7 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [], journalE
         setMessage(data.error ?? (isAr ? "تعذر تحديث الهوية." : "Failed to update the profile. Please try again."));
         return;
       }
-      applyProfilePayload(data, true);
+      if (!applyProfilePayload(data, true)) return;
       void refreshCanonicalSession?.({ force: true, background: true });
       setMessage(isAr ? "تم حفظ الهوية بنجاح." : "Trading identity saved.");
     } catch {
@@ -967,6 +1018,7 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [], journalE
 
 
         {message ? <ActionFeedback revealKey={messageFeedbackKey} as="p" role="status" className="text-sm text-[#D1D5DB]">{currencyText(message)}</ActionFeedback> : null}
+        {profileRefreshError ? <p role="status" className="text-xs text-amber-200">{isAr ? "تعذر التحديث. تظهر آخر بيانات ملفك التي تم تحميلها." : "Could not refresh. Showing your last loaded profile."}</p> : null}
         <ProfileSectionTabs locale={locale} value={activeSection} onChange={selectSection} />
         <div id="profile-panel-overview" role="tabpanel" aria-labelledby="profile-tab-overview" tabIndex={0} hidden={activeSection !== "overview"} className="profile-tab-panel space-y-4">
           {hasAdminDashboardAccess ? <div className="rounded-2xl border border-red-400/20 bg-red-400/5 p-4">

@@ -48,6 +48,7 @@ import { computeListingReliability, type ListingReliability } from "@/lib/listin
 import { compareMarketplaceSellers } from "@/lib/marketplace-seller-order";
 import { getSellerPrestigeProgress, getSellerPublicVolumeLabel, resolveSellerPrestigeRank, resolveSellerPrestigeRankWithFloor, sellerPrestigeRankWeight } from "@/lib/seller-prestige";
 import { getBuyerPrestigeProgress } from "@/lib/buyer-rank";
+import { summarizeBuyerPurchases, validatedBuyerVolumeCredit } from "@/lib/buyer-purchase-progress";
 import {
   ALLOWED_LISTING_EXPIRATION_HOURS,
   COMMISSION_GRACE_PERIOD_DAYS,
@@ -1811,9 +1812,10 @@ function buildPublicUserProfileDataForUser(input: {
   const trustSnapshot = input.trustSnapshot ?? (isTrustEligibleSeller(user) ? computeSellerReputationSnapshot(db, user.id) : null);
   const buyerRequests = db.purchaseRequests.filter((request) => request.buyerId === user.id);
   const sellerRequests = db.purchaseRequests.filter((request) => request.sellerId === user.id);
-  const completedAsBuyer = buyerRequests.filter((request) => request.status === "completed" || Boolean(request.completedAt) || isOwnerAttestedHistoricalCompletion(request)).length;
+  const buyerActivity = summarizeBuyerPurchases(buyerRequests, user.id, db.sellerReviews);
+  const completedAsBuyer = buyerActivity.completedTrades;
   const completedAsSeller = sellerRequests.filter((request) => request.status === "completed" || Boolean(request.completedAt) || isOwnerAttestedHistoricalCompletion(request)).length;
-  const reviewsWritten = buyerRequests.filter((request) => Boolean(request.buyerReview)).length;
+  const reviewsWritten = buyerActivity.reviewsGiven;
   const reviewsReceived = sellerRequests.filter((request) => Boolean(request.buyerReview)).length;
 
   const showStats = user.showTradeStats !== false || canBypassVisibility;
@@ -1834,9 +1836,7 @@ function buildPublicUserProfileDataForUser(input: {
       sellerStatus: user.sellerStatus,
       sellerApprovalVerified,
       roleBadge: accountRoleIdentity(user),
-      buyerRank: getBuyerPrestigeProgress(buyerRequests
-        .filter((request) => ["completed", "review_open", "locked"].includes(request.status) || Boolean(request.completedAt))
-        .reduce((total, request) => total + toNumber(request.usdtAmount), 0)).rank,
+      buyerRank: getBuyerPrestigeProgress(buyerActivity.lifetimeCompletedVolumeUsdt).rank,
       memberSince: user.createdAt,
       lastActiveAt: presence.lastActiveAt ?? null,
       lastSeenAt: presence.lastSeenAt ?? null,
@@ -11518,6 +11518,7 @@ const SELLER_WALLET_VISIBLE_STATUSES = new Set<PurchaseRequestStatus>([
 
 export function sanitizePurchaseRequestForActor(request: PurchaseRequest, actorUserId: string, actorRole: UserRole) {
   const canViewPrivateContent = actorRole === "owner";
+  const buyerVolumeCredit = validatedBuyerVolumeCredit(request);
   const canViewConfidentialCredential = request.status === "payment_sent"
     && (request.buyerId === actorUserId || request.sellerId === actorUserId);
   const canViewBuyerContact = canViewPrivateContent;
@@ -11531,6 +11532,10 @@ export function sanitizePurchaseRequestForActor(request: PurchaseRequest, actorU
     historicalCompletion: canViewPrivateContent ? request.historicalCompletion : undefined,
     historicalCompletionSummary: isOwnerAttestedHistoricalCompletion(request) ? {
       source: "owner_attestation", recordedAt: request.historicalCompletion!.recordedAt, fiatAmountBasis: "saved_quote_reconstruction",
+    } : undefined,
+    buyerVolumeCredit: canViewPrivateContent ? request.buyerVolumeCredit : undefined,
+    buyerVolumeCreditSummary: buyerVolumeCredit ? {
+      source: "owner_attestation", recordedAt: buyerVolumeCredit.recordedAt, creditedUsdtAmount: buyerVolumeCredit.creditedUsdtAmount,
     } : undefined,
     sellerBankAccountSnapshot: undefined,
     sellerWiseAccountSnapshot: undefined,
@@ -12980,26 +12985,15 @@ export interface SellerAccountStats {
 }
 
 function buildBuyerActivityStats(db: AlphaExchangeDb, userId: string): BuyerActivityStats {
-  const buyerRequests = db.purchaseRequests.filter((request) => request.buyerId === userId);
-  const completedBuyerRequests = buyerRequests.filter(
-    (request) => request.status === "completed" || request.status === "review_open" || request.status === "locked" || Boolean(request.completedAt),
-  );
-  const lifetimeCompletedVolumeUsdt = roundUsdt(
-    completedBuyerRequests.reduce((total, request) => total + toNumber(request.usdtAmount), 0),
-  );
-  const buyerProgress = getBuyerPrestigeProgress(lifetimeCompletedVolumeUsdt);
+  const activity = summarizeBuyerPurchases(db.purchaseRequests, userId, db.sellerReviews);
+  const buyerProgress = getBuyerPrestigeProgress(activity.lifetimeCompletedVolumeUsdt);
   return {
+    ...activity,
     buyerLevel: buyerProgress.rank,
     nextLevel: buyerProgress.nextRank,
     progressToNextLevelPercent: Number(buyerProgress.progressPercent.toFixed(2)),
-    amountToNextLevelUsdt: roundUsdt(buyerProgress.remainingVolumeUsdt),
-    requiredVolumeUsdt: roundUsdt(buyerProgress.requiredVolumeUsdt),
-    lifetimeCompletedVolumeUsdt,
-    activeTrades: buyerRequests.filter(
-      (request) => !["completed", "review_open", "locked", "declined", "cancelled"].includes(request.status),
-    ).length,
-    completedTrades: completedBuyerRequests.length,
-    reviewsGiven: completedBuyerRequests.filter((request) => hasBuyerReviewSubmitted(db, request)).length,
+    amountToNextLevelUsdt: Number(buyerProgress.remainingVolumeUsdt.toFixed(6)),
+    requiredVolumeUsdt: buyerProgress.requiredVolumeUsdt,
   };
 }
 
@@ -19100,13 +19094,12 @@ export function prepareHistoricalTradeSnapshotForOwner(db: AlphaExchangeDb, inpu
     }
   }
   const reconciledSeller = snapshot.users[sellerIndex];
-  const buyerRequests = snapshot.purchaseRequests.filter(request => request.buyerId === plan.summary.buyerId
-    && (["completed", "review_open", "locked"].includes(request.status) || Boolean(request.completedAt)));
-  const buyerVolume = Number(buyerRequests.reduce((sum, request) => sum + toNumber(request.usdtAmount), 0).toFixed(6));
+  const buyerActivity = summarizeBuyerPurchases(snapshot.purchaseRequests, plan.summary.buyerId, snapshot.sellerReviews);
+  const buyerVolume = buyerActivity.lifetimeCompletedVolumeUsdt;
   const derived = { seller: { id: seller.id, completedTrades: snapshot.purchaseRequests.filter(request => request.sellerId === seller.id
       && (["completed", "review_open", "locked"].includes(request.status) || Boolean(request.completedAt))).length,
     lifetimeCompletedVolumeUsdt: reconciledSeller.lifetimeCompletedVolumeUsdt, rank: reconciledSeller.sellerPrestigeRank },
-    buyer: { id: plan.summary.buyerId, completedTrades: buyerRequests.length, lifetimeCompletedVolumeUsdt: buyerVolume,
+    buyer: { id: plan.summary.buyerId, completedTrades: buyerActivity.completedTrades, lifetimeCompletedVolumeUsdt: buyerVolume,
       rank: getBuyerPrestigeProgress(buyerVolume).rank } };
   const operationSuffix = historicalReconciliationHash(input.operationId).slice(0, 32);
   const patch = {

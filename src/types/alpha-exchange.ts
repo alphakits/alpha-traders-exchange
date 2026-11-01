@@ -466,6 +466,14 @@ export interface HistoricalTradeCompletion extends HistoricalOwnerAttestation {
   planHash: string;
 }
 
+/** Owner-attested buyer recognition; never changes settlement, inventory or fees. */
+export interface BuyerVolumeCredit extends HistoricalOwnerAttestation {
+  requestId: string;
+  buyerId: string;
+  settledUsdtAmount: string;
+  creditedUsdtAmount: string;
+}
+
 export interface MarketplaceListing {
   historicalCompletionReconciliation?: HistoricalOwnerAttestation & { requestId: string };
   id: string;
@@ -886,6 +894,9 @@ export interface AdminAnnouncementRun {
 }
 
 export interface PurchaseRequest {
+  buyerVolumeCredit?: BuyerVolumeCredit;
+  /** Safe participant-facing provenance, without private owner audit details. */
+  buyerVolumeCreditSummary?: { source: "owner_attestation"; recordedAt: string; creditedUsdtAmount: string };
   historicalCompletion?: HistoricalTradeCompletion;
   /** Safe display provenance, derived server-side from the private marker. */
   historicalCompletionSummary?: { source: "owner_attestation"; recordedAt: string; fiatAmountBasis: "saved_quote_reconstruction" };
