@@ -1,5 +1,19 @@
 # USD News delivery
 
+## Result and integration verification — 1 November 2026
+
+The checked calendar includes Q3 advance GDP at 3.4% (29 October) and Q3
+employment compensation costs at 0.8% (30 October). The existing September
+PCE readings and 29 October claims/revision were rechecked against their
+official releases. Result verification timestamps use whole UTC seconds;
+weekly comparison periods use UTC dates so daylight-saving changes cannot
+break the seven-day match. Runtime tests use a fixed calendar fixture.
+
+- GDP: https://www.bea.gov/news/2026/gdp-advance-estimate-3rd-quarter-2026
+- ECI: https://www.bls.gov/news.release/eci.nr0.htm
+- PCE: https://www.bea.gov/news/2026/personal-income-and-outlays-september-2026
+- Claims: https://www.dol.gov/ui/data.pdf (29 October release)
+
 ## Official runtime results — 28 October 2026
 
 The approved News-only runtime path replaces a full Git/build/deploy for each

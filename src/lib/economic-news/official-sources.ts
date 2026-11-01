@@ -200,7 +200,9 @@ export function parseOfficialResult(event: CalendarEvent, document: OfficialDocu
 export function immediatelyFollows(previous: CalendarEvent, next: CalendarEvent) {
   if (seriesKey(previous) !== seriesKey(next) || !previous.reference || !next.reference) return false;
   const weekly = /^Week ending (\d{1,2}) (\w{3}) (\d{4})$/;
-  if (weekly.test(previous.reference) && weekly.test(next.reference)) return Date.parse(next.reference.slice(12)) - Date.parse(previous.reference.slice(12)) === 7 * 86_400_000;
+  // Reference periods are calendar dates, not host-local midnight instants.
+  // Local parsing makes a seven-day week differ by an hour across DST.
+  if (weekly.test(previous.reference) && weekly.test(next.reference)) return Date.parse(`${next.reference.slice(12)} UTC`) - Date.parse(`${previous.reference.slice(12)} UTC`) === 7 * 86_400_000;
   const a = /^(\w+) (\d{4})$/.exec(previous.reference), b = /^(\w+) (\d{4})$/.exec(next.reference);
   const qa = /^Q([1-4]) (\d{4})$/.exec(previous.reference), qb = /^Q([1-4]) (\d{4})$/.exec(next.reference);
   if (qa && qb) return Number(qb[2]) * 4 + Number(qb[1]) - (Number(qa[2]) * 4 + Number(qa[1])) === 1;

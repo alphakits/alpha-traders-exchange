@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import snapshot from "./weekly-calendar.json";
+import snapshot from "@/test/fixtures/official-news-calendar.json";
 import { immediatelyFollows, officialSourceUrl, officialText, parseOfficialResult, type CalendarEvent, type OfficialDocument } from "./official-sources";
 
 const hash = "a".repeat(64);
@@ -127,5 +127,12 @@ describe("strict official publication parsing (recorded-format fixtures, no live
     expect(immediatelyFollows(a, event("bls-core-cpi-mom", { reference: "October 2026" }))).toBe(false);
     const q = event("bls-employment-cost-index");
     expect(immediatelyFollows(q, { ...q, reference: "Q4 2026" })).toBe(true);
+  });
+  it("carries weekly comparisons across daylight-saving boundaries", () => {
+    const claimsEvent = event("dol-initial-claims");
+    for (const [previous, next] of [["Week ending 24 Oct 2026", "Week ending 31 Oct 2026"], ["Week ending 7 Mar 2026", "Week ending 14 Mar 2026"]]) {
+      expect(immediatelyFollows({ ...claimsEvent, reference: previous }, { ...claimsEvent, reference: next })).toBe(true);
+    }
+    expect(immediatelyFollows({ ...claimsEvent, reference: "Week ending 24 Oct 2026" }, { ...claimsEvent, reference: "Week ending 7 Nov 2026" })).toBe(false);
   });
 });

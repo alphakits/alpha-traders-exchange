@@ -3,11 +3,13 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 import { PGlite } from "@electric-sql/pglite";
 import { readFileSync } from "node:fs";
 import type { Pool } from "pg";
-import snapshot from "./weekly-calendar.json";
+import snapshot from "@/test/fixtures/official-news-calendar.json";
 import { weeklyCalendarSchema } from "./weekly-schema";
 import type { OfficialResult } from "./official-sources";
 
 const state = vi.hoisted(() => ({ db: null as unknown as PGlite, available: true }));
+// Runtime scenarios must not change when the production calendar publishes results.
+vi.mock("./weekly-calendar.json", () => import("@/test/fixtures/official-news-calendar.json"));
 vi.mock("@/lib/postgres-runtime", () => ({ getRuntimePostgresPool: () => {
   if (!state.available) return null;
   const query = async (sql: string, params?: unknown[]) => params ? state.db.query(sql, params) : (await state.db.exec(sql)).at(-1)!;
@@ -88,7 +90,7 @@ describe("server-only runtime News results on real PostgreSQL semantics", () => 
     }
   });
   it("tracks exactly the runtime schema in an idempotent migration", async () => {
-    const migration = readFileSync("supabase/migrations/20261028202622_official_news_runtime_results.sql", "utf8").replace(/^--.*\n/, "").trim();
+    const migration = readFileSync("supabase/migrations/20261028202622_official_news_runtime_results.sql", "utf8").replace(/\r\n/g, "\n").replace(/^--.*\n/, "").trim();
     expect(migration).toBe(OFFICIAL_NEWS_SCHEMA.trim());
     await state.db.exec(migration); await state.db.exec(migration);
     expect((await state.db.query("select tablename from pg_tables where schemaname='alpha_exchange'")).rows).toHaveLength(2);

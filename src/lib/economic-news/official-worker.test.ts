@@ -1,8 +1,9 @@
 // @vitest-environment node
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import snapshot from "./weekly-calendar.json";
+import snapshot from "@/test/fixtures/official-news-calendar.json";
 import { weeklyCalendarSchema } from "./weekly-schema";
 const mocks = vi.hoisted(() => ({ acquire: vi.fn(), read: vi.fn(), save: vi.fn(), collect: vi.fn(), log: vi.fn() }));
+vi.mock("./weekly-calendar.json", () => import("@/test/fixtures/official-news-calendar.json"));
 vi.mock("./official-storage", () => ({ acquireOfficialNewsLease: mocks.acquire, readOfficialResults: mocks.read, saveOfficialResults: mocks.save }));
 vi.mock("./official-fetch", () => ({ collectOfficialResults: mocks.collect }));
 vi.mock("@/lib/structured-logging", () => ({ logEvent: mocks.log }));

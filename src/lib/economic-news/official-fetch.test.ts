@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { afterEach, describe, expect, it, vi } from "vitest";
-import snapshot from "./weekly-calendar.json";
+import snapshot from "@/test/fixtures/official-news-calendar.json";
 import { weeklyCalendarSchema } from "./weekly-schema";
 import { allowedOfficialUrl, collectOfficialResults, fetchOfficialDocument } from "./official-fetch";
 import type { OfficialDocument } from "./official-sources";

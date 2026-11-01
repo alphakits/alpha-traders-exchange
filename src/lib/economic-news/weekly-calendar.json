@@ -326,12 +326,12 @@
       "scheduledAt": "2026-10-29T12:30:00Z",
       "timing": "exact",
       "kind": "release",
-      "actual": null,
+      "actual": "3.4%",
       "previous": "2.2%",
       "revised": null,
       "reference": "Q3 2026",
-      "publishedAt": null,
-      "sourceUrl": "https://www.bea.gov/news/schedule"
+      "publishedAt": "2026-10-29T12:30:00Z",
+      "sourceUrl": "https://www.bea.gov/news/2026/gdp-advance-estimate-3rd-quarter-2026"
     },
     {
       "id": "official-bea-pce-mom-20261029",
@@ -386,12 +386,12 @@
       "scheduledAt": "2026-10-30T12:30:00Z",
       "timing": "exact",
       "kind": "release",
-      "actual": null,
+      "actual": "0.8%",
       "previous": "0.9%",
       "revised": null,
       "reference": "Q3 2026",
-      "publishedAt": null,
-      "sourceUrl": "https://www.bls.gov/schedule/2026/10_sched_list.htm"
+      "publishedAt": "2026-10-30T12:30:00Z",
+      "sourceUrl": "https://www.bls.gov/news.release/eci.nr0.htm"
     },
     {
       "id": "official-bea-trade-balance-20261104",
@@ -619,5 +619,5 @@
       "sourceUrl": "https://www.dol.gov/newsroom/releases/opa/opa20200701"
     }
   ],
-  "resultsVerifiedAt": "2026-10-29T12:32:26.729Z"
+  "resultsVerifiedAt": "2026-11-01T15:04:59Z"
 }
