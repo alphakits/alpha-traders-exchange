@@ -1000,6 +1000,45 @@ function containsCardlessCredentialLikeContent(value: string) {
   return /(?:^|\D)\d(?:[\s\-–—_.:/\u200B-\u200D\u2060]*\d){3,11}(?:\D|$)/.test(normalized);
 }
 
+const CARDLESS_CHAT_CODE_SEPARATOR = String.raw`[\s()\-–—_.:/\u200B-\u200D\u2060]*`;
+const CARDLESS_CHAT_CODE_SOURCE = String.raw`\d(?:${CARDLESS_CHAT_CODE_SEPARATOR}\d){3,11}(?!\d)`;
+const CARDLESS_CHAT_LABEL_SOURCE = String.raw`(?<![\p{L}\p{N}_])(?:(?:withdrawal|cardless|atm|verification|security)[\s-]+(?:code|pin)|code|pin|otp|(?:ال)?(?:رمز|كود)(?:\s+(?:السحب|التحقق|الصراف))?)(?![\p{L}\p{N}_])`;
+const CARDLESS_CHAT_LABEL_CONNECTOR = String.raw`[\s:：=#\-–—]*(?:(?:is|هو|هي)(?![\p{L}\p{N}_])[\s:：=#\-–—]*(?:the\s+)?)?`;
+const EXPLICIT_CARDLESS_CHAT_CODE = new RegExp(
+  `${CARDLESS_CHAT_LABEL_SOURCE}${CARDLESS_CHAT_LABEL_CONNECTOR}(?:(?:https?://|tel:|sms:)[^\\s]*?)?\\(?${CARDLESS_CHAT_CODE_SOURCE}`
+  + `|${CARDLESS_CHAT_CODE_SOURCE}${CARDLESS_CHAT_LABEL_CONNECTOR}(?:the\\s+)?${CARDLESS_CHAT_LABEL_SOURCE}`,
+  "iu",
+);
+
+function containsOwnerCardlessCredential(value: string, request: PurchaseRequest) {
+  const normalized = normalizeCardlessDigits(value);
+  if (containsCardlessCredentialLikeContent(redactPrivateContactDetails(normalized))) return true;
+  // A phone-shaped number remains a withdrawal credential when explicitly
+  // labelled as one. References to the protected action followed by an ordinary
+  // contact sentence remain allowed; the label must directly introduce the value.
+  if (EXPLICIT_CARDLESS_CHAT_CODE.test(normalized.replace(/[ـ\u064B-\u065F\u0670]/g, ""))) return true;
+  // The canonical protected code must never be copied into generic chat, even
+  // inside a phone/URL span. Read it only on the server and never publish it.
+  for (const message of request.messages ?? []) {
+    if (message.credentialKind !== "cardless_code") continue;
+    const payload = decryptCardlessCredential(message.message, request.id, message.id);
+    if (!payload) continue;
+    let code = payload;
+    if (!/^\d{4,12}$/.test(code)) {
+      try {
+        const details = JSON.parse(payload) as { withdrawalCode?: unknown } | null;
+        code = typeof details?.withdrawalCode === "string" ? details.withdrawalCode : "";
+      } catch { continue; }
+    }
+    code = normalizeCardlessDigits(code).replace(/\s/g, "");
+    if (/^\d{4,12}$/.test(code)) {
+      const formattedCode = code.split("").join(CARDLESS_CHAT_CODE_SEPARATOR);
+      if (new RegExp(`(?<!\\d)${formattedCode}(?!\\d)`).test(normalized)) return true;
+    }
+  }
+  return false;
+}
+
 function sanitizeTradeRoomMessageForCounterparty(
   message: TradeChatMessage,
   canViewPrivateContent: boolean,
@@ -12672,9 +12711,8 @@ export async function postTradeRoomMessage(input: {
     }
     if (
       isCardlessAtmPaymentMethod(canonicalRequest.paymentMethod)
-      // Known contact spans are ordinary owner messages, not withdrawal codes.
-      // Any remaining numeric code (including one beside a contact) stays blocked.
-      && (containsCardlessCredentialLikeContent(canonicalOwner ? redactPrivateContactDetails(message) : message) || Boolean(image))
+      && ((canonicalOwner ? containsOwnerCardlessCredential(message, canonicalRequest)
+        : containsCardlessCredentialLikeContent(message)) || Boolean(image))
     ) {
       throw new TradeBlockedError("cardless-code-chat-blocked", "Withdrawal codes and code images must use the protected withdrawal-code action.", canonicalRequest.id, {
         guard: "cardless-code-never-generic-chat",

@@ -18,6 +18,8 @@ vi.mock("@/lib/realtime", () => ({
   publishRealtimeEvent: mocks.publishRealtimeEvent,
 }));
 
+vi.mock("@/lib/browser-push", () => ({ scheduleBrowserPushDelivery: vi.fn() }));
+
 import {
   getMyPurchaseRequests,
   getTradeRoomData,
@@ -29,6 +31,7 @@ import { DIRECT_CONTACT_CONTENT_ERROR } from "@/lib/privacy-redaction";
 import { publicAccountId } from "@/lib/public-account-identity";
 import { OWNER_TRADE_CHAT_MESSAGE_MAX_LENGTH } from "@alpha-traders/contracts";
 import { getAlphaExchangeRepository } from "@/lib/alpha-exchange-repository";
+import { encryptCardlessCredential } from "@/lib/cardless-credential-crypto";
 
 const BUYER_ID = "buyer-1";
 const SELLER_ID = "seller-1";
@@ -252,6 +255,62 @@ describe("Trade Room participant communication", () => {
     }
     const room = await getTradeRoomData({ purchaseRequestId: "trade-1", actorUserId: SELLER_ID, actorRole: "approved_seller", markMessagesRead: false });
     expect(room.messages[0]?.message).toBe(message);
+  });
+
+  it.each([
+    "Withdrawal code: 0501234567",
+    "The code is: 050-123-4567",
+    "Withdrawal code: (050)1234567",
+    "0501234567 is the withdrawal code",
+    "رمز السحب: 0501234567",
+    "كود السحب هو ٠٥٠١٢٣٤٥٦٧",
+    "رمز السحب: https://wa.me/0501234567",
+  ])("blocks an Owner's explicit ATM credential even when it resembles contact information: %s", async (message) => {
+    snapshot().purchaseRequests[0]!.paymentMethod = "Cardless ATM Withdrawal";
+    snapshot().users.find(user => user.id === BUYER_ID)!.roles = ["buyer", "owner"];
+    invalidateAlphaExchangeStoreCache();
+    for (const actorUserId of ["owner-1", BUYER_ID]) {
+      await expect(postTradeRoomMessage({ purchaseRequestId: "trade-1", actorUserId, message }))
+        .rejects.toMatchObject({ code: "cardless-code-chat-blocked" });
+    }
+    expect(snapshot().purchaseRequests[0]?.messages).toHaveLength(0);
+    expect(snapshot().notifications).toHaveLength(0);
+    expect(mocks.publishRealtimeEvent).not.toHaveBeenCalled();
+  });
+
+  it.each(["legacy", "details"])("blocks an Owner's known protected ATM code in contact text (%s payload)", async (format) => {
+    const request = snapshot().purchaseRequests[0]!;
+    request.paymentMethod = "Cardless ATM Withdrawal";
+    request.status = "payment_sent";
+    const messageId = "protected-code";
+    const payload = format === "legacy" ? "0501234567" : JSON.stringify({
+      withdrawalCode: "0501234567", verificationKind: "id_number", verificationValue: "123456789",
+    });
+    request.messages = [{ id: messageId, purchaseRequestId: request.id, kind: "user", senderUserId: BUYER_ID,
+      senderRole: "buyer", credentialKind: "cardless_code", confidential: true,
+      message: encryptCardlessCredential(payload, request.id, messageId), createdAt: request.createdAt, readByUserIds: [BUYER_ID] }];
+    invalidateAlphaExchangeStoreCache();
+    for (const message of ["Call 0501234567", "WhatsApp https://wa.me/0501234567", "Call 050-123-4567", "Call (050)1234567", "Call 0501234567 1"]) {
+      await expect(postTradeRoomMessage({ purchaseRequestId: request.id, actorUserId: "owner-1", message }))
+        .rejects.toMatchObject({ code: "cardless-code-chat-blocked" });
+    }
+    expect(snapshot().purchaseRequests[0]?.messages).toHaveLength(1);
+    expect(snapshot().notifications).toHaveLength(0);
+    expect(mocks.publishRealtimeEvent).not.toHaveBeenCalled();
+  });
+
+  it("keeps ordinary Owner phone, email and link sharing available in ATM trades", async () => {
+    snapshot().purchaseRequests[0]!.paymentMethod = "Cardless ATM Withdrawal";
+    invalidateAlphaExchangeStoreCache();
+    const message = "Use the protected withdrawal code action. Call 0501234567, email support@example.test, or WhatsApp https://wa.me/972501234567. Help: https://example.test/help";
+    const posted = await postTradeRoomMessage({ purchaseRequestId: "trade-1", actorUserId: "owner-1", message });
+    expect(posted.message.message).toBe(message);
+    for (const actorUserId of [BUYER_ID, SELLER_ID]) {
+      await expect(postTradeRoomMessage({ purchaseRequestId: "trade-1", actorUserId, message }))
+        .rejects.toThrow(DIRECT_CONTACT_CONTENT_ERROR);
+    }
+    expect(snapshot().purchaseRequests[0]?.messages).toHaveLength(1);
+    expect(snapshot().purchaseRequests[0]?.status).toBe("accepted");
   });
 
   it("keeps closed-trade and attachment validation in force for the Owner", async () => {
