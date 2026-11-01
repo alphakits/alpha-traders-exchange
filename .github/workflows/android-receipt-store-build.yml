@@ -1,4 +1,4 @@
-name: Android receipt store build
+name: Android receipt store bundle verification
 on:
   push:
     branches: [release/android-receipts-20261101]
@@ -6,84 +6,106 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: alpha-android-store-receipts-20261101
+  group: alpha-android-receipt-verification-20261101
   cancel-in-progress: false
 jobs:
-  prepare:
-    name: Verify and build the receipt App Bundle
+  discover:
     runs-on: ubuntu-latest
-    timeout-minutes: 95
-    env:
-      GIT_LFS_SKIP_SMUDGE: '1'
-      SOURCE: e217be0367e5ea4ffb598ebafbb63c5cf7de2865
-      EXPO_PROJECT: e5dbc3ba-25fb-4373-8ded-c8c80cadc147
-      PACKAGE: com.alphakits.alphatraders
+    timeout-minutes: 5
+    outputs:
+      bundle: ${{ steps.meta.outputs.build_id }}
     steps:
-      - uses: actions/checkout@v5
-        with:
-          ref: e217be0367e5ea4ffb598ebafbb63c5cf7de2865
-          persist-credentials: false
-      - uses: actions/setup-node@v6
-        with:
-          node-version: 24
-      - name: Confirm released source and app identity
-        run: |
-          test "$(git rev-parse HEAD)" = "$SOURCE"
-          test -z "$(git status --porcelain=v1 --untracked-files=all)"
-          node -e 'const {expo}=require("./apps/mobile/app.json"); if(expo.android.package!==process.env.PACKAGE||expo.extra.eas.projectId!==process.env.EXPO_PROJECT) process.exit(1)'
-          grep -Fq 'tradeReceiptRows(trade.completionReceipt, locale)' apps/mobile/src/screens/trade-detail-screen.tsx
-      - name: Inspect production builds and submission capability
-        id: preflight
+      - name: Read Android release and Google submission metadata
+        id: meta
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
         run: |
           node --input-type=module <<'JS'
           import { appendFileSync } from 'node:fs';
-          if (!process.env.EXPO_TOKEN) throw Error('Expo access is missing');
-          const query = `query AndroidRelease($id:String!,$identifier:String!) {
-            app { byId(appId:$id) { id
-              androidAppCredentials(filter:{applicationIdentifier:$identifier,legacyOnly:false}) {
-                applicationIdentifier googleServiceAccountKeyForSubmissions { id } androidAppBuildCredentialsList { id }
+          const query=`query {
+            app { byId(appId:"e5dbc3ba-25fb-4373-8ded-c8c80cadc147") {
+              id androidAppCredentials(filter:{applicationIdentifier:"com.alphakits.alphatraders",legacyOnly:false}) {
+                googleServiceAccountKeyForSubmissions { id } androidAppBuildCredentialsList { id }
               }
-              builds(limit:50,offset:0,filter:{platform:ANDROID,buildProfile:"production"}) {
-                id status gitCommitHash gitCommitMessage distribution appIdentifier appVersion appBuildVersion createdAt
+              builds(limit:20,offset:0,filter:{platform:ANDROID,buildProfile:"production"}) {
+                id status distribution appIdentifier gitCommitHash appVersion appBuildVersion createdAt queuePosition estimatedWaitTimeLeftSeconds
               }
               submissions(limit:10,offset:0,filter:{platform:ANDROID}) {
-                id status createdAt androidConfig { track releaseStatus } submittedBuild { id appBuildVersion }
+                id status androidConfig {track releaseStatus} submittedBuild {id appBuildVersion}
               }
             }}
           }`;
-          const response = await fetch('https://api.expo.dev/graphql', {
-            method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+process.env.EXPO_TOKEN},
-            body:JSON.stringify({query,variables:{id:process.env.EXPO_PROJECT,identifier:process.env.PACKAGE}})
-          });
-          const data=await response.json();
-          if(!response.ok||data.errors||data.data?.app?.byId?.id!==process.env.EXPO_PROJECT) throw Error('Expo metadata query unavailable: '+JSON.stringify(data.errors?.map(e=>e.message)||response.status));
-          const app=data.data.app.byId;
-          const signing=app.androidAppCredentials.some(c=>c.androidAppBuildCredentialsList.length);
-          const canSubmit=app.androidAppCredentials.some(c=>!!c.googleServiceAccountKeyForSubmissions);
-          const equivalent=new Set(['e217be0367e5ea4ffb598ebafbb63c5cf7de2865','9855b4f42bc6a65c5f5058aae5e3e82747886fe6','ceeccddd9aab521701cc2e103a709924a69ea905','6db3c353ec00b4756d10189e4cadddf78d965f2d']);
-          const matches=app.builds.filter(b=>equivalent.has(b.gitCommitHash)&&b.appIdentifier===process.env.PACKAGE&&b.distribution==='STORE'&&!/uncommitted|dirty working tree/i.test(b.gitCommitMessage||'')&&!['CANCELED','ERRORED'].includes(b.status));
-          const signals={signing,canSubmit,previous:app.builds.slice(0,10).map(({gitCommitMessage,...b})=>b),submissions:app.submissions,matches:matches.map(b=>({id:b.id,status:b.status}))};
-          console.log('ANDROID_EVIDENCE '+JSON.stringify(signals));
-          if(!signing) throw Error('Existing signed Android credentials could not be verified');
-          if(matches.length>1) throw Error('More than one equivalent build requires selection');
-          if(!matches.length && app.builds.some(b=>!['CANCELED','ERRORED','FINISHED'].includes(b.status))) throw Error('Another Android production build is active; review it before building');
-          appendFileSync(process.env.GITHUB_OUTPUT,'reuse='+(matches[0]?.id||'')+'\n');
+          const r=await fetch('https://api.expo.dev/graphql',{method:'POST',headers:{Authorization:'Bearer '+process.env.EXPO_TOKEN,'Content-Type':'application/json'},body:JSON.stringify({query})});
+          const json=await r.json(); if(!r.ok||json.errors) throw Error('EAS release metadata unavailable');
+          const app=json.data.app.byId;
+          const target=app.builds.filter(b=>b.gitCommitHash==='e217be0367e5ea4ffb598ebafbb63c5cf7de2865'&&b.appIdentifier==='com.alphakits.alphatraders'&&b.distribution==='STORE'&&!['ERRORED','CANCELED'].includes(b.status));
+          const facts={selected:target,playSubmissionKeyAssigned:app.androidAppCredentials.some(c=>!!c.googleServiceAccountKeyForSubmissions),androidSigningConfigured:app.androidAppCredentials.some(c=>c.androidAppBuildCredentialsList.length>0),recentPlaySubmissions:app.submissions};
+          console.log('ANDROID_PROVIDER '+JSON.stringify(facts));
+          if(target.length!==1) throw Error('Expected exactly one current release build');
+          appendFileSync(process.env.GITHUB_OUTPUT,'build_id='+target[0].id+'\n');
           JS
-      - name: Set up the existing authenticated EAS release client
-        if: steps.preflight.outputs.reuse == ''
-        uses: expo/expo-github-action@v8
-        with:
-          eas-version: 23.2.0
-          token: ${{ secrets.EXPO_TOKEN }}
-      - name: Install locked app dependencies
-        if: steps.preflight.outputs.reuse == ''
-        run: npm ci
-      - name: Create signed production App Bundle from the audited source
-        if: steps.preflight.outputs.reuse == ''
-        working-directory: apps/mobile
+  verify:
+    needs: discover
+    runs-on: ubuntu-latest
+    timeout-minutes: 100
+    env:
+      RECEIPT_BUILD_ID: ${{ needs.discover.outputs.bundle }}
+      RECEIPT_SOURCE: e217be0367e5ea4ffb598ebafbb63c5cf7de2865
+      EXPO_PROJECT: e5dbc3ba-25fb-4373-8ded-c8c80cadc147
+      PACKAGE: com.alphakits.alphatraders
+    steps:
+      - name: Obtain the exact AAB from the owner’s EAS project
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
         run: |
-          test -z "$(git status --porcelain=v1 --untracked-files=all)"
-          eas build --platform android --profile production --non-interactive --wait --json > "$RUNNER_TEMP/alpha-android-build.json"
-          node -e 'const data=require(process.env.RUNNER_TEMP+"/alpha-android-build.json");const x=Array.isArray(data)?data[0]:data;if(x.gitCommitHash!==process.env.SOURCE || x.appIdentifier!==process.env.PACKAGE || x.distribution!=="STORE" || x.status!=="FINISHED") throw Error("Unexpected Android result");console.log("ANDROID_BUILD "+JSON.stringify({id:x.id,status:x.status,version:x.appVersion,versionCode:x.appBuildVersion,source:x.gitCommitHash,artifactPresent:!!x.artifacts?.applicationArchiveUrl}))'
+          node --input-type=module <<'JS'
+          import { writeFileSync } from 'node:fs';
+          const query=`query BundleProof($id:ID!) { builds { byId(buildId:$id) {
+            id app { id } platform status distribution appIdentifier appVersion appBuildVersion gitCommitHash artifacts { applicationArchiveUrl }
+          } } }`;
+          let b;
+          for (let observation=0;observation<110;observation++) {
+            const res=await fetch('https://api.expo.dev/graphql',{method:'POST',headers:{
+              Authorization:'Bearer '+process.env.EXPO_TOKEN,'Content-Type':'application/json'
+            },body:JSON.stringify({query,variables:{id:process.env.RECEIPT_BUILD_ID}})});
+            const data=await res.json();
+            if(!res.ok||data.errors) throw Error('Expo could not verify the selected build');
+            b=data.data?.builds?.byId;
+            if(!b||['ERRORED','CANCELED'].includes(b.status)) throw Error('Android release bundle could not complete');
+            if(b.status==='FINISHED') break;
+            await new Promise(resolve=>setTimeout(resolve,45000));
+          }
+          if(b?.id!==process.env.RECEIPT_BUILD_ID||b.app?.id!==process.env.EXPO_PROJECT||b.platform!=='ANDROID'||b.status!=='FINISHED'||b.distribution!=='STORE'||b.gitCommitHash!==process.env.RECEIPT_SOURCE||b.appIdentifier!==process.env.PACKAGE) throw Error('EAS build identity mismatch');
+          const file=b.artifacts?.applicationArchiveUrl;
+          if(typeof file!=='string'||!file.startsWith('https://')) throw Error('Missing EAS Android archive');
+          const archive=await fetch(file);
+          if(!archive.ok) throw Error('EAS archive retrieval failed with HTTP '+archive.status);
+          writeFileSync(process.env.RUNNER_TEMP+'/release.aab',Buffer.from(await archive.arrayBuffer()));
+          writeFileSync(process.env.GITHUB_ENV,'EXPECTED_VERSION='+b.appVersion+'\nEXPECTED_CODE='+b.appBuildVersion+'\n',{flag:'a'});
+          JS
+      - name: Verify Android bundle package, version, signature and digest
+        run: |
+          set -euo pipefail
+          export LC_ALL=C
+          cd "$RUNNER_TEMP"
+          curl --fail --silent --show-error --location 'https://github.com/google/bundletool/releases/download/1.18.3/bundletool-all-1.18.3.jar' --output bundletool.jar
+          echo 'a099cfa1543f55593bc2ed16a70a7c67fe54b1747bb7301f37fdfd6d91028e29  bundletool.jar' | sha256sum --check
+          java -jar bundletool.jar validate --bundle=release.aab >/dev/null
+          java -jar bundletool.jar dump manifest --bundle=release.aab --module=base > manifest.xml
+          python3 - <<'PY'
+          import os
+          from xml.etree.ElementTree import parse
+          manifest = parse("manifest.xml").getroot()
+          android = "{http://schemas.android.com/apk/res/android}"
+          assert manifest.get("package") == os.environ["PACKAGE"]
+          assert manifest.get(android + "versionCode") == os.environ["EXPECTED_CODE"]
+          assert manifest.get(android + "versionName") == os.environ["EXPECTED_VERSION"]
+          PY
+          jarsigner -verify release.aab > signature.verify
+          grep -Fxq 'jar verified.' signature.verify
+          keytool -printcert -jarfile release.aab > certificate.info
+          cert_sha="$(sed -nE 's/^[[:space:]]*SHA256: ([0-9A-F:]+)$/\1/p' certificate.info | head -1)"
+          test "${#cert_sha}" -eq 95
+          archive_sha="$(sha256sum release.aab | cut -d' ' -f1)"
+          archive_size="$(stat -c%s release.aab)"
+          printf 'ANDROID_VERIFIED bundle=%s version=%s versionCode=%s bytes=%s sha256=%s uploadCertificateSHA256=%s\n' "$PACKAGE" "$EXPECTED_VERSION" "$EXPECTED_CODE" "$archive_size" "$archive_sha" "$cert_sha"
