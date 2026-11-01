@@ -8,6 +8,7 @@ import { getSafeInternalNotificationDestination } from "./notification-action-de
 import { getTradeRoomConversationDestination, isTradeRoomConversationNotification } from "./trade-room-notification-destination";
 import { privacySafeMobilePushCopy } from "./mobile-push";
 import { demandNotificationDestination } from "./usdt-demand-notification";
+import { isOptionalFeedbackNotification } from "./notification-feedback";
 import type { AlphaExchangeNotification, NotificationPreferences } from "@/types/alpha-exchange";
 
 export const pushHash = (value: string) => createHash("sha256").update(value).digest("hex");
@@ -87,7 +88,7 @@ export function browserPushCategoryEnabled(notice: AlphaExchangeNotification, pr
   const destination = getSafeInternalNotificationDestination(notice) ?? "";
   if (notice.category === "report" || /^\/(?:en\/|ar\/)?admin(?:\/|[?#]|$)/.test(destination)) return preferences.browserPushAdminAlerts === true;
   if (isTradeRoomConversationNotification(notice) || /^(new|owner) (message in trade room|trade room message)$/i.test(notice.title.trim())) return preferences.browserPushChatMessages !== false;
-  if (notice.category === "review" || /^(review available|feedback required)$/i.test(notice.title.trim())) return preferences.browserPushFeedback !== false;
+  if (isOptionalFeedbackNotification(notice)) return preferences.browserPushFeedback !== false;
   if (notice.category === "listing") {
     // Personal request responses/statuses need the transaction preference;
     // discovery broadcasts retain the separate listings preference.

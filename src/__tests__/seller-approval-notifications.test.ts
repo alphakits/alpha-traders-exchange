@@ -12,7 +12,7 @@ vi.mock("next/server", async (original) => ({ ...await original<typeof import("n
 import { getAlphaExchangeRepository } from "@/lib/alpha-exchange-repository";
 import {
   approveSellerApplicationByAdmin, findUserById, invalidateAlphaExchangeStoreCache,
-  sendSellerApprovalEmailByAdmin,
+  rejectSellerApplicationByAdmin, sendSellerApprovalEmailByAdmin,
 } from "@/lib/alpha-exchange-store";
 
 function seed(approved = false) {
@@ -81,6 +81,34 @@ describe("seller approval notices", () => {
     await expect(approveSellerApplicationByAdmin("application-1", "owner-1", "Reviewed")).rejects.toThrow("Database unavailable");
     expect(mocks.send).not.toHaveBeenCalled();
     expect(mocks.push.mock.calls.some(([notice]) => notice.title === "Seller application approved")).toBe(false);
+  });
+
+  it("persists rejection before pushing its required notice with optional alerts off", async () => {
+    const committedAtDelivery: boolean[] = [];
+    mocks.push.mockImplementation((notice) => {
+      if (notice.title !== "Seller application rejected") return;
+      committedAtDelivery.push(persisted().sellerApplications[0].status === "rejected"
+        && persisted().notifications.some(item => item.id === notice.id && item.state === "unread" && !item.isRead));
+    });
+    await rejectSellerApplicationByAdmin("application-1", "owner-1", "Reviewed");
+    const notices = persisted().notifications.filter(notice => notice.title === "Seller application rejected");
+    expect(notices).toHaveLength(1);
+    expect(notices[0]).toMatchObject({ userId: "seller-1", category: "application", state: "unread", isRead: false });
+    expect(notices[0].whatsappChannelOnly).not.toBe(true);
+    expect(mocks.push.mock.calls.filter(([notice]) => notice.title === "Seller application rejected")).toHaveLength(1);
+    expect(committedAtDelivery).toEqual([true]);
+    await expect(rejectSellerApplicationByAdmin("application-1", "owner-1", "Again")).rejects.toThrow("no longer pending");
+    expect(mocks.push.mock.calls.filter(([notice]) => notice.title === "Seller application rejected")).toHaveLength(1);
+  });
+
+  it("does not push rejection when the application decision fails to persist", async () => {
+    await findUserById("seller-1");
+    mocks.push.mockClear();
+    const repository = await getAlphaExchangeRepository();
+    vi.spyOn(repository, "saveSnapshot").mockRejectedValueOnce(new Error("Database unavailable"));
+    await expect(rejectSellerApplicationByAdmin("application-1", "owner-1", "Reviewed")).rejects.toThrow("Database unavailable");
+    expect(persisted().sellerApplications[0].status).toBe("pending");
+    expect(mocks.push.mock.calls.some(([notice]) => notice.title === "Seller application rejected")).toBe(false);
   });
 
   it.each(["provider-failure", "exception"])("keeps the approval and notice when email returns %s, and allows recovery", async (failure) => {

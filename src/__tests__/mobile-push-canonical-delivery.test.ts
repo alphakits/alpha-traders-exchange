@@ -340,6 +340,29 @@ describe("canonical push delivery under publication bursts", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
+  it.each(["Seller replied to your review", "Review available", "Feedback required"])("applies optional consent to canonical legacy %s for direct and recovery delivery", async title => {
+    await subscribe("valid");
+    const legacy = { ...notification, title: ` ${title.toUpperCase()} ` };
+    await db.query("update alpha_exchange.notifications set payload=$1", [JSON.stringify(legacy)]);
+    await db.exec(`update alpha_exchange.users set payload='{"notificationPreferences":{"inApp":false}}'`);
+    // The caller holds stale transactional copy; the persisted title wins.
+    await deliverMobilePushNotification(notification);
+    await runMobilePushDeliverySweep();
+    expect(fetch).not.toHaveBeenCalled();
+    expect((await db.query("select * from alpha_exchange.mobile_push_deliveries")).rows).toHaveLength(0);
+    await db.exec(`update alpha_exchange.users set payload='{"notificationPreferences":{"inApp":true}}'`);
+    await runMobilePushDeliverySweep();
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps a dispute review decision transactional when optional in-app notices are disabled", async () => {
+    await subscribe("valid");
+    await db.query("update alpha_exchange.notifications set category='dispute',payload=$1", [JSON.stringify({ ...notification, category: "dispute", title: "Dispute review resolved" })]);
+    await db.exec(`update alpha_exchange.users set payload='{"notificationPreferences":{"inApp":false}}'`);
+    await runMobilePushDeliverySweep();
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
   it("retains critical transactional delivery when optional in-app notices are disabled", async () => {
     await subscribe("valid");
     await db.exec("update alpha_exchange.users set payload='{\"notificationPreferences\":{\"inApp\":false}}'");

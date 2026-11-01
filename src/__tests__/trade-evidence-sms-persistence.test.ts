@@ -56,7 +56,7 @@ beforeEach(async () => {
     users: ["buyer", "seller"].map(id => ({ id, email: `${id}@example.test`, fullName: `Synthetic ${id}`, role: id === "buyer" ? "buyer" : "approved_seller",
       sellerStatus: id === "buyer" ? "buyer" : "approved_seller", availabilityStatus: "available", onlineStatus: "offline",
       createdAt: now, updatedAt: now, verifiedPhone: "+15551234567", phoneVerifiedAt: now,
-      notificationPreferences: { inApp: true, email: false, sms: true } })),
+      notificationPreferences: { inApp: false, browserPush: false, email: false, sms: true } })),
     marketplaceListings: [{ id: "receipt-listing", sellerId: "seller", sellerDisplayName: "Synthetic seller", status: "in_trade", activeTradeRequestId: "receipt-trade",
       availableAmount: "500", originalAmount: "600", price: "3.2", currency: "ILS", network: "TRC20", paymentMethod: "Bank Transfer", createdAt: now, updatedAt: now }],
     purchaseRequests: [{ id: "receipt-trade", tradeId: "TR-RECEIPT", listingId: "receipt-listing", buyerId: "buyer", sellerId: "seller", buyerName: "Synthetic buyer",
@@ -81,13 +81,18 @@ afterEach(async () => {
 });
 
 describe("atomic seller receipt SMS persistence", () => {
-  it("publishes receipt notifications only after the durable commit", async () => {
+  it.each(["buyer", "seller"] as const)("publishes required %s receipt notifications only after the durable commit with optional alerts off", async side => {
+    if (side === "buyer") await database.exec("update alpha_exchange.purchase_requests set status='accepted',payload=jsonb_set(payload,'{status}','\"accepted\"')");
     vi.mocked(publishRealtimeEvent).mockClear();
     beforeQuery = sql => {
       if (sql === "commit") expect(publishRealtimeEvent).not.toHaveBeenCalled();
     };
-    await upload();
+    await upload(side);
     expect(vi.mocked(publishRealtimeEvent).mock.calls.some(([event]) => event.type === "notification.created")).toBe(true);
+    const notices = (await database.query<{ payload: { userId: string; state: string; isRead: boolean; whatsappChannelOnly?: boolean } }>("select payload from alpha_exchange.notifications")).rows;
+    expect(notices).toHaveLength(1);
+    expect(notices[0].payload).toMatchObject({ userId: side === "buyer" ? "seller" : "buyer", state: "unread", isRead: false });
+    expect(notices[0].payload.whatsappChannelOnly).not.toBe(true);
   });
 
   it("commits an explicit binary-only replacement and retains the other metadata", async () => {
@@ -208,6 +213,7 @@ describe("atomic seller receipt SMS persistence", () => {
   });
 
   it("commits the seller receipt and one buyer SMS intent together, including exact retries", async () => {
+    vi.mocked(publishRealtimeEvent).mockClear();
     const first = await upload();
     expect(await status()).toBe("usdt_sent");
     expect((await database.query("select event_key,status from alpha_exchange.sms_deliveries")).rows)
@@ -215,11 +221,16 @@ describe("atomic seller receipt SMS persistence", () => {
     const bytes = (await database.query<{ content: Uint8Array }>("select content from alpha_exchange.evidence")).rows[0].content;
     expect(Buffer.from(bytes)).toEqual(png);
     const version = (await database.query("select version from alpha_exchange.runtime_meta")).rows;
+    const notices = (await database.query("select id,payload from alpha_exchange.notifications")).rows;
+    expect(notices).toHaveLength(1);
+    const publications = vi.mocked(publishRealtimeEvent).mock.calls.length;
     invalidateAlphaExchangeStoreCache();
     const retry = await upload();
     expect(retry.metrics.replayed).toBe(true);
     expect(retry.request.sellerEvidence?.id).toBe(first.request.sellerEvidence?.id);
     expect((await database.query("select version from alpha_exchange.runtime_meta")).rows).toEqual(version);
+    expect((await database.query("select id,payload from alpha_exchange.notifications")).rows).toEqual(notices);
+    expect(publishRealtimeEvent).toHaveBeenCalledTimes(publications);
     expect((await database.query("select id from alpha_exchange.sms_deliveries")).rows).toHaveLength(1);
     expect(retry.request.timeline.filter(entry => entry.type === "seller_evidence_uploaded")).toHaveLength(1);
   });

@@ -7,6 +7,7 @@ import { getSafeInternalNotificationDestination } from "@/lib/notification-actio
 import { getRuntimePostgresPool } from "@/lib/postgres-runtime";
 import { rollbackFailedTransaction } from "@/lib/postgres-transaction";
 import { logEvent } from "@/lib/structured-logging";
+import { OPTIONAL_FEEDBACK_TITLES } from "@/lib/notification-feedback";
 import type { AlphaExchangeNotification } from "@/types/alpha-exchange";
 
 const EXPO_PUSH_SEND_URL = "https://exp.host/--/api/v2/push/send";
@@ -636,9 +637,12 @@ type EligiblePushRow = {
 
 // Critical transactional notifications intentionally survive the optional
 // in-app preference, matching forceInApp publication in the exchange store.
+// Historical feedback used category=trade; it must retain optional consent.
+const OPTIONAL_FEEDBACK_TITLES_SQL = OPTIONAL_FEEDBACK_TITLES.map(title => `'${title.replace(/'/g, "''")}'`).join(", ");
 const NATIVE_PUSH_RECIPIENT_FILTER = `recipient.payload->>'disabled' is distinct from 'true'
   and (recipient.payload->'notificationPreferences'->>'inApp' is distinct from 'false'
-       or notification.category in ('trade', 'dispute', 'application'))
+       or (notification.category in ('trade', 'dispute', 'application')
+           and lower(btrim(coalesce(notification.payload->>'title', ''))) not in (${OPTIONAL_FEEDBACK_TITLES_SQL})))
   and not notification.is_read
   and notification.payload->>'isRead' is distinct from 'true'
   and coalesce(notification.payload->>'state', 'unread') = 'unread'

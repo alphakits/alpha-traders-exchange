@@ -4,6 +4,8 @@ vi.mock("@/lib/market-service", () => ({ DEFAULT_USD_ILS_RATE: 3.05, getUsdtIlsR
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AlphaExchangeDb, AlphaExchangeUser, SellerStatus, UserRole } from "@/types/alpha-exchange";
 import { createTestSellerApprovalVerification } from "@/test-utils/seller-verification";
+import { getAlphaExchangeRepository } from "@/lib/alpha-exchange-repository";
+import * as tradeRealtime from "@/lib/realtime";
 
 vi.mock("@/lib/postgres-runtime", () => ({
   getRuntimePostgresPool: () => null,
@@ -161,6 +163,8 @@ describe("negotiated marketplace price offers", () => {
 
   it("freezes the buyer's valid price and creates the accepted trade at that exact price", async () => {
     const listing = await createLiveListing();
+    for (const user of (globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb).users) user.notificationPreferences = { inApp: false, browserPush: false, email: false, sms: false };
+    invalidateAlphaExchangeStoreCache();
     const created = await submitOffer(listing.id, BUYER_ONE_ID, "2.95");
 
     expect(created.request).toMatchObject({
@@ -195,9 +199,9 @@ describe("negotiated marketplace price offers", () => {
     });
     expect(snapshot.notifications.some((item) => item.userId === BUYER_ONE_ID && item.title === "Price offer accepted" && item.message.includes("₪2.95"))).toBe(true);
     expect(snapshot.notifications.find((item) => item.userId === SELLER_ID && item.title === "New price offer"))
-      .toMatchObject({ whatsappEvent: "new_request" });
+      .toMatchObject({ whatsappEvent: "new_request", state: "unread", isRead: false });
     expect(snapshot.notifications.find((item) => item.userId === BUYER_ONE_ID && item.title === "Price offer accepted"))
-      .toMatchObject({ whatsappEvent: "request_accepted" });
+      .toMatchObject({ whatsappEvent: "request_accepted", state: "unread", isRead: false });
     expect(snapshot.notifications.filter((item) => item.whatsappEvent).every((item) => (
       Boolean(item.whatsappEventAt) && /^wae-[0-9a-f-]{36}$/i.test(item.whatsappEventKey ?? "")
     ))).toBe(true);
@@ -230,6 +234,35 @@ describe("negotiated marketplace price offers", () => {
     expect(clientAcceptedNotification).not.toHaveProperty("whatsappEventAt");
     expect(clientAcceptedNotification).not.toHaveProperty("whatsappEventKey");
     expect(clientAcceptedNotification).not.toHaveProperty("whatsappChannelOnly");
+  });
+
+  it("publishes a required new request only after commit and sends none for a failed write", async () => {
+    const listing = await createLiveListing();
+    for (const user of (globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb).users) user.notificationPreferences = { inApp: false, browserPush: false, email: false, sms: false };
+    invalidateAlphaExchangeStoreCache();
+    const repository = await getAlphaExchangeRepository();
+    const persist = repository.saveSnapshot.bind(repository);
+    const publish = vi.spyOn(tradeRealtime, "publishRealtimeEvent");
+    const sellerNotices = () => publish.mock.calls.filter(([event]) => event.type.startsWith("notification.") && "notification" in event.payload && event.payload.notification?.userId === SELLER_ID && event.payload.notification?.title === "New trade request");
+    let fail = true;
+    const save = vi.spyOn(repository, "saveSnapshot").mockImplementation(async (db, options) => {
+      if (options?.selectedTables?.includes("purchase_requests")) {
+        expect(sellerNotices()).toHaveLength(0);
+        if (fail) throw new Error("Controlled request write failure");
+      }
+      return persist(db, options);
+    });
+    try {
+      const command = { buyerId: BUYER_ONE_ID, listingId: listing.id, usdtAmount: "1000", buyerName: BUYER_ONE_ID, buyerReceivingWalletAddress: WALLET, actorUserId: BUYER_ONE_ID };
+      await expect(createPurchaseRequest(command)).rejects.toThrow("Controlled request write failure");
+      expect(sellerNotices()).toHaveLength(0);
+      expect((globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb).purchaseRequests).toHaveLength(0);
+      fail = false;
+      invalidateAlphaExchangeStoreCache();
+      const result = await createPurchaseRequest(command);
+      expect(sellerNotices()).toHaveLength(1);
+      expect((globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb).notifications).toContainEqual(expect.objectContaining({ userId: SELLER_ID, title: "New trade request", relatedRequestId: result.request.id, state: "unread", isRead: false }));
+    } finally { save.mockRestore(); publish.mockRestore(); }
   });
 
   it("enforces both sides of the ₪0.35 server limit and cent precision", async () => {
