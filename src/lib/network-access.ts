@@ -60,6 +60,7 @@ const MACHINE_METHODS: Record<string, readonly string[]> = {
   "/api/cron/browser-push": ["GET"],
   "/api/cron/mobile-push-delivery": ["GET"],
   "/api/cron/buy-request-notifications": ["GET"],
+  "/api/cron/journal-cleanup": ["GET"],
   "/api/discord/marketplace-events": ["POST"],
   "/api/twilio/status": ["POST"],
   "/api/twilio/whatsapp/webhook": ["POST"],

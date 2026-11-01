@@ -76,6 +76,7 @@ describe("VPN checks cannot be skipped through application entry points", () => 
     ["/api/cron/browser-push", "outage"], ["/api/cron/browser-push", "vpn classification"],
     ["/api/cron/mobile-push-delivery", "outage"], ["/api/cron/mobile-push-delivery", "vpn classification"],
     ["/api/cron/buy-request-notifications", "outage"], ["/api/cron/buy-request-notifications", "vpn classification"],
+    ["/api/cron/journal-cleanup", "outage"], ["/api/cron/journal-cleanup", "vpn classification"],
   ])("lets %s reach its secret guard despite a network provider %s", async (path, scenario) => {
     vi.stubEnv("ALPHA_NETWORK_ACCESS_MODE", "vpn-tor");
     vi.stubEnv("ALPHA_NETWORK_ACCESS_PROVIDER", "ipregistry");

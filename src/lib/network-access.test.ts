@@ -2,6 +2,7 @@
 import { NextRequest } from "next/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { enforceNetworkAccess, parseNetworkVerdict } from "./network-access";
+import deploymentConfig from "../../vercel.json";
 
 let configuration = 0;
 const fetchMock = vi.fn<typeof fetch>();
@@ -159,6 +160,7 @@ describe("server-side network access", () => {
     ["/api/cron/commission-checkout", "GET"],
     ["/api/cron/browser-push", "GET"], ["/api/cron/mobile-push-delivery", "GET"],
     ["/api/cron/buy-request-notifications", "GET"],
+    ["/api/cron/journal-cleanup", "GET"],
     ["/api/auth/logout", "POST"], ["/api/mobile/v1/auth/session", "DELETE"],
     ["/api/cron/marketplace-email-delivery", "GET"], ["/api/twilio/status", "POST"],
     ["/api/discord/marketplace-events", "POST"], ["/api/meta/whatsapp/webhook", "POST"],
@@ -166,10 +168,15 @@ describe("server-side network access", () => {
     expect(await enforceNetworkAccess(request(path, {}, method))).toBeNull();
     expect(fetchMock).not.toHaveBeenCalled();
   });
+  it.each(deploymentConfig.crons.map(({ path }) => path))("preserves scheduled GET %s without a client IP", async (path) => {
+    expect(await enforceNetworkAccess(new NextRequest(`https://www.alphatraders.co.il${path}`))).toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
   it.each([
     ["/api/auth/logout", "GET"], ["/api/mobile/v1/auth/session", "POST"], ["/api/cron/commission-checkout", "POST"],
     ["/api/cron/browser-push", "POST"], ["/api/cron/mobile-push-delivery", "POST"],
     ["/api/cron/buy-request-notifications", "POST"],
+    ["/api/cron/journal-cleanup", "POST"],
   ])("does not exempt the wrong method on %s", async (path, method) => {
     fetchMock.mockResolvedValue(Response.json(result({ vpn: true })));
     expect((await enforceNetworkAccess(request(path, {}, method)))?.status).toBe(403);
@@ -177,6 +184,7 @@ describe("server-side network access", () => {
   it.each([
     "/api/health/admin", "/api/cron/new-unreviewed-job", "/api/twilio/status/extra", "/en/login", "/api/mobile/v1/auth/login",
     "/api/cron/browser-push/extra", "/api/cron/mobile-push-delivery/extra", "/api/cron/buy-request-notifications/extra",
+    "/api/cron/journal-cleanup/extra",
   ])("never exempts nearby path %s", async (path) => {
     fetchMock.mockResolvedValue(Response.json(result({ vpn: true })));
     expect((await enforceNetworkAccess(request(path)))?.status).toBe(403);
