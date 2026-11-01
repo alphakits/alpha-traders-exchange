@@ -126,6 +126,35 @@ describe("participant chat position during stream updates", () => {
     expect(screen.queryByRole("button", { name: "New messages — show" })).toBeNull();
   });
 
+  it("reveals the latest messages before another update, then lets manual reading take priority", async () => {
+    const setHeight = mockChatGeometry();
+    const { current, panel, stream } = await openChat();
+    // A requested smooth animation has not moved yet when the next update lands.
+    vi.mocked(Element.prototype.scrollTo).mockImplementation(function (this: Element, options?: ScrollToOptions | number) {
+      if (typeof options === "object" && options.behavior === "smooth") return;
+      const top = typeof options === "object" ? options.top ?? 0 : options ?? 0;
+      this.scrollTop = Math.max(0, Math.min(this.scrollHeight - this.clientHeight, top));
+    });
+    panel.scrollTop = 0;
+    fireEvent.scroll(panel);
+    setHeight(1400);
+    const firstUpdate = { ...current, messages: [...current.messages, message("first-incoming", seller)] };
+    act(() => stream.snapshot(firstUpdate));
+    fireEvent.click(screen.getByRole("button", { name: "New messages — show" }));
+    setHeight(1800);
+    const secondUpdate = { ...firstUpdate, messages: [...firstUpdate.messages, message("second-incoming", seller)] };
+    act(() => stream.snapshot(secondUpdate));
+    expect(panel.scrollTop).toBe(1380);
+    expect(screen.queryByRole("button", { name: "New messages — show" })).toBeNull();
+
+    // No queued scroll event or sticky reveal flag may override manual reading.
+    panel.scrollTop = 0;
+    setHeight(2000);
+    act(() => stream.snapshot({ ...secondUpdate, messages: [...secondUpdate.messages, message("third-incoming", seller)] }));
+    expect(panel.scrollTop).toBe(0);
+    expect(screen.getByRole("button", { name: "New messages — show" })).toBeTruthy();
+  });
+
   it("follows the participant's own reply while reading earlier messages", async () => {
     const setHeight = mockChatGeometry();
     const { current, panel } = await openChat();

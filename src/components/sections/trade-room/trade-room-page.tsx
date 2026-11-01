@@ -2960,7 +2960,9 @@ function TradeRoomPageSession({
   const handleRevealNewChatMessages = useCallback(() => {
     const chatContainer = chatScrollRef.current;
     if (chatContainer) {
-      chatContainer.scrollTo({ top: chatContainer.scrollHeight, behavior: "smooth" });
+      // Finish this explicit reveal before a concurrent update changes the
+      // bottom; subsequent manual scrolling must still take priority.
+      chatContainer.scrollTo({ top: chatContainer.scrollHeight, behavior: "auto" });
       chatScrollExtentRef.current = chatContainer.scrollHeight - chatContainer.clientHeight;
     }
     setHasUnreadChatMessages(false);
