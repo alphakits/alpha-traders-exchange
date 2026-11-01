@@ -66,6 +66,64 @@ describe("canonical push delivery under publication bursts", () => {
       (id,user_id,session_token_hash,installation_id_hash,expo_push_token,platform,locale,app_version,active,created_at)
       values ($1,$2,$1,$1,$3,'ios','en','test',$4,now()-interval '1 hour')`, [id, userId, `ExpoPushToken[${id}abcdefghijk]`, active]);
   }
+  async function publishFromColdProcess() {
+    vi.resetModules();
+    const { deliverMobilePushNotification } = await import("@/lib/mobile-push");
+    await deliverMobilePushNotification(notification, { reconcileReceipts: false });
+  }
+
+  it("starts delivery on an existing schema without taking DDL locks", async () => {
+    await publishFromColdProcess();
+    expect(queries.filter(sql => /^\s*(create|alter)\s/i.test(sql))).toEqual([]);
+    expect(queries.some(sql => sql.includes("from alpha_exchange.notifications notification"))).toBe(true);
+  });
+
+  it("repairs an absent deliveries table and the legacy token-hash column on cold start", async () => {
+    await db.exec("drop table alpha_exchange.mobile_push_deliveries");
+    await publishFromColdProcess();
+    await db.query("select notification_id, expo_push_token_hash from alpha_exchange.mobile_push_deliveries limit 0");
+    await db.exec("alter table alpha_exchange.mobile_push_deliveries drop column expo_push_token_hash");
+    await publishFromColdProcess();
+    await db.query("select expo_push_token_hash from alpha_exchange.mobile_push_deliveries limit 0");
+  });
+
+  it("retries initialization after the application schema becomes available", async () => {
+    vi.resetModules();
+    const { deliverMobilePushNotification: publish } = await import("@/lib/mobile-push");
+    await db.exec("alter schema alpha_exchange rename to offline_push_fixture");
+    try {
+      await expect(publish(notification, { reconcileReceipts: false })).rejects.toMatchObject({ code: "3F000" });
+    } finally {
+      await db.exec("alter schema offline_push_fixture rename to alpha_exchange");
+    }
+    await expect(publish(notification, { reconcileReceipts: false })).resolves.toBeUndefined();
+  });
+
+  it.each([
+    "idx_alpha_exchange_mobile_push_user_active",
+    "idx_alpha_exchange_mobile_push_session",
+    "idx_alpha_exchange_mobile_push_receipts",
+    "idx_alpha_exchange_mobile_push_recovery",
+  ])("restores missing index %s before delivering", async index => {
+    await db.exec(`drop index alpha_exchange.${index}`);
+    await publishFromColdProcess();
+    expect((await db.query("select $1::regclass::text as restored", [`alpha_exchange.${index}`])).rows)
+      .toEqual([{ restored: `alpha_exchange.${index}` }]);
+  });
+
+  it("does not treat an index with the recovery name on another table as a ready schema", async () => {
+    const index = "idx_alpha_exchange_mobile_push_recovery";
+    await db.exec(`drop index alpha_exchange.${index};
+      create index ${index} on alpha_exchange.sessions (user_id)`);
+    try {
+      await publishFromColdProcess();
+      expect(queries.some(sql => sql.includes(`create index if not exists ${index} on alpha_exchange.notifications`))).toBe(true);
+    } finally {
+      await db.exec(`drop index alpha_exchange.${index}`);
+      await publishFromColdProcess();
+    }
+  });
+
   const registration = {
     userId: "buyer", sessionToken: "mock-current-session-token", installationId: "test-device-installation-1",
     expoPushToken: "ExpoPushToken[abcdefghijklmno]", platform: "ios" as const, locale: "en" as const, appVersion: "1.0.0",
@@ -338,6 +396,29 @@ describe("canonical push delivery under publication bursts", () => {
     await db.exec(sql);
     await runMobilePushDeliverySweep();
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it.each(["Seller replied to your review", "Review available", "Feedback required"])("applies optional consent to canonical legacy %s for direct and recovery delivery", async title => {
+    await subscribe("valid");
+    const legacy = { ...notification, title: ` ${title.toUpperCase()} ` };
+    await db.query("update alpha_exchange.notifications set payload=$1", [JSON.stringify(legacy)]);
+    await db.exec(`update alpha_exchange.users set payload='{"notificationPreferences":{"inApp":false}}'`);
+    // The caller holds stale transactional copy; the persisted title wins.
+    await deliverMobilePushNotification(notification);
+    await runMobilePushDeliverySweep();
+    expect(fetch).not.toHaveBeenCalled();
+    expect((await db.query("select * from alpha_exchange.mobile_push_deliveries")).rows).toHaveLength(0);
+    await db.exec(`update alpha_exchange.users set payload='{"notificationPreferences":{"inApp":true}}'`);
+    await runMobilePushDeliverySweep();
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps a dispute review decision transactional when optional in-app notices are disabled", async () => {
+    await subscribe("valid");
+    await db.query("update alpha_exchange.notifications set category='dispute',payload=$1", [JSON.stringify({ ...notification, category: "dispute", title: "Dispute review resolved" })]);
+    await db.exec(`update alpha_exchange.users set payload='{"notificationPreferences":{"inApp":false}}'`);
+    await runMobilePushDeliverySweep();
+    expect(fetch).toHaveBeenCalledTimes(1);
   });
 
   it("retains critical transactional delivery when optional in-app notices are disabled", async () => {

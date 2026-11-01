@@ -23,6 +23,7 @@ import {
   getTradeRoomData,
   getSellerCommissionStatus,
   getMarketplaceListings,
+  getListingBroadcastEmailRecipients,
   invalidateAlphaExchangeStoreCache,
   runAlphaExchangeMaintenance,
   reconcilePendingTradeTrust,
@@ -245,6 +246,262 @@ describe("guided cash-trade completion", () => {
     globalThis.__alphaExchangeMemoryEvidenceContent = undefined as never;
     globalThis.__alphaExchangeRepositoryPromise = undefined as never;
     invalidateAlphaExchangeStoreCache();
+  });
+
+  it.each([
+    { from: "pending", to: "accepted", actor: "seller", method: FACE_TO_FACE, title: "Trade request accepted", recipients: [BUYER_ID] },
+    { from: "pending", to: "declined", actor: "seller", method: FACE_TO_FACE, title: "Trade cancelled", recipients: [BUYER_ID] },
+    { from: "accepted", to: "cancelled", actor: "seller", method: FACE_TO_FACE, title: "Trade cancelled", recipients: [BUYER_ID, SELLER_ID] },
+    { from: "accepted", to: "payment_sent", actor: "buyer", method: FACE_TO_FACE, title: "Buyer handed over cash", recipients: [SELLER_ID] },
+    { from: "payment_sent", to: "funds_received", actor: "seller", method: "Bank Transfer", title: "Seller confirmed funds received", recipients: [BUYER_ID] },
+    { from: "funds_received", to: "usdt_release_pending", actor: "seller", method: "Bank Transfer", title: "USDT release pending", recipients: [BUYER_ID] },
+    { from: "usdt_release_pending", to: "usdt_sent", actor: "seller", method: "Bank Transfer", title: "Seller marked USDT sent", recipients: [BUYER_ID] },
+    { from: "usdt_release_pending", to: "usdt_sent", actor: "seller", method: "Bank Transfer", title: "Trade ready to complete", recipients: [SELLER_ID] },
+  ] as const)("retains required $title for $actor with optional alerts off", async scenario => {
+    const { requestId } = seedTrade({ paymentMethod: scenario.method, status: scenario.from });
+    for (const user of currentSnapshot().users) user.notificationPreferences = { inApp: false, browserPush: false, email: false, sms: false };
+    const command = { requestId, actorUserId: scenario.actor === "buyer" ? BUYER_ID : SELLER_ID,
+      actorRole: scenario.actor === "buyer" ? "buyer" as const : "approved_seller" as const, nextStatus: scenario.to };
+    await updatePurchaseRequestStatus(command);
+    const notices = currentSnapshot().notifications.filter(notice => notice.title === scenario.title);
+    expect(notices.map(notice => notice.userId).sort()).toEqual([...scenario.recipients].sort());
+    expect(notices.every(notice => notice.state === "unread" && !notice.isRead && notice.whatsappChannelOnly !== true)).toBe(true);
+    expect(notices.every(notice => notice.relatedRequestId === requestId && notice.relatedHref?.includes(requestId))).toBe(true);
+    const ids = notices.map(notice => notice.id).sort();
+    await updatePurchaseRequestStatus(command);
+    expect(currentSnapshot().notifications.filter(notice => notice.title === scenario.title).map(notice => notice.id).sort()).toEqual(ids);
+  });
+
+  it.each(["manual", "admin", "listing-active", "listing-pending"] as const)("retains required participant notices after %s closure with optional alerts off", async mode => {
+    const { requestId, listingId } = seedTrade({ status: mode === "listing-pending" || mode === "manual" ? "pending" : "accepted" });
+    for (const user of currentSnapshot().users) user.notificationPreferences = { inApp: false, browserPush: false, email: false, sms: false };
+    if (mode === "manual") await closePurchaseRequestManually({ requestId, actorUserId: SELLER_ID, actorRole: "approved_seller", reason: "Trade cannot proceed" });
+    else if (mode === "admin") await forceCancelTradeByAdmin({ requestId, actorUserId: OWNER_ID, reason: "Trade cannot proceed" });
+    else await adminOverrideMarketplaceListing({ listingId, adminUserId: OWNER_ID, action: mode === "listing-active" ? "force_close" : "close", reason: "Listing no longer available" });
+    const notices = currentSnapshot().notifications.filter(notice => notice.category === "trade" && [BUYER_ID, SELLER_ID].includes(notice.userId));
+    expect(notices.map(notice => notice.userId).sort()).toEqual(mode === "listing-pending" ? [BUYER_ID] : [BUYER_ID, SELLER_ID].sort());
+    expect(notices.every(notice => notice.state === "unread" && !notice.isRead && notice.whatsappChannelOnly !== true)).toBe(true);
+  });
+
+  it("publishes listing-closure trade notices only after persistence and none after failure", async () => {
+    const { listingId } = seedTrade({ status: "accepted" });
+    for (const user of currentSnapshot().users) user.notificationPreferences = { inApp: false, browserPush: false, email: false, sms: false };
+    const repository = await getAlphaExchangeRepository();
+    const persist = repository.saveSnapshot.bind(repository);
+    const publish = vi.spyOn(tradeRealtime, "publishRealtimeEvent");
+    const tradeNotices = () => publish.mock.calls.filter(([event]) => event.type.startsWith("notification.") && "notification" in event.payload && event.payload.notification?.category === "trade");
+    let fail = true;
+    const save = vi.spyOn(repository, "saveSnapshot").mockImplementation(async (db, options) => {
+      expect(tradeNotices()).toHaveLength(0);
+      if (fail) throw new Error("Controlled listing write failure");
+      return persist(db, options);
+    });
+    try {
+      const command = { listingId, adminUserId: OWNER_ID, action: "force_close" as const, reason: "Listing unavailable" };
+      await expect(adminOverrideMarketplaceListing(command)).rejects.toThrow("Controlled listing write failure");
+      expect(tradeNotices()).toHaveLength(0);
+      expect(currentSnapshot().notifications.filter(notice => notice.category === "trade")).toHaveLength(0);
+      fail = false;
+      invalidateAlphaExchangeStoreCache();
+      await adminOverrideMarketplaceListing(command);
+      expect(tradeNotices()).toHaveLength(2);
+    } finally { save.mockRestore(); publish.mockRestore(); }
+  });
+
+  it("skips the claim write and second full read when every release deadline is still open", async () => {
+    seedTrade({ status: "usdt_release_pending", paymentMethod: "Bank Transfer" });
+    currentSnapshot().purchaseRequests[0].usdtReleaseDeadlineAt = new Date(Date.now() + 60_000).toISOString();
+    const repository = await getAlphaExchangeRepository();
+    const load = vi.spyOn(repository, "loadSnapshot");
+    const save = vi.spyOn(repository, "saveSnapshot");
+    try {
+      // Exercise an ordinary caller of readDb, first cold and then warm.
+      await getListingBroadcastEmailRecipients(SELLER_ID);
+      await getListingBroadcastEmailRecipients(SELLER_ID);
+      expect(load).toHaveBeenCalledTimes(1);
+      expect(save).not.toHaveBeenCalled();
+    } finally { load.mockRestore(); save.mockRestore(); }
+  });
+
+  it.each(["maintenance", "ordinary read"])("lets just one worker claim and publish an overdue trade against an overlapping %s", async other => {
+    const { requestId } = seedTrade({ status: "usdt_release_pending", paymentMethod: "Bank Transfer" });
+    const due = new Date(Date.now() - 60_000).toISOString();
+    currentSnapshot().purchaseRequests[0].usdtReleaseDeadlineAt = due;
+    currentSnapshot().notifications.push({ id: "overdue-reminder", userId: SELLER_ID, category: "trade", title: "Reminder",
+      message: "Release is pending", reason: "automatic_trade_action_reminder", relatedRequestId: requestId,
+      isRead: false, state: "unread", createdAt: due });
+    const repository = await getAlphaExchangeRepository();
+    const read = repository.loadSnapshot.bind(repository);
+    let release!: () => void;
+    const barrier = new Promise<void>(resolve => { release = resolve; });
+    let reads = 0;
+    const load = vi.spyOn(repository, "loadSnapshot").mockImplementation(async () => {
+      const snapshot = await read();
+      if (reads < 2) {
+        if (++reads === 2) release();
+        await barrier;
+      }
+      return snapshot;
+    });
+    const publishedAfterCommit: boolean[] = [];
+    const observed: string[] = [];
+    const unsubscribe = tradeRealtime.subscribeRealtimeEvents(event => {
+      publishedAfterCommit.push(Boolean(currentSnapshot().purchaseRequests[0].timedOutAt));
+      observed.push(event.type);
+    });
+    try {
+      const results = await Promise.all([runAlphaExchangeMaintenance(), other === "maintenance"
+        ? runAlphaExchangeMaintenance() : getListingBroadcastEmailRecipients(SELLER_ID).then(() => null)]);
+      const saved = currentSnapshot();
+      const alerts = saved.notifications.filter(item => item.id !== "overdue-reminder");
+      expect(alerts.map(item => item.userId).sort()).toEqual([BUYER_ID, SELLER_ID, OWNER_ID].sort());
+      if (other === "maintenance") expect(results.filter(result => result?.changed)).toHaveLength(1);
+      expect(saved.auditLogs.filter(entry => entry.action === "trade_timed_out")).toHaveLength(1);
+      expect(saved.purchaseRequests[0].timeline.filter(entry => entry.type === "trade_timed_out")).toHaveLength(1);
+      expect(saved.notifications.find(item => item.id === "overdue-reminder")).toMatchObject({ state: "archived", isRead: true });
+      expect(observed.sort()).toEqual([
+        "notification.created", "notification.created", "notification.created", "notification.updated", "trade.status_changed",
+      ]);
+      expect(publishedAfterCommit).toEqual([true, true, true, true, true]);
+      expect(saved.purchaseRequests[0]).toMatchObject({ status: "usdt_release_pending", usdtAmount: "250" });
+      expect(saved.marketplaceListings[0].availableAmount).toBe("1000");
+      expect(saved.commissionRecords).toHaveLength(0);
+      expect(saved.trustScoreHistory).toHaveLength(0);
+    } finally { load.mockRestore(); unsubscribe(); }
+  });
+
+  function seedOverdueAndExpiredListing() {
+    const { requestId } = seedTrade({ status: "usdt_release_pending", paymentMethod: "Bank Transfer" });
+    const due = new Date(Date.now() - 60_000).toISOString();
+    const db = currentSnapshot();
+    db.purchaseRequests[0].usdtReleaseDeadlineAt = due;
+    db.notifications.push({ id: "archivable-reminder", userId: SELLER_ID, category: "trade", title: "Reminder",
+      message: "Release is pending", reason: "automatic_trade_action_reminder", relatedRequestId: requestId,
+      isRead: false, state: "unread", createdAt: due });
+    db.marketplaceListings.push({ ...db.marketplaceListings[0], id: "independent-listing", status: "active",
+      activeTradeRequestId: undefined, lockedAt: undefined, expiresAt: due });
+  }
+
+  it.each(["notification.updated", "trade.status_changed"] as const)("completes overdue maintenance and reaches healthy subscribers when a %s listener throws", async failedType => {
+    seedOverdueAndExpiredListing();
+    const privateDetail = "test-private-subscriber-detail";
+    const observed: string[] = [];
+    const stopFailed = tradeRealtime.subscribeRealtimeEvents(event => {
+      if (event.type === failedType) throw new Error(privateDetail);
+    });
+    const stopHealthy = tradeRealtime.subscribeRealtimeEvents(event => {
+      if (event.type === "notification.updated" || event.type === "trade.status_changed") observed.push(event.type);
+    });
+    const log = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const result = await runAlphaExchangeMaintenance().catch(() => null);
+      const saved = currentSnapshot();
+      expect(saved.purchaseRequests[0].timedOutAt).toBeTruthy();
+      expect(saved.notifications.find(item => item.id === "archivable-reminder")?.state).toBe("archived");
+      expect.soft(observed).toEqual(["notification.updated", "trade.status_changed"]);
+      expect.soft(result).toEqual({ changed: true });
+      expect.soft(saved.marketplaceListings.find(item => item.id === "independent-listing")?.status).toBe("expired");
+      const warnings = log.mock.calls.filter(([, entry]) => entry?.event === "overdue_trade_realtime_publication");
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0][1]).toEqual({ timestamp: expect.any(String), event: "overdue_trade_realtime_publication", outcome: "failed",
+        reason: "delivery_failed", metadata: { eventType: failedType } });
+      expect(JSON.stringify(log.mock.calls)).not.toContain(privateDetail);
+      expect(await runAlphaExchangeMaintenance()).toEqual({ changed: false });
+      expect(observed).toHaveLength(2);
+    } finally { stopFailed(); stopHealthy(); log.mockRestore(); }
+  });
+
+  it("continues committed overdue maintenance after the archive dispatcher and its diagnostic sink both fail", async () => {
+    seedOverdueAndExpiredListing();
+    const dispatch = tradeRealtime.publishIsolatedRealtimeEvent;
+    const publish = vi.spyOn(tradeRealtime, "publishIsolatedRealtimeEvent").mockImplementation(event => {
+      if (event.type === "notification.updated") throw new Error("dispatcher unavailable");
+      return dispatch(event);
+    });
+    const log = vi.spyOn(console, "warn").mockImplementation(() => { throw new Error("log sink unavailable"); });
+    try {
+      expect(await runAlphaExchangeMaintenance()).toEqual({ changed: true });
+      expect(publish.mock.calls.filter(([event]) => event.type === "trade.status_changed")).toHaveLength(1);
+      expect(currentSnapshot().marketplaceListings.find(item => item.id === "independent-listing")?.status).toBe("expired");
+      expect(log).toHaveBeenCalled();
+    } finally { publish.mockRestore(); log.mockRestore(); }
+  });
+
+  it.each(["released", "extended"])("discards every speculative timeout effect when the canonical release was %s", async outcome => {
+    const { requestId } = seedTrade({ status: "usdt_release_pending", paymentMethod: "Bank Transfer" });
+    const past = new Date(Date.now() - 60_000).toISOString();
+    const future = new Date(Date.now() + 60_000).toISOString();
+    const paid = { id: "unrelated-paid", sellerId: NEXT_SELLER_ID, rate: 0.01, grossAmount: 500, commissionAmount: 5,
+      paymentStatus: "paid" as const, createdAt: past, updatedAt: past };
+    const trust = { id: "unrelated-trust", sellerId: NEXT_SELLER_ID, oldScore: 50, newScore: 51,
+      reason: "Existing trade", triggeredBy: "existing-trade", createdAt: past };
+    currentSnapshot().purchaseRequests[0].usdtReleaseDeadlineAt = past;
+    currentSnapshot().notifications.push({ id: "still-active-reminder", userId: SELLER_ID, category: "trade", title: "Reminder",
+      message: "Release is pending", reason: "automatic_trade_action_reminder", relatedRequestId: requestId,
+      isRead: false, state: "unread", createdAt: past });
+    const repository = await getAlphaExchangeRepository();
+    const persist = repository.saveSnapshot.bind(repository);
+    const publish = vi.fn<(event: tradeRealtime.RealtimeEvent) => void>();
+    const unsubscribe = tradeRealtime.subscribeRealtimeEvents(publish);
+    const save = vi.spyOn(repository, "saveSnapshot").mockImplementationOnce(async (db, options) => {
+      const canonical = await repository.loadSnapshot();
+      const request = canonical.purchaseRequests[0];
+      if (outcome === "released") { request.status = "usdt_sent"; request.usdtSentAt = new Date().toISOString(); }
+      else request.usdtReleaseDeadlineAt = future;
+      canonical.commissionRecords.push(paid);
+      canonical.trustScoreHistory.push(trust);
+      await persist(canonical, { selectedTables: ["purchase_requests", "commissions", "trust_score_history"] });
+      await persist(db, options);
+    });
+    try {
+      const result = await runAlphaExchangeMaintenance();
+      expect(result.changed).toBe(false);
+      expect(publish).not.toHaveBeenCalled();
+      const saved = currentSnapshot();
+      expect(saved.purchaseRequests[0].status).toBe(outcome === "released" ? "usdt_sent" : "usdt_release_pending");
+      expect(saved.purchaseRequests[0].usdtReleaseDeadlineAt).toBe(outcome === "extended" ? future : past);
+      expect(saved.purchaseRequests[0].timedOutAt).toBeUndefined();
+      expect(saved.purchaseRequests[0].timeline.filter(entry => entry.type === "trade_timed_out")).toHaveLength(0);
+      expect(saved.auditLogs.filter(entry => entry.action === "trade_timed_out")).toHaveLength(0);
+      expect(saved.notifications).toMatchObject([{ id: "still-active-reminder", state: "unread", isRead: false }]);
+      expect(saved.commissionRecords).toMatchObject([paid]);
+      expect(saved.trustScoreHistory).toEqual([trust]);
+    } finally { save.mockRestore(); unsubscribe(); }
+  });
+
+  it("commits required overdue alerts before publishing and does not duplicate maintenance retries", async () => {
+    seedTrade({ status: "usdt_release_pending", paymentMethod: "Bank Transfer" });
+    currentSnapshot().purchaseRequests[0].usdtReleaseDeadlineAt = new Date(Date.now() - 60_000).toISOString();
+    currentSnapshot().notifications.push({ id: "failed-claim-reminder", userId: SELLER_ID, category: "trade", title: "Reminder",
+      message: "Release is pending", reason: "automatic_trade_action_reminder", relatedRequestId: currentSnapshot().purchaseRequests[0].id,
+      isRead: false, state: "unread", createdAt: new Date().toISOString() });
+    for (const user of currentSnapshot().users) user.notificationPreferences = { inApp: false, browserPush: false, email: false, sms: false };
+    const repository = await getAlphaExchangeRepository();
+    const persist = repository.saveSnapshot.bind(repository);
+    const publish = vi.fn<(event: tradeRealtime.RealtimeEvent) => void>();
+    const unsubscribe = tradeRealtime.subscribeRealtimeEvents(publish);
+    const notices = () => publish.mock.calls.filter(([event]) => event.type.startsWith("notification.") && "notification" in event.payload && ["Trade overdue", "USDT release overdue"].includes(event.payload.notification?.title ?? ""));
+    let fail = true;
+    const save = vi.spyOn(repository, "saveSnapshot").mockImplementation(async (db, options) => {
+      expect(publish).not.toHaveBeenCalled();
+      if (fail) throw new Error("Controlled maintenance write failure");
+      return persist(db, options);
+    });
+    try {
+      await expect(runAlphaExchangeMaintenance()).rejects.toThrow("Controlled maintenance write failure");
+      expect(publish).not.toHaveBeenCalled();
+      expect(currentSnapshot().purchaseRequests[0].timedOutAt).toBeUndefined();
+      expect(currentSnapshot().notifications).toMatchObject([{ id: "failed-claim-reminder", state: "unread", isRead: false }]);
+      fail = false;
+      await runAlphaExchangeMaintenance();
+      expect(notices()).toHaveLength(2);
+      const persisted = currentSnapshot().notifications.filter(notice => ["Trade overdue", "USDT release overdue"].includes(notice.title));
+      expect(persisted.map(notice => notice.userId).sort()).toEqual([BUYER_ID, SELLER_ID].sort());
+      expect(persisted.every(notice => notice.state === "unread" && !notice.isRead && notice.whatsappChannelOnly !== true)).toBe(true);
+      save.mockRestore();
+      await runAlphaExchangeMaintenance();
+      expect(notices()).toHaveLength(2);
+    } finally { save.mockRestore(); unsubscribe(); }
   });
 
   it("lets the face-to-face seller confirm full cash directly, reveal the wallet, and complete exactly once", async () => {
@@ -1973,6 +2230,7 @@ describe("guided cash-trade completion", () => {
     currentSnapshot().marketplaceListings[0].availableAmount = "20000";
     currentSnapshot().marketplaceListings[0].originalAmount = "20000";
     currentSnapshot().users.find(user => user.id === SELLER_ID)!.notificationPreferences!.email = true;
+    for (const user of currentSnapshot().users) user.notificationPreferences!.inApp = false;
     const repository = await getAlphaExchangeRepository();
     const persist = repository.saveSnapshot.bind(repository);
     const publish = vi.spyOn(tradeRealtime, "publishRealtimeEvent");
@@ -1996,6 +2254,10 @@ describe("guided cash-trade completion", () => {
         return;
       }
       const result = await action;
+      const completionNotices = currentSnapshot().notifications.filter(notice => notice.whatsappEvent === "trade_completed");
+      expect(completionNotices.map(notice => notice.userId).sort()).toEqual([BUYER_ID, SELLER_ID].sort());
+      expect(completionNotices.every(notice => notice.state === "unread" && !notice.isRead && notice.whatsappChannelOnly !== true)).toBe(true);
+      expect(currentSnapshot().notifications.some(notice => notice.title === "Review available")).toBe(false);
       expect(publish.mock.calls.filter(([event]) => event.type === "trade.status_changed")).toHaveLength(1);
       expect(email).not.toHaveBeenCalled();
       const trustTask = result.deferredTrustWrite!();

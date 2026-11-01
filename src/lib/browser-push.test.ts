@@ -172,6 +172,26 @@ describe("browser push delivery", () => {
     expect(browserPushCategoryEnabled({ ...trade, actionHref: "/admin/alpha-exchange" }, { browserPush: true })).toBe(false);
     expect(browserPushCategoryEnabled({ ...trade, actionHref: "/ar/admin/alpha-exchange" }, { browserPush: true, browserPushAdminAlerts: true })).toBe(true);
   });
+  it.each(["Seller replied to your review", "Review available", "Feedback required"])("applies feedback consent when recovering legacy %s", async title => {
+    const legacy = { ...await notice(), category: "trade", title: ` ${title.toUpperCase()} `, relatedHref: "/trade-room/request-1" };
+    await db.query("update alpha_exchange.notifications set payload=$1", [JSON.stringify(legacy)]);
+    await db.exec(`update alpha_exchange.users set payload='{"notificationPreferences":{"browserPush":true,"inApp":true,"browserPushFeedback":false,"browserPushTradeUpdates":true}}'`);
+    expect(await drainBrowserPush()).toEqual({ sent: 0 });
+    expect(send).not.toHaveBeenCalled();
+    await db.exec(`update alpha_exchange.users set payload='{"notificationPreferences":{"browserPush":true,"inApp":true,"browserPushFeedback":true,"browserPushTradeUpdates":false}}'`);
+    // Opted-out revisions stay skipped; another eligible legacy row must still
+    // deliver under Feedback even when Trade updates is disabled.
+    await db.query("insert into alpha_exchange.notifications values('enabled','user',false,now(),$1)", [JSON.stringify({ ...legacy, id: "enabled", createdAt: new Date().toISOString() })]);
+    expect(await drainBrowserPush()).toEqual({ sent: 1 });
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+  it("keeps dispute review decisions under transaction consent rather than feedback", async () => {
+    const dispute = { ...await notice(), category: "dispute", title: "Dispute review resolved", relatedHref: "/trade-room/request-1" };
+    await db.query("update alpha_exchange.notifications set payload=$1", [JSON.stringify(dispute)]);
+    await db.exec(`update alpha_exchange.users set payload='{"notificationPreferences":{"browserPush":true,"inApp":true,"browserPushFeedback":false,"browserPushTradeUpdates":true}}'`);
+    expect(await drainBrowserPush()).toEqual({ sent: 1 });
+    expect(send).toHaveBeenCalledTimes(1);
+  });
   it("coalesces overlapping drains without duplicate provider sends", async () => {
     await notice();
     await Promise.all(Array.from({ length: 8 }, () => drainBrowserPush()));

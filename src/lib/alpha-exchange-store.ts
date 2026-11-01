@@ -61,7 +61,7 @@ import { evaluateSellerAchievements } from "@/lib/seller-achievements";
 import { runEnvValidation } from "@/lib/env-validation";
 import { getAlphaExchangeRepository, type SnapshotTableName, type TradeLifecycleTransaction } from "@/lib/alpha-exchange-repository";
 import { addRole, dedupeRoles, hasRole, isUserRole, normalizeRolesForUser, removeRole, resolvePrimaryRole } from "@/lib/roles";
-import { publishRealtimeEvent } from "@/lib/realtime";
+import { publishIsolatedRealtimeEvent, publishRealtimeEvent, type RealtimeEvent } from "@/lib/realtime";
 import { scheduleBrowserPushDelivery } from "@/lib/browser-push";
 import { scheduleMobilePushDelivery } from "@/lib/mobile-push";
 import { scheduleWhatsAppNotificationDelivery } from "@/lib/whatsapp-notifications";
@@ -494,7 +494,7 @@ function resolveNotificationCenterCategory(notification: Pick<AlphaExchangeNotif
     if (text.includes("review")) return "reviews";
     return "trades";
   }
-  if (notification.category === "trust") return "reviews";
+  if (notification.category === "trust" || notification.category === "review") return "reviews";
   if (notification.category === "listing") return "listings";
   if (notification.category === "system") {
     return text.includes("announcement") ? "announcements" : "system";
@@ -3600,13 +3600,7 @@ async function readDb(options?: { bypassCache?: boolean; skipMaintenance?: boole
     if (options?.skipMaintenance) {
       return cached;
     }
-    const numberingChanged = ensureDisplayNumbers(cached);
-    const changed = await applyMarketplaceReliabilityRules(cached);
-    if (changed || numberingChanged) {
-      await writeDb(cached);
-      return cached;
-    }
-    return cached;
+    return (await maintainMarketplaceSnapshot(cached)).snapshot;
   }
   if (!dbReadInFlight) {
     dbReadInFlight = (async () => {
@@ -3618,14 +3612,10 @@ async function readDb(options?: { bypassCache?: boolean; skipMaintenance?: boole
           dbCache = { value: normalized, updatedAt: Date.now() };
           return normalized;
         }
-        const numberingChanged = ensureDisplayNumbers(normalized);
-        const changed = await applyMarketplaceReliabilityRules(normalized);
-        if (changed || numberingChanged) {
-          await writeDb(normalized);
-        }
-        for (const listing of normalized.marketplaceListings) {
+        const { snapshot, changed } = await maintainMarketplaceSnapshot(normalized);
+        for (const listing of snapshot.marketplaceListings) {
           if (!listing.expirationEmailPendingAt || listing.expirationEmailSentAt) continue;
-          await sendListingOwnerLifecycleEmail(normalized, listing, {
+          await sendListingOwnerLifecycleEmail(snapshot, listing, {
             event: "listing_expired",
             title: { ar: "انتهت صلاحية الإعلان", en: "Listing Expired" },
             message: {
@@ -3635,10 +3625,10 @@ async function readDb(options?: { bypassCache?: boolean; skipMaintenance?: boole
             idempotencyKey: `listing-${listing.id}-expired-${listing.expirationEmailPendingAt}`,
           });
         }
-        if (!changed && !numberingChanged) {
-          dbCache = { value: normalized, updatedAt: Date.now() };
+        if (!changed) {
+          dbCache = { value: snapshot, updatedAt: Date.now() };
         }
-        return normalized;
+        return snapshot;
       } finally {
         dbReadInFlight = null;
       }
@@ -3650,13 +3640,9 @@ async function readDb(options?: { bypassCache?: boolean; skipMaintenance?: boole
 
 export async function runAlphaExchangeMaintenance() {
   const db = await readDb({ bypassCache: true });
-  const numberingChanged = ensureDisplayNumbers(db);
-  const changed = await applyMarketplaceReliabilityRules(db);
-  if (changed || numberingChanged) {
-    await writeDb(db);
-  }
+  const { changed } = await maintainMarketplaceSnapshot(db);
   const trust = await reconcilePendingTradeTrust();
-  return { changed: changed || numberingChanged || trust.reconciled > 0 };
+  return { changed: changed || trust.reconciled > 0 };
 }
 
 export const TRADE_ACTION_REMINDER_INTERVAL_MS = 60 * 60_000;
@@ -5805,26 +5791,26 @@ async function applyCommissionOverdueRules(db: AlphaExchangeDb) {
   return changed;
 }
 
-async function applyMarketplaceReliabilityRules(db: AlphaExchangeDb) {
-  let changed = await applyCommissionOverdueRules(db);
-  const nowMs = Date.now();
+function isReleaseOverdue(request: PurchaseRequest, nowMs: number) {
+  if (request.status !== "usdt_release_pending" || !request.usdtReleaseDeadlineAt || request.usdtSentAt
+    || request.completedAt || request.closedAt || request.timedOutAt || request.timeoutReason === "USDT release SLA expired.") return false;
+  const deadlineMs = Date.parse(request.usdtReleaseDeadlineAt);
+  return Number.isFinite(deadlineMs) && deadlineMs > 0 && deadlineMs <= nowMs;
+}
 
+async function claimOverdueReleases(db: AlphaExchangeDb, candidateIds: ReadonlySet<string>, nowMs: number) {
+  const archived: AlphaExchangeNotification[] = [];
+  const notifications: DeferredNotificationPublication[] = [];
+  const requests: PurchaseRequest[] = [];
   for (const request of db.purchaseRequests) {
-    if (request.status !== "usdt_release_pending") continue;
-    if (!request.usdtReleaseDeadlineAt) continue;
-    if (request.usdtSentAt || request.completedAt) continue;
-    if (request.timeoutReason === "USDT release SLA expired.") continue;
-    const deadlineMs = new Date(request.usdtReleaseDeadlineAt).getTime();
-    if (!deadlineMs || Number.isNaN(deadlineMs) || deadlineMs > nowMs) continue;
+    if (!candidateIds.has(request.id) || !isReleaseOverdue(request, nowMs)) continue;
 
     const now = nowIso();
-    changed = true;
-    const archivedActionReminders = archiveSatisfiedTradeActionReminders(db, request, now);
+    archived.push(...archiveSatisfiedTradeActionReminders(db, request, now));
     request.timedOutAt = now;
     request.timeoutReason = "USDT release SLA expired.";
     request.actionReminderState = undefined;
     request.updatedAt = now;
-    publishArchivedTradeActionReminders(archivedActionReminders);
     appendTradeTimelineEntry(request, {
       type: "trade_timed_out",
       actorUserId: SYSTEM_ACTOR_USER_ID,
@@ -5843,9 +5829,11 @@ async function applyMarketplaceReliabilityRules(db: AlphaExchangeDb) {
       newValue: { status: "usdt_release_pending", timedOutAt: now, overdue: true },
       reason: request.timeoutReason,
     });
-    pushNotification(db, {
+    const buyerPublication = pushNotification(db, {
       userId: request.buyerId,
       category: "trade",
+      forceInApp: true,
+      deferRealtime: true,
       title: "Trade overdue",
       message: `Trade ${request.tradeId ?? request.id} exceeded the USDT release deadline. You can open a dispute now.`,
       relatedTradeId: request.tradeId ?? request.id,
@@ -5853,9 +5841,12 @@ async function applyMarketplaceReliabilityRules(db: AlphaExchangeDb) {
       relatedHref: requestDetailsHref(request.id),
       whatsappEvent: "trade_update",
     });
-    pushNotification(db, {
+    if (buyerPublication) notifications.push(buyerPublication);
+    const sellerPublication = pushNotification(db, {
       userId: request.sellerId,
       category: "trade",
+      forceInApp: true,
+      deferRealtime: true,
       title: "USDT release overdue",
       message: `Trade ${request.tradeId ?? request.id} exceeded the 45-minute release window and is now overdue.`,
       relatedTradeId: request.tradeId ?? request.id,
@@ -5863,8 +5854,9 @@ async function applyMarketplaceReliabilityRules(db: AlphaExchangeDb) {
       relatedHref: requestDetailsHref(request.id),
       whatsappEvent: "trade_update",
     });
+    if (sellerPublication) notifications.push(sellerPublication);
     for (const adminUser of getAdminNotificationRecipients(db)) {
-      pushNotification(db, {
+      const publication = pushNotification(db, {
         userId: adminUser.id,
         category: "trade",
         title: "Trade overdue alert",
@@ -5876,13 +5868,62 @@ async function applyMarketplaceReliabilityRules(db: AlphaExchangeDb) {
         actionLabel: "Review Trade",
         priority: "critical",
         forceInApp: true,
+        deferRealtime: true,
       });
+      if (publication) notifications.push(publication);
     }
-    publishRealtimeEvent({
-      type: "trade.status_changed",
-      payload: { request: enrichRequestWithEvidence(db, request) },
-    });
+    requests.push(enrichRequestWithEvidence(db, request));
   }
+  return { archived, notifications, requests };
+}
+
+function publishCommittedOverdueEvent(event: Extract<RealtimeEvent, { type: "notification.updated" | "trade.status_changed" }>) {
+  try {
+    if (publishIsolatedRealtimeEvent(event)) return;
+  } catch {
+    // The dispatch operation itself may also fail after persistence.
+  }
+  try {
+    logEvent("warn", { event: "overdue_trade_realtime_publication", outcome: "failed", reason: "delivery_failed", metadata: { eventType: event.type } });
+  } catch {
+    // A failed diagnostic sink cannot interrupt the committed maintenance run.
+  }
+}
+
+async function maintainMarketplaceSnapshot(initial: AlphaExchangeDb) {
+  let snapshot = initial;
+  let claimed = false;
+  const nowMs = Date.now();
+  const candidateIds = new Set(initial.purchaseRequests.filter(request => isReleaseOverdue(request, nowMs)).map(request => request.id));
+  if (candidateIds.size) {
+    let effects = await claimOverdueReleases(initial, candidateIds, nowMs);
+    await writeDb(initial, {
+      // The trades projection stores the request timeline and update time too.
+      selectedTables: ["purchase_requests", "trades", "audit_logs", "notifications"], cacheResult: false,
+      rebaseOnLatest: async latest => {
+        // A competing worker or trade transition may already have consumed the
+        // deadline. Discard speculative rows and publication plans together.
+        effects = await claimOverdueReleases(latest, candidateIds, nowMs);
+        return latest;
+      },
+    });
+    claimed = effects.requests.length > 0;
+    for (const publication of effects.notifications) publishNotificationPublication(publication);
+    for (const notification of effects.archived) publishCommittedOverdueEvent({ type: "notification.updated", payload: { notification } });
+    for (const request of effects.requests) publishCommittedOverdueEvent({ type: "trade.status_changed", payload: { request } });
+    // Continue the other maintenance rules on the full committed state. They
+    // are never replayed by the timeout claim's rebase callback.
+    snapshot = await readDb({ bypassCache: true });
+  }
+  const numberingChanged = ensureDisplayNumbers(snapshot);
+  const changed = await applyMarketplaceReliabilityRules(snapshot);
+  if (changed || numberingChanged) await writeDb(snapshot);
+  return { snapshot, changed: claimed || changed || numberingChanged };
+}
+
+async function applyMarketplaceReliabilityRules(db: AlphaExchangeDb) {
+  let changed = await applyCommissionOverdueRules(db);
+  const nowMs = Date.now();
 
   // Completion requires the seller's explicit action or a verified owner
   // override. Elapsed time must not settle inventory or commission.
@@ -8074,15 +8115,53 @@ export async function sendSellerApprovalEmailByAdmin(applicationId: string, admi
   return deliverSellerApprovalEmail(await readDb(), applicationId, adminUserId);
 }
 
-export async function approveSellerApplicationByAdmin(
-  applicationId: string,
+type SellerApplicationDecision = {
+  application: AlphaExchangeDb["sellerApplications"][number];
+  notification: DeferredNotificationPublication | null;
+  archived: AlphaExchangeNotification[];
+};
+
+async function commitSellerApplicationDecision(
+  trustReason: string,
   adminUserId: string,
-  reason: string | undefined,
-  _legacyVerificationChecklist?: SellerApprovalChecklist,
+  decide: (snapshot: AlphaExchangeDb) => Promise<SellerApplicationDecision>,
 ) {
-  // Older clients may still send a checklist; approval does not create identity evidence.
-  void _legacyVerificationChecklist;
   const db = await readDb();
+  let committed!: { decision: SellerApplicationDecision; effects: TradeMutationPublications };
+  const apply = async (snapshot: AlphaExchangeDb) => {
+    // A stale reader rechecks pending and recomputes roles/trust from the
+    // canonical snapshot under the repository lock. Discard its earlier effects.
+    const effects: TradeMutationPublications = { notifications: [], trustNotifications: [], trustEvents: [], promotionEmails: [], calculatingTrust: true };
+    tradeMutationPublications.set(snapshot, effects);
+    try {
+      const decision = await decide(snapshot);
+      await recalculateTrustEngine(snapshot, { reason: trustReason, triggeredBy: adminUserId });
+      committed = { decision, effects };
+      return snapshot;
+    } finally { tradeMutationPublications.delete(snapshot); }
+  };
+  await apply(db);
+  await writeDb(db, { selectedTables: SELLER_APPLICATION_REVIEW_TABLES, rebaseOnLatest: apply });
+  publishNotificationPublication(committed.decision.notification);
+  committed.effects.trustNotifications.forEach(publishNotificationPublication);
+  // A disconnected stream or failed email must not turn a committed decision
+  // into an apparent failure or prevent the remaining deliveries.
+  const deliveries = [
+    ...committed.decision.archived.map(notice => () => publishArchivedNotifications([notice])),
+    ...committed.effects.trustEvents.map(event => () => publishRealtimeEvent(event)),
+    ...committed.effects.promotionEmails.map(email => () => sendSellerPrestigePromotionEmail(email)),
+  ];
+  for (const deliver of deliveries) {
+    try { await deliver(); }
+    catch {
+      try { logEvent("warn", { event: "seller_application_decision_delivery", resourceId: committed.decision.application.id, outcome: "failed" }); }
+      catch { /* Delivery diagnostics are best effort. */ }
+    }
+  }
+  return committed.decision.application;
+}
+
+async function prepareSellerApproval(db: AlphaExchangeDb, applicationId: string, adminUserId: string, reason?: string) {
   const applicationIndex = db.sellerApplications.findIndex((item) => item.id === applicationId);
   if (applicationIndex === -1) throw new Error("Seller application not found.");
 
@@ -8141,11 +8220,19 @@ export async function approveSellerApplicationByAdmin(
       && (notification.actionHref === sellerApplicationReviewDestination(application.id)
         || notification.relatedHref === sellerApplicationReviewDestination(application.id)),
   );
-  await recalculateTrustEngine(db, { reason: "Seller approved", triggeredBy: adminUserId });
+  return { application: db.sellerApplications[applicationIndex], notification: approvalNotification, archived: archivedAdminNotifications };
+}
 
-  await writeDb(db, { selectedTables: SELLER_APPLICATION_REVIEW_TABLES });
-  publishNotificationPublication(approvalNotification);
-  publishArchivedNotifications(archivedAdminNotifications);
+export async function approveSellerApplicationByAdmin(
+  applicationId: string,
+  adminUserId: string,
+  reason: string | undefined,
+  _legacyVerificationChecklist?: SellerApprovalChecklist,
+) {
+  // Older clients may still send a checklist; approval does not create identity evidence.
+  void _legacyVerificationChecklist;
+  const application = await commitSellerApplicationDecision("Seller approved", adminUserId,
+    (snapshot) => prepareSellerApproval(snapshot, applicationId, adminUserId, reason));
   // Account-access notices are transactional and independent of marketing preferences.
   // Nothing is sent until the approval and in-app notification are persisted.
   const delivery = async () => {
@@ -8167,7 +8254,7 @@ export async function approveSellerApplicationByAdmin(
   } catch {
     await delivery();
   }
-  return db.sellerApplications[applicationIndex];
+  return application;
 }
 
 export async function recordApprovedSellerVerificationByAdmin(
@@ -8228,12 +8315,12 @@ export async function recordApprovedSellerVerificationByAdmin(
   return db.sellerApplications[applicationIndex];
 }
 
-export async function rejectSellerApplicationByAdmin(applicationId: string, adminUserId: string, reason?: string) {
-  const db = await readDb();
+async function prepareSellerRejection(db: AlphaExchangeDb, applicationId: string, adminUserId: string, reason?: string) {
   const applicationIndex = db.sellerApplications.findIndex((item) => item.id === applicationId);
   if (applicationIndex === -1) throw new Error("Seller application not found.");
 
   const application = db.sellerApplications[applicationIndex];
+  if (application.status !== "pending") throw new Error("Seller application is no longer pending review.");
   db.sellerApplications[applicationIndex] = {
     ...application,
     status: "rejected",
@@ -8259,9 +8346,11 @@ export async function rejectSellerApplicationByAdmin(applicationId: string, admi
     details: `Rejected seller application ${application.id}`,
     reason: reason?.trim() || undefined,
   });
-  pushNotification(db, {
+  const rejectionNotification = pushNotification(db, {
     userId: application.userId,
     category: "application",
+    forceInApp: true,
+    deferRealtime: true,
     title: "Seller application rejected",
     message: "Your seller application was rejected.",
     relatedHref: sellerApplicationStatusDestination(),
@@ -8278,11 +8367,12 @@ export async function rejectSellerApplicationByAdmin(applicationId: string, admi
       && (notification.actionHref === sellerApplicationReviewDestination(application.id)
         || notification.relatedHref === sellerApplicationReviewDestination(application.id)),
   );
-  await recalculateTrustEngine(db, { reason: "Seller application rejected", triggeredBy: adminUserId });
+  return { application: db.sellerApplications[applicationIndex], notification: rejectionNotification, archived: archivedAdminNotifications };
+}
 
-  await writeDb(db, { selectedTables: SELLER_APPLICATION_REVIEW_TABLES });
-  publishArchivedNotifications(archivedAdminNotifications);
-  return db.sellerApplications[applicationIndex];
+export async function rejectSellerApplicationByAdmin(applicationId: string, adminUserId: string, reason?: string) {
+  return commitSellerApplicationDecision("Seller application rejected", adminUserId,
+    (snapshot) => prepareSellerRejection(snapshot, applicationId, adminUserId, reason));
 }
 
 export async function suspendApprovedSellerByAdmin(userId: string, adminUserId: string, reason?: string) {
@@ -10252,6 +10342,7 @@ export async function adminOverrideMarketplaceListing(input: {
   reason?: string;
 }) {
   const db = await readDb();
+  const participantPublications: DeferredNotificationPublication[] = [];
   const index = db.marketplaceListings.findIndex((listing) => listing.id === input.listingId);
   if (index === -1) throw new Error("Listing not found.");
   const listing = db.marketplaceListings[index];
@@ -10303,9 +10394,11 @@ export async function adminOverrideMarketplaceListing(input: {
         message: input.action === "force_close" ? "Admin force-closed the listing and cancelled the trade" : "Admin closed the listing and cancelled the trade",
         createdAt: now,
       });
-      pushNotification(db, {
+      const buyerPublication = pushNotification(db, {
         userId: activeRequest.buyerId,
         category: "trade",
+        forceInApp: true,
+        deferRealtime: true,
         title: "Trade cancelled",
         message: `Trade ${activeRequest.tradeId ?? activeRequest.id} was cancelled by an admin listing action.`,
         relatedTradeId: activeRequest.tradeId ?? activeRequest.id,
@@ -10313,9 +10406,12 @@ export async function adminOverrideMarketplaceListing(input: {
         relatedHref: requestDetailsHref(activeRequest.id),
         whatsappEvent: "trade_cancelled",
       });
-      pushNotification(db, {
+      if (buyerPublication) participantPublications.push(buyerPublication);
+      const sellerPublication = pushNotification(db, {
         userId: activeRequest.sellerId,
         category: "trade",
+        forceInApp: true,
+        deferRealtime: true,
         title: "Trade cancelled",
         message: `Trade ${activeRequest.tradeId ?? activeRequest.id} was cancelled by an admin listing action.`,
         relatedTradeId: activeRequest.tradeId ?? activeRequest.id,
@@ -10323,6 +10419,7 @@ export async function adminOverrideMarketplaceListing(input: {
         relatedHref: requestDetailsHref(activeRequest.id),
         whatsappEvent: "trade_cancelled",
       });
+      if (sellerPublication) participantPublications.push(sellerPublication);
     }
     for (const pendingRequest of db.purchaseRequests.filter((candidate) => (
       candidate.listingId === listing.id
@@ -10338,9 +10435,11 @@ export async function adminOverrideMarketplaceListing(input: {
         message: "Request declined because an admin closed the listing",
         createdAt: now,
       });
-      pushNotification(db, {
+      const buyerPublication = pushNotification(db, {
         userId: pendingRequest.buyerId,
         category: "trade",
+        forceInApp: true,
+        deferRealtime: true,
         title: pendingRequest.priceMode === "buyer_offer" ? "Price offer declined" : "Trade request declined",
         message: "The listing was closed by an admin, so this pending request can no longer be accepted.",
         relatedRequestId: pendingRequest.id,
@@ -10349,6 +10448,7 @@ export async function adminOverrideMarketplaceListing(input: {
         relatedHref: requestDetailsHref(pendingRequest.id),
         whatsappEvent: "trade_cancelled",
       });
+      if (buyerPublication) participantPublications.push(buyerPublication);
     }
   }
   listing.updatedAt = now;
@@ -10449,6 +10549,7 @@ export async function adminOverrideMarketplaceListing(input: {
       }
     },
   });
+  participantPublications.forEach(publishNotificationPublication);
   return listing;
 }
 
@@ -11296,9 +11397,11 @@ export async function createPurchaseRequest(input: {
       ? `Submitted price offer for trade ${request.tradeId} at ₪${pricePerUsdt} per USDT (listing price ₪${priceBounds.listingPrice}).`
       : `Submitted trade ${request.tradeId}`,
   });
-  pushNotification(db, {
+  const sellerNotification = pushNotification(db, {
     userId: sellerId,
     category: "trade",
+    forceInApp: true,
+    deferRealtime: true,
     title: isPriceOffer ? "New price offer" : "New trade request",
     message: isPriceOffer
       ? `${request.buyerName} offered ₪${pricePerUsdt} per USDT for ${request.usdtAmount} USDT.`
@@ -11543,6 +11646,7 @@ export async function createPurchaseRequest(input: {
       if (demandMode) synchronizeListingTradeLock(snapshot, canonicalListing);
     },
   });
+  publishNotificationPublication(sellerNotification);
   const writeMs = Date.now() - writeStartedAt;
   await dispatchCommittedSms(db, priorSmsCount);
   const sseStartedAt = Date.now();
@@ -12527,6 +12631,7 @@ async function closePurchaseRequestManuallyAttempt(
     const publication = pushNotification(db, {
       userId: recipientUserId,
       category: "trade",
+      forceInApp: true,
       title: "Trade closed",
       message: closedByRecipient
         ? `You closed this trade. Reason: ${closeReason}.`
@@ -13453,6 +13558,7 @@ async function uploadTradeEvidenceAttempt(
     const publication = pushNotification(db, {
       userId: request.sellerId,
       category: "trade",
+      forceInApp: true,
       title: isAtmTrade ? "Withdrawal ready" : "Buyer marked payment sent",
       message: isBankTransferTrade
         ? "Buyer marked payment as sent. Please verify the funds in your bank account."
@@ -13487,6 +13593,7 @@ async function uploadTradeEvidenceAttempt(
     const publication = pushNotification(db, {
       userId: request.buyerId,
       category: "trade",
+      forceInApp: true,
       title: "Seller marked USDT sent",
       message: "Seller marked USDT as sent and will complete the trade. Check your receiving wallet.",
       relatedTradeId: nextRequest.tradeId,
@@ -13883,9 +13990,10 @@ export async function submitBuyerTradeReview(input: {
       category: "review",
       title: "Buyer left a review",
       message: "A buyer submitted a review for a completed trade.",
+      relatedRequestId: request.id,
       relatedTradeId: request.tradeId ?? request.id,
       relatedListingId: request.listingId,
-      relatedHref: "/usdt-exchange",
+      relatedHref: requestDetailsHref(request.id),
       deferRealtime: true,
     });
     pushActivityLog(snapshot, {
@@ -13950,7 +14058,7 @@ export async function submitSellerBuyerReview(input: {
   if (!comment) throw new Error("Review comment is required.");
   if (comment.length > 500) throw new Error("Review comment is too long.");
   assertNoExchangeDirectContact(comment);
-  type Result = { review: NonNullable<PurchaseRequest["sellerBuyerReview"]>; created: boolean; request: PurchaseRequest };
+  type Result = { review: NonNullable<PurchaseRequest["sellerBuyerReview"]>; created: boolean; request: PurchaseRequest; publication?: DeferredNotificationPublication | null };
   let committed: Result | null = null;
   const apply = async (snapshot: AlphaExchangeDb) => {
     const request = snapshot.purchaseRequests.find((item) => item.id === input.requestId);
@@ -13969,7 +14077,20 @@ export async function submitSellerBuyerReview(input: {
       purchaseRequestId: request.id, listingId: request.listingId,
       details: `Seller reviewed buyer for trade ${request.tradeId ?? request.id}`,
     });
-    committed = { review: request.sellerBuyerReview, created: true, request };
+    const publication = pushNotification(snapshot, {
+      userId: request.buyerId,
+      category: "review",
+      title: "Seller left you feedback",
+      message: "The seller submitted feedback for your completed trade.",
+      titleAr: "ترك البائع تقييماً لك",
+      messageAr: "أرسل البائع تقييماً لك عن الصفقة المكتملة.",
+      relatedRequestId: request.id,
+      relatedTradeId: request.tradeId ?? request.id,
+      relatedListingId: request.listingId,
+      relatedHref: requestDetailsHref(request.id),
+      deferRealtime: true,
+    });
+    committed = { review: request.sellerBuyerReview, created: true, request, publication };
     return snapshot;
   };
   const focused = await commitFocusedTradeMutation(input.requestId, apply);
@@ -13977,13 +14098,16 @@ export async function submitSellerBuyerReview(input: {
   if (!focused) await apply(db);
   if (!focused && (committed as Result | null)?.created) {
     await writeDb(db, {
-      selectedTables: ["purchase_requests", "audit_logs"], rebaseOnLatest: apply,
+      selectedTables: ["purchase_requests", "notifications", "audit_logs"], rebaseOnLatest: apply,
       rebaseTables: TRADE_REVIEW_READ_TABLES, cacheResult: false,
     });
   }
   const result = committed as Result | null;
   if (!result) throw new Error("Failed to save seller review.");
-  if (result.created) publishRealtimeEvent({ type: "trade.status_changed", payload: { requestId: result.request.id, request: result.request, status: result.request.status, publishedAtEpochMs: Date.now() } });
+  if (result.created) {
+    publishNotificationPublication(result.publication);
+    publishRealtimeEvent({ type: "trade.status_changed", payload: { requestId: result.request.id, request: result.request, status: result.request.status, publishedAtEpochMs: Date.now() } });
+  }
   return { sellerBuyerReview: result.review };
 }
 
@@ -14037,12 +14161,13 @@ export async function submitSellerReviewResponse(input: {
     });
     const publication = pushNotification(snapshot, {
       userId: request.buyerId,
-      category: "trade",
+      category: "review",
       title: "Seller replied to your review",
       message: "The seller responded to your completed trade review.",
+      relatedRequestId: request.id,
       relatedTradeId: request.tradeId ?? request.id,
       relatedListingId: request.listingId,
-      relatedHref: "/usdt-exchange",
+      relatedHref: requestDetailsHref(request.id),
       deferRealtime: true,
     });
     pushActivityLog(snapshot, {
@@ -14798,7 +14923,7 @@ async function updatePurchaseRequestStatusAttempt(
     const isPriceOffer = next.priceMode === "buyer_offer";
     if (acceptingCounter) {
       pushNotification(db, {
-        userId: request.sellerId, category: "trade", title: "Counter-offer accepted",
+        userId: request.sellerId, category: "trade", forceInApp: true, title: "Counter-offer accepted",
         message: "The buyer accepted your counter-offer. Open the Trade Room to continue.",
         relatedRequestId: request.id, relatedTradeId: next.tradeId,
         relatedListingId: request.listingId, relatedHref: requestDetailsHref(request.id),
@@ -14849,6 +14974,7 @@ async function updatePurchaseRequestStatusAttempt(
     pushNotification(db, {
       userId: request.buyerId,
       category: "trade",
+      forceInApp: true,
       title: isPriceOffer ? "Price offer accepted" : "Trade request accepted",
       message: isPriceOffer
         ? `Seller accepted your price offer of ₪${next.pricePerUsdt ?? next.listingPriceAtRequest} per USDT. You can now continue in the Trade Room.`
@@ -14890,6 +15016,7 @@ async function updatePurchaseRequestStatusAttempt(
     pushNotification(db, {
       userId: request.buyerId,
       category: "trade",
+      forceInApp: true,
       title: isPriceOffer ? "Price offer declined" : "Trade cancelled",
       message: isPriceOffer
         ? `The seller declined your price offer of ₪${next.pricePerUsdt ?? next.listingPriceAtRequest} per USDT.`
@@ -14910,6 +15037,7 @@ async function updatePurchaseRequestStatusAttempt(
       pushNotification(db, {
         userId,
         category: "trade",
+        forceInApp: true,
         title: "Trade cancelled",
         message: `The ${cancellingParticipant.toLowerCase()} cancelled this trade request.`,
         relatedTradeId: next.tradeId,
@@ -15002,6 +15130,7 @@ async function updatePurchaseRequestStatusAttempt(
     pushNotification(db, {
       userId: request.sellerId,
       category: "trade",
+      forceInApp: true,
       title: isAtmTrade ? "Cardless withdrawal code ready" : isFaceToFaceTrade ? "Buyer handed over cash" : "Buyer marked payment sent",
       message: isBankTransferTrade
         ? "Buyer marked payment as sent. Please verify the funds in your bank account."
@@ -15050,6 +15179,7 @@ async function updatePurchaseRequestStatusAttempt(
     pushNotification(db, {
       userId: isBuyer ? request.sellerId : request.buyerId,
       category: "trade",
+      forceInApp: true,
       title: isBuyer ? "Buyer confirmed cash received" : isAtmTrade ? "Seller confirmed cash collected" : "Seller confirmed funds received",
       message: isBuyer
         ? "Buyer confirmed handing the full cash total to you. Verify the cash, send USDT to the revealed wallet, then complete the trade."
@@ -15085,6 +15215,7 @@ async function updatePurchaseRequestStatusAttempt(
     pushNotification(db, {
       userId: request.buyerId,
       category: "trade",
+      forceInApp: true,
       title: "USDT release pending",
       message: `Seller started the USDT release process. The 45-minute window has begun.`,
       relatedTradeId: next.tradeId,
@@ -15114,6 +15245,7 @@ async function updatePurchaseRequestStatusAttempt(
     pushNotification(db, {
       userId: request.buyerId,
       category: "trade",
+      forceInApp: true,
       title: "Seller marked USDT sent",
       message: isCashTrade
         ? "The seller marked USDT as sent and will complete the cash trade. Check your receiving wallet."
@@ -15126,6 +15258,7 @@ async function updatePurchaseRequestStatusAttempt(
     pushNotification(db, {
       userId: request.sellerId,
       category: "trade",
+      forceInApp: true,
       title: isCashTrade ? "Cash trade ready to complete" : "Trade ready to complete",
       message: "You confirmed USDT was sent. Complete the trade now; no buyer confirmation is required.",
       relatedTradeId: next.tradeId,
@@ -15324,6 +15457,7 @@ async function updatePurchaseRequestStatusAttempt(
     pushNotification(db, {
       userId: request.buyerId,
       category: "trade",
+      forceInApp: true,
       title: completionTitle,
       message: isAdminCompletion
         ? "An admin confirmed this trade as complete. It is now in history and review."
@@ -15347,6 +15481,7 @@ async function updatePurchaseRequestStatusAttempt(
     pushNotification(db, {
       userId: request.sellerId,
       category: "trade",
+      forceInApp: true,
       title: completionTitle,
       message: isAdminCompletion
         ? "An admin confirmed this trade as complete. Check your commission due."
@@ -18752,6 +18887,7 @@ export async function openTradeDispute(input: {
     const buyerPublication = pushNotification(snapshot, {
       userId: request.buyerId,
       category: "dispute",
+      forceInApp: true,
       title: "Dispute opened",
       message: `A dispute was opened for trade ${dispute.tradeId}.`,
       relatedTradeId: dispute.tradeId,
@@ -18762,6 +18898,7 @@ export async function openTradeDispute(input: {
     const sellerPublication = pushNotification(snapshot, {
       userId: request.sellerId,
       category: "dispute",
+      forceInApp: true,
       title: "Dispute opened",
       message: `A dispute was opened for trade ${dispute.tradeId}.`,
       relatedTradeId: dispute.tradeId,
@@ -19354,6 +19491,7 @@ export async function forceCancelTradeByAdmin(input: { requestId: string; reason
     const publication = pushNotification(db, {
       userId,
       category: "trade",
+      forceInApp: true,
       title: ownerOverride ? "Trade cancelled by owner" : "Trade cancelled by admin",
       message: ownerOverride ? "The owner reviewed and cancelled this trade. Its history remains available." : "An admin cancelled this trade before payment or transfer progress began.",
       relatedRequestId: request.id,

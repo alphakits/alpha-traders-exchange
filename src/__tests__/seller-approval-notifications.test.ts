@@ -1,5 +1,7 @@
 // @vitest-environment node
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { readFile } from "node:fs/promises";
+import type { Pool } from "pg";
+import { beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import type { AlphaExchangeDb } from "@/types/alpha-exchange";
 
 const mocks = vi.hoisted(() => ({ send: vi.fn(), push: vi.fn(), log: vi.fn(), after: vi.fn() }));
@@ -9,10 +11,10 @@ vi.mock("@/lib/mobile-push", () => ({ scheduleMobilePushDelivery: mocks.push }))
 vi.mock("@/lib/structured-logging", () => ({ logEvent: mocks.log }));
 vi.mock("next/server", async (original) => ({ ...await original<typeof import("next/server")>(), after: mocks.after }));
 
-import { getAlphaExchangeRepository } from "@/lib/alpha-exchange-repository";
+import { AlphaExchangeRepository, getAlphaExchangeRepository } from "@/lib/alpha-exchange-repository";
 import {
   approveSellerApplicationByAdmin, findUserById, invalidateAlphaExchangeStoreCache,
-  sendSellerApprovalEmailByAdmin,
+  rejectSellerApplicationByAdmin, sendSellerApprovalEmailByAdmin,
 } from "@/lib/alpha-exchange-store";
 
 function seed(approved = false) {
@@ -83,6 +85,100 @@ describe("seller approval notices", () => {
     expect(mocks.push.mock.calls.some(([notice]) => notice.title === "Seller application approved")).toBe(false);
   });
 
+  it("persists rejection before pushing its required notice with optional alerts off", async () => {
+    const committedAtDelivery: boolean[] = [];
+    mocks.push.mockImplementation((notice) => {
+      if (notice.title !== "Seller application rejected") return;
+      committedAtDelivery.push(persisted().sellerApplications[0].status === "rejected"
+        && persisted().notifications.some(item => item.id === notice.id && item.state === "unread" && !item.isRead));
+    });
+    await rejectSellerApplicationByAdmin("application-1", "owner-1", "Reviewed");
+    const notices = persisted().notifications.filter(notice => notice.title === "Seller application rejected");
+    expect(notices).toHaveLength(1);
+    expect(notices[0]).toMatchObject({ userId: "seller-1", category: "application", state: "unread", isRead: false });
+    expect(notices[0].whatsappChannelOnly).not.toBe(true);
+    expect(mocks.push.mock.calls.filter(([notice]) => notice.title === "Seller application rejected")).toHaveLength(1);
+    expect(committedAtDelivery).toEqual([true]);
+    await expect(rejectSellerApplicationByAdmin("application-1", "owner-1", "Again")).rejects.toThrow("no longer pending");
+    expect(mocks.push.mock.calls.filter(([notice]) => notice.title === "Seller application rejected")).toHaveLength(1);
+  });
+
+  it("does not push rejection when the application decision fails to persist", async () => {
+    await findUserById("seller-1");
+    mocks.push.mockClear();
+    const repository = await getAlphaExchangeRepository();
+    vi.spyOn(repository, "saveSnapshot").mockRejectedValueOnce(new Error("Database unavailable"));
+    await expect(rejectSellerApplicationByAdmin("application-1", "owner-1", "Reviewed")).rejects.toThrow("Database unavailable");
+    expect(persisted().sellerApplications[0].status).toBe("pending");
+    expect(mocks.push.mock.calls.some(([notice]) => notice.title === "Seller application rejected")).toBe(false);
+  });
+
+  it.each([
+    ["approved", "rejected", "memory"], ["rejected", "approved", "memory"], ["rejected", "rejected", "memory"],
+    ["approved", "rejected", "postgres"],
+  ] as const)("keeps only the committed %s decision when a concurrent %s review read pending (%s)", async (first, second, backend) => {
+    let verifySql: (() => Promise<void>) | undefined;
+    if (backend === "postgres") {
+      vi.stubEnv("NODE_ENV", "production");
+      onTestFinished(() => { vi.unstubAllEnvs(); });
+      const { PGlite } = await import("@electric-sql/pglite");
+      const database = await PGlite.create();
+      onTestFinished(async () => { await database.close(); });
+      for (const migration of ["20260720160000_alpha_exchange_runtime", "20260905223000_alpha_exchange_runtime_schema_parity", "20261024024258_usdt_buy_requests"]) {
+        await database.exec(await readFile(`supabase/migrations/${migration}.sql`, "utf8"));
+      }
+      const client = { query: (sql: string, values?: unknown[]) => database.query(sql, values), release() {} };
+      const sqlStore = new AlphaExchangeRepository({ ...client, connect: async () => client, on() {} } as unknown as Pool);
+      vi.spyOn(sqlStore, "ensureReady").mockResolvedValue();
+      await sqlStore.saveSnapshot({ ...await sqlStore.loadSnapshot(), ...seed() });
+      globalThis.__alphaExchangeRepositoryPromise = Promise.resolve(sqlStore);
+      verifySql = async () => {
+        expect((await database.query("select status from alpha_exchange.seller_applications where id='application-1'")).rows).toEqual([{ status: first }]);
+        expect((await database.query("select payload->>'title' as title from alpha_exchange.notifications where category='application'")).rows).toEqual([{ title: `Seller application ${first}` }]);
+      };
+    }
+    const repository = await getAlphaExchangeRepository();
+    const persist = repository.saveSnapshot.bind(repository);
+    const read = repository.loadSnapshot.bind(repository);
+    const firstWrite = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    const secondRead = Promise.withResolvers<void>();
+    const review = (decision: "approved" | "rejected") => decision === "approved"
+      ? approveSellerApplicationByAdmin("application-1", "owner-1", "Reviewed")
+      : rejectSellerApplicationByAdmin("application-1", "owner-1", "Reviewed");
+    // Hold the first decision just before the real repository write. A second
+    // independent read therefore carries the same pending state/version into
+    // the repository's stale-snapshot path after the first write commits.
+    await findUserById("seller-1");
+    vi.spyOn(repository, "saveSnapshot").mockImplementationOnce(async (db, options) => {
+      firstWrite.resolve();
+      await release.promise;
+      return persist(db, options);
+    });
+    const winner = review(first);
+    await firstWrite.promise;
+    invalidateAlphaExchangeStoreCache();
+    vi.spyOn(repository, "loadSnapshot").mockImplementationOnce(async () => {
+      const prior = await read();
+      secondRead.resolve();
+      return prior;
+    });
+    const outcomes = Promise.allSettled([winner, review(second)]);
+    await secondRead.promise;
+    release.resolve();
+    const [committed, stale] = await outcomes;
+    expect(committed.status).toBe("fulfilled");
+    expect(stale).toMatchObject({ status: "rejected", reason: expect.objectContaining({ message: "Seller application is no longer pending review." }) });
+    const saved = await repository.loadSnapshot();
+    expect(saved.sellerApplications[0].status).toBe(first);
+    expect(saved.users[0].sellerStatus).toBe(first === "approved" ? "approved_seller" : "rejected");
+    expect(saved.auditLogs.filter(log => log.action === "seller_approved" || log.action === "seller_rejected")).toHaveLength(1);
+    expect(saved.notifications.filter(notice => notice.category === "application").map(notice => notice.title)).toEqual([`Seller application ${first}`]);
+    expect(mocks.push.mock.calls.filter(([notice]) => notice.category === "application").map(([notice]) => notice.title)).toEqual([`Seller application ${first}`]);
+    expect(mocks.send).toHaveBeenCalledTimes(first === "approved" ? 1 : 0);
+    await verifySql?.();
+  }, 30_000);
+
   it.each(["provider-failure", "exception"])("keeps the approval and notice when email returns %s, and allows recovery", async (failure) => {
     if (failure === "exception") mocks.send.mockRejectedValueOnce(new Error("Connection reset"));
     else mocks.send.mockResolvedValueOnce({ ok: false, reason: "resend_request_failed", providerStatus: 503 });
@@ -92,6 +188,27 @@ describe("seller approval notices", () => {
     expect(persisted()).toEqual(approvalState);
     expect(mocks.send.mock.calls[0][0].idempotencyKey).toBe(mocks.send.mock.calls[1][0].idempotencyKey);
     expect(mocks.log).toHaveBeenCalledWith("error", expect.objectContaining({ event: "seller_approval_email", outcome: "failed" }));
+  });
+
+  it("preserves a concurrent role and account edit when a pending approval is rebased", async () => {
+    await findUserById("seller-1");
+    const repository = await getAlphaExchangeRepository();
+    const persist = repository.saveSnapshot.bind(repository);
+    vi.spyOn(repository, "saveSnapshot").mockImplementationOnce(async (candidate, options) => {
+      const canonical = await repository.loadSnapshot();
+      const seller = canonical.users.find(user => user.id === "seller-1")!;
+      seller.email = "updated@example.test";
+      seller.roles = [...seller.roles!, "student"];
+      seller.notificationPreferences = { inApp: false, email: false, sms: true };
+      await persist(canonical, { selectedTables: ["users"] });
+      return persist(candidate, options);
+    });
+    await approveSellerApplicationByAdmin("application-1", "owner-1", "Reviewed");
+    expect(persisted().users[0]).toMatchObject({ sellerStatus: "approved_seller", email: "updated@example.test",
+      notificationPreferences: { inApp: false, email: false, sms: true } });
+    expect(persisted().users[0].roles).toEqual(expect.arrayContaining(["buyer", "student", "approved_seller"]));
+    expect(mocks.send).toHaveBeenCalledOnce();
+    expect(mocks.send).toHaveBeenCalledWith(expect.objectContaining({ to: "updated@example.test" }));
   });
 
   it("rejects duplicate approval without resending or duplicating the in-app notice", async () => {

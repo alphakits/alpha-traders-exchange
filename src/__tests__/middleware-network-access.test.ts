@@ -72,4 +72,24 @@ describe("VPN checks cannot be skipped through application entry points", () => 
     expect(response.headers.get("x-middleware-next")).toBe("1");
     expect(fetchMock).not.toHaveBeenCalled();
   });
+  it.each([
+    ["/api/cron/browser-push", "outage"], ["/api/cron/browser-push", "vpn classification"],
+    ["/api/cron/mobile-push-delivery", "outage"], ["/api/cron/mobile-push-delivery", "vpn classification"],
+    ["/api/cron/buy-request-notifications", "outage"], ["/api/cron/buy-request-notifications", "vpn classification"],
+    ["/api/cron/journal-cleanup", "outage"], ["/api/cron/journal-cleanup", "vpn classification"],
+  ])("lets %s reach its secret guard despite a network provider %s", async (path, scenario) => {
+    vi.stubEnv("ALPHA_NETWORK_ACCESS_MODE", "vpn-tor");
+    vi.stubEnv("ALPHA_NETWORK_ACCESS_PROVIDER", "ipregistry");
+    vi.stubEnv("IPREGISTRY_API_KEY", `middleware-cron-key-${++key}`);
+    if (scenario === "outage") fetchMock.mockRejectedValue(new Error("provider unavailable"));
+    else fetchMock.mockResolvedValue(Response.json({
+      ip: "8.8.8.8", security: { is_vpn: true, is_proxy: false, is_tor: false, is_relay: false },
+    }));
+    // Passing middleware does not authorize a sweep: each route independently
+    // checks its scheduler secret, including when Authorization is absent.
+    const response = await middleware(request(path));
+    expect(response.headers.get("x-middleware-next")).toBe("1");
+    expect(response.headers.get("set-cookie")).toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
 });

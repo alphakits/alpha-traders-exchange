@@ -6,7 +6,7 @@ import { OFFLINE_ACCOUNTS, OFFLINE_HEADERS, OFFLINE_PASSWORD, seedOfflineFixture
 import type { AlphaExchangeDb, PurchaseRequest } from "../src/types/alpha-exchange";
 import type { DemandWorkspace } from "../src/types/usdt-demand";
 import { calculateCardlessUsdtAmount, calculateTradePaymentTotal } from "@alpha-traders/contracts";
-import { createHardNavigationErrorAudit } from "./support/hard-navigation-errors";
+import { createHardNavigationErrorAudit, marketDestinationFeed } from "./support/hard-navigation-errors";
 
 const axePath = createRequire(`${process.cwd()}/package.json`).resolve("axe-core/axe.min.js");
 
@@ -514,7 +514,9 @@ test("buyer and seller buyer-rank progress uses completed purchases and stays pr
     expect(buyerView.offers[0].seller).toMatchObject({ completedPurchases: null, buyerProgress: null });
     expect(sellerView.requester).toMatchObject({ completedPurchases: null, buyerProgress: null });
     for (const [page, hiddenCard, ownCard] of [[buyerPage, "offer-card", "request-card"], [sellerPage, "request-card", "offer-card"]] as const) {
-      await page.reload();
+      // WebKit reported the departing market poll during this privacy reload.
+      // Require the new main document to load a valid feed on the fixture port.
+      await browserErrorAudit.navigate(page, () => page.reload(), marketDestinationFeed(baseURL!));
       const hiddenIdentity = page.getByTestId(hiddenCard).getByTestId("request-counterparty-identity");
       await expect(hiddenIdentity.getByRole("progressbar")).toHaveCount(0);
       await expect(hiddenIdentity).not.toContainText(/completed purchases?|عملية شراء مكتملة/);

@@ -347,9 +347,6 @@ describe("Trade content policy", () => {
   });
 
   it("commits simultaneous identical dispute submissions exactly once", async () => {
-    for (const account of snapshot().users) {
-      account.notificationPreferences = { inApp: true, email: false, sms: false };
-    }
     snapshot().purchaseRequests[0]!.status = "payment_sent";
     reloadStoreFromSnapshot();
 
@@ -365,6 +362,9 @@ describe("Trade content policy", () => {
     expect(saved.disputes).toHaveLength(1);
     expect(saved.purchaseRequests[0]?.timeline.filter((entry) => entry.type === "dispute_opened")).toHaveLength(1);
     expect(saved.notifications.filter((entry) => entry.title === "Dispute opened")).toHaveLength(3);
+    expect(saved.notifications.filter((entry) => entry.title === "Dispute opened").every((entry) => (
+      entry.state === "unread" && !entry.isRead && entry.whatsappChannelOnly !== true
+    ))).toBe(true);
     expect(saved.notifications.filter((entry) => entry.title === "Dispute opened" && entry.whatsappEvent === "trade_update").map((entry) => entry.userId).sort())
       .toEqual([BUYER_ID, SELLER_ID].sort());
     expect(saved.activityLog.filter((entry) => entry.title === "Dispute opened")).toHaveLength(1);
@@ -410,9 +410,6 @@ describe("Trade content policy", () => {
   });
 
   it("alerts both participants once when an admin resolves their active trade dispute", async () => {
-    for (const account of snapshot().users) {
-      account.notificationPreferences = { inApp: true, email: false, sms: false };
-    }
     snapshot().purchaseRequests[0]!.status = "payment_sent";
     reloadStoreFromSnapshot();
     const dispute = await openTradeDispute({ purchaseRequestId: REQUEST_ID, openedByUserId: BUYER_ID, reason: "Payment needs review" });
@@ -421,11 +418,11 @@ describe("Trade content policy", () => {
     await resolveTradeDisputeByAdmin(input);
     const alerts = snapshot().notifications.filter((entry) => entry.title === "Dispute review resolved");
     expect(alerts.map((entry) => entry.userId).sort()).toEqual([BUYER_ID, SELLER_ID].sort());
+    expect(alerts.every((entry) => entry.state === "unread" && !entry.isRead && entry.whatsappChannelOnly !== true)).toBe(true);
     expect(alerts.every((entry) => entry.whatsappEvent === "trade_update" && entry.relatedRequestId === REQUEST_ID)).toBe(true);
   });
 
   it("publishes no dispute notice when persistence fails and publishes each committed notice once after retry", async () => {
-    for (const account of snapshot().users) account.notificationPreferences = { inApp: true, email: false, sms: false };
     snapshot().purchaseRequests[0]!.status = "payment_sent";
     reloadStoreFromSnapshot();
     const repository = await getAlphaExchangeRepository();
@@ -447,6 +444,7 @@ describe("Trade content policy", () => {
     } finally { save.mockRestore(); }
     reloadStoreFromSnapshot();
     await openTradeDispute(input);
+    expect(publishedDisputeNotices()).toHaveLength(3);
     expect(publishedDisputeNotices().map(notice => notice.id).sort()).toEqual(snapshot().notifications.filter(notice => notice.title === "Dispute opened").map(notice => notice.id).sort());
   });
 

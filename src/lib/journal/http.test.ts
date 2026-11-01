@@ -210,6 +210,25 @@ describe.sequential("private chart HTTP lifecycle", () => {
     expect((await uploadChart(imageRequest(Buffer.alloc(3 * 1024 * 1024 + 1), "image/png", { "content-length": "1" }), context()))?.status).toBe(413);
     expect(state.blobs.size).toBe(0);
   });
+  it.each([undefined, "incorrect-secret"])("rejects unauthenticated cleanup before database access: %s", async (secret) => {
+    state.dbUnavailable = true;
+    const response = await cleanCharts(new NextRequest(`${origin}/api/cron/journal-cleanup`, {
+      headers: secret === undefined ? {} : { authorization: `Bearer ${secret}` },
+    }));
+    expect(response.status).toBe(401);
+    expect(response.headers.get("cache-control")).toContain("no-store");
+    expect(state.blobs.size).toBe(0);
+  });
+  it("refuses cleanup when the scheduler secret is not configured", async () => {
+    state.dbUnavailable = true;
+    vi.stubEnv("CRON_SECRET", "short");
+    try {
+      expect((await cleanCharts(cleanupRequest())).status).toBe(503);
+      expect(state.blobs.size).toBe(0);
+    } finally {
+      vi.stubEnv("CRON_SECRET", schedulerSecret);
+    }
+  });
   it("retries durable cleanup after an ambiguous upload and storage failure", async () => {
     state.uploadFailure = true;
     expect((await uploadChart(imageRequest(chartPng), context()))?.status).toBe(503);

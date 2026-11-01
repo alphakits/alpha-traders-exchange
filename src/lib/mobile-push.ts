@@ -7,6 +7,7 @@ import { getSafeInternalNotificationDestination } from "@/lib/notification-actio
 import { getRuntimePostgresPool } from "@/lib/postgres-runtime";
 import { rollbackFailedTransaction } from "@/lib/postgres-transaction";
 import { logEvent } from "@/lib/structured-logging";
+import { OPTIONAL_FEEDBACK_TITLES } from "@/lib/notification-feedback";
 import type { AlphaExchangeNotification } from "@/types/alpha-exchange";
 
 const EXPO_PUSH_SEND_URL = "https://exp.host/--/api/v2/push/send";
@@ -106,6 +107,28 @@ function requirePushPool() {
 async function ensurePushSchema(pool: Pool) {
   if (!schemaPromise) {
     schemaPromise = (async () => {
+      // Even IF NOT EXISTS takes DDL locks. Check the objects this bootstrap
+      // installs before contending with trade writes on the notifications table.
+      const schema = await pool.query<{ ready: boolean }>(`select
+        exists (
+          select 1 from pg_catalog.pg_attribute
+          where attrelid = pg_catalog.to_regclass('alpha_exchange.mobile_push_deliveries')
+            and attname = 'expo_push_token_hash' and not attisdropped
+        )
+        and (
+          select count(*) = 4 from (values
+            ('idx_alpha_exchange_mobile_push_user_active', 'mobile_push_subscriptions'),
+            ('idx_alpha_exchange_mobile_push_session', 'mobile_push_subscriptions'),
+            ('idx_alpha_exchange_mobile_push_receipts', 'mobile_push_deliveries'),
+            ('idx_alpha_exchange_mobile_push_recovery', 'notifications')
+          ) as expected(index_name, table_name)
+          join pg_catalog.pg_index i
+            on i.indexrelid = pg_catalog.to_regclass('alpha_exchange.' || expected.index_name)
+            and i.indrelid = pg_catalog.to_regclass('alpha_exchange.' || expected.table_name)
+          where i.indisready and i.indisvalid
+        ) as ready`);
+      if (schema.rows[0]?.ready === true) return;
+
       await pool.query(`create table if not exists alpha_exchange.mobile_push_subscriptions (
         id text primary key,
         user_id text not null,
@@ -636,9 +659,12 @@ type EligiblePushRow = {
 
 // Critical transactional notifications intentionally survive the optional
 // in-app preference, matching forceInApp publication in the exchange store.
+// Historical feedback used category=trade; it must retain optional consent.
+const OPTIONAL_FEEDBACK_TITLES_SQL = OPTIONAL_FEEDBACK_TITLES.map(title => `'${title.replace(/'/g, "''")}'`).join(", ");
 const NATIVE_PUSH_RECIPIENT_FILTER = `recipient.payload->>'disabled' is distinct from 'true'
   and (recipient.payload->'notificationPreferences'->>'inApp' is distinct from 'false'
-       or notification.category in ('trade', 'dispute', 'application'))
+       or (notification.category in ('trade', 'dispute', 'application')
+           and lower(btrim(coalesce(notification.payload->>'title', ''))) not in (${OPTIONAL_FEEDBACK_TITLES_SQL})))
   and not notification.is_read
   and notification.payload->>'isRead' is distinct from 'true'
   and coalesce(notification.payload->>'state', 'unread') = 'unread'

@@ -16,12 +16,14 @@ describe("PostgreSQL lifecycle request dependencies", () => {
   beforeAll(async () => {
     db = new PGlite();
     await db.exec(`create schema alpha_exchange;
-      create table alpha_exchange.runtime_meta (singleton boolean, version bigint);
+      create table alpha_exchange.runtime_meta (singleton boolean, version bigint, updated_at timestamptz);
       insert into alpha_exchange.runtime_meta values (true, 1);
       create table alpha_exchange.purchase_requests
         (id text primary key, seller_id text, buyer_id text, status text, sort_index bigint, payload jsonb);
       create table alpha_exchange.seller_profiles (sort_index bigint, payload jsonb);
       create table alpha_exchange.seller_settings (sort_index bigint, payload jsonb);
+      create table alpha_exchange.listings (id text primary key, seller_id text, sort_index int, payload jsonb,
+        status text, active_trade_request_id text, expires_at timestamptz, created_at timestamptz, updated_at timestamptz);
       create table alpha_exchange.users (id text primary key, sort_index bigint, payload jsonb);`);
     const client = { query: (sql: string, parameters?: unknown[]) => db.query(sql, parameters), release: () => {} };
     repository = new AlphaExchangeRepository({ connect: async () => client } as unknown as Pool);
@@ -29,7 +31,7 @@ describe("PostgreSQL lifecycle request dependencies", () => {
   });
   afterAll(async () => { await db.close(); });
   beforeEach(async () => {
-    await db.exec("delete from alpha_exchange.purchase_requests; delete from alpha_exchange.users");
+    await db.exec("delete from alpha_exchange.purchase_requests; delete from alpha_exchange.users; delete from alpha_exchange.listings");
     const rows = [
       ["target", "seller-a", "buyer-a"],
       ["seller-capacity", "seller-a", "buyer-b"],
@@ -47,6 +49,45 @@ describe("PostgreSQL lifecycle request dependencies", () => {
     expect(tx.snapshot.purchaseRequests.map(request => request.id)).toEqual(["target", "seller-capacity", "buyer-other-seller"]);
     await tx.close();
     expect((await db.query("select id from alpha_exchange.purchase_requests order by sort_index")).rows).toHaveLength(4);
+  });
+  it.each([false, true])("retains related listings and legacy numbering while accepting (unnumbered=%s)", async unnumbered => {
+    const owners = ["seller-a", "seller-b", "buyer-a", "caller", "owner", "seller-c"];
+    for (const [index, id] of owners.entries()) {
+      await db.query("insert into alpha_exchange.users values ($1,$2,$3)", [id, index, { id, role: id === "owner" ? "owner" : "buyer" }]);
+      const listing = { id: "listing-" + id, sellerId: id, displayNumber: unnumbered && id === "seller-c" ? undefined : index + 1 };
+      await db.query("insert into alpha_exchange.listings values ($1,$2,$3,$4)", [listing.id, id, index, listing]);
+    }
+    await db.query("update alpha_exchange.purchase_requests set payload=payload || $1 where id='target'",
+      [{ listingId: "referenced-listing" }]);
+    await db.query("insert into alpha_exchange.listings values ($1,$2,$3,$4)",
+      ["referenced-listing", "missing-seller-account", 7, { id: "referenced-listing", displayNumber: 7 }]);
+    const tx = (await repository.beginTradeLifecycleTransaction(["users", "purchase_requests", "listings"], "target", "accepted", "caller"))!;
+    try {
+      expect(tx.snapshot.marketplaceListings.map(row => row.id)).toEqual(
+        [...owners.filter(id => unnumbered || id !== "seller-c").map(id => "listing-" + id), "referenced-listing"],
+      );
+    } finally { await tx.close(); }
+    expect((await db.query("select id from alpha_exchange.listings")).rows).toHaveLength(7);
+  });
+  it("updates a scoped listing without renumbering tied positions or changing an unrelated listing", async () => {
+    await db.query("insert into alpha_exchange.users values ('seller-a',0,$1)", [{ id: "seller-a", role: "approved_seller" }]);
+    for (const [id, sellerId, position, displayNumber] of [
+      ["first", "seller-a", 12, 1], ["second", "seller-a", 12, 2], ["unrelated", "seller-c", 19, 3],
+    ]) {
+      await db.query("insert into alpha_exchange.listings (id, seller_id, sort_index, payload) values ($1,$2,$3,$4)",
+        [id, sellerId, position, { id, sellerId, displayNumber, status: "active" }]);
+    }
+    const tx = (await repository.beginTradeLifecycleTransaction(["users", "purchase_requests", "listings"], "target", "accepted", "seller-a"))!;
+    try {
+      expect(tx.snapshot.marketplaceListings.map(row => row.id).sort()).toEqual(["first", "second"]);
+      tx.snapshot.marketplaceListings.find(row => row.id === "first")!.status = "matched";
+      await tx.commit(tx.snapshot, { selectedTables: ["listings"] });
+    } finally { await tx.close(); }
+    expect((await db.query(`select id, sort_index, payload->>'status' as status from alpha_exchange.listings order by id`)).rows).toEqual([
+      { id: "first", sort_index: 12, status: "matched" },
+      { id: "second", sort_index: 12, status: "active" },
+      { id: "unrelated", sort_index: 19, status: "active" },
+    ]);
   });
   it.each([...participantScopedStatuses, undefined])("%s retains the whole request collection and its participants while legacy numbering is incomplete", async nextStatus => {
     await db.exec("update alpha_exchange.purchase_requests set payload = payload - 'displayNumber' where id='unrelated'");
