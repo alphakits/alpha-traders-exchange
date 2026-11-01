@@ -1,0 +1,99 @@
+name: Upload the verified receipts build to App Store Connect
+
+on:
+  push:
+    branches: [release/ios-receipts-upload-20261101]
+    paths: [.github/workflows/receipt-ios-upload.yml]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-receipts-upload-b784326e
+  cancel-in-progress: false
+
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      BUILD_ID: b784326e-a179-4017-ba45-0ced3f8e83b9
+      SIGNED_COMMIT: 6db3c353ec00b4756d10189e4cadddf78d965f2d
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+      - name: Verify the native inputs and published build identity
+        id: verify
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: |
+          git diff --exit-code "$SIGNED_COMMIT" HEAD -- apps/mobile packages package.json package-lock.json patches scripts/patch-dependency-security.mjs
+          cat > "$RUNNER_TEMP/receipt-ios-build.mjs" <<'JS'
+          import assert from "node:assert/strict";
+          import { appendFileSync } from "node:fs";
+          const { BUILD_ID, SIGNED_COMMIT, EXPO_TOKEN, GITHUB_OUTPUT } = process.env;
+          const query = `query($id: ID!) {
+            builds { byId(buildId: $id) {
+              id app { id } status platform distribution buildProfile appVersion appBuildVersion
+              gitCommitHash appIdentifier isForIosSimulator
+              submissions { id status platform iosConfig { ascAppIdentifier } }
+            } }
+          }`;
+          const res = await fetch("https://api.expo.dev/graphql", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: "Bearer " + EXPO_TOKEN },
+            body: JSON.stringify({ query, variables: { id: BUILD_ID } }),
+            signal: AbortSignal.timeout(30000),
+          });
+          assert.equal(res.status, 200);
+          const result = await res.json();
+          assert.ok(!result.errors, "Expo could not verify the signed build");
+          const b = result.data.builds.byId;
+          assert.equal(b.id, BUILD_ID);
+          assert.equal(b.app.id, "e5dbc3ba-25fb-4373-8ded-c8c80cadc147");
+          assert.equal(b.gitCommitHash, SIGNED_COMMIT);
+          assert.equal(b.appIdentifier, "com.alphakits.alphatraders");
+          assert.equal(b.status, "FINISHED");
+          assert.equal(b.platform, "IOS");
+          assert.equal(b.distribution, "STORE");
+          assert.equal(b.buildProfile, "production");
+          assert.equal(b.appVersion, "1.2.0");
+          assert.ok(Number.isInteger(Number(b.appBuildVersion)) && Number(b.appBuildVersion) > 30);
+          assert.notEqual(b.isForIosSimulator, true);
+          for (const s of b.submissions) {
+            assert.equal(s.platform, "IOS");
+            assert.equal(s.iosConfig?.ascAppIdentifier, "6812101323");
+          }
+          console.log("RECEIPT_IOS_STATE " + JSON.stringify({
+            build: b.id, version: b.appVersion, number: b.appBuildVersion, source: b.gitCommitHash,
+            submissions: b.submissions.map(s => ({ id: s.id, status: s.status })),
+          }));
+          if (process.argv[2] === "before") {
+            appendFileSync(GITHUB_OUTPUT, "upload=" + (b.submissions.length === 0) + "\n");
+          } else {
+            assert.ok(b.submissions.some(s => s.status === "FINISHED"), "No finished upload for this build. Inspect any existing submission before a retry.");
+          }
+          JS
+          node "$RUNNER_TEMP/receipt-ios-build.mjs" before
+      - name: Install release dependencies
+        if: steps.verify.outputs.upload == 'true'
+        run: npm ci
+      - uses: expo/expo-github-action@v8
+        if: steps.verify.outputs.upload == 'true'
+        with:
+          eas-version: 23.2.0
+          token: ${{ secrets.EXPO_TOKEN }}
+      - name: Upload the signed IPA to the existing Apple app
+        if: steps.verify.outputs.upload == 'true'
+        working-directory: apps/mobile
+        run: eas submit --platform ios --id "$BUILD_ID" --profile production --non-interactive --wait
+      - name: Confirm Expo submission for this exact build
+        if: always() && steps.verify.outcome == 'success'
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: node "$RUNNER_TEMP/receipt-ios-build.mjs" after
