@@ -686,6 +686,19 @@ describe("compact Exchange home", () => {
 });
 
 describe("desktop buyer workspace", () => {
+  it("keeps fractional USDT in recent purchases, completed history and the combined trading total", async () => {
+    requests = [
+      { ...trade, id: "fractional-first", status: "completed", usdtAmount: "1234.567890", fiatAmount: "3900.00", currency: "ILS" },
+      { ...trade, id: "fractional-last", status: "completed", usdtAmount: "0.000002", fiatAmount: "0.01", currency: "ILS" },
+    ];
+    render(<UsdtExchangePage locale="en" initialSessionUser={user} workspaceMode="buyer" />);
+    const totalLabel = await screen.findByText("Trading Summary");
+    await waitFor(() => expect(totalLabel.parentElement?.textContent).toContain("1,234.567892 USDT"));
+    const exact = screen.getAllByText("1,234.567890 USDT");
+    expect(exact.some(node => node.closest('button[aria-controls="buyer-trade-details-fractional-first"]'))).toBe(true);
+    expect(exact.some(node => node.parentElement?.textContent?.includes("•"))).toBe(true);
+  });
+
   it("keeps USD and ILS average purchase prices separate", async () => {
     requests = [
       { ...trade, id: "ils-completed", status: "completed", currency: "ILS", usdtAmount: "200", fiatAmount: "640" },

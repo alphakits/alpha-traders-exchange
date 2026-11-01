@@ -118,7 +118,7 @@ function WiseAccountsPanelForIdentity({ locale, actorId, canReview = false }: Wi
       <div className="flex gap-2"><Button type="button" variant="secondary" disabled={busy} onClick={() => { setEditingId(account.id); setForm({ ...emptyForm, accountHolderName: account.accountHolderName, accountType: account.accountType }); setErrors({}); }}>{isAr ? "تعديل" : "Edit"}</Button><Button type="button" variant="secondary" disabled={busy} onClick={() => void mutate(`/api/alpha-exchange/wise-accounts?accountId=${encodeURIComponent(account.id)}`, "DELETE")}>{isAr ? "حذف" : "Delete"}</Button></div>
     </li>)}</ul>
     <form onSubmit={event => void submit(event)} className="space-y-3">
-      <h4 className="font-medium">{editingId ? (isAr ? "استبدال تفاصيل الحساب وإعادة المراجعة" : "Replace account details and submit for review again") : (isAr ? "إضافة حساب USD شخصي" : "Add a personal USD account")}</h4>
+      <h4 className="font-medium">{currencyText(editingId ? (isAr ? "استبدال تفاصيل الحساب وإعادة المراجعة" : "Replace account details and submit for review again") : (isAr ? "إضافة حساب USD شخصي" : "Add a personal USD account"))}</h4>
       <div className="grid gap-3 sm:grid-cols-2">{([
         ["accountHolderName", isAr ? "الاسم القانوني لصاحب الحساب" : "Legal account holder name"],
         ["bankName", isAr ? "اسم البنك كما يظهر في Wise" : "Bank name shown in Wise"],

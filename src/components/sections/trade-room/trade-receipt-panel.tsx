@@ -10,7 +10,7 @@ export function TradeReceiptPanel({ receipt, requestId, locale }: { receipt: Tra
     <h2 id="trade-receipt-title" className="text-lg font-semibold text-white">{isAr ? "إيصال الصفقة" : "Trade receipt"}</h2>
     <p className="mt-2 text-sm text-[#9CA3AF]">{isAr ? "سجل خاص بالمشتري والبائع وإدارة المنصة المخولة." : "Private to the buyer, seller and authorized platform management."}</p>
     <dl className="mt-4 grid gap-x-6 sm:grid-cols-2">{tradeReceiptDisplayRows(receipt, locale).map(([label, value, isMoney]) => <div key={label} className="min-w-0 border-b border-white/10 py-3">
-      <dt className="text-xs text-[#9CA3AF]">{currencyText(label)}</dt><dd dir="auto" className={`mt-1 break-words text-sm font-medium ${isMoney ? "currency-money" : "text-white"}`}>{isMoney ? currencyText(value) : currencyText(value, { groupNumbers: false })}</dd>
+      <dt className={isMoney ? "currency-money text-xs" : "text-xs text-[#9CA3AF]"}>{currencyText(label)}</dt><dd dir="auto" className={`mt-1 break-words text-sm font-medium ${isMoney ? "currency-money" : "text-white"}`}>{isMoney ? currencyText(value) : currencyText(value, { groupNumbers: false })}</dd>
     </div>)}</dl>
     <p className="mt-4 text-xs leading-relaxed text-[#9CA3AF]">{currencyText(receiptNotice(receipt, locale))}</p>
     <div className="mt-4 flex flex-wrap gap-3">

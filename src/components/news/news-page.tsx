@@ -211,7 +211,7 @@ export function NewsPage({ locale, initialFeed, initialNow, eventId }: {
           : (isAr ? "نتائج مؤكدة من المصادر الرسمية · ليست لحظية" : "Verified official results · Not real time")}</span></p> : null}
         {stale ? <p role="status" className="mt-4 rounded-xl border border-amber-400/20 bg-amber-400/5 p-3 text-sm text-amber-200">{weekly ? (isAr ? "قد يكون التقويم الأسبوعي قديمًا. المعروض هو آخر تحديث تم التحقق منه." : "The weekly calendar may be out of date. This is the last verified snapshot.") : (isAr ? "تحديث الأخبار متأخر. الأرقام المعروضة هي آخر بيانات تم استلامها." : "News updates are delayed. The figures shown are the last received data.")}</p> : null}
         {!available ? (
-          <div role="status" className={styles.empty}><CalendarDays size={28} aria-hidden="true" /><h2 className="font-semibold text-white">{feed.status === "not_configured" ? (isAr ? "جارٍ تجهيز أخبار الدولار" : "USD news is being prepared") : (isAr ? "الأخبار غير متاحة مؤقتًا" : "News is temporarily unavailable")}</h2><p className="mx-auto mt-2 max-w-md">{feed.status === "not_configured"
+          <div role="status" className={styles.empty}><CalendarDays size={28} aria-hidden="true" /><h2 className="font-semibold text-white">{currencyText(feed.status === "not_configured" ? (isAr ? "جارٍ تجهيز أخبار الدولار" : "USD news is being prepared") : (isAr ? "الأخبار غير متاحة مؤقتًا" : "News is temporarily unavailable"))}</h2><p className="mx-auto mt-2 max-w-md">{feed.status === "not_configured"
             ? (isAr ? "ستظهر الأحداث هنا عند توفرها. نتحقق تلقائيًا من التحديثات." : "Events will appear here when available. We check for updates automatically.")
             : (isAr ? "حاول التحديث بعد قليل." : "Try refreshing again shortly.")}</p></div>
         ) : (

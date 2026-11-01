@@ -4019,7 +4019,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                 { key: "integrity", label: t("Data issues", "مشاكل الربط"), value: systemHealth.operations.dataIntegrityIssues, alert: systemHealth.operations.dataIntegrityIssues > 0 },
                               ].map((metric) => (
                                 <div key={metric.key} className={`rounded-2xl border p-3 ${metric.alert ? "border-amber-500/35 bg-amber-500/10" : "border-white/10 bg-black/20"}`}>
-                                  <p className={`text-2xl font-semibold ${metric.alert ? "text-amber-200" : "text-white"}`}>{metric.value}</p>
+                                  <p className={`text-2xl font-semibold ${metric.alert ? "text-amber-200" : "text-white"}`}>{formatMoneyNumber(metric.value)}</p>
                                   <p className="mt-1 text-xs leading-5 text-[#B7BDC8]">{currencyText(metric.label)}</p>
                                 </div>
                               ))}

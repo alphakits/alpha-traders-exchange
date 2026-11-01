@@ -15,7 +15,9 @@ const monetaryNumber = "(?:" + range + gap + currency + currencyEnd + "|" + curr
 const amountToken = "(?:" + monetaryNumber + "|" + currency + currencyEnd + ")";
 const labelSeparator = "(?:" + gap + "[:：=]" + gap + "|[ \\t]+(?:(?:is|of|to|from|هو|إلى|من)[ \\t]+)?)";
 const labelledValue = boundedLabel + "(?:" + labelSeparator + "(?:" + monetaryNumber + "|" + range + "))?";
-const quantityUnit = /^\+?[\s\u00a0]*(?:trades?|listings?|users?|members?|lessons?|students?|views?|visits?|reviews?|requests?|messages?|orders?|items?|days?|hours?|minutes?|points?|results?|bytes?|KB|MB|GB|صفقات|صفقة|إعلان(?:ات)?|مستخدم(?:ين|ون)?|أعضاء|عضو|طلاب|طالب|دروس|درس|مشاهد(?:ة|ات)|طلبات|طلب|رسائل|رسالة|نقطة|نقاط)(?![\p{L}\p{N}_])/iu;
+const quantityWord = "(?:trades?|listings?|users?|members?|lessons?|students?|views?|visits?|reviews?|requests?|messages?|orders?|items?|days?|hours?|minutes?|points?|results?|bytes?|KB|MB|GB|" + arabicPrefix + "(?:صفقات|صفقة|إعلان(?:ات)?|مستخدم(?:ين|ون)?|أعضاء|عضو|طلاب|طالب|دروس|درس|مشاهد(?:ة|ات)|طلبات|طلب|رسائل|رسالة|نقطة|نقاط))";
+const quantityUnit = new RegExp("^\\+?\\s*" + quantityWord + "(?![\\p{L}\\p{N}_])", "iu");
+const quantityLabel = new RegExp("(?:^|[^\\p{L}\\p{N}_])" + quantityWord + "\\s*[:：=]\\s*$", "iu");
 const trailingWord = /[\p{L}\p{N}_]$/u;
 
 // Consume URLs, addresses and opaque words as single tokens so neither their text nor their
@@ -67,8 +69,11 @@ export function splitAccentText(value: string, options: AccentOptions = {}): Acc
     if (rangeIndex < protectedRanges.length && protectedRanges[rangeIndex]!.start < end) continue;
     if ((identifierPart.test(raw[0] ?? "") && identifierPart.test(value[start - 1] ?? "")) ||
         (trailingWord.test(raw) && identifierPart.test(value[end] ?? ""))) continue;
-    if (number && (!quantityUnit.test(value.slice(end, end + 34)) || /^[0٠۰]/.test(raw) ||
-        /[-/+:.#\d]/.test(value[start - 1] ?? ""))) continue;
+    if (number) {
+      const afterLabel = quantityLabel.test(value.slice(Math.max(0, start - 40), start));
+      if ((!afterLabel && !quantityUnit.test(value.slice(end, end + 34))) || /^[0٠۰]/.test(raw) ||
+          (!afterLabel && /[-/+:.#\d]/.test(value[start - 1] ?? ""))) continue;
+    }
     const tone = branded ? "brand" : monetary ? "money" : null;
     const text = !branded && options.groupNumbers !== false ? formatMoneyNumber(raw) : raw;
     if (!tone && text === raw) continue;

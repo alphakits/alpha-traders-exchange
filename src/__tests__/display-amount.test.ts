@@ -21,5 +21,6 @@ describe("financial presentation in English and Arabic", () => {
     const original = "Trade #12345, ID AT-123456, 2026-11-01, +972501234567, OTP 123456, 0x1234USDTabc, https://example.org/USDT/12345, usdt12345@example.org; 15000+ trades / ١٠٠٠ صفقة.";
     expect(visible(original)).toBe(original.replace("15000+ trades", "15,000+ trades").replace("١٠٠٠ صفقة", "١,٠٠٠ صفقة"));
     expect(green(original)).toEqual([]);
+    expect(visible("Completed trades: 12345 · المشاهدات:١٥٠٠٠ · ID:12345")).toBe("Completed trades: 12,345 · المشاهدات:١٥,٠٠٠ · ID:12345");
   });
 });

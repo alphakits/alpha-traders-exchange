@@ -65,7 +65,7 @@ export function EventCard({ event, locale, timeZone, now, selected = false, week
               : <span>{isAr ? "لم يُحدد الوقت" : "Time to be confirmed"}</span>}</span>
           </div>
           {released ? <div className={`${styles.resultPreview} ${resultTone}`} data-result-tone={meaning.tone}>
-            <span>{isAr ? "النتيجة" : "Result"}</span><bdi dir="ltr">{event.actual}</bdi>{resultMeaning}
+            <span>{isAr ? "النتيجة" : "Result"}</span><bdi dir="ltr">{currencyText(event.actual)}</bdi>{resultMeaning}
           </div> : null}
           <span className={styles.disclosureHint}><span>{action}</span><ChevronDown size={16} aria-hidden="true" /></span>
         </summary>
@@ -75,7 +75,7 @@ export function EventCard({ event, locale, timeZone, now, selected = false, week
             <dl className={styles.results} style={{ gridTemplateColumns: `repeat(${resultItems.length}, minmax(0, 1fr))` }}>
               {resultItems.map((item) => <div key={item.label} className={styles.resultCell}>
                 <dt>{currencyText(item.label)}</dt>
-                <dd data-result-tone={item.result && released ? meaning.tone : undefined} className={item.value === null ? styles.missing : item.tone}>{item.value === null ? item.missing : <bdi dir="ltr">{item.value}</bdi>}</dd>
+                <dd data-result-tone={item.result && released ? meaning.tone : undefined} className={item.value === null ? styles.missing : item.tone}>{item.value === null ? item.missing : <bdi dir="ltr">{currencyText(item.value)}</bdi>}</dd>
               </div>)}
             </dl>
           ) : null}

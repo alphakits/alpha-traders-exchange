@@ -5049,7 +5049,7 @@ export function UsdtExchangePage({
                 <div key={`buyer-overview-${request.id}`} className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-black/25 px-3 py-2 text-xs text-[#D1D5DB]">
                   <div>
                     <p className="font-medium text-white">{currencyText(shortTradeRef(request, isAr))}</p>
-                    <p className="mt-0.5">{currencyText(`${Math.trunc(toNumber(request.usdtAmount)).toLocaleString("en-US")} USDT`)} • {currencyText(paymentMethodLabel(request.paymentMethod, isAr))}</p>
+                    <p className="mt-0.5">{currencyText(`${request.usdtAmount} USDT`)} • {currencyText(paymentMethodLabel(request.paymentMethod, isAr))}</p>
                   </div>
                   <span className="rounded-full border border-white/10 px-2.5 py-1 text-[10px] uppercase tracking-[0.12em] text-[#C9A227]">{currencyText(tradeStatusLabel(request.status, isAr))}</span>
                 </div>
@@ -5058,7 +5058,7 @@ export function UsdtExchangePage({
           </div>
           <div className="rounded-2xl border border-[#C9A227]/20 bg-[#C9A227]/10 p-4">
             <p className="text-[11px] uppercase tracking-[0.14em] text-[#D4AF37]">{isAr ? "ملخص التداول" : "Trading Summary"}</p>
-            <p className="mt-3 text-3xl font-semibold text-white">{currencyText(`${Math.trunc(buyerOverviewStats.totalUsdtBought).toLocaleString("en-US")} USDT`)}</p>
+            <p className="mt-3 text-3xl font-semibold text-white">{currencyText(`${buyerOverviewStats.totalUsdtBought.toLocaleString("en-US", { maximumFractionDigits: 6 })} USDT`)}</p>
             <p className="mt-1 text-sm text-[#E5E7EB]">{currencyText(isAr ? "إجمالي USDT الذي اشتريته عبر المنصة." : "Total USDT purchased through Alpha Exchange.")}</p>
             <div className="mt-4 space-y-2 text-xs text-[#E5E7EB]">
               <div className="flex items-center justify-between rounded-xl border border-white/10 bg-black/20 px-3 py-2">
@@ -5443,9 +5443,9 @@ export function UsdtExchangePage({
 
         {buyRequestsHref ? <div className="mb-4 rounded-2xl border border-blue-400/30 bg-blue-400/[0.06] p-4 sm:p-5">
           <Link href={demandListingIntent ? `/usdt-exchange/requests/${encodeURIComponent(demandListingIntent)}` : buyRequestsHref} className={requestPrimary}>
-            {demandListingIntent ? (isAr ? "العودة إلى طلب USDT" : "Return to the USDT request") : (isAr ? "طلبات الشراء" : "Buy Requests")}
+            {currencyText(demandListingIntent ? (isAr ? "العودة إلى طلب USDT" : "Return to the USDT request") : (isAr ? "طلبات الشراء" : "Buy Requests"))}
           </Link>
-          <p className="mt-2 text-sm leading-6 text-gray-300">{demandListingIntent ? (isAr ? "عد إلى الطلب بعد موافقة المالك على عرضك." : "Return to the request after your listing receives owner approval.") : interfaceAccess.canSell ? (isAr ? "تصفح طلبات المشترين وأرسل سعرك من عرضك المعتمد." : "Browse buyer requests and send your price from an approved listing.") : (isAr ? "انشر المبلغ المطلوب وراجع ردود البائعين المعتمدين." : "Post the amount you need and review responses from approved sellers.")}</p>
+          <p className="mt-2 text-sm leading-6 text-gray-300">{currencyText(demandListingIntent ? (isAr ? "عد إلى الطلب بعد موافقة المالك على عرضك." : "Return to the request after your listing receives owner approval.") : interfaceAccess.canSell ? (isAr ? "تصفح طلبات المشترين وأرسل سعرك من عرضك المعتمد." : "Browse buyer requests and send your price from an approved listing.") : (isAr ? "انشر المبلغ المطلوب وراجع ردود البائعين المعتمدين." : "Post the amount you need and review responses from approved sellers."))}</p>
         </div> : null}
         {sessionUser && hasBuyerRole ? <MarketplacePriceAlertPanel key={sessionUser.id} userId={sessionUser.id} isAr={isAr} /> : null}
         <div id="buyer-marketplace-listings" tabIndex={desktopBuyerNavigation ? -1 : undefined} className={cn("mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-2 min-[1440px]:grid-cols-3", desktopBuyerNavigation && "scroll-mt-24")}>

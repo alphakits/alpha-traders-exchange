@@ -661,7 +661,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                     onClick={() => void copyExactCommissionAmount()}
                   >
                     {commissionAmountCopied ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
-                    <span className="ms-1.5">{commissionAmountCopied ? (isAr ? "تم النسخ" : "Copied") : (isAr ? "نسخ المبلغ" : "Copy amount")}</span>
+                    <span className="ms-1.5">{currencyText(commissionAmountCopied ? (isAr ? "تم النسخ" : "Copied") : (isAr ? "نسخ المبلغ" : "Copy amount"))}</span>
                   </Button>
                   {sellerCommissionStatus?.relatedTradeDisplayNumber ? (
                     <div className="text-end">
@@ -678,13 +678,13 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                   </p>
                 ) : null}
                 <p className="rounded-lg border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-xs leading-5 text-amber-100">
-                  {isLegacyPendingCommissionPayment
+                  {currencyText(isLegacyPendingCommissionPayment
                     ? (isAr
                       ? "هذه دفعة قديمة تم إرسالها بالفعل. لا ترسل المبلغ مرة أخرى؛ سيستمر التحقق من معرّف المعاملة الأصلي تلقائياً."
                       : "This pre-upgrade payment was already submitted. Do not send the amount again; automatic verification will continue for the original TxID.")
                     : (isAr
                       ? "هذا المبلغ يحتوي على لاحقة تحقق فريدة. أرسله كاملاً كما هو من 6 خانات عشرية ولا تقرّبه."
-                      : "This amount includes a unique verification suffix. Send all 6 decimal places exactly as shown—do not round it.")}
+                      : "This amount includes a unique verification suffix. Send all 6 decimal places exactly as shown—do not round it."))}
                 </p>
               </CardHeader>
               <CardContent className="space-y-5">
@@ -1183,11 +1183,11 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                   <p className={`text-sm transition-colors duration-200 ${
                     listingCreatePriceInvalid ? "text-red-300" : listingCreatePriceValid ? "text-emerald-300" : "text-[#9CA3AF]"
                   }`}>
-                    {isWiseListing ? (isAr ? "أدخل السعر المتفق عليه لكل USDT بالدولار USD." : "Enter the agreed USD price per USDT.") : !marketReferenceAvailable ? (isAr ? "بانتظار سعر USD/ILS محدّث" : "Waiting for a fresh USD/ILS quote") : listingCreatePriceInvalid
+                    {currencyText(isWiseListing ? (isAr ? "أدخل السعر المتفق عليه لكل USDT بالدولار USD." : "Enter the agreed USD price per USDT.") : !marketReferenceAvailable ? (isAr ? "بانتظار سعر USD/ILS محدّث" : "Waiting for a fresh USD/ILS quote") : listingCreatePriceInvalid
                       ? (isAr ? `السعر يتجاوز الحد الأقصى المسموح (${formatIls(maxAllowedListingPrice)}).` : `Price exceeds maximum allowed (${formatIls(maxAllowedListingPrice)}).`)
                       : listingCreatePriceValid
                         ? (isAr ? `السعر صالح. الحد الأقصى المسموح هو ${formatIls(maxAllowedListingPrice)}.` : `Valid price. Maximum allowed is ${formatIls(maxAllowedListingPrice)}.`)
-                        : (isAr ? `أدخل سعراً لا يتجاوز ${formatIls(maxAllowedListingPrice)}.` : `Enter a price up to ${formatIls(maxAllowedListingPrice)}.`)}
+                        : (isAr ? `أدخل سعراً لا يتجاوز ${formatIls(maxAllowedListingPrice)}.` : `Enter a price up to ${formatIls(maxAllowedListingPrice)}.`))}
                   </p>
                 </div>
                 <div className="min-w-0 space-y-2">
@@ -1203,7 +1203,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
               {!isWiseListing ? <HelpDetails title={isAr ? "سعر السوق وحدود السعر" : "Market price details"} className={listingCreateGuardCardTone}>
                 <p className="text-sm font-semibold text-[#D4AF37]">{currencyText(isAr ? "حماية سعر السوق المباشر" : "Live Market Price Guard")}</p>
                 <p className={`mt-1 text-sm ${marketReferenceAvailable ? "text-emerald-300" : "text-amber-200"}`}>
-                  {marketReferenceAvailable ? (marketSnapshot?.pairs.usdtIls.quoteStatus === "closed" ? (isAr ? "آخر إغلاق" : "LAST CLOSE") : (isAr ? "مباشر" : "LIVE")) : (isAr ? "بانتظار سعر USD/ILS محدّث. النشر متوقف مؤقتاً." : "Waiting for a fresh USD/ILS quote. Publishing is paused.")}
+                  {currencyText(marketReferenceAvailable ? (marketSnapshot?.pairs.usdtIls.quoteStatus === "closed" ? (isAr ? "آخر إغلاق" : "LAST CLOSE") : (isAr ? "مباشر" : "LIVE")) : (isAr ? "بانتظار سعر USD/ILS محدّث. النشر متوقف مؤقتاً." : "Waiting for a fresh USD/ILS quote. Publishing is paused."))}
                 </p>
                 <div className="mt-2 grid gap-1 sm:grid-cols-2">
                   <p>{currencyText("USD / ILS")} = <span className="font-semibold text-white">{currencyText(marketPricePerUsdt > 0 ? `₪${marketPricePerUsdt.toFixed(5)}` : "—")}</span></p>
@@ -1289,7 +1289,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                       );
                     })}
                   </div>
-                  <p className="mt-2 text-sm text-[#9CA3AF]">{isWiseListing ? (isAr ? "التحويل البنكي عبر Wise بالدولار USD فقط." : "Bank transfer via Wise in USD only.") : (isAr ? `اختر حتى ${MAX_LISTING_PAYMENT_METHODS} طرق. يختار المشتري طريقة واحدة عند فتح الصفقة.` : `Select up to ${MAX_LISTING_PAYMENT_METHODS} methods. Buyers choose one method when they open the trade.`)}</p>
+                  <p className="mt-2 text-sm text-[#9CA3AF]">{currencyText(isWiseListing ? (isAr ? "التحويل البنكي عبر Wise بالدولار USD فقط." : "Bank transfer via Wise in USD only.") : (isAr ? `اختر حتى ${MAX_LISTING_PAYMENT_METHODS} طرق. يختار المشتري طريقة واحدة عند فتح الصفقة.` : `Select up to ${MAX_LISTING_PAYMENT_METHODS} methods. Buyers choose one method when they open the trade.`))}</p>
                   {listingCreateRequiresBankAccount ? <p className="mt-2 text-sm text-[#D1D5DB]">{isAr ? "التحويل البنكي يتطلب حسابًا بنكيًا محفوظًا." : "Bank Transfer requires a saved bank account."}</p> : null}
                 </div>
                 {listingCreateRequiresBank ? (
@@ -1678,7 +1678,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                   <p>{isAr ? "التقييم" : "Rating"}: <span className="text-white"><bdi dir="ltr">{(sellerOverviewStats.reputation?.rating ?? 4.5).toFixed(2)}</bdi></span></p>
                   <p>{isAr ? "نسبة النجاح" : "Success Rate"}: <span className="text-white"><bdi dir="ltr">{sellerOverviewStats.successRate.toFixed(1)}{isAr ? "٪" : "%"}</bdi></span></p>
                   <p>{isAr ? "الصفقات المكتملة" : "Completed Trades"}: <span className="text-white"><bdi dir="ltr">{formatMoneyNumber(sellerOverviewStats.completedTrades)}</bdi></span></p>
-                  <p>{currencyText(isAr ? "إجمالي حجم USDT" : "Total USDT Volume")}: <span className="text-white"><bdi dir="ltr">{currencyText(`${Math.trunc(sellerOverviewStats.totalUsdtSold).toLocaleString("en-US")} USDT`)}</bdi></span></p>
+                  <p>{currencyText(isAr ? "إجمالي حجم USDT" : "Total USDT Volume")}: <span className="text-white"><bdi dir="ltr">{currencyText(`${sellerOverviewStats.totalUsdtSold.toLocaleString("en-US", { maximumFractionDigits: 6 })} USDT`)}</bdi></span></p>
                   <p>{isAr ? "العروض الحالية" : "Current Listings"}: <span className="text-white"><bdi dir="ltr">{sellerOverviewStats.activeListings}</bdi></span></p>
                   <p>{isAr ? "متوسط وقت الاستجابة" : "Average Response Time"}: <span className="text-white">{currencyText(sellerOverviewStats.averageResponseTime)}</span></p>
                   <p>{isAr ? "الحالة" : "Status"}: <span className="text-white">{sessionUser && <UserPresence userId={sessionUser.id} initial={sessionUser} isAr={isAr} compact />}</span></p>
@@ -1712,7 +1712,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                   <div className="grid gap-3 sm:grid-cols-2">
                     <div className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-[#D1D5DB]">
                       <p className="uppercase tracking-[0.12em] text-[#9CA3AF]">{isAr ? "حجم التداول الكلي" : "Lifetime Trade Volume"}</p>
-                      <p className="mt-1 text-lg font-semibold text-white">{currencyText(`${Math.trunc(sellerOverviewStats.totalUsdtSold).toLocaleString("en-US")} USDT`)}</p>
+                      <p className="mt-1 text-lg font-semibold text-white">{currencyText(`${sellerOverviewStats.totalUsdtSold.toLocaleString("en-US", { maximumFractionDigits: 6 })} USDT`)}</p>
                     </div>
                     <div className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-[#D1D5DB]">
                       <p className="uppercase tracking-[0.12em] text-[#9CA3AF]">{isAr ? "متوسط التقييم" : "Average Rating"}</p>

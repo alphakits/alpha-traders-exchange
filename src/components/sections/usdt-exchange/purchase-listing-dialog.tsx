@@ -196,7 +196,7 @@ export function PurchaseListingDialog({
             <h3 className="text-2xl font-semibold">{currencyText(priceMode === "buyer_offer" ? (isAr ? "قدّم عرض سعر" : "Make a Price Offer") : (isAr ? "شراء USDT" : "Buy USDT"))}</h3>
             <p className={`mt-1 inline-flex items-center gap-1.5 text-xs text-[#C9A227] ${isAr ? "flex-row-reverse" : ""}`}>
               <ShieldCheck className="h-3.5 w-3.5" />
-              <span>{priceMode === "buyer_offer" ? (isAr ? "اختر سعرك · قبول البائع مطلوب" : "Choose your price · seller approval required") : (isAr ? "صفقة منظّمة · تسوية مباشرة" : "Structured trade · direct settlement")}</span>
+              <span>{currencyText(priceMode === "buyer_offer" ? (isAr ? "اختر سعرك · قبول البائع مطلوب" : "Choose your price · seller approval required") : (isAr ? "صفقة منظّمة · تسوية مباشرة" : "Structured trade · direct settlement"))}</span>
             </p>
           </div>
           <button type="button" disabled={isSubmittingPurchase} aria-label={priceMode === "buyer_offer" ? (isAr ? "إغلاق نافذة عرض السعر" : "Close price offer sheet") : (isAr ? "إغلاق نافذة شراء USDT" : "Close Buy USDT sheet")} onClick={onClose} className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-white/20 text-[#D1D5DB] transition hover:border-[#C9A227] hover:text-[#C9A227] disabled:opacity-50">
@@ -241,12 +241,12 @@ export function PurchaseListingDialog({
               <div className="rounded-2xl border border-[#C9A227]/25 bg-gradient-to-r from-emerald-500/10 via-black/50 to-[#C9A227]/12 p-3">
                 <div className={`flex items-end justify-between gap-3 ${isAr ? "flex-row-reverse" : ""}`}>
                   <div className={isAr ? "text-right" : ""}>
-                    <p className="text-2xl font-bold leading-none text-white">{moneyText(Math.trunc(selectedAmount).toLocaleString("en-US"))}</p>
+                    <p className="text-2xl font-bold leading-none text-white">{moneyText(selectedAmount.toLocaleString("en-US", { maximumFractionDigits: 6 }))}</p>
                     <p className="mt-1 text-[11px] uppercase tracking-[0.14em] text-emerald-200/90">{currencyText(isAr ? "USDT متاح" : "USDT Available")}</p>
                   </div>
                   <div className={isAr ? "text-left" : "text-right"}>
                     <p className="text-2xl font-bold leading-none text-[#C9A227]">{moneyText(priceMode === "buyer_offer" && offeredTradePrice <= 0 ? "—" : formatIls(priceMode === "buyer_offer" ? offeredTradePrice : selectedPrice))}</p>
-                    <p className="mt-1 text-[11px] uppercase tracking-[0.12em] text-[#D1D5DB]">{priceMode === "buyer_offer" ? (isAr ? "سعرك المقترح" : "Your offered price") : (isAr ? "سعر العرض" : "Listing price")} · {currencyText(`${listing.currency} / USDT`)}</p>
+                    <p className="mt-1 text-[11px] uppercase tracking-[0.12em] text-[#D1D5DB]">{currencyText(priceMode === "buyer_offer" ? (isAr ? "سعرك المقترح" : "Your offered price") : (isAr ? "سعر العرض" : "Listing price"))} · {currencyText(`${listing.currency} / USDT`)}</p>
                     {priceMode === "buyer_offer" ? <p className="mt-1 text-[10px] text-[#9CA3AF]">{currencyText(isAr ? "سعر البائع" : "Seller price")}: {moneyText(formatIls(selectedPrice))}</p> : null}
                   </div>
                 </div>
@@ -388,7 +388,7 @@ export function PurchaseListingDialog({
             </div>
           </>
         ) : (
-          <div className="px-5 pb-5 pt-4 sm:px-6"><div className="rounded-2xl border border-[#C9A227]/30 bg-[#C9A227]/10 p-4 text-sm"><p className="text-base font-semibold text-white">{priceMode === "buyer_offer" ? (isAr ? "تم إرسال عرض السعر" : "Price Offer Submitted") : (isAr ? "تم إرسال الطلب" : "Request Submitted")}</p><p className="mt-2 text-[#D1D5DB]">{brandText(priceMode === "buyer_offer" ? (isAr ? "تم إرسال سعرك إلى البائع. ستبدأ الصفقة بالسعر المتفق عليه إذا وافق البائع." : "Your price was sent to the seller. If accepted, the trade will continue at the agreed price.") : (isAr ? "استلمت Alpha Traders طلبك. سنربطك بالبائع المعتمد قريباً." : "Alpha Traders has received your request. We will connect you with the Approved Seller shortly."))}</p><div className="mt-4"><Button onClick={onClose}>{isAr ? "إغلاق" : "Close"}</Button></div></div></div>
+          <div className="px-5 pb-5 pt-4 sm:px-6"><div className="rounded-2xl border border-[#C9A227]/30 bg-[#C9A227]/10 p-4 text-sm"><p className="text-base font-semibold text-white">{currencyText(priceMode === "buyer_offer" ? (isAr ? "تم إرسال عرض السعر" : "Price Offer Submitted") : (isAr ? "تم إرسال الطلب" : "Request Submitted"))}</p><p className="mt-2 text-[#D1D5DB]">{brandText(priceMode === "buyer_offer" ? (isAr ? "تم إرسال سعرك إلى البائع. ستبدأ الصفقة بالسعر المتفق عليه إذا وافق البائع." : "Your price was sent to the seller. If accepted, the trade will continue at the agreed price.") : (isAr ? "استلمت Alpha Traders طلبك. سنربطك بالبائع المعتمد قريباً." : "Alpha Traders has received your request. We will connect you with the Approved Seller shortly."))}</p><div className="mt-4"><Button onClick={onClose}>{isAr ? "إغلاق" : "Close"}</Button></div></div></div>
         )}
       </div>
     </div>

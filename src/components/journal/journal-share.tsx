@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Copy, Download, LoaderCircle, LockKeyhole, Share2 } from "lucide-react";
 import type { JournalAdapter } from "@/lib/journal/client";
 import type { JournalAttachment, JournalLocale } from "@/lib/journal/model";
-import { selectedShare, shareText, type JournalShare } from "@/lib/journal/sharing";
+import { isShareMoney, selectedShare, shareText, type JournalShare } from "@/lib/journal/sharing";
 import { makeShareImage } from "@/lib/journal/share-image";
 import { Dialog, phrase } from "./journal-ui";
 
@@ -84,7 +84,7 @@ export function JournalShareDialog({ doc, locale, onClose, adapter, tradeId }: {
       <section className="j-share-preview" aria-label={t("Share preview", "معاينة المشاركة")}>
         <span className="j-kicker">{t("ONLY THIS WILL BE SHARED", "هذا فقط ما ستتم مشاركته")}</span>
         <div className="j-share-card"><strong className="j-share-brand">Alpha Traders</strong><span>TRADING JOURNAL</span><h3>{currencyText(projection.title)}</h3>{projection.context && <p>{projection.context}</p>}
-          {projection.fields.map(field => <div className="j-share-value" key={field.key}><span>{currencyText(field.label)}</span><strong className={field.tone ?? ""} dir="auto">{field.value}</strong></div>)}
+          {projection.fields.map(field => <div className="j-share-value" key={field.key}><span>{currencyText(field.label)}</span><strong className={isShareMoney(field.key) ? "currency-money" : field.tone} dir="auto">{currencyText(field.value)}</strong></div>)}
           {charts.filter(chart => chartKeys.has(chart.id)).map((chart, index) => <img key={chart.id} src={chart.url} alt={`${t("Selected chart", "الشارت المختار")} ${index + 1}`}/>)}
           {!hasSelection && <p>{t("Select at least one item.", "اختر عنصراً واحداً على الأقل.")}</p>}
         </div>

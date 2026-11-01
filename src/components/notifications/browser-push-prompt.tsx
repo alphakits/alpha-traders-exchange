@@ -221,7 +221,7 @@ export function BrowserPushPrompt({ locale }: { locale: AppLocale }) {
     <section id="notification-setup" aria-label={isAr ? "تفعيل الإشعارات" : "Notification setup"} dir={isAr ? "rtl" : "ltr"} className="mx-auto my-4 max-w-5xl rounded-2xl border border-[#C9A227]/35 bg-[#11100D] p-4 text-white shadow-lg sm:p-5">
       <div className="flex items-start gap-3">
         <BellRing className="mt-1 h-6 w-6 shrink-0 text-[#C9A227]" aria-hidden="true" />
-        <div className="flex-1"><h2 className="font-semibold">{allOn ? (isAr ? "إشعاراتك مفعّلة" : "Your alerts are switched on") : (isAr ? "لا تفوّت عروض USDT الجديدة" : "Stay close to new USDT deals")}</h2>
+        <div className="flex-1"><h2 className="font-semibold">{currencyText(allOn ? (isAr ? "إشعاراتك مفعّلة" : "Your alerts are switched on") : (isAr ? "لا تفوّت عروض USDT الجديدة" : "Stay close to new USDT deals"))}</h2>
           <p className="mt-1 text-sm text-[#C6C4BC]">{isAr ? "فعّل التنبيهات للعروض وطلبات الشراء والرسائل وتحديثات صفقاتك." : "Get alerts for listings, Buy Requests, messages and trade updates."}</p></div>
         <button type="button" aria-label={isAr ? "لاحقاً" : "Remind me later"} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg hover:bg-white/5" onClick={() => setVisible(false)}><X className="h-4 w-4" /></button>
       </div>

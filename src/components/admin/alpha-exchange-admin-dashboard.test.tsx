@@ -949,7 +949,7 @@ describe("AlphaExchangeAdminDashboard admin destinations", () => {
     render(<AlphaExchangeAdminDashboard />);
 
     expect(await screen.findByText("Marketplace Operational Guard")).toBeTruthy();
-    expect(screen.getByText("Price offer waiting for seller response")).toBeTruthy();
+    expect(screen.getByText((_, element) => element?.textContent === "Price offer waiting for seller response" && !Array.from(element.children).some(child => child.textContent === element.textContent))).toBeTruthy();
     expect(screen.getByText("Stale offers")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Open Trade" }));
 
@@ -1028,7 +1028,7 @@ describe("AlphaExchangeAdminDashboard admin destinations", () => {
     render(<AlphaExchangeAdminDashboard locale="ar" />);
 
     expect(await screen.findByText("مراقبة عمليات السوق")).toBeTruthy();
-    expect(screen.getByText("عرض سعر بانتظار رد البائع")).toBeTruthy();
+    expect(screen.getByText((_, element) => element?.textContent === "عرض سعر بانتظار رد البائع" && !Array.from(element.children).some(child => child.textContent === element.textContent))).toBeTruthy();
     expect(screen.getByText("عروض بلا رد")).toBeTruthy();
     expect(screen.getByRole("button", { name: "فتح الصفقة" })).toBeTruthy();
     expect(screen.queryByText("Marketplace Operational Guard")).toBeNull();

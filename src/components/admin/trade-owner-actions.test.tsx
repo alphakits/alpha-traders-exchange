@@ -15,7 +15,7 @@ describe("owner trade actions", () => {
     render(<TradeOwnerActions locale="en" isOwner request={request} onUpdated={vi.fn()} />);
     expect(disabled("Mark as completed")).toBe(false);
     fireEvent.click(screen.getByRole("button", { name: "Mark as completed" }));
-    expect(screen.getByText(/current agreed amounts/)).toBeTruthy();
+    expect(screen.getByText((_, element) => element?.tagName === "P" && Boolean(element.textContent?.includes("current agreed amounts")))).toBeTruthy();
   });
   it.each(["completed", "review_open", "locked"] as const)("keeps controls visible on %s and allows closing without completing twice", status => {
     render(<TradeOwnerActions locale="en" isOwner request={trade(status)} onUpdated={vi.fn()} />);

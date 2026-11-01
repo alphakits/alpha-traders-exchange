@@ -466,7 +466,6 @@ html[lang="ar"] :where(body, body *) {
 }
 
 .trade-chat-text .currency-money {
-  direction: ltr;
   unicode-bidi: isolate;
 }
 

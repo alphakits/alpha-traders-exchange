@@ -65,7 +65,7 @@ export function SellerTradeRequestCard({ request, workspace }: {
           <span className={`max-w-full rounded-full border px-2.5 py-1 text-[10px] font-semibold leading-4 ${presentation.badgeTone}`}>{currencyText(presentation.badge)}</span>
         </div>
         <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-          <p className="text-base font-semibold tabular-nums">{currencyText(`${Math.trunc(toNumber(request.usdtAmount)).toLocaleString("en-US")} USDT`)}</p>
+          <p className="text-base font-semibold tabular-nums">{currencyText(`${request.usdtAmount} USDT`)}</p>
           <p className="text-sm tabular-nums">{currencyText(`${toNumber(request.fiatAmount).toLocaleString("en-IL")} ${request.currency}`)}</p>
           <time dateTime={updatedAt} className="ms-auto text-xs text-[#9CA3AF]">{new Date(updatedAt).toLocaleDateString(dateLocale)}</time>
         </div>

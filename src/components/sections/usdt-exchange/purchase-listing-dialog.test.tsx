@@ -30,6 +30,11 @@ function Harness({ locale = "en", sellerProfileData = null, selectedMinTrade = 1
 }
 const preparedBankCode = { cardlessBankName: "Bank Hapoalim", cardlessWithdrawalCode: "482913", cardlessVerificationValue: "1995-08-25" };
 afterEach(cleanup);
+it("displays all six decimals of available stock at purchase", () => {
+  render(<Harness selectedMaxTrade={1234.123456} />);
+  expect(screen.getByText("1,234.123456").classList.contains("currency-money")).toBe(true);
+});
+
 describe("Wise USD purchase draft", () => {
   const reviewed = { id: "own-wise", provider: "wise" as const, currency: "USD" as const, accountHolderName: "Draft Buyer", accountLast4: "0042", routingLast4: "0000", accountType: "checking" as const, ownershipReviewStatus: "manually_reviewed" as const };
   it("requires a reviewed own sending account and displays the payment total in USD", () => {

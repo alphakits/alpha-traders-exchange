@@ -1,5 +1,6 @@
+import { splitAccentText } from "@/lib/accent-text";
 import type { JournalLocale } from "./model";
-import type { JournalShare } from "./sharing";
+import { isShareMoney, type JournalShare } from "./sharing";
 
 /** Render only the approved projection. No DOM screenshots, account data, URLs, or image metadata. */
 export async function makeShareImage(doc: JournalShare, locale: JournalLocale, chartUrls: string[], signal: AbortSignal): Promise<Blob> {
@@ -56,8 +57,8 @@ export async function makeShareImage(doc: JournalShare, locale: JournalLocale, c
     let y = 300;
     for (const field of fields) {
       ctx.textAlign = rtl ? "right" : "left"; ctx.direction = rtl ? "rtl" : "ltr";
-      ctx.fillStyle = "#b3bccb"; ctx.font = `24px ${font}`; ctx.fillText(field.label, x, y); y += 38;
-      ctx.fillStyle = field.tone === "positive" ? "#5ee1ad" : field.tone === "negative" ? "#ff6b7a" : "#f3f4f6";
+      ctx.fillStyle = splitAccentText(field.label)?.some(part => part.tone === "money") ? "#34d399" : "#b3bccb"; ctx.font = `24px ${font}`; ctx.fillText(field.label, x, y); y += 38;
+      ctx.fillStyle = isShareMoney(field.key) ? "#34d399" : "#f3f4f6";
       ctx.font = `32px ${font}`;
       for (const line of field.lines) {
         ctx.direction = /[\u0590-\u08ff]/.test(line) ? "rtl" : "ltr";

@@ -1,5 +1,6 @@
 "use client";
 
+import { currencyText } from "@/components/ui/currency-text";
 import { useCallback, useEffect, useState } from "react";
 
 /** Only the server can advertise availability. Account numbers are never in this DTO. */
@@ -61,9 +62,9 @@ export function WiseAccountSelect({ locale, accounts, loading = false, value, on
   const isAr = locale === "ar";
   const hasReviewed = accounts.some(account => account.ownershipReviewStatus === "manually_reviewed");
   return <div className="space-y-2 rounded-xl border border-emerald-400/25 bg-emerald-400/5 p-3">
-    <label htmlFor={id} className="block text-sm font-medium text-white">{purpose === "sending"
+    <label htmlFor={id} className="block text-sm font-medium text-white">{currencyText(purpose === "sending"
       ? (isAr ? "حساب Wise الشخصي الذي سترسل منه USD" : "Your personal Wise account for sending USD")
-      : (isAr ? "حساب Wise الشخصي لاستلام USD" : "Your personal Wise account for receiving USD")}</label>
+      : (isAr ? "حساب Wise الشخصي لاستلام USD" : "Your personal Wise account for receiving USD"))}</label>
     <select id={id} required value={value} disabled={disabled || loading || !hasReviewed} onChange={event => onChange(event.target.value)} aria-describedby={`${id}-help`} className="min-h-11 w-full min-w-0 rounded-lg border border-white/20 bg-[#111] px-3 text-white">
       <option value="">{loading ? (isAr ? "جارٍ تحميل الحسابات…" : "Loading accounts…") : (isAr ? "اختر حسابك الذي تمت مراجعة ملكيته" : "Choose your ownership-reviewed account")}</option>
       {accounts.map(account => <option className="currency-money" key={account.id} value={account.id} disabled={account.ownershipReviewStatus !== "manually_reviewed"}>

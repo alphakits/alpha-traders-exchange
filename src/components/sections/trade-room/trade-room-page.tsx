@@ -3112,7 +3112,7 @@ function TradeRoomPageSession({
             </p>
           ) : null}
           <div data-testid="inclusive-payment-total" className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-3 text-sm">
-            <p>{isHistoricalCompletion ? (isAr ? "المبلغ المحسوب وفق السعر المحفوظ" : "Amount calculated from the saved quote") : isSeller ? (isAr ? "الإجمالي المطلوب استلامه من المشتري" : "Full amount to collect from buyer") : (isAr ? "الإجمالي المطلوب دفعه للبائع" : "Full amount to pay the seller")}: <bdi dir="ltr" className="currency-money font-semibold">{currencyText(`${request.currency} ${toNumber(request.fiatAmount).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`)}</bdi></p>
+            <p>{currencyText(isHistoricalCompletion ? (isAr ? "المبلغ المحسوب وفق السعر المحفوظ" : "Amount calculated from the saved quote") : isSeller ? (isAr ? "الإجمالي المطلوب استلامه من المشتري" : "Full amount to collect from buyer") : (isAr ? "الإجمالي المطلوب دفعه للبائع" : "Full amount to pay the seller"))}: <bdi dir="ltr" className="currency-money font-semibold">{currencyText(`${request.currency} ${toNumber(request.fiatAmount).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`)}</bdi></p>
             {isHistoricalCompletion ? <p>{currencyText(isAr ? "أكد مالك المنصة إتمام هذه الصفقة خارج الموقع. المبلغ المعروض محسوب من السعر والرسوم المحفوظة؛ لم يُسجّل مبلغ الدفع الفعلي خارج الموقع. لا يلزم دفع جديد لهذه الصفقة." : "The owner confirmed this trade was completed outside the site. The displayed amount uses the saved price and fees; the actual offline payment amount was not recorded. No new payment is needed for this trade.")}</p> : request.feePolicyVersion === "buyer_seller_1pct_v1" ? <p className="commission-notice">{currencyText(isAr ? "يشمل عمولة المشتري 1%. ادفع هذا الإجمالي مرة واحدة. للبائع: تأكد من استلامه كاملًا قبل إرسال USDT." : "Buyer’s 1% fee included. Pay this total once. Seller: confirm full receipt before sending USDT.")}</p> : null}
           </div>
           <div className="flex items-center justify-between gap-3">
@@ -3517,7 +3517,7 @@ function TradeRoomPageSession({
                 </details>
                   {request.priceMode === "buyer_offer" ? (
                     <div className="mt-3 rounded-xl border border-[#C9A227]/35 bg-[#C9A227]/10 p-3 text-sm text-[#F4D87A]">
-                      <p className="font-semibold">{request.priceOfferAcceptedAt ? (isAr ? "صفقة بسعر متفاوض عليه" : "Negotiated-price trade") : (isAr ? "عرض السعر" : "Price offer")}</p>
+                      <p className="font-semibold">{currencyText(request.priceOfferAcceptedAt ? (isAr ? "صفقة بسعر متفاوض عليه" : "Negotiated-price trade") : (isAr ? "عرض السعر" : "Price offer"))}</p>
                       <p className="mt-1 text-[#E5E7EB]">
                         {currencyText(request.priceOfferAcceptedAt
                           ? (isAr
@@ -3796,13 +3796,13 @@ function TradeRoomPageSession({
                   ) : null}
                   {!isCashTrade && room.releaseDeadlineActive ? (
                     <p className="rounded-xl border border-red-500/35 bg-red-500/10 p-3 text-xs text-red-100">
-                      {isSeller
+                      {currencyText(isSeller
                         ? (isAr
                             ? "يجب إكمال الصفقة قبل انتهاء المؤقت. قد يؤثر التأخير المتكرر أو عدم إرسال الأموال في سمعتك كبائع وعروضك المستقبلية، وقد يؤدي إلى مراجعة إدارية."
                             : "You must complete this trade before the timer expires. Repeated delays or failure to deliver funds may affect your seller reputation, future listings, and may result in administrative review.")
                         : (isAr
                             ? "تحقق من محفظتك. يجب على البائع تأكيد إرسال USDT وإكمال الصفقة. إذا ظهرت مشكلة، تواصل معه أو افتح نزاعًا."
-                            : "Check your wallet. The seller must confirm USDT delivery and complete the trade. If there is a problem, contact the seller or open a dispute.")}
+                            : "Check your wallet. The seller must confirm USDT delivery and complete the trade. If there is a problem, contact the seller or open a dispute."))}
                     </p>
                   ) : null}
                 </div>

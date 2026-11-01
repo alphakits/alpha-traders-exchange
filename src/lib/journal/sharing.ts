@@ -1,7 +1,10 @@
+import { formatMoneyNumber } from "@/lib/accent-text";
 import { metrics, money, netPnl, type JournalLocale, type JournalReview, type JournalSettings, type JournalTrade } from "./model";
 
 export type ShareField = { key: string; label: string; value: string; selected: boolean; tone?: "positive" | "negative" };
 export type JournalShare = { title: string; context: string; fields: ShareField[] };
+const monetaryKeys = new Set(["net", "fees", "risk", "entry", "exit", "stop", "target", "drawdown", "loss"]);
+export const isShareMoney = (key: string) => monetaryKeys.has(key);
 const resultTone = (cents: number) => cents > 0 ? "positive" as const : cents < 0 ? "negative" as const : undefined;
 
 /** Explicit allow-list: never serialize a record, account ID, attachment URL or whole snapshot for sharing. */
@@ -19,7 +22,7 @@ export function tradeShare(trade: JournalTrade, locale: JournalLocale): JournalS
   optional("setup", t("Setup", "الإعداد"), trade.strategy);
   optional("fees", t("Fees", "الرسوم"), money(trade.feesCents, locale));
   optional("risk", t("Initial risk", "المخاطرة الأولية"), trade.riskCents === null ? null : money(trade.riskCents, locale));
-  for (const [key, en, ar] of [["quantity", "Quantity", "الحجم"], ["entry", "Entry price", "سعر الدخول"], ["exit", "Exit price", "سعر الخروج"], ["stop", "Stop loss", "وقف الخسارة"], ["target", "Take profit", "جني الأرباح"]] as const) optional(key, t(en, ar), trade[key] === null ? null : String(trade[key]));
+  for (const [key, en, ar] of [["quantity", "Quantity", "الحجم"], ["entry", "Entry price", "سعر الدخول"], ["exit", "Exit price", "سعر الخروج"], ["stop", "Stop loss", "وقف الخسارة"], ["target", "Take profit", "جني الأرباح"]] as const) optional(key, t(en, ar), trade[key] === null ? null : formatMoneyNumber(trade[key]));
   optional("notes", t("Trade notes", "ملاحظات الصفقة"), trade.notes);
   return { title: t("Trade", "صفقة"), context: "", fields };
 }
@@ -29,10 +32,10 @@ export function resultsShare(trades: JournalTrade[], context: string, locale: Jo
   const s = metrics(trades);
   const fields: ShareField[] = [
     { key: "net", label: t("Net P&L after fees", "صافي النتيجة بعد الرسوم"), value: money(s.net, locale, true), tone: resultTone(s.net), selected: true },
-    { key: "closed", label: t("Closed trades", "الصفقات المغلقة"), value: String(s.count), selected: true },
+    { key: "closed", label: t("Closed trades", "الصفقات المغلقة"), value: formatMoneyNumber(s.count), selected: true },
     { key: "winRate", label: t("Win rate", "نسبة الفوز"), value: s.winRate === null ? "—" : `${s.winRate.toFixed(1)}%`, selected: true },
-    { key: "outcomes", label: t("Wins / losses / break-even", "رابحة / خاسرة / تعادل"), value: `${s.wins} / ${s.lossCount} / ${s.breakeven}`, selected: false },
-    { key: "open", label: t("Open trades", "الصفقات المفتوحة"), value: String(s.open), selected: false },
+    { key: "outcomes", label: t("Wins / losses / break-even", "رابحة / خاسرة / تعادل"), value: [s.wins, s.lossCount, s.breakeven].map(formatMoneyNumber).join(" / "), selected: false },
+    { key: "open", label: t("Open trades", "الصفقات المفتوحة"), value: formatMoneyNumber(s.open), selected: false },
     { key: "fees", label: t("Fees on closed trades", "رسوم الصفقات المغلقة"), value: money(s.fees, locale), selected: false },
     { key: "drawdown", label: t("Max drawdown", "أكبر تراجع"), value: money(s.maxDrawdown, locale), selected: false },
     { key: "factor", label: t("Profit factor", "معامل الربح"), value: s.profitFactor === null ? (s.gains ? t("No losses", "بلا خسائر") : "—") : s.profitFactor.toFixed(2), selected: false },

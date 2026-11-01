@@ -295,7 +295,7 @@ export function BuyerWorkspaceSection(props: BuyerWorkspaceSectionProps) {
                               <span className={`rounded-full border px-2.5 py-1 font-semibold tracking-[0.08em] ${presentation.badgeTone}`}>{currencyText(presentation.badge)}</span>
                             </div>
                             <div className="text-sm text-[#D1D5DB]">
-                              <p>{currencyText(`${Math.trunc(toNumber(request.usdtAmount)).toLocaleString("en-US")} USDT`)}</p>
+                              <p>{currencyText(`${request.usdtAmount} USDT`)}</p>
                               <p className="mt-1 text-xs text-[#9CA3AF]">{currencyText(`${toNumber(request.fiatAmount).toLocaleString("en-IL")} ${request.currency}`)}</p>
                             </div>
                             <p className="text-sm text-[#D1D5DB]">{currencyText(paymentMethodEmoji(request.paymentMethod))} {currencyText(paymentMethodLabel(request.paymentMethod, isAr))}</p>

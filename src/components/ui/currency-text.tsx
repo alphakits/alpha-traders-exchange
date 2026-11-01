@@ -1,8 +1,11 @@
 import type { ReactNode } from "react";
 import { formatMoneyNumber, splitAccentText } from "@/lib/accent-text";
 
+const defaultOptions = { groupQuantities: true } as const;
+const numericPrice = /^(?=[^\n]*[0-9٠-٩۰-۹])[+−$₪\s0-9٠-٩۰-۹,.٫٬/–—:=-]*(?:USDT?|ILS|NIS)?[+−$₪\s0-9٠-٩۰-۹,.٫٬/–—:=-]*$/i;
+
 /** Brand and currency accents render with React, including SSR and live updates. */
-export function currencyText(value: ReactNode, options: { groupNumbers?: boolean; groupQuantities?: boolean } = { groupQuantities: true }): ReactNode {
+export function currencyText(value: ReactNode, options: { groupNumbers?: boolean; groupQuantities?: boolean } = defaultOptions): ReactNode {
   if (Array.isArray(value)) {
     // JSX splits a price such as "$" + value across adjacent children.
     const children: ReactNode[] = [];
@@ -23,7 +26,7 @@ export function currencyText(value: ReactNode, options: { groupNumbers?: boolean
   const parts = splitAccentText(value, options);
   if (!parts) return value;
   return parts.map(({ text, tone }, index) => tone
-    ? <span className={tone === "brand" ? "brand-alpha-traders" : "currency-money currency-usdt"} key={index}>{text}</span>
+    ? <span dir={tone === "money" && numericPrice.test(text) ? "ltr" : undefined} className={tone === "brand" ? "brand-alpha-traders" : "currency-money currency-usdt"} key={index}>{text}</span>
     : text);
 }
 
