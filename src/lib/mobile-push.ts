@@ -107,6 +107,28 @@ function requirePushPool() {
 async function ensurePushSchema(pool: Pool) {
   if (!schemaPromise) {
     schemaPromise = (async () => {
+      // Even IF NOT EXISTS takes DDL locks. Check the objects this bootstrap
+      // installs before contending with trade writes on the notifications table.
+      const schema = await pool.query<{ ready: boolean }>(`select
+        exists (
+          select 1 from pg_catalog.pg_attribute
+          where attrelid = pg_catalog.to_regclass('alpha_exchange.mobile_push_deliveries')
+            and attname = 'expo_push_token_hash' and not attisdropped
+        )
+        and (
+          select count(*) = 4 from (values
+            ('idx_alpha_exchange_mobile_push_user_active', 'mobile_push_subscriptions'),
+            ('idx_alpha_exchange_mobile_push_session', 'mobile_push_subscriptions'),
+            ('idx_alpha_exchange_mobile_push_receipts', 'mobile_push_deliveries'),
+            ('idx_alpha_exchange_mobile_push_recovery', 'notifications')
+          ) as expected(index_name, table_name)
+          join pg_catalog.pg_index i
+            on i.indexrelid = pg_catalog.to_regclass('alpha_exchange.' || expected.index_name)
+            and i.indrelid = pg_catalog.to_regclass('alpha_exchange.' || expected.table_name)
+          where i.indisready and i.indisvalid
+        ) as ready`);
+      if (schema.rows[0]?.ready === true) return;
+
       await pool.query(`create table if not exists alpha_exchange.mobile_push_subscriptions (
         id text primary key,
         user_id text not null,
