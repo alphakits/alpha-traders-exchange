@@ -3599,15 +3599,7 @@ async function readDb(options?: { bypassCache?: boolean; skipMaintenance?: boole
     if (options?.skipMaintenance) {
       return cached;
     }
-    const numberingChanged = ensureDisplayNumbers(cached);
-    const participantPublications: DeferredNotificationPublication[] = [];
-    const changed = await applyMarketplaceReliabilityRules(cached, participantPublications);
-    if (changed || numberingChanged) {
-      await writeDb(cached);
-      participantPublications.forEach(publishNotificationPublication);
-      return cached;
-    }
-    return cached;
+    return (await maintainMarketplaceSnapshot(cached)).snapshot;
   }
   if (!dbReadInFlight) {
     dbReadInFlight = (async () => {
@@ -3619,16 +3611,10 @@ async function readDb(options?: { bypassCache?: boolean; skipMaintenance?: boole
           dbCache = { value: normalized, updatedAt: Date.now() };
           return normalized;
         }
-        const numberingChanged = ensureDisplayNumbers(normalized);
-        const participantPublications: DeferredNotificationPublication[] = [];
-        const changed = await applyMarketplaceReliabilityRules(normalized, participantPublications);
-        if (changed || numberingChanged) {
-          await writeDb(normalized);
-          participantPublications.forEach(publishNotificationPublication);
-        }
-        for (const listing of normalized.marketplaceListings) {
+        const { snapshot, changed } = await maintainMarketplaceSnapshot(normalized);
+        for (const listing of snapshot.marketplaceListings) {
           if (!listing.expirationEmailPendingAt || listing.expirationEmailSentAt) continue;
-          await sendListingOwnerLifecycleEmail(normalized, listing, {
+          await sendListingOwnerLifecycleEmail(snapshot, listing, {
             event: "listing_expired",
             title: { ar: "انتهت صلاحية الإعلان", en: "Listing Expired" },
             message: {
@@ -3638,10 +3624,10 @@ async function readDb(options?: { bypassCache?: boolean; skipMaintenance?: boole
             idempotencyKey: `listing-${listing.id}-expired-${listing.expirationEmailPendingAt}`,
           });
         }
-        if (!changed && !numberingChanged) {
-          dbCache = { value: normalized, updatedAt: Date.now() };
+        if (!changed) {
+          dbCache = { value: snapshot, updatedAt: Date.now() };
         }
-        return normalized;
+        return snapshot;
       } finally {
         dbReadInFlight = null;
       }
@@ -3653,15 +3639,9 @@ async function readDb(options?: { bypassCache?: boolean; skipMaintenance?: boole
 
 export async function runAlphaExchangeMaintenance() {
   const db = await readDb({ bypassCache: true });
-  const numberingChanged = ensureDisplayNumbers(db);
-  const participantPublications: DeferredNotificationPublication[] = [];
-  const changed = await applyMarketplaceReliabilityRules(db, participantPublications);
-  if (changed || numberingChanged) {
-    await writeDb(db);
-    participantPublications.forEach(publishNotificationPublication);
-  }
+  const { changed } = await maintainMarketplaceSnapshot(db);
   const trust = await reconcilePendingTradeTrust();
-  return { changed: changed || numberingChanged || trust.reconciled > 0 };
+  return { changed: changed || trust.reconciled > 0 };
 }
 
 export const TRADE_ACTION_REMINDER_INTERVAL_MS = 60 * 60_000;
@@ -5810,26 +5790,26 @@ async function applyCommissionOverdueRules(db: AlphaExchangeDb) {
   return changed;
 }
 
-async function applyMarketplaceReliabilityRules(db: AlphaExchangeDb, participantPublications: DeferredNotificationPublication[]) {
-  let changed = await applyCommissionOverdueRules(db);
-  const nowMs = Date.now();
+function isReleaseOverdue(request: PurchaseRequest, nowMs: number) {
+  if (request.status !== "usdt_release_pending" || !request.usdtReleaseDeadlineAt || request.usdtSentAt
+    || request.completedAt || request.closedAt || request.timedOutAt || request.timeoutReason === "USDT release SLA expired.") return false;
+  const deadlineMs = Date.parse(request.usdtReleaseDeadlineAt);
+  return Number.isFinite(deadlineMs) && deadlineMs > 0 && deadlineMs <= nowMs;
+}
 
+async function claimOverdueReleases(db: AlphaExchangeDb, candidateIds: ReadonlySet<string>, nowMs: number) {
+  const archived: AlphaExchangeNotification[] = [];
+  const notifications: DeferredNotificationPublication[] = [];
+  const requests: PurchaseRequest[] = [];
   for (const request of db.purchaseRequests) {
-    if (request.status !== "usdt_release_pending") continue;
-    if (!request.usdtReleaseDeadlineAt) continue;
-    if (request.usdtSentAt || request.completedAt) continue;
-    if (request.timeoutReason === "USDT release SLA expired.") continue;
-    const deadlineMs = new Date(request.usdtReleaseDeadlineAt).getTime();
-    if (!deadlineMs || Number.isNaN(deadlineMs) || deadlineMs > nowMs) continue;
+    if (!candidateIds.has(request.id) || !isReleaseOverdue(request, nowMs)) continue;
 
     const now = nowIso();
-    changed = true;
-    const archivedActionReminders = archiveSatisfiedTradeActionReminders(db, request, now);
+    archived.push(...archiveSatisfiedTradeActionReminders(db, request, now));
     request.timedOutAt = now;
     request.timeoutReason = "USDT release SLA expired.";
     request.actionReminderState = undefined;
     request.updatedAt = now;
-    publishArchivedTradeActionReminders(archivedActionReminders);
     appendTradeTimelineEntry(request, {
       type: "trade_timed_out",
       actorUserId: SYSTEM_ACTOR_USER_ID,
@@ -5860,7 +5840,7 @@ async function applyMarketplaceReliabilityRules(db: AlphaExchangeDb, participant
       relatedHref: requestDetailsHref(request.id),
       whatsappEvent: "trade_update",
     });
-    if (buyerPublication) participantPublications.push(buyerPublication);
+    if (buyerPublication) notifications.push(buyerPublication);
     const sellerPublication = pushNotification(db, {
       userId: request.sellerId,
       category: "trade",
@@ -5873,9 +5853,9 @@ async function applyMarketplaceReliabilityRules(db: AlphaExchangeDb, participant
       relatedHref: requestDetailsHref(request.id),
       whatsappEvent: "trade_update",
     });
-    if (sellerPublication) participantPublications.push(sellerPublication);
+    if (sellerPublication) notifications.push(sellerPublication);
     for (const adminUser of getAdminNotificationRecipients(db)) {
-      pushNotification(db, {
+      const publication = pushNotification(db, {
         userId: adminUser.id,
         category: "trade",
         title: "Trade overdue alert",
@@ -5887,13 +5867,49 @@ async function applyMarketplaceReliabilityRules(db: AlphaExchangeDb, participant
         actionLabel: "Review Trade",
         priority: "critical",
         forceInApp: true,
+        deferRealtime: true,
       });
+      if (publication) notifications.push(publication);
     }
-    publishRealtimeEvent({
-      type: "trade.status_changed",
-      payload: { request: enrichRequestWithEvidence(db, request) },
-    });
+    requests.push(enrichRequestWithEvidence(db, request));
   }
+  return { archived, notifications, requests };
+}
+
+async function maintainMarketplaceSnapshot(initial: AlphaExchangeDb) {
+  let snapshot = initial;
+  let claimed = false;
+  const nowMs = Date.now();
+  const candidateIds = new Set(initial.purchaseRequests.filter(request => isReleaseOverdue(request, nowMs)).map(request => request.id));
+  if (candidateIds.size) {
+    let effects = await claimOverdueReleases(initial, candidateIds, nowMs);
+    await writeDb(initial, {
+      // The trades projection stores the request timeline and update time too.
+      selectedTables: ["purchase_requests", "trades", "audit_logs", "notifications"], cacheResult: false,
+      rebaseOnLatest: async latest => {
+        // A competing worker or trade transition may already have consumed the
+        // deadline. Discard speculative rows and publication plans together.
+        effects = await claimOverdueReleases(latest, candidateIds, nowMs);
+        return latest;
+      },
+    });
+    claimed = effects.requests.length > 0;
+    for (const publication of effects.notifications) publishNotificationPublication(publication);
+    publishArchivedTradeActionReminders(effects.archived);
+    for (const request of effects.requests) publishRealtimeEvent({ type: "trade.status_changed", payload: { request } });
+    // Continue the other maintenance rules on the full committed state. They
+    // are never replayed by the timeout claim's rebase callback.
+    snapshot = await readDb({ bypassCache: true });
+  }
+  const numberingChanged = ensureDisplayNumbers(snapshot);
+  const changed = await applyMarketplaceReliabilityRules(snapshot);
+  if (changed || numberingChanged) await writeDb(snapshot);
+  return { snapshot, changed: claimed || changed || numberingChanged };
+}
+
+async function applyMarketplaceReliabilityRules(db: AlphaExchangeDb) {
+  let changed = await applyCommissionOverdueRules(db);
+  const nowMs = Date.now();
 
   // Completion requires the seller's explicit action or a verified owner
   // override. Elapsed time must not settle inventory or commission.
