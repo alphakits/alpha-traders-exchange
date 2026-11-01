@@ -25,6 +25,7 @@
     },
     "android": {
       "package": "com.alphakits.alphatraders",
+      "googleServicesFile": "./google-services.json",
       "allowBackup": false,
       "blockedPermissions": [
         "android.permission.SYSTEM_ALERT_WINDOW",

@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "96882104752",
+    "project_id": "alpha-traders-notifications",
+    "storage_bucket": "alpha-traders-notifications.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:96882104752:android:0785f577e91ffef57a5e75",
+        "android_client_info": {
+          "package_name": "com.alphakits.alphatraders"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBbands8cDlWNX3ybaaJEsAR4ZE_I7c9qQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
