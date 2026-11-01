@@ -9,6 +9,7 @@ import { publicAccountId } from "@/lib/public-account-identity";
 import { getSnapshotIdentityUsers } from "@/lib/alpha-exchange-identity-directory";
 
 const participantScopedStatuses = ["accepted", "payment_sent", "funds_received", "usdt_release_pending", "usdt_sent", "completed"] as const;
+const paymentListingPaths = ["accepted", "payment_sent", "funds_received", "usdt_release_pending", "usdt_sent", undefined] as const;
 
 describe("PostgreSQL lifecycle request dependencies", () => {
   let db: PGlite;
@@ -50,7 +51,7 @@ describe("PostgreSQL lifecycle request dependencies", () => {
     await tx.close();
     expect((await db.query("select id from alpha_exchange.purchase_requests order by sort_index")).rows).toHaveLength(4);
   });
-  it.each([false, true])("retains related listings and legacy numbering while accepting (unnumbered=%s)", async unnumbered => {
+  it.each(paymentListingPaths.flatMap(nextStatus => [false, true].map(unnumbered => ({ nextStatus, unnumbered }))))("retains related listings and legacy numbering for $nextStatus (unnumbered=$unnumbered)", async ({ nextStatus, unnumbered }) => {
     const owners = ["seller-a", "seller-b", "buyer-a", "caller", "owner", "seller-c"];
     for (const [index, id] of owners.entries()) {
       await db.query("insert into alpha_exchange.users values ($1,$2,$3)", [id, index, { id, role: id === "owner" ? "owner" : "buyer" }]);
@@ -61,7 +62,7 @@ describe("PostgreSQL lifecycle request dependencies", () => {
       [{ listingId: "referenced-listing" }]);
     await db.query("insert into alpha_exchange.listings values ($1,$2,$3,$4)",
       ["referenced-listing", "missing-seller-account", 7, { id: "referenced-listing", displayNumber: 7 }]);
-    const tx = (await repository.beginTradeLifecycleTransaction(["users", "purchase_requests", "listings"], "target", "accepted", "caller"))!;
+    const tx = (await repository.beginTradeLifecycleTransaction(["users", "purchase_requests", "listings"], "target", nextStatus, "caller"))!;
     try {
       expect(tx.snapshot.marketplaceListings.map(row => row.id)).toEqual(
         [...owners.filter(id => unnumbered || id !== "seller-c").map(id => "listing-" + id), "referenced-listing"],
@@ -69,7 +70,7 @@ describe("PostgreSQL lifecycle request dependencies", () => {
     } finally { await tx.close(); }
     expect((await db.query("select id from alpha_exchange.listings")).rows).toHaveLength(7);
   });
-  it("updates a scoped listing without renumbering tied positions or changing an unrelated listing", async () => {
+  it.each(paymentListingPaths)("updates a scoped listing for %s without renumbering tied positions or changing an unrelated listing", async nextStatus => {
     await db.query("insert into alpha_exchange.users values ('seller-a',0,$1)", [{ id: "seller-a", role: "approved_seller" }]);
     for (const [id, sellerId, position, displayNumber] of [
       ["first", "seller-a", 12, 1], ["second", "seller-a", 12, 2], ["unrelated", "seller-c", 19, 3],
@@ -77,7 +78,7 @@ describe("PostgreSQL lifecycle request dependencies", () => {
       await db.query("insert into alpha_exchange.listings (id, seller_id, sort_index, payload) values ($1,$2,$3,$4)",
         [id, sellerId, position, { id, sellerId, displayNumber, status: "active" }]);
     }
-    const tx = (await repository.beginTradeLifecycleTransaction(["users", "purchase_requests", "listings"], "target", "accepted", "seller-a"))!;
+    const tx = (await repository.beginTradeLifecycleTransaction(["users", "purchase_requests", "listings"], "target", nextStatus, "seller-a"))!;
     try {
       expect(tx.snapshot.marketplaceListings.map(row => row.id).sort()).toEqual(["first", "second"]);
       tx.snapshot.marketplaceListings.find(row => row.id === "first")!.status = "matched";
@@ -88,6 +89,16 @@ describe("PostgreSQL lifecycle request dependencies", () => {
       { id: "second", sort_index: 12, status: "active" },
       { id: "unrelated", sort_index: 19, status: "active" },
     ]);
+  });
+  it("uses the complete listing collection on acceptance for an oversized legacy display number", async () => {
+    await db.query("insert into alpha_exchange.users values ('seller-a',0,$1)", [{ id: "seller-a", role: "approved_seller" }]);
+    for (const [id, seller, number] of [["own", "seller-a", "9007199254740993"], ["other", "seller-c", "1"]]) {
+      await db.query("insert into alpha_exchange.listings (id,seller_id,sort_index,payload) values ($1,$2,0,$3)", [id, seller, { id, displayNumber: number }]);
+    }
+    const tx = (await repository.beginTradeLifecycleTransaction(["users", "purchase_requests", "listings"], "target", "accepted", "seller-a"))!;
+    try {
+      expect(tx.snapshot.marketplaceListings.map(row => row.id).sort()).toEqual(["other", "own"]);
+    } finally { await tx.close(); }
   });
   it.each([...participantScopedStatuses, undefined])("%s retains the whole request collection and its participants while legacy numbering is incomplete", async nextStatus => {
     await db.exec("update alpha_exchange.purchase_requests set payload = payload - 'displayNumber' where id='unrelated'");
