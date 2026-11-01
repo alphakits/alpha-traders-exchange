@@ -230,6 +230,16 @@ describe("guided cash-trade completion", () => {
   });
 
   afterEach(() => vi.unstubAllEnvs());
+  it("does not settle inventory or assessed fees without a verifiable financial receipt", async () => {
+    const { requestId } = seedTrade({ status: "usdt_sent" });
+    currentSnapshot().purchaseRequests[0].fiatAmount = "unavailable";
+    const before = structuredClone(currentSnapshot());
+    await expect(updatePurchaseRequestStatus({ requestId, actorUserId: SELLER_ID, actorRole: "approved_seller", nextStatus: "completed", completionMode: "seller", usdtSentConfirmed: true }))
+      .rejects.toMatchObject({ code: "invalid-completion-receipt" });
+    expect(currentSnapshot().marketplaceListings).toEqual(before.marketplaceListings);
+    expect(currentSnapshot().commissionRecords).toEqual(before.commissionRecords);
+    expect(currentSnapshot().purchaseRequests).toEqual(before.purchaseRequests);
+  });
   beforeEach(() => {
     globalThis.__alphaExchangeMemorySnapshot = seedDb() as never;
     globalThis.__alphaExchangeMemoryEvidenceContent = undefined as never;
@@ -463,6 +473,9 @@ describe("guided cash-trade completion", () => {
     const snapshot = currentSnapshot();
     const saved = snapshot.purchaseRequests.find(request => request.id === requestId)!;
     expect(saved.completedAt).toBeTruthy();
+    const frozenReceipt = structuredClone(saved.completionReceipt);
+    expect(frozenReceipt).toMatchObject({ version: 1, source: "completion", usdtAmount: saved.usdtAmount, fiatAmount: saved.fiatAmount, completedAt: saved.completedAt, sellerFeeUsdt: "2.5", buyerFeeUsdt: "0", totalPlatformFeeUsdt: "2.5" });
+    expect(results.every(result => JSON.stringify(result.request.completionReceipt) === JSON.stringify(frozenReceipt))).toBe(true);
     expect(saved.reviewUnlockedAt).toBeTruthy();
     expect(saved.timeline.filter(event => event.type === "trade_completed")).toEqual([
       expect.objectContaining({ actorUserId: SELLER_ID, message: "Seller confirmed trade completed" }),
@@ -481,6 +494,7 @@ describe("guided cash-trade completion", () => {
     ]));
     await submitBuyerTradeReview({ requestId, buyerUserId: BUYER_ID, rating: 5, comment: "Received the full trade amount." });
     expect(currentSnapshot().purchaseRequests.find(request => request.id === requestId)?.buyerReview?.rating).toBe(5);
+    expect(currentSnapshot().purchaseRequests.find(request => request.id === requestId)?.completionReceipt).toEqual(frozenReceipt);
   });
 
   it("requires explicit USDT delivery confirmation for the face-to-face shortcut", async () => {

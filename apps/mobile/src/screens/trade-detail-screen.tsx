@@ -1,3 +1,4 @@
+import { receiptNotice, tradeReceiptRows } from "@alpha-traders/contracts";
 import { sellerFeeResponsibilityNotice, tradePaymentReceiptConfirmation, tradeChatTextDirection, TRADE_CHAT_MESSAGE_MAX_LENGTH, OWNER_TRADE_CHAT_MESSAGE_MAX_LENGTH } from "@alpha-traders/contracts";
 import { BrandedText as Text } from "../components/branded-text";
 import { AttentionSiren } from "../components/attention-siren";
@@ -773,6 +774,11 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
           </View>
         ) : null}
 
+        {trade.completionReceipt ? <View style={styles.summaryCard}>
+          <Text accessibilityRole="header" style={[styles.sectionTitle, isRTL && styles.rtlText]}>{isRTL ? "إيصال الصفقة" : "Trade receipt"}</Text>
+          {tradeReceiptRows(trade.completionReceipt, locale).map(([label, value]) => <DetailRow key={label} isRTL={isRTL} label={label} value={value} />)}
+          <Text style={[styles.timelineDate, isRTL && styles.rtlText]}>{receiptNotice(trade.completionReceipt, locale)}</Text>
+        </View> : null}
         <View style={styles.summaryCard}>
           {trade.feePolicyVersion === "buyer_seller_1pct_v1" ? <Text style={[styles.commissionNotice, isRTL && styles.rtlText]}>{trade.side === "seller"
             ? sellerFeeResponsibilityNotice(locale)

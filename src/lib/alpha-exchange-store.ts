@@ -1,3 +1,4 @@
+import { buildTradeReceipt } from "@/lib/trade-receipt";
 import { isWisePaymentsEnabled } from "@/lib/wise-payments-capability";
 import { assertDemandActor, assertDemandEnabled, commitDemandMatch, isDemandReservedTrade, parseDemandMatchBinding, validateDemandMatch } from "@/lib/usdt-demand-policy";
 import { isRequestableMarketplaceListing, MAX_SELLER_ACTIVE_TRADES, minimumRequestableListingAmount } from "@/lib/requestable-listing";
@@ -12177,7 +12178,9 @@ export async function getTradeRoomData(input: {
   ]) : null;
 
   return {
-    request: sanitizePurchaseRequestForActor(enrichRequestWithEvidence(db, request, input.actorUserId), input.actorUserId, viewerRole),
+    request: sanitizePurchaseRequestForActor(enrichRequestWithEvidence(db, { ...request,
+      completionReceipt: request.completionReceipt ?? buildTradeReceipt(request, db.commissionRecords.find(record => record.purchaseRequestId === request.id)),
+    }, input.actorUserId), input.actorUserId, viewerRole),
     listing: sanitizeTradeRoomListing(listing ? enrichListingsWithSellerData(db, [listing], undefined, input.actorUserId)[0] : null, canViewPrivateContent),
     counterpart: {
       buyerName: accountNameForViewer(buyer ?? { id: request.buyerId, fullName: request.buyerName }, viewer),
@@ -15297,6 +15300,11 @@ async function updatePurchaseRequestStatusAttempt(
         purchaseRequestId: request.id,
         details: `Commission recorded for trade ${next.tradeId ?? request.id}.`,
       });
+    }
+    // Frozen financial receipt and email-recovery intent share the completion transaction.
+    next.completionReceipt = next.completionReceipt ?? buildTradeReceipt(next, commission, "completion");
+    if (!next.completionReceipt) {
+      throw new TradeBlockedError("invalid-completion-receipt", "The saved trade amounts could not be verified. Completion has not been recorded.", request.id);
     }
     await appendAuditLog(db, {
       action: "purchase_completed",

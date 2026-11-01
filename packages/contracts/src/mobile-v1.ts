@@ -1002,6 +1002,7 @@ export interface MobileTradeReview {
 }
 
 export interface MobileTradeDetail extends MobileTradeSummary {
+  completionReceipt?: import("./trade-receipt").TradeCompletionReceipt;
   sellerCommissionDue?: { count: number; amount: number };
   counterpartyDisplayName: string;
   participants?: { buyerPublicId: string; sellerPublicId: string };

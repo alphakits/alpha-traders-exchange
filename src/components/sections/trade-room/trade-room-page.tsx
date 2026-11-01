@@ -21,6 +21,8 @@ import { TradeChatMessageLabel, TradeChatMessageStatus } from "./trade-chat-mess
 import { tradeChatPublicId } from "@/lib/trade-chat-presentation";
 import { useTradeChatReadReceipts, type TradeChatReceipt } from "./use-trade-chat-read-receipts";
 import { OwnerTradeHistoryPage } from "./owner-trade-history";
+import { TradeReceiptPanel } from "./trade-receipt-panel";
+import { CompletedTradeHistory } from "./completed-trade-history";
 import { TradeEvidenceViewer } from "./trade-evidence-viewer";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -3342,6 +3344,8 @@ function TradeRoomPageSession({
         ) : null}
 
         {showSuccessScreen ? tradeDetails : null}
+        {showSuccessScreen && request.completionReceipt ? <TradeReceiptPanel receipt={request.completionReceipt} requestId={request.id} locale={isAr ? "ar" : "en"} /> : null}
+        {showSuccessScreen ? <CompletedTradeHistory request={request} messages={room.messages} locale={isAr ? "ar" : "en"} /> : null}
 
         {!showSuccessScreen ? <div className="grid gap-4 xl:grid-cols-[minmax(0,1.45fr)_380px] xl:items-start">
           <div className="space-y-4">

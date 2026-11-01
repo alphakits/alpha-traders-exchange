@@ -6,6 +6,7 @@ import { localizeCardlessWithdrawalMessage, OWNER_TRADE_CHAT_MESSAGE_MAX_LENGTH 
 import { Button } from "@/components/ui/button";
 import { TradeOwnerActions } from "@/components/admin/trade-owner-actions";
 import { TradeEvidenceViewer } from "./trade-evidence-viewer";
+import { TradeReceiptPanel } from "./trade-receipt-panel";
 import { currencyText } from "@/components/ui/currency-text";
 import { formatTradeId } from "@/lib/format-id";
 import { sendOwnerTradeChat } from "@/lib/owner-trade-chat-send";
@@ -172,6 +173,7 @@ export function OwnerTradeHistory({ locale, room, onUpdated }: { locale: "ar" | 
   ];
 
   return <>
+    {request.completionReceipt ? <TradeReceiptPanel receipt={request.completionReceipt} requestId={request.id} locale={locale} /> : null}
     <header className={`${panelClass} border-rose-400/25 bg-gradient-to-br from-rose-400/[0.07] to-transparent`}>
       <p className="flex items-center gap-2 text-xs font-medium text-rose-200"><ShieldCheck className="h-4 w-4" aria-hidden="true" />{onUpdated ? t("Owner trade management", "إدارة الصفقة للمالك") : t("Owner review · read only", "مراجعة المالك · للقراءة فقط")}</p>
       <h1 className="mt-2 text-xl font-semibold">{t("Trade room history", "سجل غرفة الصفقة")} <bdi dir="ltr">{formatTradeId(request.displayNumber, request.tradeId ?? request.id)}</bdi></h1>
