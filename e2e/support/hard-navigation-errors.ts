@@ -28,6 +28,10 @@ const defaultFeed: DestinationFeed = {
   },
 };
 
+export function marketDestinationFeed(baseURL: string): DestinationFeed {
+  return { ...defaultFeed, url: new URL("/api/market/center", baseURL).href };
+}
+
 /**
  * WebKit can emit a native fetch refusal before pagehide while a hard
  * navigation tears down the old document, even when the fetch is caught.
