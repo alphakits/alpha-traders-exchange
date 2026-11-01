@@ -29,9 +29,11 @@ export function BrowserPushPrompt({ locale }: { locale: AppLocale }) {
   currentUser.current = userId;
   const refreshRef = useRef<(manual?: boolean) => Promise<void>>(async () => undefined);
   const scopeRef = useRef<AbortController | null>(null);
+  const testInFlight = useRef<AbortController | null>(null);
 
   useEffect(() => {
     setVisible(false); setStatus(null); setDevice("unavailable"); setBusy(false); setNotice(null);
+    testInFlight.current = null;
     nativeStatus.current = "unavailable";
     refreshRef.current = async () => undefined;
     if (!userId || isResolving) return;
@@ -164,6 +166,39 @@ export function BrowserPushPrompt({ locale }: { locale: AppLocale }) {
     finally { if (!scope.signal.aborted && currentUser.current === userId) setBusy(false); }
   }
 
+  async function sendTestAlert() {
+    const scope = scopeRef.current;
+    if (busy || !userId || device !== "on" || !status?.preferences.inApp || !scope || scope.signal.aborted || testInFlight.current) return;
+    testInFlight.current = scope;
+    setBusy(true); setNotice(null);
+    try {
+      const response = await fetch("/api/alpha-exchange/notification-push-test", {
+        method: "POST", headers: { "Content-Type": "application/json" }, signal: scope.signal,
+        body: JSON.stringify({ expectedUserId: userId, locale }),
+      });
+      if (scope.signal.aborted || currentUser.current !== userId) return;
+      if (response.status === 429) {
+        setNotice(isAr ? "انتظر خمس دقائق قبل إرسال تنبيه تجريبي آخر." : "Wait five minutes before sending another test alert.");
+        return;
+      }
+      if (!response.ok) throw new Error("test");
+      const result = await response.json() as { status?: string };
+      if (scope.signal.aborted || currentUser.current !== userId) return;
+      if (result.status === "accepted") {
+        setNotice(isAr ? "قبلت خدمة الإشعارات التنبيه التجريبي. تحقق من جهازك واضغط عليه للتأكد." : "The push service accepted the test alert. Check your device and tap it to confirm.");
+      } else if (result.status === "saved") {
+        setNotice(isAr ? "تم حفظ التنبيه التجريبي. لم يتم تأكيد قبول خدمة الإشعارات له بعد. تحقق من إعدادات جهازك وحاول مرة أخرى." : "Test alert saved. Push service acceptance is not confirmed yet. Check device settings and try again.");
+      } else {
+        throw new Error("test");
+      }
+    } catch {
+      if (!scope.signal.aborted && currentUser.current === userId) setNotice(isAr ? "تعذر تأكيد التنبيه التجريبي. تحقق من إعدادات الإشعارات وحاول مرة أخرى." : "Could not confirm the test alert. Check notification settings and try again.");
+    } finally {
+      if (testInFlight.current === scope) testInFlight.current = null;
+      if (!scope.signal.aborted && currentUser.current === userId) setBusy(false);
+    }
+  }
+
   async function snooze() {
     const scope = scopeRef.current;
     if (busy || !userId || !scope || scope.signal.aborted) return;
@@ -194,6 +229,10 @@ export function BrowserPushPrompt({ locale }: { locale: AppLocale }) {
         <div className="flex items-center justify-between gap-2 rounded-xl border border-white/10 p-3"><span className="flex items-center gap-2 text-sm"><Mail className="h-4 w-4 text-[#C9A227]" />{isAr ? "البريد" : "Email"}</span>{!status.emailVerified ? <a className={actionClass} href={`/${locale}/verify-email`}>{isAr ? "تحقق" : "Verify"}</a> : status.preferences.email ? <Check aria-label={isAr ? "مفعّل" : "On"} className="h-5 w-5 text-emerald-400" /> : <button className={actionClass} disabled={busy} onClick={() => void enableChannel("email")}>{isAr ? "تفعيل" : "Enable"}</button>}</div>
         <div className="flex items-center justify-between gap-2 rounded-xl border border-white/10 p-3"><span className="flex items-center gap-2 text-sm"><Smartphone className="h-4 w-4 text-[#C9A227]" />{isAr ? "هذا الجهاز" : "This device"}</span>{device === "on" ? <Check aria-label={isAr ? "مفعّل" : "On"} className="h-5 w-5 text-emerald-400" /> : ["unsupported", "unavailable"].includes(device) ? <span className="text-xs text-[#9CA3AF]">{isAr ? "غير متاح" : "Unavailable"}</span> : <button className={actionClass} disabled={busy} onClick={() => void enablePush()}>{device === "blocked" ? (isAr ? "الإعدادات" : "Settings") : device === "install" ? (isAr ? "كيفية التفعيل" : "How to enable") : (isAr ? "تفعيل" : "Enable")}</button>}</div>
       </div>
+      {device === "on" && status.preferences.inApp ? <div className="mt-3 flex flex-wrap items-center gap-3">
+        <button type="button" className={actionClass} disabled={busy} onClick={() => void sendTestAlert()}>{isAr ? "إرسال تنبيه تجريبي" : "Send test alert"}</button>
+        <span className="text-xs text-[#A9A69B]">{isAr ? "اختبر الإشعارات على أجهزتك المتصلة، ثم تحقق من ظهور التنبيه على جهازك." : "Test alerts on your connected devices, then check your device to confirm it appears."}</span>
+      </div> : null}
       {notice ? <p role="status" className="mt-3 text-sm text-[#F5D878]">{notice}</p> : null}
       <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-[#A9A69B]">
         <span>{isAr ? "تذكير بحد أقصى مرتين يومياً أثناء استخدامك للمنصة." : "At most two reminders a day while you use Alpha."}</span>

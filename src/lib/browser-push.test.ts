@@ -4,7 +4,7 @@ import webpush from "web-push";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const state = vi.hoisted(() => ({ pool: null as unknown }));
 vi.mock("./postgres-runtime", () => ({ getRuntimePostgresPool: () => state.pool }));
-import { browserPushCategoryEnabled, browserPushConfiguration, browserPushPayload, drainBrowserPush, parseBrowserPushSubscription, pushHash, saveBrowserPush } from "./browser-push";
+import { browserPushCategoryEnabled, browserPushConfiguration, browserPushPayload, deliverBrowserPushNotification, drainBrowserPush, parseBrowserPushSubscription, pushHash, saveBrowserPush } from "./browser-push";
 import type { AlphaExchangeNotification } from "@/types/alpha-exchange";
 let db: PGlite;
 const keys = webpush.generateVAPIDKeys();
@@ -34,6 +34,70 @@ async function notice(id="notice") {
   await db.query("insert into alpha_exchange.notifications values($1,'user',false,now(),$2)",[id,JSON.stringify(payload)]); return payload;
 }
 describe("browser push delivery", () => {
+  it("targets exactly one committed notice and recipient without draining other work", async () => {
+    await notice("selected"); await notice("unrelated");
+    await db.exec(`insert into alpha_exchange.users values('other','{"notificationPreferences":{"browserPush":true,"inApp":true}}')`);
+    await db.query("insert into alpha_exchange.sessions values($1,'other',now()+interval '1 day')", [pushHash("other-session")]);
+    await saveBrowserPush({ userId: "other", sessionToken: "other-session", subscription: { ...subscription, endpoint: `${subscription.endpoint}-other` }, locale: "en" });
+    await db.query("insert into alpha_exchange.notifications values('other-notice','other',false,now(),$1)", [JSON.stringify({ ...await notice("template"), id: "other-notice", userId: "other" })]);
+    expect(await deliverBrowserPushNotification({ userId: "other", notificationId: "selected" })).toEqual({ sent: 0 });
+    expect(await deliverBrowserPushNotification({ userId: "user", notificationId: "selected" })).toEqual({ sent: 1 });
+    expect(await deliverBrowserPushNotification({ userId: "user", notificationId: "selected" })).toEqual({ sent: 0 });
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(send.mock.calls[0][1]).tag).toBe("selected");
+    expect((await db.query<{ delivery_key: string }>("select delivery_key from alpha_exchange.browser_push_deliveries")).rows)
+      .toEqual([{ delivery_key: expect.stringMatching(/^selected:/) }]);
+  });
+  it("rejects missing scope before touching storage or attempting global recovery", () => {
+    const pool = state.pool as { query: (...args: unknown[]) => Promise<unknown> };
+    const query = vi.spyOn(pool, "query");
+    for (const input of [{ userId: "", notificationId: "notice" }, { userId: "user", notificationId: " " }, {}]) {
+      expect(() => deliverBrowserPushNotification(input as { userId: string; notificationId: string })).toThrow("A user and notification are required");
+    }
+    expect(query).not.toHaveBeenCalled();
+    expect(send).not.toHaveBeenCalled();
+  });
+  it("does not join a pending global drain", async () => {
+    await notice("selected");
+    const pool = state.pool as { query: (sql: string, args?: unknown[]) => Promise<unknown> };
+    const original = pool.query;
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    let waiting = false;
+    pool.query = async (sql, args) => {
+      if (sql.includes("limit 30") && args?.length === 1) { waiting = true; await gate; }
+      return original(sql, args);
+    };
+    const global = drainBrowserPush();
+    let targeted: Promise<{ sent: number }> | undefined;
+    try {
+      await vi.waitFor(() => expect(waiting).toBe(true));
+      targeted = deliverBrowserPushNotification({ userId: "user", notificationId: "selected" });
+      await vi.waitFor(() => expect(send).toHaveBeenCalledTimes(1));
+    } finally {
+      release();
+      await global;
+    }
+    expect(await targeted).toEqual({ sent: 1 });
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+  it.each(["logout", "preference", "revision", "recipient"])("rechecks scoped delivery after a %s change while claiming", async reason => {
+    await notice("selected");
+    const pool = state.pool as { query: (sql: string, args?: unknown[]) => Promise<unknown> };
+    const original = pool.query;
+    pool.query = async (sql, args) => {
+      const result = await original(sql, args);
+      if (sql.includes("insert into alpha_exchange.browser_push_deliveries")) {
+        if (reason === "logout") await db.exec("delete from alpha_exchange.sessions");
+        if (reason === "preference") await db.exec(`update alpha_exchange.users set payload='{"notificationPreferences":{"browserPush":false}}'`);
+        if (reason === "revision") await db.query("update alpha_exchange.notifications set payload=payload||$1::jsonb", [JSON.stringify({ updatedAt: new Date(Date.now() + 1000).toISOString() })]);
+        if (reason === "recipient") await db.exec(`update alpha_exchange.notifications set payload=payload||'{"userId":"other"}'::jsonb`);
+      }
+      return result;
+    };
+    expect(await deliverBrowserPushNotification({ userId: "user", notificationId: "selected" })).toEqual({ sent: 0 });
+    expect(send).not.toHaveBeenCalled();
+  });
   it("sends a real committed notice once, using an internal Arabic destination and private copy", async () => {
     const n=await notice();
     expect((await drainBrowserPush()).sent).toBe(1);

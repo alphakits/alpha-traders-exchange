@@ -27,6 +27,18 @@ function notification(overrides: Partial<AlphaExchangeNotification> = {}): Alpha
 }
 
 describe("native lock-screen push payloads", () => {
+  it.each(["en", "ar"] as const)("uses fixed private test copy and the notification inbox in %s", locale => {
+    const message = buildExpoPushMessage(notification({
+      id: "push-test:11111111-1111-4111-8111-111111111111", category: "system", title: "Test notification",
+      reason: "push_test", relatedRequestId: undefined, actionHref: `/${locale}/notifications`,
+    }), { expoPushToken: "ExponentPushToken[abcdefghijklmnop]", locale });
+    expect(message.title).toBe(locale === "ar" ? "إشعار تجريبي" : "Test notification");
+    expect(message.body).toContain(locale === "ar" ? "تنبيه تجريبي" : "test alert");
+    expect(message.data.url).toBe(`https://www.alphatraders.co.il/${locale}/notifications`);
+    expect(message.data).not.toHaveProperty("reviewEligible");
+    expect(message.data).not.toHaveProperty("tradeReference");
+    expect(JSON.stringify(message)).not.toContain("SENSITIVE_");
+  });
   it.each([
     ["New USDT request", "New USDT request", "طلب USDT جديد"],
     ["New response to your USDT request", "New response to your USDT request", "رد جديد على طلب USDT الخاص بك"],

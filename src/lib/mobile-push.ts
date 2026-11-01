@@ -279,6 +279,11 @@ export function privacySafeMobilePushCopy(
   locale: MobileLocale,
 ) {
   const normalizedTitle = notification.title.trim().toLowerCase();
+  if (notification.category === "system" && normalizedTitle === "test notification") {
+    return locale === "ar"
+      ? { title: "إشعار تجريبي", body: "هذا تنبيه تجريبي. افتح Alpha Traders للتأكد من عمل الإشعارات." }
+      : { title: "Test notification", body: "This is a test alert. Open Alpha Traders to confirm notifications are working." };
+  }
   if (notification.category === "listing") {
     const requestCopy: Record<string, { en: { title: string; body: string }; ar: { title: string; body: string } }> = {
       "new usdt request": {

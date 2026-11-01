@@ -71,3 +71,99 @@ describe("smart notification reminder",()=>{
  it("clears the reminder on logout and renders Arabic in RTL",async()=>{const view=render(<BrowserPushPrompt locale="ar"/>);await settle();expect(screen.getByRole("region").getAttribute("dir")).toBe("rtl");state.user=null;view.rerender(<BrowserPushPrompt locale="ar"/>);expect(screen.queryByRole("region")).toBeNull();});
  it("does not claim success after failed push registration",async()=>{state.enable.mockRejectedValue(new Error("failed"));render(<BrowserPushPrompt locale="en"/>);await settle();await act(async()=>{fireEvent.click(screen.getAllByRole("button",{name:"Enable"})[1]);});expect(screen.getByRole("status").textContent).toContain("not connected");});
 });
+
+describe("explicit device test alert", () => {
+ const testCalls = () => fetcher.mock.calls.filter(([url]) => url === "/api/alpha-exchange/notification-push-test");
+
+ function mockTestResponse(body: unknown, status = 202) {
+  const original = fetcher.getMockImplementation()!;
+  fetcher.mockImplementation(async (url: string, options?: RequestInit) => url === "/api/alpha-exchange/notification-push-test"
+   ? new Response(JSON.stringify(body), { status }) : original(url, options));
+ }
+
+ it("never sends automatically and requires one explicit click with the current account", async () => {
+  state.device = "on"; value.preferences.email = true; value.preferences.browserPush = true;
+  mockTestResponse({ status: "accepted", accepted: { browser: 1, native: 0 } });
+  render(<BrowserPushPrompt locale="en" />); await settle();
+  expect(testCalls()).toHaveLength(0);
+  await act(async () => { window.dispatchEvent(new Event("alpha-notification-settings")); });
+  expect(testCalls()).toHaveLength(0);
+  const button = screen.getByRole("button", { name: "Send test alert" });
+  await act(async () => { fireEvent.click(button); fireEvent.click(button); });
+  expect(testCalls()).toHaveLength(1);
+  expect(testCalls()[0][1]).toMatchObject({ method: "POST", body: JSON.stringify({ expectedUserId: "user", locale: "en" }), signal: expect.any(AbortSignal) });
+  expect(screen.getByRole("status").textContent).toBe("The push service accepted the test alert. Check your device and tap it to confirm.");
+  expect(state.enable).not.toHaveBeenCalled();
+  expect(fetcher.mock.calls.some(([, options]) => options?.method === "PATCH")).toBe(false);
+ });
+
+ it("uses the same self-only action for a connected native device without opening settings or requesting a review", async () => {
+  const bridge = vi.fn(); window.ReactNativeWebView = { postMessage: bridge };
+  mockTestResponse({ status: "accepted", accepted: { browser: 0, native: 1 } });
+  render(<BrowserPushPrompt locale="en" />); await settle();
+  expect(screen.queryByRole("button", { name: "Send test alert" })).toBeNull();
+  await act(async () => { window.dispatchEvent(new CustomEvent("alpha-notification-push-state", { detail: { userId: "user", state: "on" } })); });
+  expect(testCalls()).toHaveLength(0);
+  bridge.mockClear();
+  await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Send test alert" })); });
+  expect(testCalls()).toHaveLength(1);
+  expect(bridge).not.toHaveBeenCalled();
+  expect(screen.getByRole("status").textContent).toContain("Check your device");
+ });
+
+ it.each(["blocked", "off", "unsupported", "unavailable"])("does not offer a test before device setup: %s", async device => {
+  state.device = device;
+  render(<BrowserPushPrompt locale="en" />); await settle();
+  expect(screen.queryByRole("button", { name: "Send test alert" })).toBeNull();
+  expect(testCalls()).toHaveLength(0);
+ });
+
+ it("requires enabled website alerts without changing consent", async () => {
+  state.device = "on"; value.preferences.inApp = false;
+  render(<BrowserPushPrompt locale="en" />); await settle();
+  expect(screen.queryByRole("button", { name: "Send test alert" })).toBeNull();
+  expect(testCalls()).toHaveLength(0);
+  expect(fetcher.mock.calls.some(([, options]) => options?.method === "PATCH")).toBe(false);
+ });
+
+ it("reports a saved-only notice without claiming provider acceptance or device display", async () => {
+  state.device = "on"; mockTestResponse({ status: "saved", accepted: { browser: 0, native: 0 } });
+  render(<BrowserPushPrompt locale="en" />); await settle();
+  await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Send test alert" })); });
+  expect(screen.getByRole("status").textContent).toBe("Test alert saved. Push service acceptance is not confirmed yet. Check device settings and try again.");
+ });
+
+ it("explains the rate limit in Arabic and sends the Arabic locale", async () => {
+  state.device = "on"; mockTestResponse({ error: "Too many requests." }, 429);
+  render(<BrowserPushPrompt locale="ar" />); await settle();
+  await act(async () => { fireEvent.click(screen.getByRole("button", { name: "إرسال تنبيه تجريبي" })); });
+  expect(screen.getByRole("status").textContent).toBe("انتظر خمس دقائق قبل إرسال تنبيه تجريبي آخر.");
+  expect(testCalls()[0][1]?.body).toBe(JSON.stringify({ expectedUserId: "user", locale: "ar" }));
+ });
+
+ it.each(["logout", "switch"])("aborts an in-flight test and discards its result on %s", async change => {
+  state.device = "on";
+  let resolve!: (response: Response) => void;
+  const original = fetcher.getMockImplementation()!;
+  fetcher.mockImplementation((url: string, options?: RequestInit) => url === "/api/alpha-exchange/notification-push-test"
+   ? new Promise<Response>(done => { resolve = done; }) : original(url, options));
+  const view = render(<BrowserPushPrompt locale="en" />); await settle();
+  await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Send test alert" })); });
+  const signal = testCalls()[0][1]?.signal;
+  await act(async () => {
+   if (change === "logout") window.dispatchEvent(new Event("alpha-auth-signed-out"));
+   else { state.user = { id: "next-user" }; view.rerender(<BrowserPushPrompt locale="en" />); }
+  });
+  expect(signal?.aborted).toBe(true);
+  await act(async () => { resolve(new Response(JSON.stringify({ status: "accepted" }), { status: 202 })); });
+  expect(screen.queryByRole("status")).toBeNull();
+  expect(testCalls()).toHaveLength(1);
+ });
+
+ it("does not claim success for a failed or malformed response", async () => {
+  state.device = "on"; mockTestResponse({ status: "delivered" });
+  render(<BrowserPushPrompt locale="en" />); await settle();
+  await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Send test alert" })); });
+  expect(screen.getByRole("status").textContent).toBe("Could not confirm the test alert. Check notification settings and try again.");
+ });
+});

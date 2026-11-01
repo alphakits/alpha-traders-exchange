@@ -107,8 +107,9 @@ export function browserPushPayload(notice: AlphaExchangeNotification, locale: "e
 }
 
 type Candidate = { payload: AlphaExchangeNotification; preferences: Partial<NotificationPreferences>; endpoint_hash: string; subscription: webpush.PushSubscription; locale: "ar" | "en" };
+type BrowserPushScope = { userId: string; notificationId: string };
 const BROWSER_PUSH_REVISION_SQL = "coalesce(nullif(btrim(n.payload->>'updatedAt'), ''), n.payload->>'createdAt')";
-const browserDeliveryKey = (notice: AlphaExchangeNotification) => `${notice.id}:${notice.updatedAt?.trim() || notice.createdAt}`;
+export const browserDeliveryKey = (notice: AlphaExchangeNotification) => `${notice.id}:${notice.updatedAt?.trim() || notice.createdAt}`;
 let running: Promise<{ sent: number }> | null = null;
 
 /** Durable reconciliation also picks up Buy Request notices written directly by
@@ -119,7 +120,16 @@ export function drainBrowserPush() {
   return running;
 }
 
-async function drain() {
+/** Deliver one committed notice without joining or starting global recovery. */
+export function deliverBrowserPushNotification(input: BrowserPushScope) {
+  if (!input || typeof input.userId !== "string" || !input.userId.trim()
+      || typeof input.notificationId !== "string" || !input.notificationId.trim()) {
+    throw new Error("A user and notification are required for targeted push delivery.");
+  }
+  return drain({ userId: input.userId, notificationId: input.notificationId });
+}
+
+async function drain(scope?: BrowserPushScope) {
   const config = browserPushConfiguration();
   const pool = getRuntimePostgresPool();
   if (!config || !pool) return { sent: 0 };
@@ -136,15 +146,18 @@ async function drain() {
       and u.payload->'notificationPreferences'->>'browserPush'='true'
       and u.payload->'notificationPreferences'->>'inApp' is distinct from 'false'
       and not n.is_read and n.payload->>'state' is distinct from 'archived'
+      ${scope ? "and n.user_id=$2 and n.id=$3" : ""}
       and ${BROWSER_PUSH_REVISION_SQL} >= greatest($1, to_char(p.created_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'))
       and (d.delivery_key is null or (d.status in ('failed','processing') and d.attempts<3 and d.updated_at<now()-interval '2 minutes'))
     order by case n.payload->>'priority' when 'critical' then 0 when 'high' then 1 else 2 end,
-      ${BROWSER_PUSH_REVISION_SQL} asc, n.id, p.endpoint_hash limit 30`, [new Date(Date.now() - 24 * 60 * 60_000).toISOString()]);
+      ${BROWSER_PUSH_REVISION_SQL} asc, n.id, p.endpoint_hash limit 30`, [new Date(Date.now() - 24 * 60 * 60_000).toISOString(),
+        ...(scope ? [scope.userId, scope.notificationId] : [])]);
   let sent = 0;
   const deadline = Date.now() + 40_000;
   for (const row of candidates.rows) {
     if (Date.now() > deadline) break;
     const notice = row.payload;
+    if (scope && (notice.id !== scope.notificationId || notice.userId !== scope.userId)) continue;
     const key = browserDeliveryKey(notice);
     const claim = await pool.query<{ attempts: number }>(`insert into alpha_exchange.browser_push_deliveries(delivery_key,endpoint_hash,status)
       values($1,$2,'processing') on conflict(delivery_key,endpoint_hash) do update
@@ -164,10 +177,13 @@ async function drain() {
         join alpha_exchange.users u on u.id=p.user_id
         join alpha_exchange.notifications n on n.user_id=p.user_id
         where p.endpoint_hash=$1 and p.active and n.id=$2 and not n.is_read
-          and n.payload->>'state' is distinct from 'archived' and u.payload->>'disabled' is distinct from 'true'`, [row.endpoint_hash, notice.id]);
+          ${scope ? "and n.user_id=$3" : ""}
+          and n.payload->>'state' is distinct from 'archived' and u.payload->>'disabled' is distinct from 'true'`, [row.endpoint_hash, notice.id,
+            ...(scope ? [scope.userId] : [])]);
       const fresh = current.rows[0];
       const subscription = fresh && parseBrowserPushSubscription(fresh.subscription);
       if (fresh && subscription && browserDeliveryKey(fresh.payload) === key
+          && (!scope || (fresh.payload.id === scope.notificationId && fresh.payload.userId === scope.userId))
           && browserPushCategoryEnabled(fresh.payload, fresh.preferences ?? {})) {
         sentSubscription = subscription;
         await webpush.sendNotification(subscription, JSON.stringify(browserPushPayload(fresh.payload, fresh.locale)), {

@@ -127,6 +127,32 @@ describe("canonical push delivery under publication bursts", () => {
     }
     expect(fetch).not.toHaveBeenCalled();
   });
+  it("sends only the canonical test notice to its eligible recipient without reconciling global receipts", async () => {
+    await subscribe("valid"); await subscribe("other-device", "1 hour", true, "other");
+    const testNotice: AlphaExchangeNotification = { ...notification, id: "push-test:11111111-1111-4111-8111-111111111111",
+      category: "system", title: "Test notification", reason: "push_test", relatedRequestId: undefined, actionHref: "/en/notifications" };
+    await db.query("insert into alpha_exchange.notifications (id,user_id,is_read,category,payload) values ($1,$2,false,'system',$3)", [testNotice.id, testNotice.userId, JSON.stringify(testNotice)]);
+    await deliverMobilePushNotification(testNotice, { reconcileReceipts: false, providerMaxAttempts: 1 });
+    await deliverMobilePushNotification(testNotice, { reconcileReceipts: false, providerMaxAttempts: 1 });
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(queries.some(sql => sql.includes("select notification_id, subscription_id, ticket_id"))).toBe(false);
+    const messages = JSON.parse(String(vi.mocked(fetch).mock.calls[0][1]?.body));
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).toMatchObject({ to: "ExpoPushToken[validabcdefghijk]", title: "Test notification", data: { notificationId: testNotice.id, url: "https://www.alphatraders.co.il/en/notifications" } });
+    expect(messages[0].data).not.toHaveProperty("reviewEligible");
+    expect((await db.query("select notification_id from alpha_exchange.mobile_push_deliveries")).rows)
+      .toEqual([{ notification_id: mobilePushDeliveryKey(testNotice) }]);
+  });
+  it.each(["logout", "disabled", "inApp"])("does not bypass %s for a native test notice", async reason => {
+    await subscribe("valid");
+    const testNotice: AlphaExchangeNotification = { ...notification, category: "system", title: "Test notification", reason: "push_test" };
+    await db.query("update alpha_exchange.notifications set category='system',payload=$1 where id=$2", [JSON.stringify(testNotice), testNotice.id]);
+    if (reason === "logout") await db.exec("delete from alpha_exchange.sessions");
+    if (reason === "disabled") await db.exec(`update alpha_exchange.users set payload='{"disabled":true}'`);
+    if (reason === "inApp") await db.exec(`update alpha_exchange.users set payload='{"notificationPreferences":{"inApp":false}}'`);
+    await deliverMobilePushNotification(testNotice, { reconcileReceipts: false, providerMaxAttempts: 1 });
+    expect(fetch).not.toHaveBeenCalled();
+  });
   it("shares an empty receipt result across overlapping and sequential publications for one second", async () => {
     let release!: () => void;
     receiptGate = new Promise<void>(resolve => { release = resolve; });
