@@ -41,3 +41,6 @@ export function tradeChatStatusLabel(status: TradeChatStatus, locale: "en" | "ar
 export function tradeChatRoleLabel(role: TradeChatParticipantRole, locale: "en" | "ar") {
   return { owner: { en: "Owner", ar: "المالك" }, buyer: { en: "Buyer", ar: "المشتري" }, seller: { en: "Seller", ar: "البائع" }, support: { en: "Support", ar: "الدعم" } }[role][locale];
 }
+/** Resource bounds remain in force even for verified owner-authored messages. */
+export const TRADE_CHAT_MESSAGE_MAX_LENGTH = 1200;
+export const OWNER_TRADE_CHAT_MESSAGE_MAX_LENGTH = 10_000;

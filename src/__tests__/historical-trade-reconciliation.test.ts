@@ -242,7 +242,7 @@ describe("owner-attested historical reconciliation", () => {
     expect(publish).not.toHaveBeenCalled();
     expect(email).not.toHaveBeenCalled();
     expect((await getAccountProfileData("seller")).stats).toMatchObject({ completedTrades: 3, sellerLevel: "silver", lifetimeCompletedVolumeUsdt: 15000 });
-    expect((await getAccountProfileData("buyer")).stats).toMatchObject({ completedTrades: 2, buyerLevel: "bronze", lifetimeCompletedVolumeUsdt: 10568.77 });
+    expect((await getAccountProfileData("buyer")).stats).toMatchObject({ completedTrades: 2, buyerLevel: "bronze", lifetimeCompletedVolumeUsdt: 10568.765433 });
   });
 
   it("rejects a stale financial plan and preserves a concurrent unrelated account change", async () => {

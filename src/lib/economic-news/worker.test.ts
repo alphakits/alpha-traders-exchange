@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { NewsEvent } from "./model";
 
-const mocks = vi.hoisted(() => ({ configured: vi.fn(), fetch: vi.fn(), persist: vi.fn(), query: vi.fn(), user: vi.fn(), notification: vi.fn(), email: vi.fn() }));
+const mocks = vi.hoisted(() => ({ official: vi.fn(), configured: vi.fn(), fetch: vi.fn(), persist: vi.fn(), query: vi.fn(), user: vi.fn(), notification: vi.fn(), email: vi.fn() }));
+vi.mock("./official-worker", () => ({ runOfficialNewsSync: mocks.official }));
 vi.mock("./provider", () => ({ newsProviderConfigured: mocks.configured, fetchEconomicNews: mocks.fetch }));
 vi.mock("./repository", () => ({ newsPool: async () => ({ query: mocks.query }), persistNewsSnapshot: mocks.persist }));
 vi.mock("@/lib/alpha-exchange-store", () => ({ findUserById: mocks.user, createEconomicNewsNotification: mocks.notification }));
@@ -21,9 +22,11 @@ describe("economic news delivery isolation", () => {
     mocks.user.mockResolvedValue({ id: "user", fullName: "Trader", email: "trader@example.test", emailVerified: true, preferredLocale: "ar", notificationPreferences: { inApp: true, email: true } });
     mocks.email.mockResolvedValue({ ok: true });
   });
-  it("does no database, provider, or delivery work before a licensed feed is configured", async () => {
+  it("uses only the official collector, never paid feeds or deliveries, without a licensed feed", async () => {
     mocks.configured.mockReturnValue(false);
-    expect(await runEconomicNewsSync()).toMatchObject({ status: "not_configured", sent: 0 });
+    mocks.official.mockResolvedValueOnce({ status: "ready", sent: 0 });
+    expect(await runEconomicNewsSync()).toMatchObject({ status: "ready", sent: 0 });
+    expect(mocks.official).toHaveBeenCalledOnce();
     expect(mocks.fetch).not.toHaveBeenCalled();
     expect(mocks.query).not.toHaveBeenCalled();
     expect(mocks.notification).not.toHaveBeenCalled();

@@ -107,6 +107,18 @@ function makePayload(role: TestRole) {
   };
 }
 
+function renderBuyerProfileWithSession() {
+  const profile = makePayload("buyer").profile;
+  const user = { ...profile, sellerStatus: "buyer" as const, preferredNetworks: [], languages: ["English"], city: "", createdAt: profile.memberSince };
+  const profileFetch = globalThis.fetch;
+  // The real layout provides this context. Keep its background session read
+  // separate from profile fixtures, including deliberately delayed responses.
+  vi.stubGlobal("fetch", (...args: Parameters<typeof fetch>) => String(args[0]) === "/api/auth/me"
+    ? Promise.resolve(Response.json({ user }))
+    : profileFetch(...args));
+  return render(<CanonicalSessionProvider initialSessionUser={user}><AccountProfilePanel locale="en" /></CanonicalSessionProvider>);
+}
+
 function makeSellerPayload(level: string, completedTrades: number) {
   return {
     profile: {
@@ -183,6 +195,7 @@ describe("AccountProfilePanel", () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.unstubAllGlobals();
   });
 
@@ -307,11 +320,12 @@ describe("AccountProfilePanel", () => {
 
   it("keeps notification controls out of the initial profile and supports keyboard tabs", async () => {
     stubProfileFetch(vi.fn().mockResolvedValue({ ok: true, json: async () => makePayload("buyer") }));
-    render(<AccountProfilePanel locale="en" />);
+    renderBuyerProfileWithSession();
     const overview = await screen.findByRole("tab", { name: "Overview" });
     expect(screen.queryByText("Notification Preferences")).toBeNull();
     fireEvent.keyDown(overview, { key: "End" });
     await screen.findByText("Notification Preferences");
+    expect(await screen.findByRole("checkbox", { name: "In-app" })).toBeTruthy();
     expect(screen.getByRole("tab", { name: "Alerts" }).getAttribute("aria-selected")).toBe("true");
     expect(document.activeElement).toBe(screen.getByRole("tab", { name: "Alerts" }));
     fireEvent.click(screen.getByRole("tab", { name: "Overview" }));
@@ -320,7 +334,7 @@ describe("AccountProfilePanel", () => {
 
   it.each([["contact-details", "Edit profile"], ["notification-preferences", "Alerts"]])("opens %s on the first shared navigation request", async (section, tab) => {
     stubProfileFetch(vi.fn().mockResolvedValue({ ok: true, json: async () => makePayload("buyer") }));
-    render(<AccountProfilePanel locale="en" />);
+    renderBuyerProfileWithSession();
     await screen.findByRole("tab", { name: "Overview" });
     act(() => window.dispatchEvent(new CustomEvent(PAGE_SECTION_NAVIGATION_EVENT, { detail: section })));
     await waitFor(() => expect(screen.getByRole("tab", { name: tab }).getAttribute("aria-selected")).toBe("true"));
@@ -333,7 +347,7 @@ describe("AccountProfilePanel", () => {
       releaseProfile = resolve;
     });
     stubProfileFetch(vi.fn(() => profileResponse));
-    render(<AccountProfilePanel locale="en" />);
+    renderBuyerProfileWithSession();
     expect(screen.queryByRole("tab", { name: "Overview" })).toBeNull();
 
     act(() => window.dispatchEvent(new CustomEvent(PAGE_SECTION_NAVIGATION_EVENT, { detail: section })));
@@ -381,7 +395,7 @@ describe("AccountProfilePanel", () => {
     const originalLocation = window.location;
     Object.defineProperty(window, "location", { configurable: true, value: { ...originalLocation, hash: "#contact-details" } });
     try {
-      render(<AccountProfilePanel locale="en" />);
+      renderBuyerProfileWithSession();
       await waitFor(() => expect(screen.getByRole("tab", { name: "Edit profile" }).getAttribute("aria-selected")).toBe("true"));
       window.location.hash = "#notification-preferences";
       fireEvent(window, new Event("hashchange"));
@@ -544,6 +558,119 @@ describe("AccountProfilePanel", () => {
 
     await waitFor(() => expect(screen.getByRole("heading", { name: "Silver Seller" })).toBeTruthy());
     expect(screen.getByText("2")).toBeTruthy();
+  });
+
+  it("discards a delayed notification profile response after canonical sign-out", async () => {
+    vi.stubGlobal("EventSource", MockEventSource as unknown as typeof EventSource);
+    const profile = makePayload("buyer");
+    const user = { ...profile.profile, sellerStatus: "buyer" as const, preferredNetworks: [], languages: ["English"], city: "", createdAt: profile.profile.memberSince };
+    let signedOut = false;
+    let profileReads = 0;
+    let resolveOld!: (response: Response) => void;
+    let pendingSignal: AbortSignal | null | undefined;
+    stubProfileFetch(vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input) === "/api/auth/me") return Response.json({ user: signedOut ? null : user });
+      profileReads += 1;
+      if (profileReads === 1) return Response.json(profile);
+      pendingSignal = init?.signal;
+      return new Promise<Response>(resolve => { resolveOld = resolve; });
+    }));
+    render(<CanonicalSessionProvider initialSessionUser={user}><AccountProfilePanel locale="en" /></CanonicalSessionProvider>);
+    await screen.findByText("My profile");
+    await waitFor(() => expect(eventSourceInstances.length).toBeGreaterThan(0));
+    act(() => eventSourceInstances.at(-1)!.emit("notifications"));
+    await waitFor(() => expect(profileReads).toBe(2));
+    signedOut = true;
+    await act(async () => { window.dispatchEvent(new Event("alpha-auth-changed")); });
+    await screen.findByText("Your session has expired. Please sign in again.");
+    expect(pendingSignal?.aborted).toBe(true);
+    await act(async () => { resolveOld(Response.json(profile)); });
+    expect(screen.queryByText("My profile")).toBeNull();
+    expect(screen.queryByText(publicAccountId({ id: profile.profile.id }))).toBeNull();
+    expect(screen.queryByRole("tab", { name: "Edit profile" })).toBeNull();
+  });
+
+  it("keeps the new account's profile when the previous account's refresh arrives late", async () => {
+    vi.stubGlobal("EventSource", MockEventSource as unknown as typeof EventSource);
+    const firstProfile = makePayload("buyer");
+    const secondProfile = { ...makePayload("buyer"), profile: { ...firstProfile.profile, id: "buyer-second-account", bio: "Second account private biography" } };
+    const firstUser = { ...firstProfile.profile, sellerStatus: "buyer" as const, preferredNetworks: [], languages: ["English"], city: "", createdAt: firstProfile.profile.memberSince };
+    const secondUser = { ...firstUser, id: secondProfile.profile.id };
+    let currentUser = firstUser;
+    let firstReads = 0;
+    let resolveOld!: (response: Response) => void;
+    stubProfileFetch(vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input) === "/api/auth/me") return Response.json({ user: currentUser });
+      if (currentUser.id === secondUser.id) return Response.json(secondProfile);
+      firstReads += 1;
+      if (firstReads === 1) return Response.json(firstProfile);
+      return new Promise<Response>(resolve => { resolveOld = resolve; });
+    }));
+    render(<CanonicalSessionProvider initialSessionUser={firstUser}><AccountProfilePanel locale="en" /></CanonicalSessionProvider>);
+    await screen.findByText(publicAccountId({ id: firstUser.id }));
+    act(() => eventSourceInstances.at(-1)!.emit("notifications"));
+    await waitFor(() => expect(firstReads).toBe(2));
+    currentUser = secondUser;
+    await act(async () => { window.dispatchEvent(new Event("alpha-auth-changed")); });
+    await screen.findByText(publicAccountId({ id: secondUser.id }));
+    await act(async () => { resolveOld(Response.json(firstProfile)); });
+    expect(screen.queryByText(publicAccountId({ id: firstUser.id }))).toBeNull();
+    fireEvent.click(screen.getByRole("tab", { name: "Edit profile" }));
+    expect((screen.getByRole("textbox", { name: "Professional bio" }) as HTMLTextAreaElement).value).toBe(secondProfile.profile.bio);
+  });
+
+  it("refreshes a silent owner correction while preserving an edit draft and sharing concurrent reads", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("EventSource", MockEventSource as unknown as typeof EventSource);
+    const initial = makePayload("buyer");
+    initial.stats.lifetimeCompletedVolumeUsdt = 14_672.94;
+    const corrected = { ...initial, stats: { ...initial.stats, lifetimeCompletedVolumeUsdt: 15_000 } };
+    let profileReads = 0;
+    let resolveCorrection!: (response: Response) => void;
+    stubProfileFetch(vi.fn(async () => {
+      profileReads += 1;
+      return profileReads === 1
+        ? Response.json(initial)
+        : new Promise<Response>(resolve => { resolveCorrection = resolve; });
+    }));
+    await act(async () => { render(<AccountProfilePanel locale="en" />); });
+    expect(screen.getAllByText("Bronze Buyer").length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole("tab", { name: "Edit profile" }));
+    const bio = screen.getByRole("textbox", { name: "Professional bio" }) as HTMLTextAreaElement;
+    fireEvent.change(bio, { target: { value: "Unsaved private draft" } });
+    // No notification is emitted: the foreground interval must discover this.
+    await act(async () => { await vi.advanceTimersByTimeAsync(30_150); });
+    expect(profileReads).toBe(2);
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+      window.dispatchEvent(new Event("alpha-profile-updated"));
+      eventSourceInstances.at(-1)!.emit("notifications");
+      await vi.advanceTimersByTimeAsync(150);
+    });
+    expect(profileReads).toBe(2);
+    await act(async () => { resolveCorrection(Response.json(corrected)); });
+    expect(screen.getAllByText("Silver Buyer").length).toBeGreaterThan(0);
+    expect(screen.getByRole("textbox", { name: "Professional bio" })).toBe(bio);
+    expect(bio.value).toBe("Unsaved private draft");
+  });
+
+  it("retains the last profile during a transient refresh failure and recovers on the next foreground refresh", async () => {
+    vi.useFakeTimers();
+    const profile = makePayload("buyer");
+    const corrected = { ...profile, stats: { ...profile.stats, lifetimeCompletedVolumeUsdt: 15_000 } };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(Response.json(profile))
+      .mockRejectedValueOnce(new Error("Temporarily offline"))
+      .mockResolvedValueOnce(Response.json(corrected));
+    stubProfileFetch(fetchMock);
+    await act(async () => { render(<AccountProfilePanel locale="en" />); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(30_150); });
+    expect(screen.getByText("Could not refresh. Showing your last loaded profile.")).toBeTruthy();
+    expect(screen.getByText("My profile")).toBeTruthy();
+    expect(screen.getAllByText("Bronze Buyer").length).toBeGreaterThan(0);
+    await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
+    expect(screen.queryByText("Could not refresh. Showing your last loaded profile.")).toBeNull();
+    expect(screen.getAllByText("Silver Buyer").length).toBeGreaterThan(0);
   });
 
   it.each(["guest", "student"] as const)("keeps a signed-in %s exchange visit free of buyer and seller tools", async (role) => {

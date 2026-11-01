@@ -58,7 +58,7 @@ beforeEach(() => {
     if (url.includes("/auth/me")) data = { user };
     else if (url.includes("/auth/profile")) data = user.sellerStatus === "approved_seller"
       ? { profile: { id: user.id }, stats: { kind: "seller", sellerLevel: "silver", nextLevel: "gold", lifetimeCompletedVolumeUsdt: 38_000, amountToNextLevelUsdt: 12_000, progressToNextLevelPercent: 65.71 } }
-      : { stats: { kind: "buyer", lifetimeCompletedVolumeUsdt: 52_500 } };
+      : { profile: { id: user.id }, stats: { kind: "buyer", lifetimeCompletedVolumeUsdt: 52_500, activeTrades: 1, completedTrades: 8, reviewsGiven: 4 } };
     else if (url.includes("/seller-application")) data = { application: pending ? { id: "application-home", status: "pending", createdAt: trade.createdAt } : null };
     else if (url.includes("/purchase-requests")) {
       if (requestsLoading) await requestsLoading;

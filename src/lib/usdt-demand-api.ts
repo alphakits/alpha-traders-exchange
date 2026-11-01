@@ -1,3 +1,4 @@
+import { scheduleBrowserPushDelivery } from "./browser-push";
 import { after, NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "node:crypto";
 import { ZodError } from "zod";
@@ -43,6 +44,7 @@ export async function demandApi(request: NextRequest, mutation: boolean, run: (u
       if (!rate.allowed) return finish(NextResponse.json({ error: "Too many actions. Try again shortly.", code: "RATE_LIMITED" }, { status: 429, headers: { ...headers, "Retry-After": String(rate.retryAfterSeconds) } }), "RATE_LIMITED");
     }
     const result = await run(user.id);
+    if (mutation) scheduleBrowserPushDelivery();
     if (mutation) after(async () => {
       try { await queueDemandEmails(); }
       catch {

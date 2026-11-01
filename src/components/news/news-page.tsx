@@ -15,6 +15,7 @@ type Filter = "week" | "next" | "previous";
 const FILTERS: Filter[] = ["week", "next", "previous"];
 type RefreshFeedback = "preparing" | "updated" | "unavailable" | "failed";
 const LIVE_CHECK_INTERVAL_MS = 30_000;
+const OFFICIAL_CHECK_INTERVAL_MS = 15_000;
 const ACTIVATION_CHECK_INTERVAL_MS = 5 * 60_000;
 
 function countdown(iso: string, now: number, locale: NewsLocale) {
@@ -81,6 +82,9 @@ export function NewsPage({ locale, initialFeed, initialNow, eventId }: {
         }
         if (!response.ok) throw new Error("news");
         const data = await response.json() as NewsFeed;
+        // A storage outage must not replace an already displayed runtime result
+        // with the older build-time fallback snapshot.
+        if (data.officialStorageAvailable === false) throw new Error("News storage temporarily unavailable");
         if (!disposed) {
           feedStatusRef.current = data.status;
           feedModeRef.current = data.mode;
@@ -92,7 +96,8 @@ export function NewsPage({ locale, initialFeed, initialNow, eventId }: {
         }
       } catch {
         if (!disposed) {
-          setFeed((previous) => ({ ...previous, status: previous.events.length ? "stale" : "unavailable" }));
+          setFeed((previous) => ({ ...previous, status: previous.events.length ? "stale" : "unavailable",
+            ...(previous.officialUpdates ? { officialUpdates: "delayed" as const } : {}) }));
           if (manual) setRefreshFeedback("failed");
         }
       } finally {
@@ -108,9 +113,10 @@ export function NewsPage({ locale, initialFeed, initialNow, eventId }: {
     const timer = setInterval(() => {
       if (document.visibilityState === "hidden") return;
       setNow(Date.now());
-      const interval = feedStatusRef.current === "not_configured" || feedModeRef.current === "weekly" ? ACTIVATION_CHECK_INTERVAL_MS : LIVE_CHECK_INTERVAL_MS;
+      const interval = feedStatusRef.current === "not_configured" ? ACTIVATION_CHECK_INTERVAL_MS
+        : feedModeRef.current === "weekly" ? OFFICIAL_CHECK_INTERVAL_MS : LIVE_CHECK_INTERVAL_MS;
       if (Date.now() - lastCheckStartedAt >= interval) void refresh();
-    }, LIVE_CHECK_INTERVAL_MS);
+    }, OFFICIAL_CHECK_INTERVAL_MS);
     document.addEventListener("visibilitychange", onVisible);
     window.addEventListener("online", onVisible);
     return () => {
@@ -199,7 +205,9 @@ export function NewsPage({ locale, initialFeed, initialNow, eventId }: {
         <div className={styles.toolbar}>
           <label className={styles.timezone}><Clock3 size={16} aria-hidden="true" /><span>{isAr ? "التوقيت" : "Timezone"}</span><select value={timeZone} onChange={(e) => setTimeZone(e.target.value)}><option value="Asia/Jerusalem">{isAr ? "توقيت إسرائيل" : "Israel time"}</option>{deviceZone !== "Asia/Jerusalem" ? <option value={deviceZone}>{isAr ? "توقيت الجهاز" : "Device time"} · {deviceZone}</option> : null}</select></label>
         </div>
-        {weekly ? <p className={styles.weeklyNote}><CalendarDays size={16} aria-hidden="true" /><span>{isAr ? "نتائج مؤكدة من المصادر الرسمية · ليست لحظية" : "Verified official results · Not real time"}</span></p> : null}
+        {weekly ? <p className={styles.weeklyNote}><CalendarDays size={16} aria-hidden="true" /><span>{feed.officialUpdates
+          ? (isAr ? "نتائج رسمية مؤكدة · تحديثات دورية سريعة" : "Verified official results · Frequent updates")
+          : (isAr ? "نتائج مؤكدة من المصادر الرسمية · ليست لحظية" : "Verified official results · Not real time")}</span></p> : null}
         {stale ? <p role="status" className="mt-4 rounded-xl border border-amber-400/20 bg-amber-400/5 p-3 text-sm text-amber-200">{weekly ? (isAr ? "قد يكون التقويم الأسبوعي قديمًا. المعروض هو آخر تحديث تم التحقق منه." : "The weekly calendar may be out of date. This is the last verified snapshot.") : (isAr ? "تحديث الأخبار متأخر. الأرقام المعروضة هي آخر بيانات تم استلامها." : "News updates are delayed. The figures shown are the last received data.")}</p> : null}
         {!available ? (
           <div role="status" className={styles.empty}><CalendarDays size={28} aria-hidden="true" /><h2 className="font-semibold text-white">{feed.status === "not_configured" ? (isAr ? "جارٍ تجهيز أخبار الدولار" : "USD news is being prepared") : (isAr ? "الأخبار غير متاحة مؤقتًا" : "News is temporarily unavailable")}</h2><p className="mx-auto mt-2 max-w-md">{feed.status === "not_configured"
@@ -244,6 +252,11 @@ export function NewsPage({ locale, initialFeed, initialNow, eventId }: {
         </details> : null}
         {feed.updatedAt ? <p className={styles.verification}>{weekly ? (isAr ? "آخر تحقق أسبوعي: " : "Last weekly verification: ") : (isAr ? "آخر مزامنة: " : "Last synced: ")}{formatDate(feed.updatedAt, locale, timeZone)}</p> : null}
         {weekly && feed.resultsVerifiedAt ? <p className={styles.verification}>{isAr ? "آخر تحقق من النتائج: " : "Results checked: "}{formatDate(feed.resultsVerifiedAt, locale, timeZone)}</p> : null}
+        {weekly && feed.officialUpdates ? <p className={styles.verification} role={feed.officialUpdates === "delayed" ? "status" : undefined}>
+          {feed.officialUpdates === "active"
+            ? (isAr ? "فحص المصادر الرسمية كل دقيقة حول موعد الإصدار؛ تحديث الصفحة كل 15 ثانية أثناء عرضها. قد يتأخر المصدر أو التحقق من الخطابات." : "Official sources checked every minute around releases; this visible page refreshes every 15 seconds. Sources and speech verification may be delayed.")
+            : (isAr ? "تحديث النتائج متأخر حالياً. تُحفظ آخر النتائج المؤكدة." : "Result updates are currently delayed. Last confirmed results are retained.")}
+        </p> : null}
         {user && !weekly ? <div className="mt-6"><NewsPreferences key={`${user.id}:${available}`} locale={locale} /></div> : null}
         <p className={styles.disclaimer}>{isAr ? "قد تتغير المواعيد. النتيجة لا تحدد اتجاه السوق." : "Times may change. A result does not determine market direction."}</p>
       </div>

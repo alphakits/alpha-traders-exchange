@@ -278,9 +278,9 @@ export function readMobileBearerToken(request: NextRequest) {
   return match?.[1] ?? null;
 }
 
-export async function readMobileJsonBody(request: NextRequest) {
+export async function readMobileJsonBody(request: NextRequest, maxBytes = 16_384) {
   try {
-    const value: unknown = JSON.parse(await readLimitedRequestText(request, 16_384));
+    const value: unknown = JSON.parse(await readLimitedRequestText(request, maxBytes));
     if (!value || Array.isArray(value) || typeof value !== "object") return null;
     return value as Record<string, unknown>;
   } catch {

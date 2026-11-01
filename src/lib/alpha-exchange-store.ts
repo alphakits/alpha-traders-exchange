@@ -6,7 +6,7 @@ import { materializeCommissionShortfalls } from "./commission-shortfall-ledger";
 import type { BankTransferProvider, WiseUsdAccount, WiseUsdAccountSnapshot } from "@/types/wise";
 import { parseWiseUsdAccountDetails, maskWiseUsdAccount, createWiseUsdAccountSnapshot, getWiseUsdAccountFingerprint } from "@/lib/wise-bank-transfer";
 import { assertWisePaymentsRuntime, assertWiseListingShape, getReviewedWiseAccount, wiseAccountHasActiveUsage, assertWiseTradeSnapshotCurrent } from "@/lib/wise-store-policy";
-import { calculateTradeTermsQuote } from "@alpha-traders/contracts";
+import { calculateTradeTermsQuote, TRADE_CHAT_MESSAGE_MAX_LENGTH, OWNER_TRADE_CHAT_MESSAGE_MAX_LENGTH } from "@alpha-traders/contracts";
 import { requireManualCommissionOperationId } from "@/lib/manual-commission-operation";
 import { priceAlertSchema, priceAlertMatchesListing, readMarketplacePriceAlert, type MarketplacePriceAlert } from "@/lib/marketplace-price-alert";
 import { accountSessionId, presentAccountSession } from "@/lib/account-session-presentation";
@@ -48,6 +48,7 @@ import { computeListingReliability, type ListingReliability } from "@/lib/listin
 import { compareMarketplaceSellers } from "@/lib/marketplace-seller-order";
 import { getSellerPrestigeProgress, getSellerPublicVolumeLabel, resolveSellerPrestigeRank, resolveSellerPrestigeRankWithFloor, sellerPrestigeRankWeight } from "@/lib/seller-prestige";
 import { getBuyerPrestigeProgress } from "@/lib/buyer-rank";
+import { summarizeBuyerPurchases, validatedBuyerVolumeCredit } from "@/lib/buyer-purchase-progress";
 import {
   ALLOWED_LISTING_EXPIRATION_HOURS,
   COMMISSION_GRACE_PERIOD_DAYS,
@@ -60,6 +61,7 @@ import { runEnvValidation } from "@/lib/env-validation";
 import { getAlphaExchangeRepository, type SnapshotTableName, type TradeLifecycleTransaction } from "@/lib/alpha-exchange-repository";
 import { addRole, dedupeRoles, hasRole, isUserRole, normalizeRolesForUser, removeRole, resolvePrimaryRole } from "@/lib/roles";
 import { publishRealtimeEvent } from "@/lib/realtime";
+import { scheduleBrowserPushDelivery } from "@/lib/browser-push";
 import { scheduleMobilePushDelivery } from "@/lib/mobile-push";
 import { scheduleWhatsAppNotificationDelivery } from "@/lib/whatsapp-notifications";
 import { isWhatsAppSendingEnabled } from "@/lib/whatsapp-platform";
@@ -998,6 +1000,45 @@ function containsCardlessCredentialLikeContent(value: string) {
   return /(?:^|\D)\d(?:[\s\-–—_.:/\u200B-\u200D\u2060]*\d){3,11}(?:\D|$)/.test(normalized);
 }
 
+const CARDLESS_CHAT_CODE_SEPARATOR = String.raw`[\s()\-–—_.:/\u200B-\u200D\u2060]*`;
+const CARDLESS_CHAT_CODE_SOURCE = String.raw`\d(?:${CARDLESS_CHAT_CODE_SEPARATOR}\d){3,11}(?!\d)`;
+const CARDLESS_CHAT_LABEL_SOURCE = String.raw`(?<![\p{L}\p{N}_])(?:(?:withdrawal|cardless|atm|verification|security)[\s-]+(?:code|pin)|code|pin|otp|(?:ال)?(?:رمز|كود)(?:\s+(?:السحب|التحقق|الصراف))?)(?![\p{L}\p{N}_])`;
+const CARDLESS_CHAT_LABEL_CONNECTOR = String.raw`[\s:：=#\-–—]*(?:(?:is|هو|هي)(?![\p{L}\p{N}_])[\s:：=#\-–—]*(?:the\s+)?)?`;
+const EXPLICIT_CARDLESS_CHAT_CODE = new RegExp(
+  `${CARDLESS_CHAT_LABEL_SOURCE}${CARDLESS_CHAT_LABEL_CONNECTOR}(?:(?:https?://|tel:|sms:)[^\\s]*?)?\\+?\\s*\\(?${CARDLESS_CHAT_CODE_SOURCE}`
+  + `|${CARDLESS_CHAT_CODE_SOURCE}${CARDLESS_CHAT_LABEL_CONNECTOR}(?:the\\s+)?${CARDLESS_CHAT_LABEL_SOURCE}`,
+  "iu",
+);
+
+function containsOwnerCardlessCredential(value: string, request: PurchaseRequest) {
+  const normalized = normalizeCardlessDigits(value);
+  if (containsCardlessCredentialLikeContent(redactPrivateContactDetails(normalized))) return true;
+  // A phone-shaped number remains a withdrawal credential when explicitly
+  // labelled as one. References to the protected action followed by an ordinary
+  // contact sentence remain allowed; the label must directly introduce the value.
+  if (EXPLICIT_CARDLESS_CHAT_CODE.test(normalized.replace(/[ـ\u064B-\u065F\u0670]/g, ""))) return true;
+  // The canonical protected code must never be copied into generic chat, even
+  // inside a phone/URL span. Read it only on the server and never publish it.
+  for (const message of request.messages ?? []) {
+    if (message.credentialKind !== "cardless_code") continue;
+    const payload = decryptCardlessCredential(message.message, request.id, message.id);
+    if (!payload) continue;
+    let code = payload;
+    if (!/^\d{4,12}$/.test(code)) {
+      try {
+        const details = JSON.parse(payload) as { withdrawalCode?: unknown } | null;
+        code = typeof details?.withdrawalCode === "string" ? details.withdrawalCode : "";
+      } catch { continue; }
+    }
+    code = normalizeCardlessDigits(code).replace(/\s/g, "");
+    if (/^\d{4,12}$/.test(code)) {
+      const formattedCode = code.split("").join(CARDLESS_CHAT_CODE_SEPARATOR);
+      if (new RegExp(`(?<!\\d)${formattedCode}(?!\\d)`).test(normalized)) return true;
+    }
+  }
+  return false;
+}
+
 function sanitizeTradeRoomMessageForCounterparty(
   message: TradeChatMessage,
   canViewPrivateContent: boolean,
@@ -1016,7 +1057,7 @@ function sanitizeTradeRoomMessageForCounterparty(
             const payload = decryptCardlessCredential(message.message, message.purchaseRequestId, message.id);
             return formatCardlessWithdrawalPayload(payload);
           })()
-      : canViewPrivateContent ? message.message : redactExchangeUserContent(message.message),
+      : canViewPrivateContent || message.senderRole === "owner" ? message.message : redactExchangeUserContent(message.message),
     payloadHash: undefined,
     imageUrl: hasSafeImage ? message.imageUrl : undefined,
     imageMimeType: hasSafeImage ? imageMimeType : undefined,
@@ -1811,9 +1852,10 @@ function buildPublicUserProfileDataForUser(input: {
   const trustSnapshot = input.trustSnapshot ?? (isTrustEligibleSeller(user) ? computeSellerReputationSnapshot(db, user.id) : null);
   const buyerRequests = db.purchaseRequests.filter((request) => request.buyerId === user.id);
   const sellerRequests = db.purchaseRequests.filter((request) => request.sellerId === user.id);
-  const completedAsBuyer = buyerRequests.filter((request) => request.status === "completed" || Boolean(request.completedAt) || isOwnerAttestedHistoricalCompletion(request)).length;
+  const buyerActivity = summarizeBuyerPurchases(buyerRequests, user.id, db.sellerReviews);
+  const completedAsBuyer = buyerActivity.completedTrades;
   const completedAsSeller = sellerRequests.filter((request) => request.status === "completed" || Boolean(request.completedAt) || isOwnerAttestedHistoricalCompletion(request)).length;
-  const reviewsWritten = buyerRequests.filter((request) => Boolean(request.buyerReview)).length;
+  const reviewsWritten = buyerActivity.reviewsGiven;
   const reviewsReceived = sellerRequests.filter((request) => Boolean(request.buyerReview)).length;
 
   const showStats = user.showTradeStats !== false || canBypassVisibility;
@@ -1834,9 +1876,7 @@ function buildPublicUserProfileDataForUser(input: {
       sellerStatus: user.sellerStatus,
       sellerApprovalVerified,
       roleBadge: accountRoleIdentity(user),
-      buyerRank: getBuyerPrestigeProgress(buyerRequests
-        .filter((request) => ["completed", "review_open", "locked"].includes(request.status) || Boolean(request.completedAt))
-        .reduce((total, request) => total + toNumber(request.usdtAmount), 0)).rank,
+      buyerRank: getBuyerPrestigeProgress(buyerActivity.lifetimeCompletedVolumeUsdt).rank,
       memberSince: user.createdAt,
       lastActiveAt: presence.lastActiveAt ?? null,
       lastSeenAt: presence.lastSeenAt ?? null,
@@ -5316,21 +5356,50 @@ function publishOrDeferNotification(db: AlphaExchangeDb, publication: DeferredNo
 
 function publishNotificationPublication(publication: DeferredNotificationPublication | null | undefined) {
   if (!publication) return;
+  // Persistence owns the operation's outcome. One failed delivery channel
+  // must not turn an already committed payment/trade into an apparent failure
+  // or prevent the remaining channels and notifications from being attempted.
+  const deliver = (channel: "realtime" | "mobile_push" | "browser_push" | "whatsapp", publish: () => void) => {
+    try {
+      publish();
+    } catch {
+      try {
+        logEvent("warn", {
+          event: "notification_publication",
+          outcome: "failed",
+          reason: "delivery_schedule_failed",
+          resourceId: publication.notification.id,
+          metadata: { channel },
+        });
+      } catch {
+        // Logging is also best effort; never expose provider errors or payloads.
+      }
+    }
+  };
   if (publication.notification.whatsappChannelOnly !== true) {
-    publishRealtimeEvent({
+    deliver("realtime", () => publishRealtimeEvent({
       type: publication.type,
       payload: { notification: sanitizeNotificationForClient(publication.notification) },
-    });
+    }));
   }
   // A burst of trade-room chat reuses one notification row and advances its
   // persisted updatedAt value. The mobile outbox keys each revision so every
   // new message can alert the device while duplicate publications stay safe.
   if (publication.notification.whatsappChannelOnly !== true) {
-    scheduleMobilePushDelivery(publication.notification);
+    deliver("mobile_push", () => scheduleMobilePushDelivery(publication.notification));
+    deliver("browser_push", () => scheduleBrowserPushDelivery());
   }
   // WhatsApp delivery independently re-reads the canonical notification,
   // participant, verified destination and current consent before sending.
-  scheduleWhatsAppNotificationDelivery(publication.notification);
+  deliver("whatsapp", () => scheduleWhatsAppNotificationDelivery(publication.notification));
+}
+
+/** Publish new notifications only after their owning transaction commits. */
+export function publishCommittedNotifications(notifications: readonly AlphaExchangeNotification[]) {
+  for (const notification of notifications) {
+    if (notification.isRead || notification.state === "read" || notification.state === "archived") continue;
+    publishNotificationPublication({ type: "notification.created", notification });
+  }
 }
 
 function pushNotification(
@@ -5958,7 +6027,7 @@ function enrichRequestWithEvidence(db: AlphaExchangeDb, request: PurchaseRequest
     buyerEvidence: db.tradeEvidenceFiles.find(item => item.purchaseRequestId === request.id && item.side === "buyer"),
     sellerEvidence: db.tradeEvidenceFiles.find(item => item.purchaseRequestId === request.id && item.side === "seller"),
     timeline: (request.timeline ?? []).map(entry => ({ ...entry, message: visibleText(entry.message) })),
-    messages: (request.messages ?? []).map(message => ({ ...message, message: message.credentialKind ? message.message : authoredText(message.message) })),
+    messages: (request.messages ?? []).map(message => ({ ...message, message: message.credentialKind || (message.senderRole === "owner" && isPublicOwnerIdentity(db.users.find(user => user.id === message.senderUserId))) ? message.message : authoredText(message.message) })),
     closeReason: visibleText(request.closeReason),
     closeExplanation: authoredText(request.closeExplanation),
     buyerReview: request.buyerReview ? { ...request.buyerReview, comment: authoredText(request.buyerReview.comment), hiddenReason: authoredText(request.buyerReview.hiddenReason) } : undefined,
@@ -11518,6 +11587,7 @@ const SELLER_WALLET_VISIBLE_STATUSES = new Set<PurchaseRequestStatus>([
 
 export function sanitizePurchaseRequestForActor(request: PurchaseRequest, actorUserId: string, actorRole: UserRole) {
   const canViewPrivateContent = actorRole === "owner";
+  const buyerVolumeCredit = validatedBuyerVolumeCredit(request);
   const canViewConfidentialCredential = request.status === "payment_sent"
     && (request.buyerId === actorUserId || request.sellerId === actorUserId);
   const canViewBuyerContact = canViewPrivateContent;
@@ -11531,6 +11601,10 @@ export function sanitizePurchaseRequestForActor(request: PurchaseRequest, actorU
     historicalCompletion: canViewPrivateContent ? request.historicalCompletion : undefined,
     historicalCompletionSummary: isOwnerAttestedHistoricalCompletion(request) ? {
       source: "owner_attestation", recordedAt: request.historicalCompletion!.recordedAt, fiatAmountBasis: "saved_quote_reconstruction",
+    } : undefined,
+    buyerVolumeCredit: canViewPrivateContent ? request.buyerVolumeCredit : undefined,
+    buyerVolumeCreditSummary: buyerVolumeCredit ? {
+      source: "owner_attestation", recordedAt: buyerVolumeCredit.recordedAt, creditedUsdtAmount: buyerVolumeCredit.creditedUsdtAmount,
     } : undefined,
     sellerBankAccountSnapshot: undefined,
     sellerWiseAccountSnapshot: undefined,
@@ -12115,7 +12189,7 @@ export async function getTradeRoomData(input: {
     ...(identityActors ? { ownerIdentityLabels: Object.fromEntries(db.users.filter(user => identityActors.has(user.id))
       .map(user => [user.id, accountNameForViewer(user, viewer)])) } : {}),
     messages: messages.map((message) => sanitizeTradeRoomMessageForCounterparty(
-      { ...message, message: message.credentialKind ? message.message : visibleMessageText(message.message) },
+      { ...message, message: message.credentialKind || (message.senderRole === "owner" && isPublicOwnerIdentity(db.users.find(user => user.id === message.senderUserId))) ? message.message : visibleMessageText(message.message) },
       canViewPrivateContent,
       request.status === "payment_sent" && (request.buyerId === input.actorUserId || request.sellerId === input.actorUserId),
     )),
@@ -12550,8 +12624,15 @@ export async function postTradeRoomMessage(input: {
   messageSide(db, request);
 
   const message = input.message.trim();
-  if (message.length > 1200) throw new Error("Message is too long.");
-  assertNoExchangeDirectContact(message, input.imageUrl);
+  // Apply the privilege to canonical server accounts only, and recheck it under
+  // the transaction lock below so a concurrent owner revocation cannot bypass it.
+  const validateMessagePolicy = (snapshot: AlphaExchangeDb) => {
+    const owner = isPublicOwnerIdentity(snapshot.users.find(user => user.id === input.actorUserId));
+    if (message.length > (owner ? OWNER_TRADE_CHAT_MESSAGE_MAX_LENGTH : TRADE_CHAT_MESSAGE_MAX_LENGTH)) throw new Error("Message is too long.");
+    if (!owner) assertNoExchangeDirectContact(message, input.imageUrl);
+    return owner;
+  };
+  validateMessagePolicy(db);
   const image = parseTradeRoomImageDataUrl(input.imageUrl, input.imageMimeType);
   if (!message && !image) throw new Error("Message or image is required.");
   const suppliedClientMessageId = String(input.clientMessageId ?? "").trim().toLowerCase();
@@ -12586,6 +12667,7 @@ export async function postTradeRoomMessage(input: {
     if (canonicalRequestIndex === -1) throw new Error("Trade not found.");
     const canonicalRequest = snapshot.purchaseRequests[canonicalRequestIndex];
     const canonicalParticipantSide = messageSide(snapshot, canonicalRequest);
+    const canonicalOwner = validateMessagePolicy(snapshot);
     const canonicalRecipientUserId = canonicalParticipantSide === "buyer" ? canonicalRequest.sellerId : canonicalRequest.buyerId;
     const existingMessage = canonicalRequest.messages?.find((candidate) => candidate.id === messageId);
     if (existingMessage) {
@@ -12619,6 +12701,7 @@ export async function postTradeRoomMessage(input: {
     }
     if (
       canonicalParticipantSide === "buyer"
+      && !canonicalOwner
       && canonicalRequest.status === "accepted"
       && isCardlessAtmPaymentMethod(canonicalRequest.paymentMethod)
     ) {
@@ -12628,7 +12711,8 @@ export async function postTradeRoomMessage(input: {
     }
     if (
       isCardlessAtmPaymentMethod(canonicalRequest.paymentMethod)
-      && (containsCardlessCredentialLikeContent(message) || Boolean(image))
+      && ((canonicalOwner ? containsOwnerCardlessCredential(message, canonicalRequest)
+        : containsCardlessCredentialLikeContent(message)) || Boolean(image))
     ) {
       throw new TradeBlockedError("cardless-code-chat-blocked", "Withdrawal codes and code images must use the protected withdrawal-code action.", canonicalRequest.id, {
         guard: "cardless-code-never-generic-chat",
@@ -12641,7 +12725,7 @@ export async function postTradeRoomMessage(input: {
       purchaseRequestId: canonicalRequest.id,
       kind: "user",
       senderUserId: input.actorUserId,
-      senderRole: canonicalParticipantSide === "owner" ? "owner" : canonicalParticipantSide === "buyer" ? "buyer" : "approved_seller",
+      senderRole: canonicalOwner ? "owner" : canonicalParticipantSide === "buyer" ? "buyer" : "approved_seller",
       message,
       payloadHash,
       createdAt,
@@ -12980,26 +13064,15 @@ export interface SellerAccountStats {
 }
 
 function buildBuyerActivityStats(db: AlphaExchangeDb, userId: string): BuyerActivityStats {
-  const buyerRequests = db.purchaseRequests.filter((request) => request.buyerId === userId);
-  const completedBuyerRequests = buyerRequests.filter(
-    (request) => request.status === "completed" || request.status === "review_open" || request.status === "locked" || Boolean(request.completedAt),
-  );
-  const lifetimeCompletedVolumeUsdt = roundUsdt(
-    completedBuyerRequests.reduce((total, request) => total + toNumber(request.usdtAmount), 0),
-  );
-  const buyerProgress = getBuyerPrestigeProgress(lifetimeCompletedVolumeUsdt);
+  const activity = summarizeBuyerPurchases(db.purchaseRequests, userId, db.sellerReviews);
+  const buyerProgress = getBuyerPrestigeProgress(activity.lifetimeCompletedVolumeUsdt);
   return {
+    ...activity,
     buyerLevel: buyerProgress.rank,
     nextLevel: buyerProgress.nextRank,
     progressToNextLevelPercent: Number(buyerProgress.progressPercent.toFixed(2)),
-    amountToNextLevelUsdt: roundUsdt(buyerProgress.remainingVolumeUsdt),
-    requiredVolumeUsdt: roundUsdt(buyerProgress.requiredVolumeUsdt),
-    lifetimeCompletedVolumeUsdt,
-    activeTrades: buyerRequests.filter(
-      (request) => !["completed", "review_open", "locked", "declined", "cancelled"].includes(request.status),
-    ).length,
-    completedTrades: completedBuyerRequests.length,
-    reviewsGiven: completedBuyerRequests.filter((request) => hasBuyerReviewSubmitted(db, request)).length,
+    amountToNextLevelUsdt: Number(buyerProgress.remainingVolumeUsdt.toFixed(6)),
+    requiredVolumeUsdt: buyerProgress.requiredVolumeUsdt,
   };
 }
 
@@ -19100,13 +19173,12 @@ export function prepareHistoricalTradeSnapshotForOwner(db: AlphaExchangeDb, inpu
     }
   }
   const reconciledSeller = snapshot.users[sellerIndex];
-  const buyerRequests = snapshot.purchaseRequests.filter(request => request.buyerId === plan.summary.buyerId
-    && (["completed", "review_open", "locked"].includes(request.status) || Boolean(request.completedAt)));
-  const buyerVolume = Number(buyerRequests.reduce((sum, request) => sum + toNumber(request.usdtAmount), 0).toFixed(6));
+  const buyerActivity = summarizeBuyerPurchases(snapshot.purchaseRequests, plan.summary.buyerId, snapshot.sellerReviews);
+  const buyerVolume = buyerActivity.lifetimeCompletedVolumeUsdt;
   const derived = { seller: { id: seller.id, completedTrades: snapshot.purchaseRequests.filter(request => request.sellerId === seller.id
       && (["completed", "review_open", "locked"].includes(request.status) || Boolean(request.completedAt))).length,
     lifetimeCompletedVolumeUsdt: reconciledSeller.lifetimeCompletedVolumeUsdt, rank: reconciledSeller.sellerPrestigeRank },
-    buyer: { id: plan.summary.buyerId, completedTrades: buyerRequests.length, lifetimeCompletedVolumeUsdt: buyerVolume,
+    buyer: { id: plan.summary.buyerId, completedTrades: buyerActivity.completedTrades, lifetimeCompletedVolumeUsdt: buyerVolume,
       rank: getBuyerPrestigeProgress(buyerVolume).rank } };
   const operationSuffix = historicalReconciliationHash(input.operationId).slice(0, 32);
   const patch = {

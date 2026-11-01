@@ -230,7 +230,7 @@ describe("Trade Room client stability helpers", () => {
   it("mirrors server text limits and handles clipboard failures inside the Trade Room", () => {
     const source = readFileSync(join(process.cwd(), "src/components/sections/trade-room/trade-room-page.tsx"), "utf8");
 
-    expect(source).toContain('maxLength={1200}');
+    expect(source).toContain('maxLength={isOwnerChat ? OWNER_TRADE_CHAT_MESSAGE_MAX_LENGTH : TRADE_CHAT_MESSAGE_MAX_LENGTH}');
     expect(source).toContain('maxLength={1000}');
     expect(source.match(/maxLength=\{500\}/g)).toHaveLength(3);
     expect(source).toContain("await navigator.clipboard.writeText(chatDraft)");

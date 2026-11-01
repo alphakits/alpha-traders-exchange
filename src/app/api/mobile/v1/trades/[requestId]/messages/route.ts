@@ -20,7 +20,8 @@ import {
 } from "@/lib/marketplace-email-events";
 import { checkRateLimit, checkSharedRateLimit } from "@/lib/rate-limit";
 import { logEvent } from "@/lib/structured-logging";
-import { publicAccountId } from "@/lib/public-account-identity";
+import { isPublicOwnerIdentity, publicAccountId } from "@/lib/public-account-identity";
+import { TRADE_CHAT_MESSAGE_MAX_LENGTH, OWNER_TRADE_CHAT_MESSAGE_MAX_LENGTH } from "@alpha-traders/contracts";
 
 type RouteContext = {
   params: Promise<{ requestId: string }>;
@@ -43,12 +44,16 @@ export async function POST(request: NextRequest, context: RouteContext) {
     const auth = await requireMobileApiUser(request, requestId, metadata);
     if (!auth.user) return auth.unauthorized;
 
-    const body = await readMobileJsonBody(request);
+    const isOwner = isPublicOwnerIdentity(auth.user);
+    // UTF-8 can require four bytes per character. Only a server-authenticated
+    // Owner receives this larger bounded budget; all other mobile bodies retain 16 KiB.
+    const body = await readMobileJsonBody(request, isOwner ? OWNER_TRADE_CHAT_MESSAGE_MAX_LENGTH * 4 + 1024 : 16_384);
     const message = typeof body?.message === "string" ? body.message.trim() : "";
     const clientMessageId = typeof body?.clientMessageId === "string"
       ? body.clientMessageId.trim().toLowerCase()
       : "";
-    if (!message || message.length > 1200 || !CLIENT_MESSAGE_ID_PATTERN.test(clientMessageId)) {
+    const messageLimit = isOwner ? OWNER_TRADE_CHAT_MESSAGE_MAX_LENGTH : TRADE_CHAT_MESSAGE_MAX_LENGTH;
+    if (!message || message.length > messageLimit || !CLIENT_MESSAGE_ID_PATTERN.test(clientMessageId)) {
       return mobileError("MESSAGE_INVALID", requestId, locale, 400);
     }
 

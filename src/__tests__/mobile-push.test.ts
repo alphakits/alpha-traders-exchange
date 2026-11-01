@@ -27,6 +27,35 @@ function notification(overrides: Partial<AlphaExchangeNotification> = {}): Alpha
 }
 
 describe("native lock-screen push payloads", () => {
+  it.each(["en", "ar"] as const)("uses fixed private test copy and the notification inbox in %s", locale => {
+    const message = buildExpoPushMessage(notification({
+      id: "push-test:11111111-1111-4111-8111-111111111111", category: "system", title: "Test notification",
+      reason: "push_test", relatedRequestId: undefined, actionHref: `/${locale}/notifications`,
+    }), { expoPushToken: "ExponentPushToken[abcdefghijklmnop]", locale });
+    expect(message.title).toBe(locale === "ar" ? "إشعار تجريبي" : "Test notification");
+    expect(message.body).toContain(locale === "ar" ? "تنبيه تجريبي" : "test alert");
+    expect(message.data.url).toBe(`https://www.alphatraders.co.il/${locale}/notifications`);
+    expect(message.data).not.toHaveProperty("reviewEligible");
+    expect(message.data).not.toHaveProperty("tradeReference");
+    expect(JSON.stringify(message)).not.toContain("SENSITIVE_");
+  });
+  it.each([
+    ["New USDT request", "New USDT request", "طلب USDT جديد"],
+    ["New response to your USDT request", "New response to your USDT request", "رد جديد على طلب USDT الخاص بك"],
+    ["USDT request cancelled", "USDT request cancelled", "تم إلغاء طلب USDT"],
+    ["Response to your USDT request withdrawn", "Response withdrawn", "تم سحب رد على طلبك"],
+    ["Your USDT request expired", "Your USDT request expired", "انتهت صلاحية طلب USDT الخاص بك"],
+  ])("explains %s with private bilingual request copy", (title, english, arabic) => {
+    for (const locale of ["en", "ar"] as const) {
+      const message = buildExpoPushMessage(notification({ category: "listing", title }), {
+        expoPushToken: "ExponentPushToken[abcdefghijklmnop]", locale,
+      });
+      expect(message.title).toBe(locale === "ar" ? arabic : english);
+      expect(message.body.length).toBeGreaterThan(20);
+      expect(JSON.stringify(message)).not.toContain("SENSITIVE_");
+    }
+  });
+
   it.each(["en", "ar"] as const)("announces seller approval in %s without exposing account details", (locale) => {
     const message = buildExpoPushMessage(notification({
       category: "application", title: "Seller application approved", relatedRequestId: undefined,

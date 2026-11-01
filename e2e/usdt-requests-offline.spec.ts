@@ -1158,6 +1158,7 @@ test("buyer can keep or cancel a request and then publish it again after the coo
   ]);
   expect(cancellation.status(), await cancellation.text()).toBe(200);
   await expect(page.getByRole("button", { name: "Confirm cancellation", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("status").filter({ hasText: "Request cancelled." })).toHaveText("Request cancelled. Its publication still counts toward your 24-hour limit.");
   expect((await state(page.request)).usdtDemands?.find(item => item.id === demand.id)?.state).toBe("cancelled");
   await ageDemandPastCooldown(page.request, demand.id); await page.reload();
   await page.getByRole("button", { name: "Publish again", exact: true }).click();
@@ -1233,7 +1234,20 @@ test("12-hour requests allow free edits, enforce two publications, and lock afte
       expect((await state(buyerTwo)).purchaseRequests).toHaveLength(1);
       expect((await state(buyerTwo)).usdtDemands!.find(item => item.id === other.id)).toEqual(saved);
     } finally { await buyerTwo.dispose(); }
-    await page.goto(`/en/usdt-exchange/requests/${demand.id}`);
+    // A native WebKit refusal can arrive while this hard navigation tears
+    // down the old market poll. Require the new document's exact same-origin
+    // feed to succeed before classifying that bounded cancellation.
+    await browserErrorAudit.navigate(page, () => page.goto(`/en/usdt-exchange/requests/${demand.id}`), {
+      url: new URL("/api/market/center", baseURL).href,
+      label: "offline market feed",
+      validateBody: (body) => {
+        const snapshot = body as { snapshot?: { pairs?: Record<string, { price?: number }> } } | null;
+        return ["btcUsdt", "ethUsdt", "usdtIls"].every((key) => {
+          const price = snapshot?.snapshot?.pairs?.[key]?.price;
+          return typeof price === "number" && Number.isFinite(price) && price > 0;
+        });
+      },
+    });
     await expect(page.getByTestId("request-card")).toBeVisible();
     await page.screenshot({ path: info.outputPath("two-request-policy.png"), fullPage: true });
   } finally { await seller.dispose(); }

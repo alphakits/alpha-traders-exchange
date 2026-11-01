@@ -1,17 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AlphaExchangeDb, AlphaExchangeUser, MarketplaceListing, PurchaseRequest } from "@/types/alpha-exchange";
 vi.mock("@/lib/postgres-runtime", () => ({ getRuntimePostgresPool: () => null }));
-import { derivePublicProfileUsername, getAccountProfileData, updateAccountProfileData, createPurchaseRequest, getMarketplaceListings, getMyPurchaseRequests, getNotificationsForUser, getTradeRoomData, getPremiumSellerProfile, getPublicUserProfileRouteData, getTrustEngineOverviewForAdmin, invalidateAlphaExchangeStoreCache } from "@/lib/alpha-exchange-store";
+import { derivePublicProfileUsername, getAccountProfileData, updateAccountProfileData, createPurchaseRequest, getMarketplaceListings, getMyPurchaseRequests, getNotificationsForUser, getTradeRoomData, getPremiumSellerProfile, getPublicUserProfileRouteData, getTrustEngineOverviewForAdmin, invalidateAlphaExchangeStoreCache, sanitizePurchaseRequestForActor } from "@/lib/alpha-exchange-store";
 import { publicAccountId } from "@/lib/public-account-identity";
-import { toMobileAccountProfile } from "@/lib/mobile-account-profile";
+import { toMobileAccountProfile, toMobileAccountStats } from "@/lib/mobile-account-profile";
 import { toMobileTradeDetail } from "@/lib/mobile-trades";
+import { demandIdentityProjector } from "@/lib/usdt-demand-identity";
 
 const now = new Date().toISOString();
 function user(id: string, seller = false): AlphaExchangeUser {
   return { id, fullName: id, buyerDisplayName: id, email: `${id}@example.test`, passwordHash: "hash", whatsappNumber: "", role: seller ? "approved_seller" : "buyer", roles: [seller ? "approved_seller" : "buyer"], sellerStatus: seller ? "approved_seller" : "buyer", createdAt: now, updatedAt: now, emailVerified: true, onlineStatus: "online", availabilityStatus: "available", preferredNetworks: [], languages: ["English"], bio: "", profilePhotoUrl: "", sellerPrestigeRank: "bronze", lifetimeCompletedVolumeUsdt: 0 } as AlphaExchangeUser;
 }
 function trade(id: string, amount: string, status: PurchaseRequest["status"], sellerId = "seller-one"): PurchaseRequest {
-  return { id, buyerId: "buyer-one", buyerName: "Buyer One", sellerId, listingId: "removed-listing", usdtAmount: amount, pricePerUsdt: "3.20", fiatAmount: String(Number(amount) * 3.2), currency: "ILS", network: "TRC20", paymentMethod: "Face-to-Face", status, createdAt: now, updatedAt: now, timeline: [] } as PurchaseRequest;
+  return { id, buyerId: "buyer-one", buyerName: "Buyer One", sellerId, listingId: "removed-listing", usdtAmount: amount, pricePerUsdt: "3.20", fiatAmount: String(Number(amount) * 3.2), currency: "ILS", network: "TRC20", paymentMethod: "Face-to-Face", status, completedAt: status === "review_open" || status === "locked" ? now : undefined, createdAt: now, updatedAt: now, timeline: [] } as PurchaseRequest;
 }
 function seed() {
   const listing = { id: "active-listing", sellerId: "seller-one", sellerDisplayName: "seller-one", photos: [], availableAmount: "1000", originalAmount: "1000", sellerDescription: "", responseTime: "Fast", price: "3.20", currency: "ILS", network: "TRC20", paymentMethod: "Face-to-Face", paymentMethods: ["Face-to-Face"], minimumTrade: "50", maximumTrade: "1000", status: "active", approvalStatus: "approved", createdAt: now, updatedAt: now, expiresAt: new Date(Date.now() + 86_400_000).toISOString() } as MarketplaceListing;
@@ -21,6 +22,51 @@ beforeEach(() => { globalThis.__alphaExchangeMemorySnapshot = seed() as never; g
 afterEach(() => { invalidateAlphaExchangeStoreCache(); globalThis.__alphaExchangeMemorySnapshot = undefined as never; globalThis.__alphaExchangeRepositoryPromise = undefined as never; });
 
 describe("account rank consistency and privacy", () => {
+  it.each(["buyer-one", "seller-one"])("applies the complete attested buyer volume consistently for %s without changing financial history", async buyerId => {
+    const db = seed();
+    const sellerId = buyerId === "seller-one" ? "seller-two" : "seller-one";
+    const request = { ...trade("credited-purchase", "14672.940267", "completed", sellerId), buyerId };
+    request.buyerVolumeCredit = { source: "owner_attestation", operationId: "profile-buyer-credit-0001", inputFingerprint: "a".repeat(64),
+      recordedAt: now, recordedByUserId: "owner-private", reason: "Private operator evidence", requestId: request.id, buyerId,
+      settledUsdtAmount: request.usdtAmount, creditedUsdtAmount: "15000" };
+    db.purchaseRequests = [request, { ...trade("other-purchase", "327.059733", "completed", sellerId), buyerId: "buyer-two" }];
+    globalThis.__alphaExchangeMemorySnapshot = db as never;
+    invalidateAlphaExchangeStoreCache();
+    const account = await getAccountProfileData(buyerId);
+    const activity = account.stats.kind === "seller" ? account.stats.buyerActivity : account.stats;
+    expect(activity).toMatchObject({ buyerLevel: "silver", lifetimeCompletedVolumeUsdt: 15000, completedTrades: 1, activeTrades: 0, reviewsGiven: 0, amountToNextLevelUsdt: 35000 });
+    const mobile = toMobileAccountStats(account.stats);
+    expect(mobile.kind === "seller" ? mobile.buyerActivity : mobile).toMatchObject({ level: "silver", lifetimeCompletedVolumeUsdt: 15000, completedTrades: 1 });
+    expect((await getPublicUserProfileRouteData({ username: derivePublicProfileUsername({ id: buyerId }), viewerUserId: "buyer-two" }))?.profile.buyerRank).toBe("silver");
+    const identity = demandIdentityProjector(db, "buyer-two")(buyerId);
+    expect(identity).toMatchObject({ completedPurchases: 1, buyerProgress: { rank: "silver", nextRank: "gold", progressPercent: 0 } });
+    expect((await getAccountProfileData("buyer-two")).stats).toMatchObject({ buyerLevel: "bronze", lifetimeCompletedVolumeUsdt: 327.059733, completedTrades: 1 });
+    const sold = await getAccountProfileData(sellerId);
+    expect(sold.stats).toMatchObject({ kind: "seller", lifetimeCompletedVolumeUsdt: 15000 });
+    expect(request.usdtAmount).toBe("14672.940267");
+    for (const role of ["buyer", "approved_seller", "admin"] as const) {
+      const visible = sanitizePurchaseRequestForActor(request, buyerId, role);
+      expect(visible.buyerVolumeCredit).toBeUndefined();
+      expect(visible.buyerVolumeCreditSummary).toEqual({ source: "owner_attestation", recordedAt: now, creditedUsdtAmount: "15000" });
+      expect(JSON.stringify(visible)).not.toMatch(/Private operator evidence|owner-private|profile-buyer-credit-0001|inputFingerprint/);
+    }
+    expect(sanitizePurchaseRequestForActor(request, "owner-private", "owner").buyerVolumeCredit).toEqual(request.buyerVolumeCredit);
+  });
+
+  it("keeps unfinished and malformed records from creating a different buyer rank across profile views", async () => {
+    const db = seed();
+    db.purchaseRequests = [trade("valid", "1000", "completed"), trade("negative", "-500000", "completed"), trade("malformed", "15000oops", "completed"),
+      { ...trade("uncompleted-review", "500000", "review_open"), completedAt: undefined },
+      { ...trade("uncompleted-locked", "500000", "locked"), completedAt: undefined }];
+    globalThis.__alphaExchangeMemorySnapshot = db as never;
+    invalidateAlphaExchangeStoreCache();
+    expect((await getAccountProfileData("buyer-one")).stats).toMatchObject({ buyerLevel: "bronze", lifetimeCompletedVolumeUsdt: 1000, completedTrades: 3 });
+    const profile = await getPublicUserProfileRouteData({ username: derivePublicProfileUsername({ id: "buyer-one" }), viewerUserId: "buyer-two" });
+    expect(profile?.profile.buyerRank).toBe("bronze");
+    expect(profile?.stats?.completedAsBuyer).toBe(3);
+    expect(demandIdentityProjector(db, "buyer-two")("buyer-one")).toMatchObject({ completedPurchases: 3, buyerProgress: { rank: "bronze" } });
+  });
+
   it("replaces fabricated cached statistics with current outcomes across public, private and owner views", async () => {
     const db = seed();
     db.purchaseRequests = Array.from({ length: 20 }, (_, index) => trade(`cancelled-${index}`, "10", "cancelled"));

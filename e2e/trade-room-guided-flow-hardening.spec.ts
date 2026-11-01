@@ -23,9 +23,27 @@ const ids = {
   listing: `gh-listing-${randomUUID()}`,
 };
 
-const sellerEmail = `${ids.seller}@example.test`;
-const buyerEmail = `${ids.buyer}@example.test`;
+let sellerEmail = `${ids.seller}@example.test`;
+let buyerEmail = `${ids.buyer}@example.test`;
 const trackedIds = new Set<string>(Object.values(ids));
+let loginIp = freshLoginIp();
+
+function freshLoginIp() {
+  // The isolated loopback runtime accepts documentation-range client identities.
+  // Keep one identity for every login in this test, without changing real limits.
+  return `2001:db8:${randomBytes(12).toString("hex").match(/.{4}/g)!.join(":")}`;
+}
+
+function startTestFixtures() {
+  ids.seller = `gh-seller-${randomUUID()}`;
+  ids.buyer = `gh-buyer-${randomUUID()}`;
+  ids.listing = `gh-listing-${randomUUID()}`;
+  sellerEmail = `${ids.seller}@example.test`;
+  buyerEmail = `${ids.buyer}@example.test`;
+  trackedIds.clear();
+  for (const id of Object.values(ids)) trackedIds.add(id);
+  loginIp = freshLoginIp();
+}
 
 const iso = (deltaMs = 0) => new Date(Date.now() + deltaMs).toISOString();
 
@@ -203,7 +221,7 @@ async function cleanupState(api: APIRequestContext) {
 
 async function login(request: APIRequestContext, email: string, password: string) {
   const response = await request.post("/api/auth/login", {
-    headers: { "x-forwarded-for": "198.51.100.20" },
+    headers: { "x-forwarded-for": loginIp },
     data: { email, password, rememberMe: true },
   });
   expect(response.ok(), `login failed for ${email}`).toBeTruthy();
@@ -526,9 +544,15 @@ test.describe.configure({ mode: "serial" });
 
 test.beforeEach(async () => {
   const api = await pwRequest.newContext({ baseURL: E2E_BASE_URL });
-  await cleanupState(api);
-  await provisionState(api);
-  await api.dispose();
+  try {
+    await cleanupState(api);
+    // Removing/recreating the same account does not clear the serving process's
+    // login buckets. Each case owns fresh users and one stable network identity.
+    startTestFixtures();
+    await provisionState(api);
+  } finally {
+    await api.dispose();
+  }
 });
 
 test.afterAll(async () => {
@@ -541,24 +565,72 @@ async function wheelAndSettle(page: Page, target: Locator, deltaY: number, obser
   await target.hover();
   const token = randomUUID();
   const initialTop = await target.evaluate(element => element.scrollTop);
-  if (observedEvent === "wheel") {
-    await target.evaluate((element, id) => {
-      element.addEventListener("wheel", () => element.setAttribute("data-scroll-audit", id), { once: true, passive: true });
-    }, token);
-  }
-  await page.mouse.wheel(0, deltaY);
-  const deadline = Date.now() + 5_000;
-  const remaining = () => Math.max(1, deadline - Date.now());
+  const diagnostics = await target.evaluateHandle((element, { id, event }) => {
+    // Geometry and element identifiers only; never record entered text or values.
+    const describe = (node: EventTarget | null) => node instanceof Element ? {
+      tag: node.tagName.toLowerCase(),
+      id: node.id.slice(0, 100),
+      testId: node.getAttribute("data-testid")?.slice(0, 100) ?? null,
+      ancestorTestId: node.closest("[data-testid]")?.getAttribute("data-testid")?.slice(0, 100) ?? null,
+    } : null;
+    const snapshot = () => {
+      const rect = element.getBoundingClientRect();
+      const x = (Math.max(0, rect.left) + Math.min(window.innerWidth, rect.right)) / 2;
+      const y = (Math.max(0, rect.top) + Math.min(window.innerHeight, rect.bottom)) / 2;
+      const hit = document.elementFromPoint(x, y);
+      const style = getComputedStyle(element);
+      return {
+        panel: describe(element), connected: element.isConnected,
+        rect: rect.toJSON(),
+        viewport: { width: window.innerWidth, height: window.innerHeight },
+        document: {
+          scrollX: window.scrollX, scrollY: window.scrollY,
+          scrollHeight: document.documentElement.scrollHeight,
+          focused: document.hasFocus(), visibility: document.visibilityState,
+        },
+        panelScroll: { top: element.scrollTop, height: element.scrollHeight, clientHeight: element.clientHeight },
+        style: { overflowY: style.overflowY, overscrollBehaviorY: style.overscrollBehaviorY },
+        visibleCenter: { x, y, hit: describe(hit), insidePanel: hit !== null && element.contains(hit) },
+      };
+    };
+    const before = snapshot();
+    const wheels: unknown[] = [];
+    const onDocumentWheel = (event: WheelEvent) => {
+      if (wheels.length >= 8) return;
+      wheels.push({
+        trusted: event.isTrusted,
+        deltaX: event.deltaX, deltaY: event.deltaY, deltaMode: event.deltaMode,
+        clientX: event.clientX, clientY: event.clientY,
+        target: describe(event.target),
+        hit: describe(document.elementFromPoint(event.clientX, event.clientY)),
+        insidePanel: event.target instanceof Node && element.contains(event.target),
+        panelTop: element.scrollTop, documentTop: window.scrollY,
+      });
+    };
+    document.addEventListener("wheel", onDocumentWheel, { capture: true, passive: true });
+    const observe = () => element.setAttribute("data-scroll-audit", id);
+    if (event === "wheel") element.addEventListener("wheel", observe, { once: true, passive: true });
+    return {
+      read: () => ({ before, after: snapshot(), wheels, status: element.getAttribute("data-scroll-audit") }),
+      dispose: () => {
+        document.removeEventListener("wheel", onDocumentWheel, true);
+        element.removeEventListener(event, observe);
+        element.removeAttribute("data-scroll-audit");
+      },
+    };
+  }, { id: token, event: observedEvent });
   try {
-    // Poll from the test runner: retained WebKit traces show 333 -> 413px
-    // movement while both scroll listeners and in-page animation-frame
-    // observers remain pending. The DOM position is the behavior we need.
+    await page.mouse.wheel(0, deltaY);
+    const deadline = Date.now() + 5_000;
+    const remaining = () => Math.max(1, deadline - Date.now());
+    // Poll from the driver: WebKit may move the scroller while in-page scroll
+    // listeners and animation-frame observers remain pending.
     if (observedEvent === "scroll") {
       await expect.poll(() => target.evaluate(element => element.scrollTop), {
         timeout: remaining(), intervals: [50, 100],
       }).not.toBe(initialTop);
     } else {
-      // No movement is expected at a boundary, so require actual wheel delivery.
+      // Boundary probes still require actual wheel delivery.
       await expect.poll(() => target.getAttribute("data-scroll-audit"), {
         timeout: remaining(), intervals: [50, 100],
       }).toBe(token);
@@ -576,9 +648,98 @@ async function wheelAndSettle(page: Page, target: Locator, deltaY: number, obser
       samples += 1;
       return samples >= 6 && Date.now() - stableSince >= 300;
     }, { timeout: remaining(), intervals: [50, 100] }).toBe(true);
+  } catch (error) {
+    try {
+      const snapshot = await diagnostics.evaluate(state => state.read());
+      await test.info().attach("chat-wheel-diagnostics", {
+        body: Buffer.from(JSON.stringify({ version: 1, deltaY, observedEvent, ...snapshot }, null, 2)),
+        contentType: "application/json",
+      });
+    } catch {
+      // A closed browser context must not replace the original wheel failure.
+    }
+    throw error;
   } finally {
-    await target.evaluate(element => element.removeAttribute("data-scroll-audit"));
+    await diagnostics.evaluate(state => state.dispose()).catch(() => {});
+    await diagnostics.dispose().catch(() => {});
   }
+}
+
+async function expectChatScrollIsolation(page: Page, messagePanel: Locator, locale: "en" | "ar", outsideList: Locator) {
+  await expect.poll(() => messagePanel.evaluate(element => element.scrollHeight - element.clientHeight)).toBeGreaterThan(300);
+  await messagePanel.hover();
+  // Both boundary probes need room for the document to move, otherwise
+  // an unconstrained scroller could appear to pass at a page boundary.
+  await page.evaluate(() => {
+    if (window.scrollY < 100) window.scrollTo({ top: 100, behavior: "instant" });
+  });
+  await messagePanel.hover();
+  const documentTop = await page.evaluate(() => window.scrollY);
+  expect(documentTop).toBeGreaterThan(30);
+  expect(await page.evaluate(() => document.documentElement.scrollHeight - window.innerHeight - window.scrollY)).toBeGreaterThan(30);
+
+  await messagePanel.evaluate(element => { element.scrollTop = (element.scrollHeight - element.clientHeight) / 2; });
+  const interiorTop = await messagePanel.evaluate(element => element.scrollTop);
+  // WebKit's retained failures scrolled correctly without invoking the new
+  // wheel listener. Observe actual inner scrolling for this positive control;
+  // boundary probes still require the wheel event because no scroll is
+  // expected there. All movement and containment assertions stay below.
+  await wheelAndSettle(page, messagePanel, 80, "scroll");
+  expect(await messagePanel.evaluate(element => element.scrollTop)).toBeGreaterThan(interiorTop + 10);
+  expect(await page.evaluate(() => window.scrollY)).toBeCloseTo(documentTop, 0);
+
+  await messagePanel.evaluate(element => { element.scrollTop = 0; });
+  await wheelAndSettle(page, messagePanel, -600);
+  expect(await messagePanel.evaluate(element => element.scrollTop)).toBe(0);
+  expect(await page.evaluate(() => window.scrollY)).toBeCloseTo(documentTop, 0);
+
+  await messagePanel.evaluate(element => { element.scrollTop = element.scrollHeight; });
+  await wheelAndSettle(page, messagePanel, 600);
+  expect(await messagePanel.evaluate(element => Math.abs(element.scrollHeight - element.clientHeight - element.scrollTop))).toBeLessThanOrEqual(1);
+  expect(await page.evaluate(() => window.scrollY)).toBeCloseTo(documentTop, 0);
+
+  // Keyboard access must operate the list, without trapping page navigation.
+  await expect(messagePanel).toHaveAttribute("role", "region");
+  await expect(messagePanel).toHaveAttribute("aria-label", locale === "ar" ? "رسائل الدردشة" : "Chat messages");
+  await messagePanel.evaluate(element => { element.scrollTop = 0; });
+  await messagePanel.focus();
+  await expect(messagePanel).toBeFocused();
+  await messagePanel.press("ArrowDown");
+  await expect.poll(() => messagePanel.evaluate(element => element.scrollTop)).toBeGreaterThan(0);
+  expect(await page.evaluate(() => window.scrollY)).toBeCloseTo(documentTop, 0);
+
+  // Hover outside the list; the ordinary document must remain scrollable.
+  await outsideList.hover();
+  const beforeOutside = await page.evaluate(() => window.scrollY);
+  expect(beforeOutside).toBeGreaterThan(30);
+  await page.mouse.wheel(0, -120);
+  await expect.poll(() => page.evaluate(() => window.scrollY), { timeout: 5_000 }).toBeLessThan(beforeOutside - 10);
+}
+
+async function expectParticipantManagementControls(page: Page, side: "buyer" | "seller", paymentLocked = false) {
+  const previousPosition = await page.evaluate(() => ({ top: window.scrollY, left: window.scrollX }));
+  const cancel = page.getByRole("button", { name: "Cancel Trade", exact: true });
+  await expect(cancel).toBeVisible();
+  await cancel.scrollIntoViewIfNeeded();
+  await expect(cancel).toBeInViewport();
+  const cancelBounds = await cancel.boundingBox();
+  expect(cancelBounds?.height).toBeGreaterThanOrEqual(44);
+  if (paymentLocked) await expect(cancel).toBeDisabled();
+  const adjust = page.getByRole("button", { name: "Adjust Amount", exact: true });
+  if (side === "seller") {
+    await expect(adjust).toBeVisible();
+    await adjust.scrollIntoViewIfNeeded();
+    await expect(adjust).toBeInViewport();
+    const adjustBounds = await adjust.boundingBox();
+    expect(adjustBounds?.height).toBeGreaterThanOrEqual(44);
+    if (paymentLocked) await expect(adjust).toBeDisabled();
+    else await expect(adjust).toBeEnabled();
+  } else {
+    // Buyers review seller proposals; they cannot initiate amount changes.
+    await expect(adjust).toHaveCount(0);
+  }
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.evaluate(position => window.scrollTo({ ...position, behavior: "instant" }), previousPosition);
 }
 
 for (const locale of ["en", "ar"] as const) {
@@ -621,59 +782,78 @@ for (const locale of ["en", "ar"] as const) {
         await expect(draft).toHaveValue("");
       }
       expect(await messagePanel.evaluate(element => element.clientHeight)).toBe(initialPanelHeight);
-      await expect.poll(() => messagePanel.evaluate(element => element.scrollHeight - element.clientHeight)).toBeGreaterThan(300);
-      await messagePanel.hover();
-      // Both boundary probes need room for the document to move, otherwise
-      // an unconstrained scroller could appear to pass at a page boundary.
-      await page.evaluate(() => {
-        if (window.scrollY < 100) window.scrollTo({ top: 100, behavior: "instant" });
-      });
-      await messagePanel.hover();
-      const documentTop = await page.evaluate(() => window.scrollY);
-      expect(documentTop).toBeGreaterThan(30);
-      expect(await page.evaluate(() => document.documentElement.scrollHeight - window.innerHeight - window.scrollY)).toBeGreaterThan(30);
-
-      await messagePanel.evaluate(element => { element.scrollTop = (element.scrollHeight - element.clientHeight) / 2; });
-      const interiorTop = await messagePanel.evaluate(element => element.scrollTop);
-      // Observe actual inner movement for this positive control;
-      // boundary probes still require the wheel event because no scroll is
-      // expected there. All movement and containment assertions stay below.
-      await wheelAndSettle(page, messagePanel, 80, "scroll");
-      expect(await messagePanel.evaluate(element => element.scrollTop)).toBeGreaterThan(interiorTop + 10);
-      expect(await page.evaluate(() => window.scrollY)).toBeCloseTo(documentTop, 0);
-
-      await messagePanel.evaluate(element => { element.scrollTop = 0; });
-      await wheelAndSettle(page, messagePanel, -600);
-      expect(await messagePanel.evaluate(element => element.scrollTop)).toBe(0);
-      expect(await page.evaluate(() => window.scrollY)).toBeCloseTo(documentTop, 0);
-
-      await messagePanel.evaluate(element => { element.scrollTop = element.scrollHeight; });
-      await wheelAndSettle(page, messagePanel, 600);
-      expect(await messagePanel.evaluate(element => Math.abs(element.scrollHeight - element.clientHeight - element.scrollTop))).toBeLessThanOrEqual(1);
-      expect(await page.evaluate(() => window.scrollY)).toBeCloseTo(documentTop, 0);
-
-      // Keyboard access must operate the list, without trapping page navigation.
-      await expect(messagePanel).toHaveAttribute("role", "region");
-      await expect(messagePanel).toHaveAttribute("aria-label", locale === "ar" ? "رسائل الدردشة" : "Chat messages");
-      await messagePanel.evaluate(element => { element.scrollTop = 0; });
-      await messagePanel.focus();
-      await expect(messagePanel).toBeFocused();
-      await messagePanel.press("ArrowDown");
-      await expect.poll(() => messagePanel.evaluate(element => element.scrollTop)).toBeGreaterThan(0);
-      expect(await page.evaluate(() => window.scrollY)).toBeCloseTo(documentTop, 0);
-
-      // Hover outside the list; the ordinary document must remain scrollable.
-      const outsideList = page.locator("#chat summary").first();
-      await outsideList.hover();
-      const beforeOutside = await page.evaluate(() => window.scrollY);
-      expect(beforeOutside).toBeGreaterThan(30);
-      await page.mouse.wheel(0, -120);
-      await expect.poll(() => page.evaluate(() => window.scrollY), { timeout: 5_000 }).toBeLessThan(beforeOutside - 10);
+      await expectChatScrollIsolation(page, messagePanel, locale, page.locator("#chat summary").first());
 
       await draft.fill("1,500.25");
       await expect(draft).toHaveValue("1,500.25");
       await expect(page.locator("#chat")).toBeVisible();
       await page.locator("#chat").screenshot({ path: testInfo.outputPath("mixed-chat.png") });
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+
+      // The owner history/management route has a separate conversation renderer.
+      // Reuse this authenticated trade and the same physical scroll assertions.
+      const ownerEmail = process.env.E2E_OWNER_EMAIL;
+      const ownerPassword = process.env.E2E_OWNER_PASSWORD;
+      expect(ownerEmail).toMatch(/@example\.test$/);
+      expect(ownerPassword).toBeTruthy();
+      await logout(page.request);
+      await login(page.request, ownerEmail!, ownerPassword!);
+      await page.goto(`/${locale}/trade-room/${requestId}?view=history`);
+      expect(new URL(page.url()).searchParams.get("view")).toBe("history");
+      const ownerPanel = page.getByTestId("owner-trade-chat-messages");
+      await expect(ownerPanel).toBeVisible();
+      const ownerInitialHeight = await ownerPanel.evaluate(element => element.clientHeight);
+      await expect.poll(() => ownerPanel.evaluate(element => Math.abs(element.scrollHeight - element.clientHeight - element.scrollTop))).toBeLessThanOrEqual(1);
+      const ownerDraft = page.locator("#owner-chat-message");
+      await expect(ownerDraft).toBeVisible();
+      await expect(ownerPanel.locator("textarea")).toHaveCount(0);
+
+      // Polling a new buyer message must preserve an owner's earlier reading position.
+      await ownerPanel.evaluate(element => { element.scrollTop = 0; });
+      await wheelAndSettle(page, ownerPanel, 80);
+      const ownerReadingTop = await ownerPanel.evaluate(element => element.scrollTop);
+      const ownerReadingDocumentTop = await page.evaluate(() => window.scrollY);
+      expect(ownerReadingTop).toBeGreaterThan(10);
+      expect(ownerReadingDocumentTop).toBeGreaterThan(30);
+      expect(await page.evaluate(() => document.documentElement.scrollHeight - window.innerHeight - window.scrollY)).toBeGreaterThan(30);
+      const incomingMessage = `Incoming owner-history scroll audit: ${locale}, ${width}px.`;
+      const buyerApi = await pwRequest.newContext({ baseURL: E2E_BASE_URL });
+      try {
+        await login(buyerApi, buyerEmail, buyerPassword);
+        const incoming = await buyerApi.post(`/api/alpha-exchange/purchase-requests/${requestId}/messages`, {
+          data: { message: incomingMessage, clientMessageId: randomUUID() },
+        });
+        expect(incoming.ok()).toBeTruthy();
+      } finally {
+        await buyerApi.dispose();
+      }
+      await expect(ownerPanel).toContainText(incomingMessage, { timeout: 20_000 });
+      expect(await ownerPanel.evaluate(element => element.scrollTop)).toBeCloseTo(ownerReadingTop, 0);
+      expect(await page.evaluate(() => window.scrollY)).toBeCloseTo(ownerReadingDocumentTop, 0);
+
+      // A confirmed own reply follows the inner list, without moving the document.
+      const ownerMessage = locale === "ar"
+        ? "رسالة المالك للتحقق من استقلال تمرير المحادثة."
+        : "Owner message verifying independent conversation scrolling.";
+      await ownerDraft.fill(ownerMessage);
+      const ownerSend = page.locator("#history-chat").getByRole("button", { name: locale === "ar" ? "إرسال باسم المالك" : "Send as Owner", exact: true });
+      await ownerSend.scrollIntoViewIfNeeded();
+      const ownerSendDocumentTop = await page.evaluate(() => window.scrollY);
+      const [ownerSent] = await Promise.all([
+        page.waitForResponse(response => new URL(response.url()).pathname === `/api/alpha-exchange/purchase-requests/${requestId}/messages` && response.request().method() === "POST"),
+        ownerSend.click(),
+      ]);
+      expect(ownerSent.ok()).toBeTruthy();
+      const ownerPayload = await ownerSent.json() as { message: { senderRole: string; message: string } };
+      expect(ownerPayload.message.senderRole).toBe("owner");
+      expect(ownerPayload.message.message).toBe(ownerMessage);
+      await expect(ownerPanel).toContainText(ownerMessage);
+      await expect(ownerDraft).toHaveValue("");
+      await expect.poll(() => ownerPanel.evaluate(element => Math.abs(element.scrollHeight - element.clientHeight - element.scrollTop))).toBeLessThanOrEqual(1);
+      expect(await page.evaluate(() => window.scrollY)).toBeCloseTo(ownerSendDocumentTop, 0);
+      expect(await ownerPanel.evaluate(element => element.clientHeight)).toBe(ownerInitialHeight);
+      await expectChatScrollIsolation(page, ownerPanel, locale, page.locator("#history-chat-heading"));
+      await ownerPanel.screenshot({ path: testInfo.outputPath("owner-chat-scroll.png") });
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     });
   }
@@ -1357,10 +1537,13 @@ for (const paymentMethod of ["Bank Transfer", "Cardless ATM Withdrawal", "Face-t
       await errorAudit.navigate(sellerPage, () => sellerPage.goto(path));
       await expect(sellerPage.getByTestId("trade-header-notice")).toHaveCount(0);
       await expect(sellerPage.getByRole("button", { name: "Accept Trade", exact: true })).toBeInViewport();
+      await expectParticipantManagementControls(sellerPage, "seller");
       await clickConfirmedTradeAction(sellerPage, sellerPage.getByRole("button", { name: "Accept Trade", exact: true }), paymentMethod === "Face-to-Face (Meet in Person)" ? [undefined, /safe public place/i] : [undefined]);
       await expect(sellerPage.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "20");
+      await expectParticipantManagementControls(sellerPage, "seller");
       await errorAudit.navigate(buyerPage, () => buyerPage.goto(path));
       await expect(buyerPage.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "20");
+      await expectParticipantManagementControls(buyerPage, "buyer");
       const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=", "base64");
       if (paymentMethod === "Bank Transfer") {
         await clickConfirmedTradeAction(buyerPage, buyerPage.getByRole("button", { name: "Reveal Bank Details", exact: true }));
@@ -1413,6 +1596,8 @@ for (const paymentMethod of ["Bank Transfer", "Cardless ATM Withdrawal", "Face-t
       await expect(sellerPage.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "60");
       }
       const feedback = sellerPage.getByTestId("trade-action-feedback");
+      await expectParticipantManagementControls(buyerPage, "buyer", true);
+      await expectParticipantManagementControls(sellerPage, "seller", true);
       if (paymentMethod !== "Face-to-Face (Meet in Person)") {
         await expect(feedback).toBeInViewport();
         await expect(sellerPage.locator("#action-required").getByTestId("trade-action-feedback")).toBeVisible();
@@ -1455,6 +1640,7 @@ for (const paymentMethod of ["Bank Transfer", "Cardless ATM Withdrawal", "Face-t
       }
       await buyerPage.screenshot({ path: testInfo.outputPath("seller-only-buyer-mobile.png"), fullPage: true });
       await sellerPage.setViewportSize({ width: 1440, height: 900 });
+      await expectParticipantManagementControls(sellerPage, "seller", true);
       await expect(sellerPage.getByRole("button", { name: "Mark Trade as Completed", exact: true })).toBeVisible();
       await sellerPage.screenshot({ path: testInfo.outputPath("seller-only-seller-desktop.png"), fullPage: true });
       await clickConfirmedTradeAction(sellerPage, sellerPage.getByRole("button", { name: "Mark Trade as Completed", exact: true }));
