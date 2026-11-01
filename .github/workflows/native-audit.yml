@@ -78,13 +78,20 @@ jobs:
       - run: npm run mobile:typecheck
       - name: Build signed iOS release candidate with existing credentials
         working-directory: apps/mobile
-        run: eas build --platform ios --profile production --non-interactive --wait --json > signed-ios-result.json
+        run: |
+          signed_ios_source_status="$(git status --porcelain=v1 --untracked-files=all)" || exit 1
+          if [ -n "$signed_ios_source_status" ]; then
+            echo "::error::Signed iOS packaging requires a clean working tree."
+            printf '%s\n' "$signed_ios_source_status"
+            exit 1
+          fi
+          eas build --platform ios --profile production --non-interactive --wait --json > "$RUNNER_TEMP/signed-ios-result.json"
       - name: Preserve signed build result
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: signed-ios-result
-          path: apps/mobile/signed-ios-result.json
+          path: ${{ runner.temp }}/signed-ios-result.json
           if-no-files-found: ignore
           retention-days: 14
 
