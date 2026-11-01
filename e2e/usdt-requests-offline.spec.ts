@@ -421,7 +421,7 @@ test("buyer publishes, seller responds, buyer reviews and the canonical Trade Ro
     await buyerPage.reload(); await expect(buyerPage.getByTestId("trade-room-summary")).toBeVisible();
     await buyerPage.evaluate(() => window.scrollTo(0, 0));
     await buyerPage.screenshot({ path: testInfo.outputPath("trade-room-desktop.png"), fullPage: true });
-    await sellerPage.goto(`/en/trade-room/${tradeId}`);
+    await browserErrorAudit.navigate(sellerPage, () => sellerPage.goto(`/en/trade-room/${tradeId}`), marketDestinationFeed(baseURL!));
     await expect(sellerPage.getByTestId("trade-room-summary")).toBeVisible();
     const accepted = await seller.request.patch(`/api/alpha-exchange/purchase-requests/${tradeId}`, { data: { status: "accepted", safetyAcknowledged: true } });
     expect(accepted.ok(), await accepted.text()).toBe(true);
