@@ -41,4 +41,22 @@ describe("Expo Router URL parser compatibility", () => {
     expect(result.error).toBeUndefined();
     expect(result.status, result.stderr).toBe(0);
   });
+
+  it("bounds fallback replacement across many distinct percent-encoded runs", () => {
+    // GHSA-qr28-fpjm-wq7f: 0.5.0's linear byte decoder still rescanned the
+    // full input once per distinct run. Keep the regression process bounded.
+    const script = `
+      const parser = require('query-string');
+      const decode = require('decode-uri-component').default;
+      const runs = Array.from({ length: 32000 }, (_, value) =>
+        '%' + (value >> 8).toString(16).padStart(2, '0') +
+        '%' + (value & 255).toString(16).padStart(2, '0') + '!');
+      const malformed = runs.join('') + '%zz';
+      const expected = decode(malformed);
+      if (parser.parse('value=' + malformed).value !== expected) process.exit(2);
+    `;
+    const result = spawnSync(process.execPath, ["-e", script], { cwd: process.cwd(), timeout: 3000, encoding: "utf8" });
+    expect(result.error).toBeUndefined();
+    expect(result.status, result.stderr).toBe(0);
+  });
 });

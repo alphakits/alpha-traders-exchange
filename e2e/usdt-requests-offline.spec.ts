@@ -697,7 +697,21 @@ for (const locale of ["en", "ar"] as const) {
       await expectReadableSelectPaint(sellerPage.getByLabel(ar ? "عرضك" : "Your listing", { exact: true }), info, `${locale}-listing-select-paint`);
       const response = await seller.request.post(`${root}/${demand.id}/offers`, { data: { revision: 1, listingId: "listing-offline-seller", price: "3.25", operationId: randomUUID() } });
       expect(response.ok(), await response.text()).toBe(true);
-      await buyerPage.goto(`/${locale}/usdt-exchange/requests/${demand.id}`);
+      // The retained WebKit trace reports a native market-fetch refusal 18ms
+      // into this hard navigation, before the new document commits. Preserve
+      // that diagnostic and require a healthy destination feed on this
+      // isolated server's port; unrelated or steady-state errors still fail.
+      await browserErrorAudit.navigate(buyerPage, () => buyerPage.goto(`/${locale}/usdt-exchange/requests/${demand.id}`), {
+        url: new URL("/api/market/center", baseURL).href,
+        label: "market feed",
+        validateBody: (body) => {
+          const snapshot = body as { snapshot?: { pairs?: Record<string, { price?: number }> } } | null;
+          return ["btcUsdt", "ethUsdt", "usdtIls"].every(key => {
+            const price = snapshot?.snapshot?.pairs?.[key]?.price;
+            return typeof price === "number" && Number.isFinite(price) && price > 0;
+          });
+        },
+      });
       const review = buyerPage.getByRole("button", { name: ar ? "مراجعة الرد" : "Review response", exact: true });
       await review.focus(); await review.press("Enter");
       const reviewForm = buyerPage.getByRole("form", { name: ar ? "مراجعة الصفقة" : "Trade review" });
@@ -1045,6 +1059,10 @@ for (const role of ["buyer", "seller"] as const) {
       await landscapeToggle.click();
       const landscapeEntry = landscapeToggle.locator("..").getByRole("link", { name: "Buy Requests", exact: true });
       await landscapeEntry.scrollIntoViewIfNeeded();
+      // A native scroll can move the page beneath its sticky header without
+      // exposing the link inside the menu. Verify actionability before measuring.
+      await landscapeEntry.click({ trial: true });
+      await expect(landscapeEntry).toBeInViewport({ ratio: 1 });
       const bounds = await landscapeEntry.boundingBox();
       expect(bounds).not.toBeNull(); expect(bounds!.y).toBeGreaterThanOrEqual(0); expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(320);
       await landscapeEntry.click();
@@ -1131,9 +1149,17 @@ test("buyer can keep or cancel a request and then publish it again after the coo
   await page.getByRole("button", { name: "Keep request", exact: true }).click();
   expect((await state(page.request)).usdtDemands?.[0].state).toBe("open");
   await page.getByRole("button", { name: "Cancel request", exact: true }).click();
-  await page.getByRole("button", { name: "Confirm cancellation", exact: true }).click();
+  // A click only dispatches the mutation. Read the committed state after the
+  // matching response, never race the browser's PATCH with the fixture GET.
+  const [cancellation] = await Promise.all([
+    page.waitForResponse(response => new URL(response.url()).pathname === `${root}/${demand.id}`
+      && response.request().method() === "PATCH" && response.request().postDataJSON()?.action === "cancel", { timeout: 5_000 }),
+    page.getByRole("button", { name: "Confirm cancellation", exact: true }).click(),
+  ]);
+  expect(cancellation.status(), await cancellation.text()).toBe(200);
+  await expect(page.getByRole("button", { name: "Confirm cancellation", exact: true })).toHaveCount(0);
   await expect(page.getByRole("status").filter({ hasText: "Request cancelled." })).toHaveText("Request cancelled. Its publication still counts toward your 24-hour limit.");
-  expect((await state(page.request)).usdtDemands?.[0].state).toBe("cancelled");
+  expect((await state(page.request)).usdtDemands?.find(item => item.id === demand.id)?.state).toBe("cancelled");
   await ageDemandPastCooldown(page.request, demand.id); await page.reload();
   await page.getByRole("button", { name: "Publish again", exact: true }).click();
   const form = page.getByRole("form", { name: "Request details" });

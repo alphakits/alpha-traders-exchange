@@ -6,6 +6,7 @@ import { publicAccountName } from "@/lib/public-account-identity";
 
 import { currencyText } from "@/components/ui/currency-text";
 import { ACTION_FEEDBACK_REVEALED, ActionFeedback, useActionFeedbackState } from "@/components/ui/action-feedback";
+import { useActionDialog } from "@/components/ui/use-action-dialog";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import { AlertTriangle, BellRing, CheckCircle2, ChevronDown, Clock3, Copy, LoaderCircle, MessageCircle, Paperclip, ShieldCheck, Upload } from "lucide-react";
 import Image from "next/image";
@@ -33,6 +34,7 @@ import {
   canSellerCancelTrade,
   canSellerDeclineTrade,
   releaseTradeRoomMutation,
+  tradeActionConfirmationKey,
 } from "@/lib/trade-room-actions";
 import { clearTradeRoomCache, readTradeRoomCache, writeTradeRoomCache } from "@/lib/trade-room-client";
 import { postTradeReview, TradeReviewTimeoutError } from "@/lib/trade-review-client";
@@ -1368,6 +1370,7 @@ function TradeRoomPageSession({
   const [hasCanonicalRoom, setHasCanonicalRoom] = useState(false);
   const [sectionNavigation, setSectionNavigation] = useState<{ id: TradeRoomDeepLinkTarget; href: string; revision: number } | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const { confirmAction, actionDialog } = useActionDialog(isAr, `${actor.id}:${requestId}:${canonicalSessionReady}:${Boolean(room)}:${isLoading}`);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [statusFeedback, setStatusFeedback, statusMessageFeedbackKey] = useActionFeedbackState<{ message: string; stage: PurchaseRequest["status"] } | null>(null);
   const statusMessage = statusFeedback?.stage === room?.request.status ? statusFeedback?.message ?? null : null;
@@ -1450,6 +1453,15 @@ function TradeRoomPageSession({
   const perfSseReceivedTsRef = useRef<number | null>(null);
   const perfSsePublishedAtRef = useRef<number | null>(null);
   const roomRef = useRef<TradeRoomData | null>(null);
+  const isConfirmedTradeCurrent = useCallback((confirmedRequest: PurchaseRequest, allowOpenDispute = false) => {
+    const currentRoom = roomRef.current;
+    if (currentRoom && (allowOpenDispute || !currentRoom.hasOpenDispute)
+      && tradeActionConfirmationKey(currentRoom.request) === tradeActionConfirmationKey(confirmedRequest)) return true;
+    setActionError(isAr
+      ? "تغيّرت الصفقة أثناء التأكيد. راجع تفاصيلها الحالية وحاول مجددًا."
+      : "The trade changed while you were confirming. Review its current details and try again.");
+    return false;
+  }, [isAr, setActionError]);
   const lastRoomSyncAtRef = useRef(0);
   const lastResumeAtRef = useRef(0);
   const backgroundRefreshInFlightRef = useRef(false);
@@ -1971,6 +1983,7 @@ function TradeRoomPageSession({
   const waitingEstimate = request ? getWaitingEstimate(request, isSeller, isAr, isOverdueTrade) : null;
   const deliveryConfirmation = request ? getDeliveryConfirmation(request, isAr) : null;
   const showSuccessScreen = request?.status === "review_open" || request?.status === "completed" || request?.status === "locked";
+  const isHistoricalCompletion = showSuccessScreen && request?.historicalCompletionSummary?.source === "owner_attestation";
   const isBuyerCompletionSyncInFlight = Boolean(
     request
     && request.buyerId === actor.id
@@ -1991,6 +2004,8 @@ function TradeRoomPageSession({
   );
   const canShowBuyerReceipt = Boolean(request?.buyerEvidence && (!isSeller || sellerCanViewBuyerReceipt));
   const sellerEvidenceUploadOpen = Boolean(isSeller && request?.status === "usdt_release_pending");
+  const canManuallyCloseTrade = Boolean(request?.status === "pending" && !room?.hasOpenDispute
+    && (canBuyerCancelTrade(request, actor.id) || canSellerCancelTrade(request, actor.id)));
   const activeTimeline = useMemo(
     () => groupTradeTimelineEntries(request?.timeline ?? [], isAr),
     [isAr, request?.timeline],
@@ -2050,11 +2065,11 @@ function TradeRoomPageSession({
   }, [bankDetailsAccountId, bankDetailsRequestId, canRevealBankDetails, setBankDetailsError]);
 
   const handleRevealBankDetails = useCallback(async () => {
-    if (!bankDetailsRequestId || bankDetailsBusy) return;
-    const confirmed = window.confirm(isSeller ? (isAr ? "إظهار تفاصيل حسابات الدفع الخاصة لهذه الصفقة؟" : "View the private payment account details for this trade?") : isAr
+    if (!request || !bankDetailsRequestId || bankDetailsBusy) return;
+    const confirmed = await confirmAction(isSeller ? (isAr ? "إظهار تفاصيل حسابات الدفع الخاصة لهذه الصفقة؟" : "View the private payment account details for this trade?") : isAr
       ? "بعد إظهار تفاصيل البنك لن يمكنك إلغاء الصفقة. يمكن للبائع إلغاؤها فقط ما دام الدفع لم يبدأ. هل تريد المتابعة؟"
       : "Revealing bank details locks your cancellation option. Only the seller can cancel while payment has not started. Continue?");
-    if (!confirmed) return;
+    if (!confirmed || !isConfirmedTradeCurrent(request, true)) return;
     setBankDetailsBusy(true);
     setBankDetailsError(null);
     try {
@@ -2088,7 +2103,7 @@ function TradeRoomPageSession({
     } finally {
       setBankDetailsBusy(false);
     }
-  }, [actor.id, bankDetailsBusy, bankDetailsRequestId, fetchRoom, isAr, isSeller, requestId, setBankDetailsError]);
+  }, [actor.id, bankDetailsBusy, bankDetailsRequestId, confirmAction, fetchRoom, isAr, isConfirmedTradeCurrent, isSeller, request, requestId, setBankDetailsError]);
 
   const selectedStepEvent = useMemo(() => {
     if (!request) return null;
@@ -2145,13 +2160,13 @@ function TradeRoomPageSession({
 
   const handleStatusUpdate = useCallback(async (action: StatusPrimaryAction) => {
     const nextStatus = action.nextStatus;
-    if (!request || !room) return;
+    if (!request || !room || actionInFlightRef.current || !isConfirmedTradeCurrent(request)) return;
     let sellerSafetyAcknowledged = false;
     if (nextStatus === "accepted" && isFaceToFacePaymentMethod(request.paymentMethod)) {
-      sellerSafetyAcknowledged = window.confirm(isAr
+      sellerSafetyAcknowledged = await confirmAction(isAr
         ? "أؤكد أنني قرأت إرشادات اللقاء الآمن وسألتقي في مكان عام وآمن دون مشاركة معلومات شخصية غير ضرورية."
         : "I confirm that I read the safe-meeting guidance and will meet in a safe public place without sharing unnecessary personal information.");
-      if (!sellerSafetyAcknowledged) return;
+      if (!sellerSafetyAcknowledged || !isConfirmedTradeCurrent(request)) return;
     }
     const cardlessDetails = parseCardlessWithdrawalDetails({ withdrawalCode: cardlessCode, verificationKind: cardlessVerificationKind, verificationValue: cardlessVerificationValue });
     const isCardlessSubmission = nextStatus === "payment_sent" && isCardlessAtmPaymentMethod(request.paymentMethod);
@@ -2318,7 +2333,7 @@ function TradeRoomPageSession({
       setActionBusy(false);
       void fetchRoom(true);
     }
-  }, [actor, cardlessCode, cardlessVerificationKind, cardlessVerificationValue, hasPreparedCardlessDetails, fetchRoom, isAr, request, requestId, room, router, setActionError, setStatusMessage, startBuyerCompletionSuccessFlow, streamConnected]);
+  }, [actor, cardlessCode, cardlessVerificationKind, cardlessVerificationValue, confirmAction, hasPreparedCardlessDetails, fetchRoom, isAr, isConfirmedTradeCurrent, request, requestId, room, router, setActionError, setStatusMessage, startBuyerCompletionSuccessFlow, streamConnected]);
 
   const handleSendMessage = useCallback(async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -2596,7 +2611,7 @@ function TradeRoomPageSession({
   }, [actor.id, buyerEvidenceFile, fetchRoom, isAr, request, requestId, room, sellerEvidenceFile, setActionError, setStatusMessage]);
 
   const handlePrimaryAction = useCallback(async () => {
-    if (!primaryAction) return;
+    if (!primaryAction || actionInFlightRef.current) return;
     if (primaryAction.mode === "status" && primaryAction.nextStatus === "payment_sent" && isCardlessAtmTrade && !hasPreparedCardlessDetails) {
       const parsed = parseCardlessWithdrawalDetails({ withdrawalCode: cardlessCode, verificationKind: cardlessVerificationKind, verificationValue: cardlessVerificationValue });
       if (!parsed.ok) {
@@ -2623,10 +2638,10 @@ function TradeRoomPageSession({
     if (isSeller && request?.feePolicyVersion === "buyer_seller_1pct_v1" && ["accepted", "funds_received"].includes(primaryAction.nextStatus ?? "")) {
       const receipt = primaryAction.nextStatus === "funds_received" ? tradePaymentReceiptConfirmation(isAr ? "ar" : "en", request.currency, request.fiatAmount, true) : primaryAction.confirmationMessage ?? "";
       const message = `${receipt}\n${sellerFeeResponsibilityNotice(isAr ? "ar" : "en")}`;
-      if (!window.confirm(message)) return;
-    } else if (primaryAction.confirmationMessage && !window.confirm(primaryAction.confirmationMessage)) return;
+      if (!await confirmAction(message)) return;
+    } else if (primaryAction.confirmationMessage && !await confirmAction(primaryAction.confirmationMessage)) return;
     await handleStatusUpdate(primaryAction);
-  }, [buyerEvidenceFile, cardlessCode, cardlessVerificationKind, cardlessVerificationValue, hasPreparedCardlessDetails, handleStatusUpdate, handleUploadEvidence, isAr, isCardlessAtmTrade, primaryAction, sellerEvidenceFile, setActionError, isSeller, request?.feePolicyVersion, request?.fiatAmount, request?.currency]);
+  }, [buyerEvidenceFile, cardlessCode, cardlessVerificationKind, cardlessVerificationValue, confirmAction, hasPreparedCardlessDetails, handleStatusUpdate, handleUploadEvidence, isAr, isCardlessAtmTrade, primaryAction, sellerEvidenceFile, setActionError, isSeller, request?.feePolicyVersion, request?.fiatAmount, request?.currency]);
 
   const handleOpenDispute = useCallback(async () => {
     if (!request) return;
@@ -2672,7 +2687,7 @@ function TradeRoomPageSession({
           ? "ألغِ الصفقة فقط إذا لم يرسل أو يستلم أي طرف مالًا أو نقدًا أو USDT، ولم تتم مشاركة رمز سحب أو إثبات دفع. إذا بدأ التبادل، أكمل الصفقة أو افتح نزاعًا. هل تريد المتابعة؟"
           : "Cancel only if neither participant has sent or received money, cash or USDT, and no withdrawal code or payment evidence has been shared. If the exchange started, complete the trade or open a dispute. Continue?")
       : (isAr ? "هل تريد إلغاء هذا الطلب قبل قبوله؟" : "Cancel this request before it is accepted?");
-    if (!window.confirm(confirmation)) return;
+    if (!await confirmAction(confirmation) || !isConfirmedTradeCurrent(request)) return;
     const mutationKey = `${request.id}:cancel`;
     if (!acquireTradeRoomMutation(actionInFlightRef, mutationKey)) return;
     setCancelBusy(true);
@@ -2699,11 +2714,11 @@ function TradeRoomPageSession({
       setCancelBusy(false);
       void fetchRoom(true);
     }
-  }, [actor.id, cancelBusy, fetchRoom, isAr, request, room?.hasOpenDispute, router, setStatusMessage]);
+  }, [actor.id, cancelBusy, confirmAction, fetchRoom, isAr, isConfirmedTradeCurrent, request, room?.hasOpenDispute, router, setStatusMessage]);
 
   const handleDeclineTrade = useCallback(async () => {
     if (!request || !canSellerDeclineTrade(request, actor.id) || actionBusy || room?.hasOpenDispute) return;
-    const confirmed = window.confirm(isAr
+    const confirmed = await confirmAction(isAr
       ? "ارفض الطلب فقط إذا لم يتم تبادل أي أموال أو نقد أو USDT. رفض صفقة تمت فعليًا بهدف تجنب العمولة مخالفة خطيرة وقد يؤدي إلى تقييد حساب البائع أو إيقافه نهائيًا. هل تريد المتابعة؟"
       : "Decline only if no money, cash, or USDT has been exchanged. Declining a completed trade to avoid commission is a serious violation and may result in seller restrictions or permanent suspension. Continue?");
     if (!confirmed) return;
@@ -2713,10 +2728,10 @@ function TradeRoomPageSession({
       mode: "status",
       nextStatus: "declined",
     });
-  }, [actionBusy, actor.id, handleStatusUpdate, isAr, request, room?.hasOpenDispute]);
+  }, [actionBusy, actor.id, confirmAction, handleStatusUpdate, isAr, request, room?.hasOpenDispute]);
 
   const handleManualCloseTrade = useCallback(async () => {
-    if (!request || manualCloseBusy) return;
+    if (!request || !canManuallyCloseTrade || manualCloseBusy || !isConfirmedTradeCurrent(request)) return;
     const reason = manualCloseReason.trim();
     const explanation = manualCloseExplanation.trim();
     if (!reason) {
@@ -2757,7 +2772,7 @@ function TradeRoomPageSession({
       setManualCloseBusy(false);
       void fetchRoom(true);
     }
-  }, [actor.id, fetchRoom, isAr, manualCloseBusy, manualCloseExplanation, manualCloseReason, request, requestId, room, setStatusMessage]);
+  }, [actor.id, canManuallyCloseTrade, fetchRoom, isAr, isConfirmedTradeCurrent, manualCloseBusy, manualCloseExplanation, manualCloseReason, request, requestId, room, setStatusMessage]);
 
   const handleSubmitBuyerReview = useCallback(async () => {
     if (actionBusy || Boolean(actionInFlightRef.current)) {
@@ -3069,7 +3084,7 @@ function TradeRoomPageSession({
                 <p>{isAr ? "طريقة الدفع" : "Payment Method"}: {currencyText(requestPaymentMethodLabel)}</p>
                 <p>{currencyText(isAr ? "السعر لكل USDT" : "Price per USDT")}: <bdi dir="ltr">{currencyText(`${request.currency} ${(toNumber(request.pricePerUsdt) || (toNumber(request.fiatAmount) / Math.max(1, toNumber(request.usdtAmount)))).toFixed(2)}`)} / <span className="currency-usdt">USDT</span></bdi></p>
                 {request.bankName ? <p>{isCardlessAtmTrade ? (isAr ? "بنك السحب" : "Withdrawal bank") : (isAr ? "البنوك المعتمدة" : "Supported Banks")}: <bdi dir="auto">{currencyText(requestBankNamesLabel)}</bdi></p> : null}
-                {request.closedAt ? <p className="text-red-300">{isAr ? "سبب إغلاق الصفقة" : "Close reason"}: {currencyText(request.closeReason ?? (isAr ? "غير محدد" : "Not specified"))}</p> : null}
+                {request.closedAt ? <p className="text-red-300">{isHistoricalCompletion ? (isAr ? "سبب الإغلاق السابق" : "Earlier close reason") : (isAr ? "سبب إغلاق الصفقة" : "Close reason")}: {currencyText(request.closeReason ?? (isAr ? "غير محدد" : "Not specified"))}</p> : null}
                 <UserSafetyActions context="trade" locale={locale} targetUserId={isSeller ? request.buyerId : request.sellerId} viewerSignedIn />
               </div>
             </details>
@@ -3077,6 +3092,7 @@ function TradeRoomPageSession({
 
   return (
     <main data-complete={showSuccessScreen ? "true" : undefined} className="alpha-trade-room min-h-screen bg-[#050505] px-3 py-4 text-white md:px-5 md:py-5 xl:px-6">
+      {actionDialog}
       <div className="mx-auto flex max-w-[1500px] flex-col gap-4 xl:gap-5">
         <header data-testid="trade-room-summary" className="space-y-2 rounded-2xl border border-[#C9A227]/25 bg-[#0E0E0E] p-3 sm:p-4">
           {isCardlessAtmTrade ? (
@@ -3085,8 +3101,8 @@ function TradeRoomPageSession({
             </p>
           ) : null}
           <div data-testid="inclusive-payment-total" className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-3 text-sm">
-            <p>{isSeller ? (isAr ? "الإجمالي المطلوب استلامه من المشتري" : "Full amount to collect from buyer") : (isAr ? "الإجمالي المطلوب دفعه للبائع" : "Full amount to pay the seller")}: <bdi dir="ltr" className="currency-money font-semibold">{currencyText(`${request.currency} ${toNumber(request.fiatAmount).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`)}</bdi></p>
-            {request.feePolicyVersion === "buyer_seller_1pct_v1" ? <p className="commission-notice">{currencyText(isAr ? "يشمل عمولة المشتري 1%. ادفع هذا الإجمالي مرة واحدة. للبائع: تأكد من استلامه كاملًا قبل إرسال USDT." : "Buyer’s 1% fee included. Pay this total once. Seller: confirm full receipt before sending USDT.")}</p> : null}
+            <p>{isHistoricalCompletion ? (isAr ? "المبلغ المحسوب وفق السعر المحفوظ" : "Amount calculated from the saved quote") : isSeller ? (isAr ? "الإجمالي المطلوب استلامه من المشتري" : "Full amount to collect from buyer") : (isAr ? "الإجمالي المطلوب دفعه للبائع" : "Full amount to pay the seller")}: <bdi dir="ltr" className="currency-money font-semibold">{currencyText(`${request.currency} ${toNumber(request.fiatAmount).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`)}</bdi></p>
+            {isHistoricalCompletion ? <p>{isAr ? "أكد مالك المنصة إتمام هذه الصفقة خارج الموقع. المبلغ المعروض محسوب من السعر والرسوم المحفوظة؛ لم يُسجّل مبلغ الدفع الفعلي خارج الموقع. لا يلزم دفع جديد لهذه الصفقة." : "The owner confirmed this trade was completed outside the site. The displayed amount uses the saved price and fees; the actual offline payment amount was not recorded. No new payment is needed for this trade."}</p> : request.feePolicyVersion === "buyer_seller_1pct_v1" ? <p className="commission-notice">{currencyText(isAr ? "يشمل عمولة المشتري 1%. ادفع هذا الإجمالي مرة واحدة. للبائع: تأكد من استلامه كاملًا قبل إرسال USDT." : "Buyer’s 1% fee included. Pay this total once. Seller: confirm full receipt before sending USDT.")}</p> : null}
           </div>
           <div className="flex items-center justify-between gap-3">
             <h1 className="min-w-0 text-base font-semibold sm:text-lg">{isAr ? "الصفقة" : "Trade"} <bdi dir="ltr">{currencyText(formatTradeId(request.displayNumber, request.tradeId ?? request.id))}</bdi></h1>
@@ -3128,7 +3144,7 @@ function TradeRoomPageSession({
                       : "Your trade has been fully completed and recorded."}
                   </p>
                   <p>
-                    {currencyText(isAr ? "أكد البائع إكمال الصفقة. يمكنك الآن إرسال تقييمك." : "The seller confirmed completion. You can now submit your review.")}
+                    {currencyText(isHistoricalCompletion ? (isAr ? "سجّل مالك المنصة إتمام الصفقة خارج الموقع. يمكنك الآن إرسال تقييمك." : "The owner recorded the offline completion. You can now submit your review.") : (isAr ? "أكد البائع إكمال الصفقة. يمكنك الآن إرسال تقييمك." : "The seller confirmed completion. You can now submit your review."))}
                   </p>
                   <p>
                     {isAr
@@ -3229,7 +3245,7 @@ function TradeRoomPageSession({
               {isSeller ? (
                 <div className="rounded-xl border border-emerald-400/30 bg-black/20 p-4">
                   <p className="font-medium text-white">{isAr ? "تم إغلاق الصفقة كمكتملة" : "Trade closed as completed"}</p>
-                  <p className="commission-notice mt-1 text-sm">{isAr ? "يمكنك تقييم المشتري أو العودة للرئيسية. تبقى العمولة مستحقة حتى السداد." : "You can review the buyer or return home. Commission remains due until paid."}</p>
+                  <p className="commission-notice mt-1 text-sm">{isHistoricalCompletion ? (isAr ? "يمكنك تقييم المشتري أو العودة للرئيسية." : "You can review the buyer or return home.") : (isAr ? "يمكنك تقييم المشتري أو العودة للرئيسية. تبقى العمولة مستحقة حتى السداد." : "You can review the buyer or return home. Commission remains due until paid.")}</p>
                   {request.sellerBuyerReview ? <p className="mt-3">{isAr ? "تم حفظ تقييمك للمشتري" : "Your buyer review is saved"} · {request.sellerBuyerReview.rating}/5</p> : (
                     <details className="mt-3">
                       <summary className="cursor-pointer rounded-xl border border-white/20 p-3 font-semibold">{isAr ? "قيّم المشتري" : "Review buyer"}</summary>
@@ -3246,7 +3262,13 @@ function TradeRoomPageSession({
                   <Button type="button" variant="secondary" className="mt-3 min-h-11 w-full" disabled={actionBusy || reviewBusy} onClick={() => router.push("/usdt-exchange")}>{isAr ? "العودة للرئيسية" : "Return home"}</Button>
                 </div>
               ) : null}
-              {isFaceToFaceTrade || isCardlessAtmTrade ? (
+              {isHistoricalCompletion ? (
+                <div data-testid="historical-completion" className="space-y-2">
+                  <p>{isAr ? "سجّل مالك المنصة إتمام هذه الصفقة خارج الموقع." : "The owner recorded this trade as completed offline."}</p>
+                  <p>{currencyText(isAr ? `وقت تسجيل مالك المنصة: ${new Date(request.historicalCompletionSummary!.recordedAt).toLocaleString(dateLocale)}` : `Recorded by owner: ${new Date(request.historicalCompletionSummary!.recordedAt).toLocaleString(dateLocale)}`)}</p>
+                  <p>{isAr ? "لم يُسجّل وقت الإتمام الفعلي خارج الموقع." : "The actual offline completion time was not recorded."}</p>
+                </div>
+              ) : isFaceToFaceTrade || isCardlessAtmTrade ? (
                 <>
                   <p>{isCardlessAtmTrade
                     ? (isAr ? "تم تسجيل صفقة السحب دون بطاقة كمكتملة." : "The Cardless ATM trade has been recorded as complete.")
@@ -3408,7 +3430,7 @@ function TradeRoomPageSession({
                   </div>
                 ) : null}
 
-                {(canBuyerCancelTrade(request, actor.id) || canSellerCancelTrade(request, actor.id)) ? (
+                {(isSeller || isActorBuyer) && ["pending", "accepted", "payment_sent", "funds_received", "usdt_release_pending", "usdt_sent"].includes(request.status) ? (
                   <div data-testid="trade-cancel-action" className="space-y-2 rounded-xl border border-white/10 bg-black/20 p-3">
                     <Button type="button" variant="secondary" className="min-h-11 w-full"
                       disabled={(!canBuyerCancelTrade(request, actor.id) && !canSellerCancelTrade(request, actor.id)) || room.hasOpenDispute || cancelBusy || actionBusy || Boolean(evidenceBusy) || adjustingAmount}
@@ -3419,11 +3441,13 @@ function TradeRoomPageSession({
                     <p id="trade-cancel-help" className="text-xs text-[#9CA3AF]">
                       {currencyText(room.hasOpenDispute
                         ? (isAr ? "الإلغاء مقفل أثناء مراجعة النزاع." : "Cancellation is locked while the dispute is under review.")
-                        : request.status === "pending"
-                        ? (isAr ? "يمكن إلغاء الطلب قبل القبول ما دام لم يتم تبادل مال أو نقد أو USDT." : "Cancel this pending request only if no money, cash or USDT has been exchanged.")
                         : canBuyerCancelTrade(request, actor.id) || canSellerCancelTrade(request, actor.id)
-                          ? (isAr ? "الإلغاء متاح قبل بدء الدفع. بعد إظهار تفاصيل البنك يمكن للبائع فقط إلغاء الصفقة غير المدفوعة." : "Cancel only before payment starts. After bank details are revealed, only the seller can cancel the unpaid trade.")
-                          : (isAr ? "بدأ الدفع أو تمت مشاركة تفاصيل السحب، لذا أُقفل الإلغاء. أبلغ عن مشكلة إذا احتجت مساعدة." : "Payment started or withdrawal details were shared. Cancellation is locked; report a problem if needed."))}
+                          ? request.status === "pending"
+                            ? (isAr ? "يمكن إلغاء الطلب قبل القبول ما دام لم يتم تبادل مال أو نقد أو USDT." : "Cancel this pending request only if no money, cash or USDT has been exchanged.")
+                            : (isAr ? "الإلغاء متاح قبل بدء الدفع. بعد إظهار تفاصيل البنك يمكن للبائع فقط إلغاء الصفقة غير المدفوعة." : "Cancel only before payment starts. After bank details are revealed, only the seller can cancel the unpaid trade.")
+                          : !isSeller && canSellerCancelTrade(request, request.sellerId)
+                            ? (isAr ? "تم إظهار تفاصيل البنك. يمكن للبائع فقط إلغاء الصفقة قبل بدء الدفع. تواصل مع المالك إذا احتجت مساعدة." : "Bank details have been revealed. Only the seller can cancel before payment starts. Contact the owner if you need help.")
+                            : (isAr ? "الإلغاء مقفل للمشتري والبائع بعد بدء الدفع أو مشاركة تفاصيل السحب. تواصل مع المالك لمراجعة الصفقة." : "Cancellation is locked for buyers and sellers after payment starts or withdrawal details are shared. Contact the owner to review the trade."))}
                     </p>
                   </div>
                 ) : null}
@@ -3514,7 +3538,7 @@ function TradeRoomPageSession({
                   </div>
                 ) : null}
 
-                {request.status === "pending" ? (
+                {canManuallyCloseTrade ? (
                   <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-3">
                     <div className="flex items-center justify-between gap-2">
                       <p className="text-sm text-red-100">{isAr ? "إغلاق يدوي للصفقة" : "Manual trade close"}</p>

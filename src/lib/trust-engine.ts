@@ -46,6 +46,8 @@ function reputationSummaryFromScore(score: number, level: SellerLevel) {
 }
 
 export function calculateSellerTrustSnapshot(input: {
+  /** Deterministic evaluation for a reviewed historical reconciliation plan. */
+  now?: number;
   seller: AlphaExchangeUser;
   listings: MarketplaceListing[];
   requests: PurchaseRequest[];
@@ -53,7 +55,7 @@ export function calculateSellerTrustSnapshot(input: {
   enforcementRecords?: MarketplaceEnforcementRecord[];
   marketplacePosition?: number;
 }): SellerReputationSnapshot {
-  const now = Date.now();
+  const now = input.now ?? Date.now();
   const completedRequests = input.requests.filter((request) => ["completed", "review_open", "locked"].includes(request.status) || Boolean(request.completedAt));
   const acceptedOrCompleted = input.requests.filter((request) => ["accepted", "payment_sent", "funds_received", "usdt_release_pending", "usdt_sent", "completed", "review_open", "locked"].includes(request.status) || Boolean(request.tradeCreatedAt) || Boolean(request.completedAt));
   const cancelled = input.requests.filter((request) => request.status === "cancelled");
@@ -74,7 +76,7 @@ export function calculateSellerTrustSnapshot(input: {
     { totalUsdtVolume: 0, revenueGenerated: 0 },
   );
 
-  const facts = measureSellerActivity(input.requests);
+  const facts = measureSellerActivity(input.requests, now);
   const { responseTimeMinutes, rating, responseSampleCount } = facts;
 
   const completionRate = requestsCount ? (completedTrades / requestsCount) * 100 : 0;

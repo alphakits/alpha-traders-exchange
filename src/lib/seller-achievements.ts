@@ -1,6 +1,9 @@
 import type { SellerAchievement, SellerAchievementKey, SellerLevel } from "@/types/alpha-exchange";
 
 export type SellerAchievementEvaluationInput = {
+  evaluatedAt?: string;
+  completedTradesWithKnownTime?: number;
+  responseSampleCount?: number;
   sellerId: string;
   sellerName: string;
   rank: SellerLevel;
@@ -53,7 +56,7 @@ function buildAchievement(key: SellerAchievementKey, input: SellerAchievementEva
     key,
     title: ACHIEVEMENT_TITLES[key],
     description: ACHIEVEMENT_DESCRIPTIONS[key],
-    earnedAt: new Date().toISOString(),
+    earnedAt: input.evaluatedAt ?? new Date().toISOString(),
     source: "automatic",
     metadata,
   };
@@ -61,7 +64,7 @@ function buildAchievement(key: SellerAchievementKey, input: SellerAchievementEva
 
 export function evaluateSellerAchievements(input: SellerAchievementEvaluationInput): SellerAchievement[] {
   const achievements: SellerAchievement[] = [];
-  const now = new Date();
+  const now = new Date(input.evaluatedAt ?? Date.now());
 
   if (input.completedTrades >= 1) {
     achievements.push(buildAchievement("first_trade", input, { completedTrades: input.completedTrades }));
@@ -69,7 +72,7 @@ export function evaluateSellerAchievements(input: SellerAchievementEvaluationInp
   if (input.completedTrades >= 100) {
     achievements.push(buildAchievement("trades_100", input, { completedTrades: input.completedTrades }));
   }
-  if (input.completedTrades >= 100 && input.responseTimeMinutes < 2 && input.hasCommissionRecords) {
+  if (input.completedTrades >= 100 && (input.responseSampleCount ?? input.completedTrades) >= 100 && input.responseTimeMinutes < 2 && input.hasCommissionRecords) {
     achievements.push(buildAchievement("fast_responder", input, { responseTimeMinutes: input.responseTimeMinutes }));
   }
   if (input.reviewCount >= 100 && input.averageRating >= 4.95) {
@@ -78,7 +81,7 @@ export function evaluateSellerAchievements(input: SellerAchievementEvaluationInp
   if (input.rank === "elite" || input.lifetimeVolumeUsdt >= 500_000) {
     achievements.push(buildAchievement("volume_500k", input, { lifetimeVolumeUsdt: input.lifetimeVolumeUsdt }));
   }
-  if (input.completionRate === 100 && input.completedTradeMonths.some((month) => month) && input.completedTrades >= 20) {
+  if (input.completionRate === 100 && input.completedTradeMonths.some((month) => month) && (input.completedTradesWithKnownTime ?? input.completedTrades) >= 20) {
     achievements.push(buildAchievement("perfect_month", input, { completionRate: input.completionRate, completedTrades: input.completedTrades }));
   }
 

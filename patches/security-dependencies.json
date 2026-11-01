@@ -111,28 +111,20 @@
     },
     {
       "name": "node-forge",
-      "version": "1.4.0",
+      "version": "1.4.1",
       "advisory": "GHSA-86w9-cpqp-85rv",
-      "source": "https://github.com/digitalbazaar/forge/pull/1152",
+      "source": "https://github.com/digitalbazaar/forge/releases/tag/v1.4.1",
       "files": [
         {
           "path": "lib/rsa.js",
-          "originalSha256": "fd4740238145ec26470eb3f06a627c72039538ce1307dbdce40521f94dfd0a50",
-          "edits": [
-            {
-              "before": "            parseAllBytes: options._parseAllDigestBytes\n          });\n\n          // validate DigestInfo structure and element count\n          var capture = {};\n          var errors = [];\n          if(!asn1.validate(obj, digestInfoValidator, capture, errors) ||\n            obj.value.length !== 2) {\n            var error = new Error(\n              'ASN.1 object does not contain a valid RSASSA-PKCS1-v1_5 ' +\n              'DigestInfo value.');\n",
-              "after": "            parseAllBytes: options._parseAllDigestBytes\n          });\n\n          // validate DigestInfo structure and element counts (outer DigestInfo\n          // and nested DigestAlgorithm). asn1.validate ignores extra children,\n          // so length must be checked explicitly at each nesting level to\n          // prevent low-exponent PKCS#1 v1.5 signature forgery (CVE-2026-85393).\n          var capture = {};\n          var errors = [];\n          if(!asn1.validate(obj, digestInfoValidator, capture, errors) ||\n            obj.value.length !== 2 ||\n            obj.value[0].value.length !==\n              (('parameters' in capture) ? 2 : 1)) {\n            var error = new Error(\n              'ASN.1 object does not contain a valid RSASSA-PKCS1-v1_5 ' +\n              'DigestInfo value.');\n"
-            },
-            {
-              "before": "              (('parameters' in capture) ? 2 : 1)) {",
-              "after": "              (('parameters' in capture) ? 2 : 1) ||\n            ('parameters' in capture && capture.parameters !== '')) {"
-            }
-          ],
-          "patchedSha256": "d87652ebe744f2085e015ad78bf2d194ddee2f3b71bda5a4e35f0df66a0912b1"
+          "originalSha256": "6632e195295ce76f6bb9131ee770dcd6cc1ee4ffac7906302208b00faf95a87f",
+          "edits": [],
+          "patchedSha256": "6632e195295ce76f6bb9131ee770dcd6cc1ee4ffac7906302208b00faf95a87f"
         }
       ],
-      "upstreamCommit": "ceba34402e329f0365134f23fe19898756527d65",
-      "license": "(BSD-3-Clause OR GPL-2.0)"
+      "upstreamCommit": "8a917370ec51731e817c2d547b7329a58f8210af",
+      "license": "(BSD-3-Clause OR GPL-2.0)",
+      "notes": "Upstream canonical DER verification supersedes the local nested-element and NULL-content backport. Keep the reviewed RSA source hash and malformed-signature regression tests."
     }
   ]
 }

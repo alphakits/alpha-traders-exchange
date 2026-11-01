@@ -196,7 +196,9 @@ describe("Trade Room client stability helpers", () => {
   it("requires confirmation and has a single primary action across responsive surfaces", () => {
     const source = readFileSync(join(process.cwd(), "src/components/sections/trade-room/trade-room-page.tsx"), "utf8");
 
-    expect(source).toContain("!window.confirm(primaryAction.confirmationMessage)");
+    expect(source).not.toContain("window.confirm(");
+    expect(source).toContain("useActionDialog");
+    expect(source).toContain("{actionDialog}");
     expect(source.match(/onClick=\{\(\) => void handlePrimaryAction\(\)\}/g)).toHaveLength(1);
     expect(source).toContain('action: action.command');
     expect(source).toContain('isCashTrade ? (');

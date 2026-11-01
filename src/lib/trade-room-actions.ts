@@ -3,6 +3,20 @@ import { hasIrreversibleRequestProgress, hasRevealedBankDetails } from "@/lib/tr
 
 export type TradeRoomMutationLock = { current: string | null };
 
+/** Consent belongs to the displayed trade terms, not to chat/read timestamps. */
+export function tradeActionConfirmationKey(request: PurchaseRequest) {
+  return JSON.stringify([
+    request.id, request.status, request.listingId, request.buyerId, request.sellerId,
+    request.usdtAmount, request.fiatAmount, request.pricePerUsdt, request.currency,
+    request.network, request.paymentMethod, request.feePolicyVersion,
+    request.buyerReceivingWalletAddress, request.bankName, request.sellerBankAccountId,
+    request.bankTransferProvider, request.sellerWiseAccountId, request.buyerWiseAccountId,
+    request.termsProposal ?? null,
+    request.buyerEvidence?.id, request.sellerEvidence?.id,
+    hasIrreversibleRequestProgress(request), hasRevealedBankDetails(request),
+  ]);
+}
+
 /**
  * React state disables the visible control after a render, but two different
  * controls can still fire in the same frame. This synchronous lock permits one

@@ -1827,16 +1827,53 @@ function mergeTradeRoomPokeState(
     : undefined;
 }
 
+function matchesHistoricalOperation(
+  canonical: { operationId: string; inputFingerprint: string },
+  incoming: { operationId: string; inputFingerprint: string } | undefined,
+) {
+  return incoming?.operationId === canonical.operationId && incoming.inputFingerprint === canonical.inputFingerprint;
+}
+
 function mergeMatchingPurchaseRequest(latest: PurchaseRequest, incoming: PurchaseRequest) {
   const latestUpdatedAt = new Date(latest.updatedAt ?? latest.createdAt ?? 0).getTime();
   const incomingUpdatedAt = new Date(incoming.updatedAt ?? incoming.createdAt ?? 0).getTime();
   const incomingRank = getPurchaseRequestStatusRank(incoming.status);
   const latestRank = getPurchaseRequestStatusRank(latest.status);
-  const preferred = incomingRank !== latestRank
+  // Historical completion can intentionally supersede a declined/cancelled
+  // request. A writer that never observed that decision cannot undo it merely
+  // because terminal cancellation has the greater ordinary lifecycle rank.
+  const predatesHistoricalCompletion = latest.historicalCompletion
+    && !matchesHistoricalOperation(latest.historicalCompletion, incoming.historicalCompletion);
+  const preferred = predatesHistoricalCompletion ? latest : incomingRank !== latestRank
     ? (incomingRank > latestRank ? incoming : latest)
     : (incomingUpdatedAt > latestUpdatedAt ? incoming : latest);
   return {
     ...preferred,
+    ...(latest.historicalCompletion ? {
+      historicalCompletion: latest.historicalCompletion,
+      status: ["completed", "review_open", "locked"].includes(preferred.status) ? preferred.status : latest.status,
+      listingId: latest.listingId,
+      sellerId: latest.sellerId,
+      buyerId: latest.buyerId,
+      tradeId: latest.tradeId,
+      usdtAmount: latest.usdtAmount,
+      fiatAmount: latest.fiatAmount,
+      pricePerUsdt: latest.pricePerUsdt,
+      currency: latest.currency,
+      network: latest.network,
+      paymentMethod: latest.paymentMethod,
+      tradeCreatedAt: latest.tradeCreatedAt,
+      paymentSentAt: latest.paymentSentAt,
+      fundsReceivedAt: latest.fundsReceivedAt,
+      usdtSentAt: latest.usdtSentAt,
+      completedAt: latest.completedAt,
+      // Authorized review unlocks use their own canonical rebase. A stale
+      // snapshot cannot invent an unlock as part of merging a buyer review.
+      reviewUnlockedAt: latest.reviewUnlockedAt,
+      buyerSafetyAcknowledged: latest.buyerSafetyAcknowledged,
+      sellerSafetyAcknowledged: latest.sellerSafetyAcknowledged,
+      updatedAt: newerIsoValue(latest.updatedAt, incoming.updatedAt) ?? latest.updatedAt,
+    } : {}),
     // These terms were disclosed when the request was created. An older
     // worker can advance progress but must not silently remove either policy.
     feePolicyVersion: latest.feePolicyVersion,
@@ -1889,6 +1926,34 @@ function mergeTimestampedRecords<T extends IdentifiedSnapshotRecord>(latest: T[]
   return orderedIds.map((id) => merged.get(id)).filter((record): record is T => Boolean(record));
 }
 
+function mergeMarketplaceListings(latest: MarketplaceListing[], incoming: MarketplaceListing[]) {
+  const latestById = new Map(latest.map(listing => [listing.id, listing]));
+  return mergeTimestampedRecords(latest, incoming).map(listing => {
+    const canonical = latestById.get(listing.id);
+    if (!canonical?.historicalCompletionReconciliation) return listing;
+    // A timestamp from stale maintenance is not authority to recreate sold
+    // inventory or reopen an owner-closed historical listing.
+    return {
+      ...listing,
+      historicalCompletionReconciliation: canonical.historicalCompletionReconciliation,
+      originalAmount: canonical.originalAmount,
+      availableAmount: canonical.availableAmount,
+      maximumTrade: canonical.maximumTrade,
+      status: canonical.status,
+      activeTradeRequestId: canonical.activeTradeRequestId,
+      lockedAt: canonical.lockedAt,
+      closedAt: canonical.closedAt,
+      completedAt: canonical.completedAt,
+      cancelledAt: canonical.cancelledAt,
+    };
+  });
+}
+
+function preserveHistoricalSellerRecords<T extends { sellerId: string }>(latest: T[], incoming: T[], sellerIds: Set<string>) {
+  if (!sellerIds.size) return incoming;
+  return [...incoming.filter(record => !sellerIds.has(record.sellerId)), ...latest.filter(record => sellerIds.has(record.sellerId))];
+}
+
 /**
  * Commission settlement is monotonic: once the canonical snapshot says a
  * commission is paid, a stale maintenance writer must never make it unpaid
@@ -1897,11 +1962,19 @@ function mergeTimestampedRecords<T extends IdentifiedSnapshotRecord>(latest: T[]
  * later `updatedAt` timestamp (for example after marking the row overdue).
  */
 function mergeCommissionRecords(latest: CommissionRecord[], incoming: CommissionRecord[]) {
+  const attestedTradeCommissions = new Map(latest.filter(record => record.ownerSettlementAttestation && record.purchaseRequestId)
+    .map(record => [record.purchaseRequestId, record.id]));
+  // A pre-reconciliation completion may have generated a different random
+  // commission ID. It cannot charge the already-attested sale a second time.
+  const incomingCommissions = incoming.filter(record => {
+    const canonicalId = record.purchaseRequestId ? attestedTradeCommissions.get(record.purchaseRequestId) : undefined;
+    return !canonicalId || record.id === canonicalId;
+  });
   const latestById = new Map(latest.map((record) => [record.id, record]));
-  const incomingById = new Map(incoming.map((record) => [record.id, record]));
-  const incomingIds = new Set(incoming.map((record) => record.id));
+  const incomingById = new Map(incomingCommissions.map((record) => [record.id, record]));
+  const incomingIds = new Set(incomingCommissions.map((record) => record.id));
   const orderedIds = [
-    ...incoming.map((record) => record.id),
+    ...incomingCommissions.map((record) => record.id),
     ...latest.map((record) => record.id).filter((id) => !incomingIds.has(id)),
   ];
 
@@ -2032,7 +2105,30 @@ function mergeSnapshotWithLatest(latest: AlphaExchangeDb, incoming: AlphaExchang
     return right.id.localeCompare(left.id);
   });
   const getCollection = <T>(value: T[] | undefined, fallback: T[]) => Array.isArray(value) ? value : fallback;
-  const mergedMarketplaceListings = mergeTimestampedRecords(
+  const protectedSellerIds = new Set(latest.purchaseRequests.filter(request => request.historicalCompletion
+    && !matchesHistoricalOperation(request.historicalCompletion,
+      (incomingById.get(request.id) as PurchaseRequest | undefined)?.historicalCompletion)).map(request => request.sellerId));
+  const latestUsersById = new Map(latest.users.map(user => [user.id, user]));
+  const incomingUsers = getCollection(incoming.users, latest.users);
+  const incomingUserIds = new Set(incomingUsers.map(user => user.id));
+  const mergedUsers = incomingUsers.map(user => {
+    const canonical = latestUsersById.get(user.id);
+    if (!canonical || !protectedSellerIds.has(user.id)) return user;
+    // Keep unrelated account/security edits while fencing only the reputation
+    // fields whose source trade the stale writer has not yet observed.
+    const preferred = snapshotRecordTimestamp(user) > snapshotRecordTimestamp(canonical) ? user : canonical;
+    return { ...preferred,
+      lifetimeCompletedVolumeUsdt: canonical.lifetimeCompletedVolumeUsdt,
+      sellerPrestigeRank: canonical.sellerPrestigeRank,
+      sellerRankOverride: canonical.sellerRankOverride,
+      sellerPromotionHistory: canonical.sellerPromotionHistory,
+      sellerAchievements: canonical.sellerAchievements,
+    };
+  });
+  for (const user of latest.users) {
+    if (protectedSellerIds.has(user.id) && !incomingUserIds.has(user.id)) mergedUsers.push(user);
+  }
+  const mergedMarketplaceListings = mergeMarketplaceListings(
     getCollection(latest.marketplaceListings, []),
     getCollection(incoming.marketplaceListings, []),
   );
@@ -2084,7 +2180,7 @@ function mergeSnapshotWithLatest(latest: AlphaExchangeDb, incoming: AlphaExchang
   return {
     ...latest,
     ...incoming,
-    users: getCollection(incoming.users, latest.users),
+    users: mergedUsers,
     sellerApplications: getCollection(incoming.sellerApplications, latest.sellerApplications),
     marketplaceListings: mergedMarketplaceListings,
     purchaseRequests: mergedPurchaseRequests,
@@ -2097,8 +2193,8 @@ function mergeSnapshotWithLatest(latest: AlphaExchangeDb, incoming: AlphaExchang
     activityLog: mergedActivityLog,
     disputes: getCollection(incoming.disputes, latest.disputes),
     sellerReports: getCollection(incoming.sellerReports, latest.sellerReports),
-    trustSnapshots: getCollection(incoming.trustSnapshots, latest.trustSnapshots),
-    trustScoreHistory: getCollection(incoming.trustScoreHistory, latest.trustScoreHistory),
+    trustSnapshots: preserveHistoricalSellerRecords(latest.trustSnapshots, getCollection(incoming.trustSnapshots, latest.trustSnapshots), protectedSellerIds),
+    trustScoreHistory: preserveHistoricalSellerRecords(latest.trustScoreHistory, getCollection(incoming.trustScoreHistory, latest.trustScoreHistory), protectedSellerIds),
     tradeEvidenceFiles: mergedTradeEvidenceFiles,
     privateBetaInvites: getCollection(incoming.privateBetaInvites, latest.privateBetaInvites),
     privateBetaInviteUses: getCollection(incoming.privateBetaInviteUses, latest.privateBetaInviteUses),

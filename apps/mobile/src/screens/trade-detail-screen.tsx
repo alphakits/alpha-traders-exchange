@@ -2,6 +2,7 @@ import { sellerFeeResponsibilityNotice, tradePaymentReceiptConfirmation, tradeCh
 import { BrandedText as Text } from "../components/branded-text";
 import { AttentionSiren } from "../components/attention-siren";
 import { TradeTermsPanel } from "../components/trade-terms-panel";
+import { TradeCancellationControl } from "../components/trade-cancellation-control";
 import { updateMobileTradeTerms } from "../api/mobile-api";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -851,11 +852,8 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
               </GoldButton>
             </View>
           ) : null}
-          {actions.canCancel ? (
-            <GoldButton disabled={actionsDisabled} loading={busyAction === "cancelled"} onPress={() => confirmStatus("cancelled", trade.status === "accepted" ? t("cancelBeforePaymentConfirmation") : t("cancelConfirmation"), false, true)} variant="outline">
-              {t("cancelTrade")}
-            </GoldButton>
-          ) : null}
+          <TradeCancellationControl trade={trade} isAr={locale === "ar"} disabled={actionsDisabled} loading={busyAction === "cancelled"}
+            onCancel={() => confirmStatus("cancelled", trade.status === "accepted" ? t("cancelBeforePaymentConfirmation") : t("cancelConfirmation"), false, true)} />
           {(actions.canCompleteTrade ?? actions.canCompleteFaceToFace) ? (
             <GoldButton
               disabled={actionsDisabled}
