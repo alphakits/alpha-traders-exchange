@@ -248,9 +248,11 @@ it("shows and enforces the symmetric buyer offer range", () => {
   expect(field.getAttribute("aria-invalid")).toBe("true");
 });
 
-it("groups four-digit negotiated prices and continues to reject out-of-range offers", () => {
-  render(<Harness priceMode="buyer_offer" selectedPrice={1250} />);
-  const field = screen.getByRole("textbox", { name: /price|offer/i }) as HTMLInputElement;
+it.each(["en", "ar"] as const)("groups four-digit negotiated prices and rejects out-of-range offers in %s", locale => {
+  render(<Harness locale={locale} priceMode="buyer_offer" selectedPrice={1250} />);
+  const field = screen.getByRole("textbox", { name: locale === "en" ? /price|offer/i : /سعر/ }) as HTMLInputElement;
+  expect(field.id).toBe("buyer-offered-price");
+  expect(field.getAttribute("aria-describedby")).toBe("buyer-offer-price-help");
   fireEvent.change(field, { target: { value: "1250.30" } });
   expect(field.value).toBe("1,250.30");
   expect(field.getAttribute("aria-invalid")).not.toBe("true");

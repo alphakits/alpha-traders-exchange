@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { expect, test, type APIRequestContext, type APIResponse } from "@playwright/test";
 import { OFFLINE_ACCOUNTS, OFFLINE_PASSWORD, OFFLINE_HEADERS, seedOfflineFixture } from "../scripts/usdt-request-offline-fixture.mjs";
 import type { DemandWorkspace } from "../src/types/usdt-demand";
-import { createHardNavigationErrorAudit, unblockedAccountDestinationFeed } from "./support/hard-navigation-errors";
+import { createHardNavigationErrorAudit, marketDestinationFeed, unblockedAccountDestinationFeed } from "./support/hard-navigation-errors";
 import { clickConfirmedTradeAction } from "./support/action-dialog";
 
 async function ok(response: Pick<APIResponse, "ok" | "status" | "text" | "json">) {
@@ -93,7 +93,9 @@ test("personal Wise USD accounts and Buy Request complete locally with private p
     expect(JSON.stringify(publicListings)).not.toContain("00001001001");
 
     phase = "request creation";
-    await page.goto("/en/usdt-exchange/requests");
+    const requestWorkspace = new URL("/en/usdt-exchange/requests", baseURL);
+    await browserErrorAudit.navigate(page, () => page.goto(requestWorkspace.href), marketDestinationFeed(baseURL!));
+    await expect(page).toHaveURL(url => url.origin === requestWorkspace.origin && url.pathname === requestWorkspace.pathname);
     await page.getByRole("button", { name: "Create a request", exact: true }).click();
     await page.getByLabel("Bank transfer provider", { exact: true }).selectOption("wise");
     await page.getByLabel("Amount (USDT)", { exact: true }).fill("1000");

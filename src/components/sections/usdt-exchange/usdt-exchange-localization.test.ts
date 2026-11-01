@@ -177,7 +177,6 @@ describe("USDT exchange localized mobile copy", () => {
     expect(marketplace).toContain('"±₪0.35 من سعر الإعلان"');
     expect(marketplace).toContain('listing.currency.trim().toUpperCase() === "ILS"');
     expect(marketplace).toContain('seller-marketplace-action--offer');
-    expect(purchaseDialog).toContain('id="buyer-offered-price"');
     expect(purchaseDialog).toContain('type="number"');
     expect(purchaseDialog).toContain('step="0.01"');
     expect(purchaseDialog).toContain('"Submit Price Offer"');
