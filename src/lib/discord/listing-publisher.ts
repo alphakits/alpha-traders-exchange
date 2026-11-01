@@ -165,6 +165,10 @@ export function buildDiscordListingMessage(
       : null,
     snapshot.approvedSeller ? "✅ Approved Seller" : null,
   ].filter(Boolean).join(" • ");
+  const price = normalizeDecimal(snapshot.price, 2);
+  const currency = snapshot.currency.trim().toUpperCase();
+  const quotedPrice = currency === "USD" ? `$${price}` : currency === "ILS" || currency === "NIS" ? `₪${price}`
+    : /^[A-Z]{3}$/.test(currency) ? `${price} ${currency}` : price;
   const fields = [
     {
       name: sold ? "Last available amount" : "Available USDT",
@@ -175,7 +179,7 @@ export function buildDiscordListingMessage(
     },
     {
       name: "Price per USDT",
-      value: `**₪${normalizeDecimal(snapshot.price, 2)}**`,
+      value: `**${quotedPrice}**`,
       inline: true,
     },
     {

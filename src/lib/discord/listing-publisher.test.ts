@@ -44,6 +44,13 @@ describe("Discord listing message", () => {
     ]));
   });
 
+  it("shows the actual settlement currency on a USD listing", () => {
+    const embed = buildDiscordListingMessage({ ...snapshot, currency: "USD", price: "1.0050" }).embeds?.[0];
+    expect(embed?.fields).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: "Price per USDT", value: "**$1.0050**" }),
+    ]));
+  });
+
   it("renders the exact premium active hierarchy and authoritative fields", () => {
     const payload = buildDiscordListingMessage(snapshot);
     const embed = payload.embeds?.[0];
