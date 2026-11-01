@@ -132,7 +132,7 @@ export function OwnerTradeHistory({ locale, room, onUpdated }: { locale: "ar" | 
   const sendAttempt = useRef<{ message: string; id: string } | null>(null);
   const [sendError, setSendError] = useState("");
   const chatScrollRef = useRef<HTMLDivElement>(null);
-  const chatWasNearBottomRef = useRef(true);
+  const chatScrollExtentRef = useRef<number | null>(null);
   const forceChatScrollRef = useRef(false);
   const isAr = locale === "ar";
   const t = (en: string, ar: string) => isAr ? ar : en;
@@ -156,11 +156,17 @@ export function OwnerTradeHistory({ locale, room, onUpdated }: { locale: "ar" | 
   const messages = [...room.messages].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   useLayoutEffect(() => {
     const panel = chatScrollRef.current;
-    if (panel && (chatWasNearBottomRef.current || forceChatScrollRef.current)) {
+    if (!panel) return;
+    // A refresh can commit before WebKit delivers the last scroll event. Read
+    // the current position against the pre-update extent, before new messages
+    // increase the height, so neither reading nor bottom-follow depends on it.
+    const previousExtent = chatScrollExtentRef.current;
+    const wasNearBottom = previousExtent === null || previousExtent - panel.scrollTop <= 80;
+    if (wasNearBottom || forceChatScrollRef.current) {
       panel.scrollTop = panel.scrollHeight;
-      chatWasNearBottomRef.current = true;
       forceChatScrollRef.current = false;
     }
+    chatScrollExtentRef.current = panel.scrollHeight - panel.clientHeight;
   }, [room.messages]);
   const timeline = [...(request.timeline ?? [])].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   const evidence = room.ownerHistory?.evidenceFiles ?? [request.buyerEvidence, request.sellerEvidence].filter((entry) => entry !== undefined);
@@ -217,7 +223,7 @@ export function OwnerTradeHistory({ locale, room, onUpdated }: { locale: "ar" | 
           ref={chatScrollRef}
           onScroll={(event) => {
             const panel = event.currentTarget;
-            chatWasNearBottomRef.current = panel.scrollHeight - panel.scrollTop - panel.clientHeight <= 80;
+            chatScrollExtentRef.current = panel.scrollHeight - panel.clientHeight;
           }}
           data-testid="owner-trade-chat-messages"
           role="region"

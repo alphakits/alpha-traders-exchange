@@ -1438,7 +1438,7 @@ function TradeRoomPageSession({
   const chatImageInputRef = useRef<HTMLInputElement | null>(null);
   const reviewCommentInputRef = useRef<HTMLTextAreaElement | null>(null);
   const chatScrollRef = useRef<HTMLDivElement | null>(null);
-  const chatWasNearBottomRef = useRef(true);
+  const chatScrollExtentRef = useRef<number | null>(null);
   const forceChatScrollRef = useRef(false);
   const knownChatMessageIdsRef = useRef<Set<string>>(new Set());
   const chatMessagesInitializedRef = useRef(false);
@@ -2917,7 +2917,7 @@ function TradeRoomPageSession({
       chatContainer.scrollTop,
       chatContainer.clientHeight,
     );
-    chatWasNearBottomRef.current = isNearBottom;
+    chatScrollExtentRef.current = chatContainer.scrollHeight - chatContainer.clientHeight;
     if (isNearBottom) setHasUnreadChatMessages(false);
   }, []);
 
@@ -2935,17 +2935,22 @@ function TradeRoomPageSession({
     chatMessagesInitializedRef.current = true;
 
     if (!chatContainer) return;
-    const shouldFollow = shouldAutoScrollTradeRoomChat(chatWasNearBottomRef.current, forceChatScrollRef.current);
+    // A stream update may render before the browser delivers a scroll event.
+    // Use the live position against the previous content's extent, so reading
+    // stays put while a large incoming message still follows a prior bottom.
+    const previousExtent = chatScrollExtentRef.current;
+    const wasNearBottom = previousExtent === null || previousExtent - chatContainer.scrollTop <= 80;
+    const shouldFollow = shouldAutoScrollTradeRoomChat(wasNearBottom, forceChatScrollRef.current);
+    chatScrollExtentRef.current = chatContainer.scrollHeight - chatContainer.clientHeight;
     if (shouldFollow) {
       chatContainer.scrollTo({ top: chatContainer.scrollHeight, behavior: "auto" });
-      chatWasNearBottomRef.current = true;
       forceChatScrollRef.current = false;
       setHasUnreadChatMessages(false);
       return;
     }
     if (shouldShowTradeRoomNewMessageIndicator({
       initialized,
-      wasNearBottom: chatWasNearBottomRef.current,
+      wasNearBottom,
       hasNewCounterpartyMessage,
     })) {
       setHasUnreadChatMessages(true);
@@ -2956,7 +2961,7 @@ function TradeRoomPageSession({
     const chatContainer = chatScrollRef.current;
     if (chatContainer) {
       chatContainer.scrollTo({ top: chatContainer.scrollHeight, behavior: "smooth" });
-      chatWasNearBottomRef.current = true;
+      chatScrollExtentRef.current = chatContainer.scrollHeight - chatContainer.clientHeight;
     }
     setHasUnreadChatMessages(false);
   }, []);

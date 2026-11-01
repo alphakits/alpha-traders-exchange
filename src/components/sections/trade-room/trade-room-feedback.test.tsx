@@ -8,7 +8,7 @@ vi.mock("@/components/account/user-safety-actions", () => ({ UserSafetyActions: 
 import { TradeRoomPage } from "./trade-room-page";
 import { readTradeRoomCache, writeTradeRoomCache } from "@/lib/trade-room-client";
 import { cancelPageSectionNavigation, revealPageSection } from "@/lib/page-section-navigation";
-import type { PurchaseRequest } from "@/types/alpha-exchange";
+import type { PurchaseRequest, TradeChatMessage } from "@/types/alpha-exchange";
 
 function room(paymentMethod: string, status: PurchaseRequest["status"]) {
   return {
@@ -16,7 +16,7 @@ function room(paymentMethod: string, status: PurchaseRequest["status"]) {
       paymentMethod, usdtAmount: "100", fiatAmount: "320", network: "TRC20", currency: "ILS", buyerWalletAddress: "",
       createdAt: "2026-09-22T00:00:00.000Z", updatedAt: "2026-09-22T00:00:00.000Z", timeline: [], messages: [],
     },
-    listing: null, counterpart: { buyerName: "Buyer", sellerName: "Seller" }, messages: [],
+    listing: null, counterpart: { buyerName: "Buyer", sellerName: "Seller" }, messages: [] as TradeChatMessage[],
     poke: { available: false, canPoke: false, cooldownUntil: null, cooldownRemainingSeconds: 0, counterpartRole: "buyer" },
     deadlineAt: null, releaseDeadlineActive: false, sellerCommissionDueCount: 0, sellerCommissionDueAmount: 0, hasOpenDispute: false, canOpenDispute: false,
   };
@@ -65,6 +65,87 @@ beforeEach(() => {
   Element.prototype.scrollTo = vi.fn();
 });
 afterEach(() => { cleanup(); cancelPageSectionNavigation(); vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+
+describe("participant chat position during stream updates", () => {
+  function message(id: string, sender: typeof buyer | typeof seller = buyer): TradeChatMessage {
+    return { id, purchaseRequestId: "feedback-request", kind: "user", senderUserId: sender.id, senderRole: sender.role,
+      message: `Chat ${id}`, createdAt: "2026-09-22T00:00:01.000Z", readByUserIds: [sender.id] };
+  }
+
+  function mockChatGeometry() {
+    let height = 1000;
+    vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockImplementation(() => height);
+    vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(420);
+    Element.prototype.scrollTo = vi.fn(function (this: Element, options?: ScrollToOptions | number) {
+      const top = typeof options === "object" ? options.top ?? 0 : options ?? 0;
+      this.scrollTop = Math.max(0, Math.min(this.scrollHeight - this.clientHeight, top));
+    });
+    return (nextHeight: number) => { height = nextHeight; };
+  }
+
+  async function openChat() {
+    const current = room("Bank Transfer", "accepted");
+    current.messages = [message("existing")];
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json(current)));
+    render(<TradeRoomPage locale="en" requestId="feedback-request" actor={buyer} />);
+    const panel = await screen.findByTestId("trade-chat-messages");
+    await waitFor(() => expect(RoomStream.instances).toHaveLength(1));
+    expect(panel.scrollTop).toBe(580);
+    return { current, panel, stream: RoomStream.instances[0] };
+  }
+
+  it.each([false, true])("preserves earlier reading before a scroll event arrives (counterparty message: %s)", async incoming => {
+    const setHeight = mockChatGeometry();
+    const { current, panel, stream } = await openChat();
+    fireEvent.scroll(panel);
+    // Actual scrolling is already observable even if WebKit has not dispatched
+    // the event that used to update the cached follow-to-bottom flag.
+    panel.scrollTop = 0;
+    const updated = { ...current, messages: incoming
+      ? [...current.messages, message("incoming", seller)]
+      : current.messages.map(item => ({ ...item, deliveredAt: "2026-09-22T00:00:02.000Z" })) };
+    if (incoming) setHeight(1400);
+    act(() => stream.snapshot(updated));
+    expect(panel.scrollTop).toBe(0);
+    expect(screen.queryByRole("button", { name: "New messages — show" }) !== null).toBe(incoming);
+    if (incoming) {
+      fireEvent.click(screen.getByRole("button", { name: "New messages — show" }));
+      expect(panel.scrollTop).toBe(980);
+      expect(screen.queryByRole("button", { name: "New messages — show" })).toBeNull();
+    }
+  });
+
+  it.each([580, 520])("follows a large incoming message from a prior near-bottom position of %s", async top => {
+    const setHeight = mockChatGeometry();
+    const { current, panel, stream } = await openChat();
+    panel.scrollTop = top;
+    fireEvent.scroll(panel);
+    setHeight(1600);
+    act(() => stream.snapshot({ ...current, messages: [...current.messages, message("incoming", seller)] }));
+    expect(panel.scrollTop).toBe(1180);
+    expect(screen.queryByRole("button", { name: "New messages — show" })).toBeNull();
+  });
+
+  it("follows the participant's own reply while reading earlier messages", async () => {
+    const setHeight = mockChatGeometry();
+    const { current, panel } = await openChat();
+    panel.scrollTop = 0;
+    fireEvent.scroll(panel);
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        const body = JSON.parse(String(init.body));
+        return Response.json({ message: { ...message("confirmed"), message: body.message, clientMessageId: body.clientMessageId } });
+      }
+      return Response.json(current);
+    }));
+    setHeight(1300);
+    fireEvent.change(screen.getByPlaceholderText("Type a message..."), { target: { value: "My reply" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send Message" }));
+    await waitFor(() => expect(panel.querySelector('[data-trade-message-id="confirmed"]')).not.toBeNull());
+    expect(panel.scrollTop).toBe(880);
+    expect(screen.queryByRole("button", { name: "New messages — show" })).toBeNull();
+  });
+});
 
 it.each([
   ["upload-payment-receipt", "accepted", buyer],

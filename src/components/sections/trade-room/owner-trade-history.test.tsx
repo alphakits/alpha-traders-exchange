@@ -248,6 +248,66 @@ describe("owner history refresh recovery", () => {
 });
 
 
+describe("owner chat scroll position during refresh", () => {
+  function mockChatGeometry() {
+    let height = 1000;
+    vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockImplementation(() => height);
+    vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(420);
+    return (nextHeight: number) => { height = nextHeight; };
+  }
+
+  it.each([false, true])("keeps an earlier reading position before the scroll event arrives (new message: %s)", (incoming) => {
+    const setHeight = mockChatGeometry();
+    const room = historyRoom("accepted");
+    const view = render(<OwnerTradeHistory locale="en" room={room} />);
+    const panel = screen.getByTestId("owner-trade-chat-messages");
+    panel.scrollTop = 580;
+    fireEvent.scroll(panel);
+    // WebKit can deliver the position change before its queued scroll event.
+    panel.scrollTop = 0;
+    const updated = { ...room, messages: [...room.messages] };
+    if (incoming) {
+      updated.messages.push({ ...room.messages[0], id: "incoming", message: "New message" });
+      setHeight(1400);
+    }
+    view.rerender(<OwnerTradeHistory locale="en" room={updated} />);
+    expect(panel.scrollTop).toBe(0);
+  });
+
+  it.each([580, 520])("follows a large incoming message when previously near the bottom at %s", (top) => {
+    const setHeight = mockChatGeometry();
+    const room = historyRoom("accepted");
+    const view = render(<OwnerTradeHistory locale="en" room={room} />);
+    const panel = screen.getByTestId("owner-trade-chat-messages");
+    expect(panel.scrollTop).toBe(1000);
+    panel.scrollTop = top;
+    fireEvent.scroll(panel);
+    setHeight(1600);
+    view.rerender(<OwnerTradeHistory locale="en" room={{ ...room, messages: [...room.messages, { ...room.messages[0], id: "incoming" }] }} />);
+    expect(panel.scrollTop).toBe(1600);
+  });
+
+  it("follows a confirmed Owner reply even while reading earlier messages", async () => {
+    const setHeight = mockChatGeometry();
+    const room = historyRoom("accepted");
+    const updated = { ...room, messages: [...room.messages, { ...room.messages[0], id: "owner-reply", senderRole: "owner" as const }] };
+    vi.stubGlobal("fetch", vi.fn().mockImplementation(async (_url, options) => Response.json({
+      message: { ...updated.messages.at(-1), ...JSON.parse(options.body) },
+    })));
+    const onUpdated = () => {
+      setHeight(1300);
+      view.rerender(<OwnerTradeHistory locale="en" room={updated} onUpdated={onUpdated} />);
+    };
+    const view = render(<OwnerTradeHistory locale="en" room={room} onUpdated={onUpdated} />);
+    const panel = screen.getByTestId("owner-trade-chat-messages");
+    panel.scrollTop = 0;
+    fireEvent.scroll(panel);
+    fireEvent.change(screen.getByRole("textbox", { name: /Owner message/ }), { target: { value: "Owner reply" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send as Owner" }));
+    await waitFor(() => expect(panel.scrollTop).toBe(1300));
+  });
+});
+
 describe("owner live chat send recovery", () => {
   it("retains an unconfirmed draft and reuses its reference only on explicit retry", async () => {
     const fetchMock = vi.fn().mockRejectedValueOnce(new Error("Connection interrupted")).mockImplementation(async (_url, options) => {
