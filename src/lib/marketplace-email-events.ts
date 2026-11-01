@@ -72,6 +72,7 @@ async function deliver(input: Omit<MarketplaceEmailPayload, "recipientName"> & {
   const result = await sendMarketplaceEmail({
     ...payload,
     to: recipient.email,
+    ...(payload.completionReceipt ? { recipientId: recipient.id } : {}),
     recipientName: recipient.fullName,
     recipientLocale: normalizePreferredLocale(recipient.preferredLocale),
     idempotencyKey,
@@ -88,6 +89,7 @@ async function deliver(input: Omit<MarketplaceEmailPayload, "recipientName"> & {
       },
     });
   }
+  return result;
 }
 
 function tradeEmailContent(
@@ -271,9 +273,15 @@ function tradeEmailContent(
     return {
       ...common,
       title: { ar: "اكتملت الصفقة", en: "Trade Completed" },
-      message: {
-        ar: `اكتملت الصفقة ${referenceLabel} وانتقلت إلى السجل والمراجعة. تم تسجيل العمولة المستحقة على البائع.`,
-        en: `Trade ${referenceLabel} is complete and has moved to history and review. The seller commission has been recorded.`,
+      actionPath: `${actionPath}#trade-receipt`,
+      actionLabel: { ar: "عرض الإيصال وسجل الصفقة", en: "View receipt and trade history" },
+      completionReceipt: request.completionReceipt,
+      message: request.completionReceipt ? {
+        ar: `اكتملت الصفقة ${referenceLabel}. إيصال صفقتك الخاص موجود أدناه وفي المرفق. افتح الصفقة لعرض الإيصال والمحادثة والسجل المحفوظ.`,
+        en: `Trade ${referenceLabel} is complete. Your private trade receipt is included below and attached. Open the trade to view its saved receipt, conversation and history.`,
+      } : {
+        ar: `اكتملت الصفقة ${referenceLabel}. افتح الصفقة لعرض التفاصيل والسجل المحفوظ.`,
+        en: `Trade ${referenceLabel} is complete. Open the trade to view its saved details and history.`,
       },
     };
   }

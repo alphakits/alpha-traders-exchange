@@ -1,4 +1,5 @@
 import { queueDemandEmails } from "@/lib/usdt-demand-email";
+import { recoverTradeReceiptEmails } from "@/lib/trade-receipt-delivery";
 import { timingSafeEqual } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { logEvent } from "@/lib/structured-logging";
@@ -35,6 +36,15 @@ export async function GET(request: NextRequest) {
   }
 
   try {
+    let receiptPreparationFailed = false;
+    try {
+      await recoverTradeReceiptEmails();
+    } catch (error) {
+      receiptPreparationFailed = true;
+      logEvent("error", { event: "marketplace_email_delivery_cron", outcome: "failed",
+        reason: "trade_receipt_preparation_failed",
+        metadata: { errorType: error instanceof Error ? error.name : typeof error } });
+    }
     let demandPreparationFailed = false;
     try {
       await queueDemandEmails();
@@ -47,6 +57,10 @@ export async function GET(request: NextRequest) {
     // Existing trade and marketplace jobs must still recover when preparing
     // new Buy Requests messages fails. Report the partial failure for alerts.
     const result = await deliverMarketplaceEmailQueue();
+    if (receiptPreparationFailed) {
+      return NextResponse.json({ ok: false, error: "Trade receipt email preparation failed. Existing queued deliveries were processed.", ...result },
+        { status: 500, headers: { "Cache-Control": "no-store" } });
+    }
     if (demandPreparationFailed) {
       return NextResponse.json(
         { ok: false, error: "Buy Requests email preparation failed. Existing queued deliveries were processed.", ...result },

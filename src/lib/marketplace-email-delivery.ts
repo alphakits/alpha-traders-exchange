@@ -1,3 +1,5 @@
+import { brandedTradeReceiptEmail, tradeReceiptDocument } from "@/lib/trade-receipt-render";
+import type { TradeCompletionReceipt } from "@alpha-traders/contracts";
 import { randomUUID } from "node:crypto";
 import { previewEmailSubject, previewPreparedEmailFailure } from "./email-preview-safety";
 import { enqueueMarketplaceEmail, runMarketplaceEmailSweep, type PreparedMarketplaceEmail, type EmailProviderResult } from "@/lib/marketplace-email-outbox";
@@ -63,6 +65,7 @@ export type MarketplaceEmailPayload = {
   /** Optional for renderer previews; required by sendMarketplaceEmail. */
   recipientLocale?: MarketplaceEmailLocale;
   referenceLabel?: string;
+  completionReceipt?: TradeCompletionReceipt;
 };
 
 export type MarketplaceEmailAttempt = {
@@ -165,6 +168,12 @@ function localizedActionUrl(locale: MarketplaceEmailLocale, actionPath: string) 
 }
 
 export function buildMarketplaceEmail(input: MarketplaceEmailPayload) {
+  if (input.event === "trade_completed" && input.completionReceipt && input.recipientLocale) {
+    const receipt = input.completionReceipt;
+    // Use the stored receipt's internal trade ID, never a contact-redacted URL or share token.
+    const tradeId = receipt.receiptNumber.slice("ATR-".length);
+    return brandedTradeReceiptEmail(receipt, input.recipientLocale, localizedActionUrl(input.recipientLocale, `/trade-room/${encodeURIComponent(tradeId)}#trade-receipt`));
+  }
   const safeRecipientName = redactPrivateContactDetails(input.recipientName.trim());
   const recipientName = {
     ar: escapeHtml(safeRecipientName || "المتداول"),
@@ -298,6 +307,7 @@ function retryAfterMs(value: string | null) {
 export async function sendMarketplaceEmail(
   input: MarketplaceEmailPayload & {
     to: string;
+    recipientId?: string;
     recipientLocale: MarketplaceEmailLocale;
     idempotencyKey?: string;
     maxAttempts?: number;
@@ -319,6 +329,7 @@ export async function sendMarketplaceEmail(
   const email = buildMarketplaceEmail(input);
   const activeStatuses = ["pending", "accepted", "payment_sent", "funds_received", "usdt_release_pending", "usdt_sent"];
   const requiredStatuses: Partial<Record<MarketplaceEmailEvent, string[]>> = {
+    trade_completed: ["completed", "review_open", "locked"],
     new_buy_request: ["pending"], trade_accepted: ["accepted", "payment_sent"],
     buyer_payment_sent: ["payment_sent"], seller_funds_received: ["funds_received"],
     seller_usdt_release_started: ["usdt_release_pending"], seller_usdt_released: ["usdt_sent"],
@@ -329,14 +340,21 @@ export async function sendMarketplaceEmail(
     const path = /^\/trade-room\/([^/?#]+)/.exec(input.actionPath);
     if (path) requestId = decodeURIComponent(path[1]);
   } catch { /* Malformed internal paths cannot become a database lookup. */ }
+  if (input.completionReceipt && (input.event !== "trade_completed" || !requestId || input.completionReceipt.receiptNumber !== `ATR-${requestId}` || !input.recipientId ||
+    input.idempotencyKey !== `trade-lifecycle:${requestId}:trade_completed:${input.recipientId}`)) {
+    return { ok: false as const, reason: "invalid_receipt_recipient" as const };
+  }
   const prepared: PreparedMarketplaceEmail = {
     event: input.event,
     recipientEmail: input.to,
+    ...(input.completionReceipt ? { recipientId: input.recipientId } : {}),
     idempotencyKey: input.idempotencyKey ?? `marketplace:${randomUUID()}`,
     ...(requestId && requiredStatuses[input.event] ? { requestId, requiredTradeStatuses: requiredStatuses[input.event] } : {}),
     body: JSON.stringify({
       from, to: [input.to], subject: previewEmailSubject(email.subject), html: email.html, text: email.text,
-      headers: buildBrandedEmailHeaders(), attachments: [buildBrandedEmailLogoAttachment()],
+      headers: buildBrandedEmailHeaders(), attachments: [buildBrandedEmailLogoAttachment(),
+        ...(input.completionReceipt ? [{ filename: "Alpha-Traders-trade-receipt.html", content: Buffer.from(tradeReceiptDocument(input.completionReceipt, input.recipientLocale), "utf8").toString("base64") }] : []),
+      ],
     }),
   };
   const queued = await enqueueMarketplaceEmail(prepared, (message) => sendPreparedMarketplaceEmail(message, { maxAttempts: 1 }));

@@ -10,6 +10,7 @@ import { previewPreparedEmailFailure } from "./email-preview-safety";
 export type PreparedMarketplaceEmail = {
   event: string;
   recipientEmail: string;
+  recipientId?: string;
   body: string;
   idempotencyKey: string;
   requestId?: string;
@@ -98,6 +99,13 @@ type Job = {
   idempotency_key: string; attempts: number; lease_token: string;
 };
 
+export async function prepareMarketplaceEmailOutbox() {
+  const pool = getRuntimePostgresPool();
+  if (!pool) throw new Error("Durable email storage is unavailable.");
+  await ensureSchema(pool);
+  return pool;
+}
+
 async function claim(pool: Pool, id?: string): Promise<{ job?: Job; waitMs?: number }> {
   const client = await pool.connect();
   let destroy = false;
@@ -161,6 +169,9 @@ async function finish(pool: Pool, job: Job, status: "sent" | "failed" | "suppres
 async function attempt(pool: Pool, job: Job, send: MarketplaceEmailTransport) {
   // Resolve current account state on every attempt. Never send a stored message
   // to an address that is no longer attached to the original account.
+  const receiptMembership = job.event === "trade_completed"
+    ? "and job.recipient_id in (trade.buyer_id, trade.seller_id)"
+    : "";
   const eligibility = await pool.query<{ eligible: boolean }>(
     `select exists (
        select 1 from alpha_exchange.marketplace_email_outbox job
@@ -171,6 +182,7 @@ async function attempt(pool: Pool, job: Job, send: MarketplaceEmailTransport) {
          and (job.required_trade_statuses is null or exists (
            select 1 from alpha_exchange.purchase_requests trade
            where trade.id = job.request_id and trade.status = any(job.required_trade_statuses)
+             ${receiptMembership}
          ))
      ) as eligible`, [job.id, job.lease_token],
   );
@@ -232,8 +244,9 @@ export async function enqueueMarketplaceEmail(email: PreparedMarketplaceEmail, s
          (id, recipient_id, event, recipient_email, request_body, idempotency_key, request_id, required_trade_statuses)
        select $1, id, $2, email, $3, $4, $6, $7::text[] from alpha_exchange.users
        where lower(email) = lower($5) and coalesce(payload->>'disabled', 'false') <> 'true'
+         and ($8::text is null or id = $8)
        order by id limit 1 on conflict (idempotency_key) do nothing returning id, status`,
-      [randomUUID(), email.event, email.body, email.idempotencyKey, email.recipientEmail, email.requestId ?? null, email.requiredTradeStatuses ?? null],
+      [randomUUID(), email.event, email.body, email.idempotencyKey, email.recipientEmail, email.requestId ?? null, email.requiredTradeStatuses ?? null, email.recipientId ?? null],
     );
     const existing = inserted.rows[0] ?? (await pool.query<{ id: string; status: string }>(
       "select id, status from alpha_exchange.marketplace_email_outbox where idempotency_key = $1", [email.idempotencyKey],

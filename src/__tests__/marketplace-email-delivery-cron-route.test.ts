@@ -5,11 +5,14 @@ const mocks = vi.hoisted(() => ({
   logEvent: vi.fn(),
   runSweep: vi.fn(),
   queueDemands: vi.fn(),
+  recoverReceipts: vi.fn(),
 }));
 
 vi.mock("@/lib/structured-logging", () => ({ logEvent: mocks.logEvent }));
 vi.mock("@/lib/marketplace-email-delivery", () => ({ deliverMarketplaceEmailQueue: mocks.runSweep }));
 vi.mock("@/lib/usdt-demand-email", () => ({ queueDemandEmails: mocks.queueDemands }));
+
+vi.mock("@/lib/trade-receipt-delivery", () => ({ recoverTradeReceiptEmails: mocks.recoverReceipts }));
 
 import { GET } from "@/app/api/cron/marketplace-email-delivery/route";
 
@@ -28,6 +31,7 @@ describe("Marketplace email delivery cron", () => {
     vi.stubEnv("CRON_SECRET", secret);
     mocks.runSweep.mockResolvedValue({ sent: 0, pending: 0, backlog: 0, failedTotal: 0 });
     mocks.queueDemands.mockResolvedValue(undefined);
+    mocks.recoverReceipts.mockResolvedValue({ recoveredTrades: 0 });
   });
 
   it("rejects an invalid cron credential without running work", async () => {
@@ -71,4 +75,13 @@ describe("Marketplace email delivery cron", () => {
     expect(mocks.queueDemands).not.toHaveBeenCalled();
     expect(mocks.runSweep).not.toHaveBeenCalled();
   });
+
+it("processes queued mail even when receipt recovery fails and exposes an aggregate failure", async () => {
+  mocks.recoverReceipts.mockRejectedValueOnce(new Error("private database message"));
+  const response = await GET(request());
+  expect(response.status).toBe(500);
+  expect(mocks.runSweep).toHaveBeenCalledOnce();
+  expect(await response.text()).not.toContain("private database message");
+});
+
 });

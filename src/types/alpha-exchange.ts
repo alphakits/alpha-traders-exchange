@@ -894,6 +894,8 @@ export interface AdminAnnouncementRun {
 }
 
 export interface PurchaseRequest {
+  /** Server-owned receipt committed atomically with successful completion. */
+  completionReceipt?: import("@alpha-traders/contracts").TradeCompletionReceipt;
   buyerVolumeCredit?: BuyerVolumeCredit;
   /** Safe participant-facing provenance, without private owner audit details. */
   buyerVolumeCreditSummary?: { source: "owner_attestation"; recordedAt: string; creditedUsdtAmount: string };
