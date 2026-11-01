@@ -1072,11 +1072,18 @@ for (const role of ["buyer", "seller"] as const) {
       const landscapeToggle = page.locator('summary[aria-label="Open menu"]');
       await landscapeToggle.click();
       const landscapeEntry = landscapeToggle.locator("..").getByRole("link", { name: "Buy Requests", exact: true });
-      await landscapeEntry.scrollIntoViewIfNeeded();
-      // A native scroll can move the page beneath its sticky header without
-      // exposing the link inside the menu. Verify actionability before measuring.
-      await landscapeEntry.click({ trial: true });
+      const [panel, item] = await Promise.all([
+        landscapeToggle.locator("+ div").boundingBox(),
+        landscapeEntry.boundingBox(),
+      ]);
+      if (!panel || !item) throw new Error("The open menu and its Buy Requests link must have visible bounds.");
+      // A click can hit a partly clipped row. Scroll the menu itself, as a user
+      // would in landscape, and check the whole row before attempting the click.
+      const panelCenterY = panel.y + panel.height / 2;
+      await page.mouse.move(panel.x + panel.width / 2, panelCenterY);
+      await page.mouse.wheel(0, Math.round(item.y + item.height / 2 - panelCenterY));
       await expect(landscapeEntry).toBeInViewport({ ratio: 1 });
+      await landscapeEntry.click({ trial: true });
       const bounds = await landscapeEntry.boundingBox();
       expect(bounds).not.toBeNull(); expect(bounds!.y).toBeGreaterThanOrEqual(0); expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(320);
       await landscapeEntry.click();
