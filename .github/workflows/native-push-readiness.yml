@@ -1,0 +1,187 @@
+name: Native Push Metadata Readiness
+
+on:
+  push:
+    branches: [audit/push-readiness-20261101]
+    paths: [.github/workflows/native-push-readiness.yml]
+  workflow_dispatch:
+    inputs:
+      expected_sha:
+        description: Exact reviewed source commit (40 characters)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-push-readiness-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  inspect:
+    if: github.repository == 'alphakits/alpha-traders-exchange'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Use the pinned Node runtime
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24.22.1
+      - name: Inspect only credential associations and environment metadata
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          EXPECTED_SHA: ${{ inputs.expected_sha || github.sha }}
+        run: |
+          node --input-type=module <<'JS'
+          import { writeFileSync } from 'node:fs';
+          import { pathToFileURL } from 'node:url';
+          
+          // Deliberately do not import the EAS CLI's credential or environment fragments:
+          // those fragments select key material or environment values.
+          export const query = `query NativePushReadiness($appId: String!, $applicationIdentifier: String!) {
+            app {
+              byId(appId: $appId) {
+                id
+                fullName
+                pushSecurityEnabled
+                androidAppCredentials(filter: { applicationIdentifier: $applicationIdentifier }) {
+                  applicationIdentifier
+                  isLegacy
+                  googleServiceAccountKeyForFcmV1 { __typename }
+                }
+                iosAppCredentials {
+                  appleAppIdentifier { bundleIdentifier }
+                  pushKey { __typename }
+                }
+                environmentVariables {
+                  name
+                  type
+                  visibility
+                  scope
+                  environments
+                  linkedEnvironments(appId: $appId)
+                }
+                ownerAccount {
+                  name
+                  pushSecurityEnabled
+                  environmentVariables {
+                    name
+                    type
+                    visibility
+                    scope
+                    environments
+                    linkedEnvironments(appId: $appId)
+                  }
+                }
+              }
+            }
+          }`;
+          
+          const appId = 'e5dbc3ba-25fb-4373-8ded-c8c80cadc147';
+          const applicationIdentifier = 'com.alphakits.alphatraders';
+          const relevantName = /^(?:GOOGLE_SERVICES_JSON|GOOGLE_SERVICES_FILE|GOOGLE_APPLICATION_CREDENTIALS|FIREBASE_[A-Z0-9_]+|FCM_[A-Z0-9_]+|EXPO_PUBLIC_[A-Z0-9_]*API[A-Z0-9_]*|EXPO_APPLE_TEAM_ID)$/;
+          const safeName = /^[A-Z][A-Z0-9_]{0,127}$/;
+          const environmentNames = entries => Array.isArray(entries)
+            ? entries.filter(entry => typeof entry === 'string' && /^[a-zA-Z0-9_-]{1,64}$/.test(entry))
+            : [];
+          
+          function fail(code) {
+            const error = new Error('Read-only push readiness check failed.');
+            error.safeCode = code;
+            throw error;
+          }
+          
+          export function summarize(body, sourceCommit, checkedAt = new Date().toISOString()) {
+            if (Array.isArray(body?.errors) && body.errors.length) fail('graphql_rejected');
+            const app = body?.data?.app?.byId;
+            if (app?.id !== appId || app?.fullName !== '@alpha-traders/alpha-traders'
+                || app?.ownerAccount?.name !== 'alpha-traders') fail('project_identity_mismatch');
+            if (typeof app.pushSecurityEnabled !== 'boolean'
+                || typeof app.ownerAccount.pushSecurityEnabled !== 'boolean'
+                || !Array.isArray(app.androidAppCredentials) || !Array.isArray(app.iosAppCredentials)
+                || !Array.isArray(app.environmentVariables)
+                || !Array.isArray(app.ownerAccount.environmentVariables)) fail('incomplete_metadata');
+          
+            const android = app.androidAppCredentials.filter(item => item.applicationIdentifier === applicationIdentifier);
+            const ios = app.iosAppCredentials.filter(item => item.appleAppIdentifier?.bundleIdentifier === applicationIdentifier);
+            const environmentMetadata = (entries, scope) => entries.filter(item =>
+              typeof item?.name === 'string' && safeName.test(item.name) && relevantName.test(item.name),
+            ).map(item => ({
+              name: item.name,
+              type: ['FILE_BASE64', 'STRING'].includes(item.type) ? item.type : 'unknown',
+              visibility: ['PUBLIC', 'SENSITIVE', 'SECRET'].includes(item.visibility) ? item.visibility : 'unknown',
+              scope,
+              environments: environmentNames(item.environments),
+              linkedEnvironmentsForThisApp: environmentNames(item.linkedEnvironments),
+            }));
+            return {
+              checkedAt, sourceCommit,
+              appPushSecurityEnabled: app.pushSecurityEnabled,
+              accountPushSecurityEnabled: app.ownerAccount.pushSecurityEnabled,
+              android: {
+                matchingCredentialRecords: android.length,
+                fcmV1AssociationPresent: android.some(item => item.googleServiceAccountKeyForFcmV1?.__typename === 'GoogleServiceAccountKey'),
+                legacyCredentialRecords: android.filter(item => item.isLegacy === true).length,
+              },
+              ios: {
+                matchingCredentialRecords: ios.length,
+                apnsAssociationPresent: ios.some(item => item.pushKey?.__typename === 'ApplePushKey'),
+              },
+              firebaseEnvironmentMetadata: [
+                ...environmentMetadata(app.environmentVariables, 'project'),
+                ...environmentMetadata(app.ownerAccount.environmentVariables, 'account'),
+              ],
+              limitations: [
+                'Association presence does not prove credential validity, entitlement, token registration, provider acceptance, or device display.',
+                'Only allowlisted Firebase/FCM/google-services/API/team environment names are emitted; no values or file contents were selected.',
+                'Account environment metadata includes app-specific linked environments; presence alone does not prove build injection.',
+              ],
+            };
+          }
+          
+          async function main() {
+            if (process.env.GITHUB_REPOSITORY !== 'alphakits/alpha-traders-exchange') fail('unexpected_repository');
+            const sourceCommit = process.env.GITHUB_SHA ?? '';
+            if (!/^[0-9a-f]{40}$/.test(sourceCommit)) fail('missing_source_identity');
+            const expected = process.env.EXPECTED_SHA;
+            if (expected && expected !== sourceCommit) fail('source_identity_mismatch');
+            const token = process.env.EXPO_TOKEN;
+            if (!token || !token.trim()) fail('expo_access_unavailable');
+            delete process.env.EXPO_TOKEN;
+          
+            let response;
+            try {
+              response = await fetch('https://api.expo.dev/graphql', {
+                method: 'POST', redirect: 'error', signal: AbortSignal.timeout(25_000),
+                headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+                body: JSON.stringify({ query, variables: { appId, applicationIdentifier } }),
+              });
+            } catch { fail('network_request_failed'); }
+            if (!response.ok) fail(`http_${response.status}`);
+            let body;
+            try { body = await response.json(); } catch { fail('invalid_json_response'); }
+            const report = summarize(body, sourceCommit);
+            const output = `${JSON.stringify(report, null, 2)}\n`;
+            writeFileSync('native-push-readiness.json', output, { mode: 0o600 });
+            process.stdout.write(output);
+          }
+          
+          // A local dry run can import summarize/query for structural checks without
+          // reading credentials or making requests. Only direct execution uses the token.
+          if (true) {
+            main().catch(error => {
+              const code = typeof error?.safeCode === 'string' && /^[a-z_0-9]+$/.test(error.safeCode)
+                ? error.safeCode : 'unexpected_failure';
+              process.stderr.write(`Native push metadata check failed: ${code}. No raw response was logged.\n`);
+              process.exitCode = 1;
+            });
+          }
+          JS
+      - name: Preserve only sanitized metadata
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-push-readiness-${{ github.sha }}
+          path: native-push-readiness.json
+          if-no-files-found: error
+          retention-days: 7
