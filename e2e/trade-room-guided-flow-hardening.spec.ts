@@ -716,6 +716,32 @@ async function expectChatScrollIsolation(page: Page, messagePanel: Locator, loca
   await expect.poll(() => page.evaluate(() => window.scrollY), { timeout: 5_000 }).toBeLessThan(beforeOutside - 10);
 }
 
+async function expectParticipantManagementControls(page: Page, side: "buyer" | "seller", paymentLocked = false) {
+  const previousPosition = await page.evaluate(() => ({ top: window.scrollY, left: window.scrollX }));
+  const cancel = page.getByRole("button", { name: "Cancel Trade", exact: true });
+  await expect(cancel).toBeVisible();
+  await cancel.scrollIntoViewIfNeeded();
+  await expect(cancel).toBeInViewport();
+  const cancelBounds = await cancel.boundingBox();
+  expect(cancelBounds?.height).toBeGreaterThanOrEqual(44);
+  if (paymentLocked) await expect(cancel).toBeDisabled();
+  const adjust = page.getByRole("button", { name: "Adjust Amount", exact: true });
+  if (side === "seller") {
+    await expect(adjust).toBeVisible();
+    await adjust.scrollIntoViewIfNeeded();
+    await expect(adjust).toBeInViewport();
+    const adjustBounds = await adjust.boundingBox();
+    expect(adjustBounds?.height).toBeGreaterThanOrEqual(44);
+    if (paymentLocked) await expect(adjust).toBeDisabled();
+    else await expect(adjust).toBeEnabled();
+  } else {
+    // Buyers review seller proposals; they cannot initiate amount changes.
+    await expect(adjust).toHaveCount(0);
+  }
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.evaluate(position => window.scrollTo({ ...position, behavior: "instant" }), previousPosition);
+}
+
 for (const locale of ["en", "ar"] as const) {
   for (const width of [390, 1440]) {
     test(`commission notices and mixed-language chat: ${locale}, ${width}px`, async ({ page }, testInfo) => {
@@ -1511,10 +1537,13 @@ for (const paymentMethod of ["Bank Transfer", "Cardless ATM Withdrawal", "Face-t
       await errorAudit.navigate(sellerPage, () => sellerPage.goto(path));
       await expect(sellerPage.getByTestId("trade-header-notice")).toHaveCount(0);
       await expect(sellerPage.getByRole("button", { name: "Accept Trade", exact: true })).toBeInViewport();
+      await expectParticipantManagementControls(sellerPage, "seller");
       await clickConfirmedTradeAction(sellerPage, sellerPage.getByRole("button", { name: "Accept Trade", exact: true }), paymentMethod === "Face-to-Face (Meet in Person)" ? [undefined, /safe public place/i] : [undefined]);
       await expect(sellerPage.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "20");
+      await expectParticipantManagementControls(sellerPage, "seller");
       await errorAudit.navigate(buyerPage, () => buyerPage.goto(path));
       await expect(buyerPage.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "20");
+      await expectParticipantManagementControls(buyerPage, "buyer");
       const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=", "base64");
       if (paymentMethod === "Bank Transfer") {
         await clickConfirmedTradeAction(buyerPage, buyerPage.getByRole("button", { name: "Reveal Bank Details", exact: true }));
@@ -1567,6 +1596,8 @@ for (const paymentMethod of ["Bank Transfer", "Cardless ATM Withdrawal", "Face-t
       await expect(sellerPage.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "60");
       }
       const feedback = sellerPage.getByTestId("trade-action-feedback");
+      await expectParticipantManagementControls(buyerPage, "buyer", true);
+      await expectParticipantManagementControls(sellerPage, "seller", true);
       if (paymentMethod !== "Face-to-Face (Meet in Person)") {
         await expect(feedback).toBeInViewport();
         await expect(sellerPage.locator("#action-required").getByTestId("trade-action-feedback")).toBeVisible();
@@ -1609,6 +1640,7 @@ for (const paymentMethod of ["Bank Transfer", "Cardless ATM Withdrawal", "Face-t
       }
       await buyerPage.screenshot({ path: testInfo.outputPath("seller-only-buyer-mobile.png"), fullPage: true });
       await sellerPage.setViewportSize({ width: 1440, height: 900 });
+      await expectParticipantManagementControls(sellerPage, "seller", true);
       await expect(sellerPage.getByRole("button", { name: "Mark Trade as Completed", exact: true })).toBeVisible();
       await sellerPage.screenshot({ path: testInfo.outputPath("seller-only-seller-desktop.png"), fullPage: true });
       await clickConfirmedTradeAction(sellerPage, sellerPage.getByRole("button", { name: "Mark Trade as Completed", exact: true }));
