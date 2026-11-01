@@ -8101,15 +8101,53 @@ export async function sendSellerApprovalEmailByAdmin(applicationId: string, admi
   return deliverSellerApprovalEmail(await readDb(), applicationId, adminUserId);
 }
 
-export async function approveSellerApplicationByAdmin(
-  applicationId: string,
+type SellerApplicationDecision = {
+  application: AlphaExchangeDb["sellerApplications"][number];
+  notification: DeferredNotificationPublication | null;
+  archived: AlphaExchangeNotification[];
+};
+
+async function commitSellerApplicationDecision(
+  trustReason: string,
   adminUserId: string,
-  reason: string | undefined,
-  _legacyVerificationChecklist?: SellerApprovalChecklist,
+  decide: (snapshot: AlphaExchangeDb) => Promise<SellerApplicationDecision>,
 ) {
-  // Older clients may still send a checklist; approval does not create identity evidence.
-  void _legacyVerificationChecklist;
   const db = await readDb();
+  let committed!: { decision: SellerApplicationDecision; effects: TradeMutationPublications };
+  const apply = async (snapshot: AlphaExchangeDb) => {
+    // A stale reader rechecks pending and recomputes roles/trust from the
+    // canonical snapshot under the repository lock. Discard its earlier effects.
+    const effects: TradeMutationPublications = { notifications: [], trustNotifications: [], trustEvents: [], promotionEmails: [], calculatingTrust: true };
+    tradeMutationPublications.set(snapshot, effects);
+    try {
+      const decision = await decide(snapshot);
+      await recalculateTrustEngine(snapshot, { reason: trustReason, triggeredBy: adminUserId });
+      committed = { decision, effects };
+      return snapshot;
+    } finally { tradeMutationPublications.delete(snapshot); }
+  };
+  await apply(db);
+  await writeDb(db, { selectedTables: SELLER_APPLICATION_REVIEW_TABLES, rebaseOnLatest: apply });
+  publishNotificationPublication(committed.decision.notification);
+  committed.effects.trustNotifications.forEach(publishNotificationPublication);
+  // A disconnected stream or failed email must not turn a committed decision
+  // into an apparent failure or prevent the remaining deliveries.
+  const deliveries = [
+    ...committed.decision.archived.map(notice => () => publishArchivedNotifications([notice])),
+    ...committed.effects.trustEvents.map(event => () => publishRealtimeEvent(event)),
+    ...committed.effects.promotionEmails.map(email => () => sendSellerPrestigePromotionEmail(email)),
+  ];
+  for (const deliver of deliveries) {
+    try { await deliver(); }
+    catch {
+      try { logEvent("warn", { event: "seller_application_decision_delivery", resourceId: committed.decision.application.id, outcome: "failed" }); }
+      catch { /* Delivery diagnostics are best effort. */ }
+    }
+  }
+  return committed.decision.application;
+}
+
+async function prepareSellerApproval(db: AlphaExchangeDb, applicationId: string, adminUserId: string, reason?: string) {
   const applicationIndex = db.sellerApplications.findIndex((item) => item.id === applicationId);
   if (applicationIndex === -1) throw new Error("Seller application not found.");
 
@@ -8168,11 +8206,19 @@ export async function approveSellerApplicationByAdmin(
       && (notification.actionHref === sellerApplicationReviewDestination(application.id)
         || notification.relatedHref === sellerApplicationReviewDestination(application.id)),
   );
-  await recalculateTrustEngine(db, { reason: "Seller approved", triggeredBy: adminUserId });
+  return { application: db.sellerApplications[applicationIndex], notification: approvalNotification, archived: archivedAdminNotifications };
+}
 
-  await writeDb(db, { selectedTables: SELLER_APPLICATION_REVIEW_TABLES });
-  publishNotificationPublication(approvalNotification);
-  publishArchivedNotifications(archivedAdminNotifications);
+export async function approveSellerApplicationByAdmin(
+  applicationId: string,
+  adminUserId: string,
+  reason: string | undefined,
+  _legacyVerificationChecklist?: SellerApprovalChecklist,
+) {
+  // Older clients may still send a checklist; approval does not create identity evidence.
+  void _legacyVerificationChecklist;
+  const application = await commitSellerApplicationDecision("Seller approved", adminUserId,
+    (snapshot) => prepareSellerApproval(snapshot, applicationId, adminUserId, reason));
   // Account-access notices are transactional and independent of marketing preferences.
   // Nothing is sent until the approval and in-app notification are persisted.
   const delivery = async () => {
@@ -8194,7 +8240,7 @@ export async function approveSellerApplicationByAdmin(
   } catch {
     await delivery();
   }
-  return db.sellerApplications[applicationIndex];
+  return application;
 }
 
 export async function recordApprovedSellerVerificationByAdmin(
@@ -8255,8 +8301,7 @@ export async function recordApprovedSellerVerificationByAdmin(
   return db.sellerApplications[applicationIndex];
 }
 
-export async function rejectSellerApplicationByAdmin(applicationId: string, adminUserId: string, reason?: string) {
-  const db = await readDb();
+async function prepareSellerRejection(db: AlphaExchangeDb, applicationId: string, adminUserId: string, reason?: string) {
   const applicationIndex = db.sellerApplications.findIndex((item) => item.id === applicationId);
   if (applicationIndex === -1) throw new Error("Seller application not found.");
 
@@ -8308,12 +8353,12 @@ export async function rejectSellerApplicationByAdmin(applicationId: string, admi
       && (notification.actionHref === sellerApplicationReviewDestination(application.id)
         || notification.relatedHref === sellerApplicationReviewDestination(application.id)),
   );
-  await recalculateTrustEngine(db, { reason: "Seller application rejected", triggeredBy: adminUserId });
+  return { application: db.sellerApplications[applicationIndex], notification: rejectionNotification, archived: archivedAdminNotifications };
+}
 
-  await writeDb(db, { selectedTables: SELLER_APPLICATION_REVIEW_TABLES });
-  publishNotificationPublication(rejectionNotification);
-  publishArchivedNotifications(archivedAdminNotifications);
-  return db.sellerApplications[applicationIndex];
+export async function rejectSellerApplicationByAdmin(applicationId: string, adminUserId: string, reason?: string) {
+  return commitSellerApplicationDecision("Seller application rejected", adminUserId,
+    (snapshot) => prepareSellerRejection(snapshot, applicationId, adminUserId, reason));
 }
 
 export async function suspendApprovedSellerByAdmin(userId: string, adminUserId: string, reason?: string) {
