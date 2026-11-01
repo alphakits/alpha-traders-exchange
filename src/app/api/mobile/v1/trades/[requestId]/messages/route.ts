@@ -20,7 +20,8 @@ import {
 } from "@/lib/marketplace-email-events";
 import { checkRateLimit, checkSharedRateLimit } from "@/lib/rate-limit";
 import { logEvent } from "@/lib/structured-logging";
-import { publicAccountId } from "@/lib/public-account-identity";
+import { isPublicOwnerIdentity, publicAccountId } from "@/lib/public-account-identity";
+import { TRADE_CHAT_MESSAGE_MAX_LENGTH, OWNER_TRADE_CHAT_MESSAGE_MAX_LENGTH } from "@alpha-traders/contracts";
 
 type RouteContext = {
   params: Promise<{ requestId: string }>;
@@ -48,7 +49,8 @@ export async function POST(request: NextRequest, context: RouteContext) {
     const clientMessageId = typeof body?.clientMessageId === "string"
       ? body.clientMessageId.trim().toLowerCase()
       : "";
-    if (!message || message.length > 1200 || !CLIENT_MESSAGE_ID_PATTERN.test(clientMessageId)) {
+    const messageLimit = isPublicOwnerIdentity(auth.user) ? OWNER_TRADE_CHAT_MESSAGE_MAX_LENGTH : TRADE_CHAT_MESSAGE_MAX_LENGTH;
+    if (!message || message.length > messageLimit || !CLIENT_MESSAGE_ID_PATTERN.test(clientMessageId)) {
       return mobileError("MESSAGE_INVALID", requestId, locale, 400);
     }
 

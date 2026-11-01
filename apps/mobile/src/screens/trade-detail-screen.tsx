@@ -1,4 +1,4 @@
-import { sellerFeeResponsibilityNotice, tradePaymentReceiptConfirmation, tradeChatTextDirection } from "@alpha-traders/contracts";
+import { sellerFeeResponsibilityNotice, tradePaymentReceiptConfirmation, tradeChatTextDirection, TRADE_CHAT_MESSAGE_MAX_LENGTH, OWNER_TRADE_CHAT_MESSAGE_MAX_LENGTH } from "@alpha-traders/contracts";
 import { BrandedText as Text } from "../components/branded-text";
 import { AttentionSiren } from "../components/attention-siren";
 import { TradeTermsPanel } from "../components/trade-terms-panel";
@@ -168,6 +168,8 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
   const isFocused = useIsFocused();
   const queryClient = useQueryClient();
   const { user, requestWithSession } = useAuth();
+  const isOwnerChat = user?.role === "owner" || user?.roles.includes("owner") === true;
+  const messageLimit = isOwnerChat ? OWNER_TRADE_CHAT_MESSAGE_MAX_LENGTH : TRADE_CHAT_MESSAGE_MAX_LENGTH;
   const { locale, isRTL, t } = useLocale();
   const usdIlsRate = useUsdDisplayRate();
   const [busyAction, setBusyAction] = useState<string | null>(null);
@@ -540,7 +542,7 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
     if (sendingMessage) return;
     const operationScope = activeTradeScopeRef.current;
     const message = draftMessage.trim();
-    if (!message || message.length > 1200) {
+    if (!message || message.length > messageLimit) {
       setError(t("messageInvalid"));
       return;
     }
@@ -1098,7 +1100,7 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
             <Text style={styles.messageIdentity}>{tradeChatRoleLabel("buyer", locale)} · {trade.participants.buyerPublicId}</Text>
             <Text style={styles.messageIdentity}>{tradeChatRoleLabel("seller", locale)} · {trade.participants.sellerPublicId}</Text>
           </View> : null}
-          <Text style={[styles.chatSafety, isRTL && styles.rtlText]}>{t("chatSafety")}</Text>
+          <Text style={[styles.chatSafety, isRTL && styles.rtlText]}>{isOwnerChat ? (locale === "ar" ? "يمكن للمالك مشاركة أرقام الهاتف وتفاصيل واتساب والروابط. تبقى بيانات السحب ضمن الإجراء المحمي." : "Owner messages can include phone numbers, WhatsApp details, and links. Withdrawal credentials still use the protected action.") : t("chatSafety")}</Text>
           <View style={styles.messageList}>
             {trade.messages.length ? trade.messages.map((message, index) => {
               if (message.sender === "system") {
@@ -1131,14 +1133,14 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
               <Text style={[styles.noMessages, isRTL && styles.rtlText]}>{t("noMessages")}</Text>
             )}
           </View>
-          {isCardlessAtm && trade.side === "buyer" && trade.status === "accepted" ? (
+          {isCardlessAtm && trade.side === "buyer" && !isOwnerChat && trade.status === "accepted" ? (
             <Text style={[styles.chatSafety, isRTL && styles.rtlText]}>{t("cardlessProtectedCodeHint")}</Text>
           ) : (
           <View style={[styles.composer, isRTL && styles.rowReverse]}>
             <TextInput
               accessibilityLabel={t("messagePlaceholder")}
               editable={!sendingMessage}
-              maxLength={1200}
+              maxLength={messageLimit}
               multiline
               onChangeText={(value) => {
                 setDraftMessage(value);

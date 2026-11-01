@@ -36,6 +36,17 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe("owner trade history", () => {
+  it("allows longer Owner drafts and renders contact or markup content as plain text", () => {
+    const room = historyRoom("accepted");
+    const message = 'Call 050-123-4567 <img src=x onerror="alert(1)">';
+    room.messages = [{ ...room.messages[0], senderRole: "owner", senderUserId: "owner-1", message }];
+    render(<OwnerTradeHistory locale="en" room={room} onUpdated={async () => {}} />);
+    expect(screen.getByRole("textbox").getAttribute("maxlength")).toBe("10000");
+    const chat = screen.getByRole("region", { name: "Chat history (1)" });
+    expect(chat.textContent).toContain(message);
+    expect(chat.querySelector("img, script")).toBeNull();
+  });
+
   it.each([
     ["2026-09-23T10:00:00.000Z", "13:00:00"],
     ["2026-01-23T10:00:00.000Z", "12:00:00"],

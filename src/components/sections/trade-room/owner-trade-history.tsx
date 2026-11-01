@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { FileClock, MessageCircle, ShieldCheck } from "lucide-react";
-import { localizeCardlessWithdrawalMessage } from "@alpha-traders/contracts";
+import { localizeCardlessWithdrawalMessage, OWNER_TRADE_CHAT_MESSAGE_MAX_LENGTH } from "@alpha-traders/contracts";
 import { Button } from "@/components/ui/button";
 import { TradeOwnerActions } from "@/components/admin/trade-owner-actions";
 import { TradeEvidenceViewer } from "./trade-evidence-viewer";
@@ -234,7 +234,8 @@ export function OwnerTradeHistory({ locale, room, onUpdated }: { locale: "ar" | 
           finally { sendLock.current = false; setSending(false); }
         }}>
           <label htmlFor="owner-chat-message" className="flex items-center gap-2 text-sm font-bold text-red-200"><ShieldCheck className="h-4 w-4" />{t("Owner message · visible to buyer and seller", "رسالة المالك · تظهر للمشتري والبائع")}</label>
-          <textarea id="owner-chat-message" dir="auto" value={draft} onChange={(event) => setDraft(event.target.value)} disabled={sending} maxLength={1200} className="trade-chat-input min-h-24 w-full rounded-lg border border-red-400/30 bg-black/40 p-3 text-sm text-white" />
+          <textarea id="owner-chat-message" dir="auto" value={draft} onChange={(event) => setDraft(event.target.value)} disabled={sending} maxLength={OWNER_TRADE_CHAT_MESSAGE_MAX_LENGTH} className="trade-chat-input min-h-24 w-full rounded-lg border border-red-400/30 bg-black/40 p-3 text-sm text-white" />
+          <p className="text-xs text-red-100">{t("Your Owner messages can include phone numbers, WhatsApp details, and links. Withdrawal credentials still use the protected action.", "يمكن أن تتضمن رسائل المالك أرقام الهاتف وتفاصيل واتساب والروابط. تبقى بيانات السحب ضمن الإجراء المحمي.")}</p>
           {sendError ? <p role="alert" className="text-sm text-red-200">{sendError}</p> : null}
           <Button type="submit" disabled={sending || !draft.trim()} className="bg-red-700 text-white hover:bg-red-600">{sending ? t("Sending…", "جارٍ الإرسال…") : t("Send as Owner", "إرسال باسم المالك")}</Button>
         </form> : null}

@@ -6,7 +6,7 @@ import { materializeCommissionShortfalls } from "./commission-shortfall-ledger";
 import type { BankTransferProvider, WiseUsdAccount, WiseUsdAccountSnapshot } from "@/types/wise";
 import { parseWiseUsdAccountDetails, maskWiseUsdAccount, createWiseUsdAccountSnapshot, getWiseUsdAccountFingerprint } from "@/lib/wise-bank-transfer";
 import { assertWisePaymentsRuntime, assertWiseListingShape, getReviewedWiseAccount, wiseAccountHasActiveUsage, assertWiseTradeSnapshotCurrent } from "@/lib/wise-store-policy";
-import { calculateTradeTermsQuote } from "@alpha-traders/contracts";
+import { calculateTradeTermsQuote, TRADE_CHAT_MESSAGE_MAX_LENGTH, OWNER_TRADE_CHAT_MESSAGE_MAX_LENGTH } from "@alpha-traders/contracts";
 import { requireManualCommissionOperationId } from "@/lib/manual-commission-operation";
 import { priceAlertSchema, priceAlertMatchesListing, readMarketplacePriceAlert, type MarketplacePriceAlert } from "@/lib/marketplace-price-alert";
 import { accountSessionId, presentAccountSession } from "@/lib/account-session-presentation";
@@ -1018,7 +1018,7 @@ function sanitizeTradeRoomMessageForCounterparty(
             const payload = decryptCardlessCredential(message.message, message.purchaseRequestId, message.id);
             return formatCardlessWithdrawalPayload(payload);
           })()
-      : canViewPrivateContent ? message.message : redactExchangeUserContent(message.message),
+      : canViewPrivateContent || message.senderRole === "owner" ? message.message : redactExchangeUserContent(message.message),
     payloadHash: undefined,
     imageUrl: hasSafeImage ? message.imageUrl : undefined,
     imageMimeType: hasSafeImage ? imageMimeType : undefined,
@@ -5968,7 +5968,7 @@ function enrichRequestWithEvidence(db: AlphaExchangeDb, request: PurchaseRequest
     buyerEvidence: db.tradeEvidenceFiles.find(item => item.purchaseRequestId === request.id && item.side === "buyer"),
     sellerEvidence: db.tradeEvidenceFiles.find(item => item.purchaseRequestId === request.id && item.side === "seller"),
     timeline: (request.timeline ?? []).map(entry => ({ ...entry, message: visibleText(entry.message) })),
-    messages: (request.messages ?? []).map(message => ({ ...message, message: message.credentialKind ? message.message : authoredText(message.message) })),
+    messages: (request.messages ?? []).map(message => ({ ...message, message: message.credentialKind || (message.senderRole === "owner" && isPublicOwnerIdentity(db.users.find(user => user.id === message.senderUserId))) ? message.message : authoredText(message.message) })),
     closeReason: visibleText(request.closeReason),
     closeExplanation: authoredText(request.closeExplanation),
     buyerReview: request.buyerReview ? { ...request.buyerReview, comment: authoredText(request.buyerReview.comment), hiddenReason: authoredText(request.buyerReview.hiddenReason) } : undefined,
@@ -12130,7 +12130,7 @@ export async function getTradeRoomData(input: {
     ...(identityActors ? { ownerIdentityLabels: Object.fromEntries(db.users.filter(user => identityActors.has(user.id))
       .map(user => [user.id, accountNameForViewer(user, viewer)])) } : {}),
     messages: messages.map((message) => sanitizeTradeRoomMessageForCounterparty(
-      { ...message, message: message.credentialKind ? message.message : visibleMessageText(message.message) },
+      { ...message, message: message.credentialKind || (message.senderRole === "owner" && isPublicOwnerIdentity(db.users.find(user => user.id === message.senderUserId))) ? message.message : visibleMessageText(message.message) },
       canViewPrivateContent,
       request.status === "payment_sent" && (request.buyerId === input.actorUserId || request.sellerId === input.actorUserId),
     )),
@@ -12565,8 +12565,15 @@ export async function postTradeRoomMessage(input: {
   messageSide(db, request);
 
   const message = input.message.trim();
-  if (message.length > 1200) throw new Error("Message is too long.");
-  assertNoExchangeDirectContact(message, input.imageUrl);
+  // Apply the privilege to canonical server accounts only, and recheck it under
+  // the transaction lock below so a concurrent owner revocation cannot bypass it.
+  const validateMessagePolicy = (snapshot: AlphaExchangeDb) => {
+    const owner = isPublicOwnerIdentity(snapshot.users.find(user => user.id === input.actorUserId));
+    if (message.length > (owner ? OWNER_TRADE_CHAT_MESSAGE_MAX_LENGTH : TRADE_CHAT_MESSAGE_MAX_LENGTH)) throw new Error("Message is too long.");
+    if (!owner) assertNoExchangeDirectContact(message, input.imageUrl);
+    return owner;
+  };
+  validateMessagePolicy(db);
   const image = parseTradeRoomImageDataUrl(input.imageUrl, input.imageMimeType);
   if (!message && !image) throw new Error("Message or image is required.");
   const suppliedClientMessageId = String(input.clientMessageId ?? "").trim().toLowerCase();
@@ -12601,6 +12608,7 @@ export async function postTradeRoomMessage(input: {
     if (canonicalRequestIndex === -1) throw new Error("Trade not found.");
     const canonicalRequest = snapshot.purchaseRequests[canonicalRequestIndex];
     const canonicalParticipantSide = messageSide(snapshot, canonicalRequest);
+    const canonicalOwner = validateMessagePolicy(snapshot);
     const canonicalRecipientUserId = canonicalParticipantSide === "buyer" ? canonicalRequest.sellerId : canonicalRequest.buyerId;
     const existingMessage = canonicalRequest.messages?.find((candidate) => candidate.id === messageId);
     if (existingMessage) {
@@ -12634,6 +12642,7 @@ export async function postTradeRoomMessage(input: {
     }
     if (
       canonicalParticipantSide === "buyer"
+      && !canonicalOwner
       && canonicalRequest.status === "accepted"
       && isCardlessAtmPaymentMethod(canonicalRequest.paymentMethod)
     ) {
@@ -12643,7 +12652,9 @@ export async function postTradeRoomMessage(input: {
     }
     if (
       isCardlessAtmPaymentMethod(canonicalRequest.paymentMethod)
-      && (containsCardlessCredentialLikeContent(message) || Boolean(image))
+      // Known contact spans are ordinary owner messages, not withdrawal codes.
+      // Any remaining numeric code (including one beside a contact) stays blocked.
+      && (containsCardlessCredentialLikeContent(canonicalOwner ? redactPrivateContactDetails(message) : message) || Boolean(image))
     ) {
       throw new TradeBlockedError("cardless-code-chat-blocked", "Withdrawal codes and code images must use the protected withdrawal-code action.", canonicalRequest.id, {
         guard: "cardless-code-never-generic-chat",
@@ -12656,7 +12667,7 @@ export async function postTradeRoomMessage(input: {
       purchaseRequestId: canonicalRequest.id,
       kind: "user",
       senderUserId: input.actorUserId,
-      senderRole: canonicalParticipantSide === "owner" ? "owner" : canonicalParticipantSide === "buyer" ? "buyer" : "approved_seller",
+      senderRole: canonicalOwner ? "owner" : canonicalParticipantSide === "buyer" ? "buyer" : "approved_seller",
       message,
       payloadHash,
       createdAt,

@@ -1,5 +1,5 @@
 "use client";
-import { sellerFeeResponsibilityNotice, tradePaymentReceiptConfirmation } from "@alpha-traders/contracts";
+import { sellerFeeResponsibilityNotice, tradePaymentReceiptConfirmation, TRADE_CHAT_MESSAGE_MAX_LENGTH, OWNER_TRADE_CHAT_MESSAGE_MAX_LENGTH } from "@alpha-traders/contracts";
 
 import { AttentionSiren } from "@/components/ui/attention-siren";
 import { publicAccountName } from "@/lib/public-account-identity";
@@ -1367,6 +1367,7 @@ function TradeRoomPageSession({
   }, [router]);
   const searchParams = useSearchParams();
   const [room, setRoom] = useState<TradeRoomData | null>(null);
+  const isOwnerChat = room?.canViewPrivateIdentity === true;
   const [hasCanonicalRoom, setHasCanonicalRoom] = useState(false);
   const [sectionNavigation, setSectionNavigation] = useState<{ id: TradeRoomDeepLinkTarget; href: string; revision: number } | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -3962,7 +3963,7 @@ function TradeRoomPageSession({
                     {isAr ? "رسائل جديدة — عرض" : "New messages — show"}
                   </Button>
                 ) : null}
-                {isCardlessAtmTrade && !isSeller && request.status === "accepted" ? (
+                {isCardlessAtmTrade && !isSeller && !isOwnerChat && request.status === "accepted" ? (
                   <div className="rounded-xl border border-[#C9A227]/35 bg-[#C9A227]/10 p-3 text-sm text-[#FDE68A]">
                     {isAr ? "عبّئ رمز السحب ورقم الهوية أو تاريخ الميلاد في قسم بيانات السحب أعلاه، ثم اضغط إرسال البيانات وتأكيدها." : "Enter the withdrawal code and ID number or date of birth in the withdrawal section above, then send and confirm both details."}
                   </div>
@@ -3973,7 +3974,7 @@ function TradeRoomPageSession({
                     dir="auto"
                     onChange={(event) => { setChatNotice(null); handleChatDraftChange(event); }}
                     placeholder={isAr ? "اكتب رسالة..." : "Type a message..."}
-                    maxLength={1200}
+                    maxLength={isOwnerChat ? OWNER_TRADE_CHAT_MESSAGE_MAX_LENGTH : TRADE_CHAT_MESSAGE_MAX_LENGTH}
                     className="trade-chat-input min-h-[56px] resize-none sm:min-h-[96px]"
                     aria-invalid={Boolean(chatErrorMessage)}
                     aria-describedby={chatErrorMessage ? "trade-chat-error trade-chat-safety" : "trade-chat-safety"}
@@ -3981,7 +3982,7 @@ function TradeRoomPageSession({
                   <p id="trade-chat-safety" className="flex items-start gap-2 rounded-xl border border-amber-500/20 bg-amber-500/5 px-3 py-2 text-xs leading-5 text-amber-100">
                     <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
                     <span>
-                      {isAr
+                      {isOwnerChat ? (isAr ? "يمكن للمالك مشاركة أرقام الهاتف وتفاصيل واتساب والروابط. تبقى بيانات السحب ضمن الإجراء المحمي." : "Owner messages can include phone numbers, WhatsApp details, and links. Withdrawal credentials still use the protected action.") : isAr
                         ? "لحمايتك، أبقِ المحادثة هنا. لا يمكن إرسال أرقام الهاتف أو البريد الإلكتروني أو WhatsApp أو بيانات التواصل الخارجية."
                         : "For your security, keep the conversation here. Phone numbers, email, WhatsApp, and other external contact details cannot be sent."}
                     </span>

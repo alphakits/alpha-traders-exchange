@@ -95,6 +95,15 @@ beforeEach(() => {
 });
 
 describe("mobile Trade Room message route", () => {
+  it("allows a longer message only for the authenticated Owner participant", async () => {
+    const message = "a".repeat(1201);
+    expect((await POST(request({ message, clientMessageId, role: "owner" }), context())).status).toBe(400);
+    expect(mocks.postTradeRoomMessage).not.toHaveBeenCalled();
+    mocks.requireMobileApiUser.mockResolvedValueOnce({ user: { id: "buyer-1", role: "owner" }, accessToken: "access", unauthorized: null });
+    expect((await POST(request({ message, clientMessageId }), context())).status).toBe(201);
+    expect(mocks.postTradeRoomMessage).toHaveBeenCalledWith(expect.objectContaining({ actorUserId: "buyer-1", message }));
+  });
+
   it("derives sender identity, ignores forged media fields, and returns a whitelist projection", async () => {
     const response = await POST(request({
       message: "Payment is ready",
