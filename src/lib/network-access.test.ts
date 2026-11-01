@@ -157,6 +157,8 @@ describe("server-side network access", () => {
   it.each([
     ["/api/health", "GET"], ["/api/cron/commission-payment-verification", "GET"],
     ["/api/cron/commission-checkout", "GET"],
+    ["/api/cron/browser-push", "GET"], ["/api/cron/mobile-push-delivery", "GET"],
+    ["/api/cron/buy-request-notifications", "GET"],
     ["/api/auth/logout", "POST"], ["/api/mobile/v1/auth/session", "DELETE"],
     ["/api/cron/marketplace-email-delivery", "GET"], ["/api/twilio/status", "POST"],
     ["/api/discord/marketplace-events", "POST"], ["/api/meta/whatsapp/webhook", "POST"],
@@ -164,11 +166,18 @@ describe("server-side network access", () => {
     expect(await enforceNetworkAccess(request(path, {}, method))).toBeNull();
     expect(fetchMock).not.toHaveBeenCalled();
   });
-  it.each([["/api/auth/logout", "GET"], ["/api/mobile/v1/auth/session", "POST"], ["/api/cron/commission-checkout", "POST"]])("does not exempt the wrong method on %s", async (path, method) => {
+  it.each([
+    ["/api/auth/logout", "GET"], ["/api/mobile/v1/auth/session", "POST"], ["/api/cron/commission-checkout", "POST"],
+    ["/api/cron/browser-push", "POST"], ["/api/cron/mobile-push-delivery", "POST"],
+    ["/api/cron/buy-request-notifications", "POST"],
+  ])("does not exempt the wrong method on %s", async (path, method) => {
     fetchMock.mockResolvedValue(Response.json(result({ vpn: true })));
     expect((await enforceNetworkAccess(request(path, {}, method)))?.status).toBe(403);
   });
-  it.each(["/api/health/admin", "/api/cron/new-unreviewed-job", "/api/twilio/status/extra", "/en/login", "/api/mobile/v1/auth/login"])("never exempts nearby path %s", async (path) => {
+  it.each([
+    "/api/health/admin", "/api/cron/new-unreviewed-job", "/api/twilio/status/extra", "/en/login", "/api/mobile/v1/auth/login",
+    "/api/cron/browser-push/extra", "/api/cron/mobile-push-delivery/extra", "/api/cron/buy-request-notifications/extra",
+  ])("never exempts nearby path %s", async (path) => {
     fetchMock.mockResolvedValue(Response.json(result({ vpn: true })));
     expect((await enforceNetworkAccess(request(path)))?.status).toBe(403);
   });
