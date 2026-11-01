@@ -3,7 +3,8 @@
 
 import { currencyText } from "@/components/ui/currency-text";
 import { ActionFeedback } from "@/components/ui/action-feedback";
-import type { FormEventHandler } from "react";
+import { useState, type FormEventHandler } from "react";
+import { formatMoneyNumber, splitAccentText } from "@/lib/accent-text";
 import { AlertTriangle, CheckCircle2, Clock3, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -84,6 +85,11 @@ export function SellerApplicationSection({
   onMethodToggle,
   onSubmit,
 }: SellerApplicationSectionProps) {
+  const [editingVolume, setEditingVolume] = useState(false);
+  // Applicants may describe a range or cadence in their own words. Keep the original answer for submission.
+  const volume = form.expectedMonthlyTradingVolume;
+  const displayedVolume = editingVolume ? volume : /^[\d,.\s]+$/.test(volume)
+    ? formatMoneyNumber(volume) : (splitAccentText(volume, { groupQuantities: true })?.map(({ text }) => text).join("") ?? volume);
   return (
     <div className={`${prominent ? "mt-5" : "mt-10"} grid ${compact ? "gap-4" : "gap-6"}`}>
       <Card id="seller-application" className={prominent ? "border-[#C9A227]/45 bg-[linear-gradient(145deg,rgba(201,162,39,0.13),rgba(11,11,11,0.96)_48%)] shadow-[0_18px_65px_rgba(201,162,39,0.12)]" : "border-white/10 bg-[#0B0B0B]/90"}>
@@ -166,7 +172,7 @@ export function SellerApplicationSection({
                   <div className="grid gap-4 sm:grid-cols-2">{(["Crypto", "Fiat"] as const).map((group) => <div key={group} className="space-y-2"><p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? (group === "Crypto" ? "عملات رقمية" : "عملات تقليدية") : group}</p><div className="grid gap-2">{SELLER_APPLICATION_METHOD_OPTIONS.filter((method) => method.group === group).map((method) => { const selected = methods.includes(method.id); return <button key={method.id} type="button" onClick={() => onMethodToggle(method.id)} className={`rounded-xl border px-3 py-2.5 text-start text-sm transition ${selected ? "border-[#C9A227]/60 bg-[#C9A227]/10 text-white ring-1 ring-[#C9A227]/30" : "border-white/10 bg-black/25 text-[#D1D5DB] hover:border-[#C9A227]/30 hover:text-white"}`}><div className="flex items-center justify-between gap-2"><span>{currencyText(sellerApplicationMethodLabel(method.id, isAr))}</span><span className="flex items-center gap-1.5">{method.recommended ? <span className="rounded-full border border-[#C9A227]/30 bg-[#C9A227]/10 px-1.5 py-0.5 text-[10px] font-semibold text-[#D4AF37]">⭐ {isAr ? "موصى به" : "Recommended"}</span> : null}{selected ? <CheckCircle2 className="h-4 w-4 text-[#C9A227]" /> : <span className="h-4 w-4 rounded-full border border-white/20" />}</span></div></button>; })}</div></div>)}</div>
                 </div>
                 <p className="pt-1 text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "التداول الشهري المتوقع" : "Expected Monthly Trading Volume"}</p>
-                <Input className="currency-money" placeholder={isAr ? "مثال: 5,000 USDT شهريًا" : "e.g. 5,000 USDT per month"} value={form.expectedMonthlyTradingVolume} onChange={(event) => onFormChange("expectedMonthlyTradingVolume", event.target.value)} />
+                <Input className="currency-money" placeholder={isAr ? "مثال: 5,000 USDT شهريًا" : "e.g. 5,000 USDT per month"} value={displayedVolume} onFocus={() => setEditingVolume(true)} onBlur={() => setEditingVolume(false)} onChange={(event) => onFormChange("expectedMonthlyTradingVolume", event.target.value)} />
                 <Textarea placeholder={isAr ? "ملاحظات إضافية (اختياري)" : "Additional notes (optional)"} value={form.additionalNotes} onChange={(event) => onFormChange("additionalNotes", event.target.value)} />
                 <Button type="submit" className="w-full" disabled={!form.firstName || !form.lastName || !form.whatsappNumber || methods.length === 0}>{isAr ? "قدّم طلب الاعتماد" : "Apply for Approval"}</Button>
               </form>

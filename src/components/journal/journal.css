@@ -1116,7 +1116,7 @@
 .j-form-grid .j-field {
   margin-bottom: 0;
 }
-.j-field>span,.j-field>label,.j-fieldset>legend {
+.j-field>span:not(.j-number-field),.j-field>label,.j-fieldset>legend {
   font-size: 14px;
   color: #c8beb0;
 }
@@ -1128,6 +1128,31 @@
 }
 .j-field input,.j-field select,.j-field textarea {
   width: 100%;
+}
+.j-number-field {
+  position: relative;
+  display: block;
+  min-width: 0;
+}
+.j-number-field > span {
+  position: absolute;
+  inset-inline: 13px 26px;
+  top: 50%;
+  transform: translateY(-50%);
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  pointer-events: none;
+  font-variant-numeric: tabular-nums;
+}
+.j-number-field[data-grouped] > input:not(:focus) {
+  color: transparent !important;
+  -webkit-text-fill-color: transparent !important;
+}
+.j-number-field > input:focus + span { display: none; }
+@media (forced-colors: active) {
+  .j-number-field > span { display: none; }
+  .j-number-field[data-grouped] > input:not(:focus) { color: FieldText !important; -webkit-text-fill-color: FieldText !important; }
 }
 .j-span-2 {
   grid-column: span 2;
@@ -1849,7 +1874,7 @@
     grid-template-columns: repeat(2,minmax(0,1fr));
     gap: 14px 12px;
   }
-  .j-dialog .j-field>span {
+  .j-dialog .j-field>span:not(.j-number-field) {
     font-size: 12px;
   }
   .j-editor-tabs button {

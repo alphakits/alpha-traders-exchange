@@ -4,6 +4,29 @@ import { MarketplacePriceAlertPanel } from "./marketplace-price-alert-panel";
 const preference = { enabled: true, maxPrice: "3.50", minUsdt: "200", paymentMethod: "Bank Transfer" };
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 describe("account price-alert controls", () => {
+  it("groups prices and USDT quantities while keeping exact limits and raw PATCH values", async () => {
+    const initial = { ...preference, maxPrice: "1000.0050", minUsdt: "12000.000050" };
+    const fetch = vi.spyOn(globalThis, "fetch").mockImplementation(async () => Response.json({ ownerId: "buyer-a", preference: initial }));
+    render(<MarketplacePriceAlertPanel userId="buyer-a" isAr={false} />);
+    fireEvent.click(screen.getByText("More"));
+    const price = screen.getByLabelText("Maximum price (₪ / USDT)") as HTMLInputElement;
+    const minimum = screen.getByLabelText("Minimum USDT (optional)") as HTMLInputElement;
+    await waitFor(() => expect(price.value).toBe("1,000.0050"));
+    expect(minimum.value).toBe("12,000.000050");
+    const save = screen.getByRole("button", { name: "Save alert" });
+    fireEvent.change(price, { target: { value: "100000.0001" } });
+    fireEvent.click(save);
+    expect(screen.getByRole("status").textContent).toContain("Choose a positive maximum");
+    fireEvent.change(price, { target: { value: "100000.0000" } });
+    fireEvent.change(minimum, { target: { value: "1234.0000001" } });
+    fireEvent.click(save);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    fireEvent.change(minimum, { target: { value: "١٢٣٤٫٠٠٠٠٥٠" } });
+    expect(minimum.value).toBe("1,234.000050");
+    fireEvent.click(save);
+    await screen.findByText("Alert preferences saved.");
+    expect(JSON.parse(String(fetch.mock.calls[1][1]?.body))).toMatchObject({ maxPrice: "100000.0000", minUsdt: "1234.000050" });
+  });
   it("only enables saving after the owning account's preferences are confirmed", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ ownerId: "another-account", preference })));
     render(<MarketplacePriceAlertPanel userId="buyer-a" isAr={false} />);

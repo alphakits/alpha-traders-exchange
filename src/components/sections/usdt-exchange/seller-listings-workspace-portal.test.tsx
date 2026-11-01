@@ -50,7 +50,10 @@ describe("seller listing controls", () => {
     const amount = screen.getByPlaceholderText("Available Amount");
     const maximum = screen.getByPlaceholderText("Maximum Trade") as HTMLInputElement;
     for (const value of ["", "2", "20", "200", "2000"]) fireEvent.change(amount, { target: { value } });
-    expect(maximum.value).toBe("2000");
+    expect(maximum.value).toBe("2,000");
+    fireEvent.change(amount, { target: { value: "50,000.120000" } });
+    expect((amount as HTMLInputElement).value).toBe("50,000.120000");
+    expect(maximum.value).toBe("50,000.120000");
     fireEvent.change(maximum, { target: { value: "700" } });
     for (const value of ["", "7", "70", "700", "7000"]) fireEvent.change(amount, { target: { value } });
     expect(maximum.value).toBe("700");

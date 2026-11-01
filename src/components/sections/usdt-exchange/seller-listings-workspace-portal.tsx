@@ -13,6 +13,7 @@ import { AlertTriangle, CheckCircle2, ChevronDown, Clock3, Copy, Edit3, PauseCir
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { GroupedDecimalInput } from "@/components/ui/grouped-decimal-input";
 import { Textarea } from "@/components/ui/textarea";
 import { DiscordShareAction, type DiscordListingSharingStatus } from "@/components/sections/usdt-exchange/discord-share-action";
 import { sellerListingWorkspaceAnchor } from "@/lib/action-destinations";
@@ -20,7 +21,6 @@ import { getIsraeliBankDisplayName, MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS, parse
 import { MARKETPLACE_PAYMENT_METHODS, MAX_LISTING_PAYMENT_METHODS, type MarketplacePaymentMethod } from "@/lib/marketplace-payment-methods";
 import { LISTING_CHANGE_REASONS } from "@/lib/listing-change-reasons";
 import { ensurePayoutBankIsSupported, syncListingBankSelection } from "@/lib/seller-listing-bank-selection";
-import { normalizeTradeAmountInput } from "@/lib/trade-amount";
 import { cn } from "@/lib/utils";
 import type { MarketplaceListing, PurchaseRequest, SupportedNetwork } from "@/types/alpha-exchange";
 import type { SellerBankAccount } from "@/components/sections/usdt-exchange/usdt-exchange-page";
@@ -395,8 +395,7 @@ export function SellerListingsWorkspacePortal(props: SellerListingsWorkspacePort
                     {editingListingId === listing.id ? (
                       <form className="mt-3 grid gap-2 md:grid-cols-4" onSubmit={handleSellerListingEditSubmit}>
                         {props.wiseEnabled || listingEditForm.bankTransferProvider === "wise" ? <div className="space-y-2 md:col-span-4"><label htmlFor="edit-bank-provider" className="block text-sm">{isAr ? "مسار الدفع والعملة" : "Payment route and currency"}</label><select id="edit-bank-provider" value={listingEditForm.bankTransferProvider ?? "israeli_bank"} onChange={event => setListingEditForm(previous => ({ ...previous, bankTransferProvider: event.target.value as "israeli_bank" | "wise", currency: event.target.value === "wise" ? "USD" : "ILS", price: "", paymentMethods: ["Bank Transfer"], wiseAccountId: "", bankAccountId: "", bankName: "" }))} className="min-h-11 w-full rounded-lg border border-white/20 bg-[#111] px-3"><option className="currency-money" value="israeli_bank">{isAr ? "الطرق المحلية · ILS" : "Local payment methods · ILS"}</option><option className="currency-money" value="wise" disabled={!props.wiseEnabled}>{isAr ? "تحويل بنكي ← Wise · USD (مسودة)" : "Bank transfer → Wise · USD (draft)"}</option></select></div> : null}
-                        <Input className="currency-money" inputMode="decimal" value={listingEditForm.availableAmount} onChange={(event) => {
-                          const availableAmount = normalizeTradeAmountInput(event.target.value);
+                        <GroupedDecimalInput className="currency-money" value={listingEditForm.availableAmount} onValueChange={(availableAmount) => {
                           setListingEditForm((prev) => {
                             // Remember explicit intent through intermediate keystrokes such as 7 → 70 → 700 → 7000.
                             const followsAmount = prev.maximumTradeFollowsAmount ?? listingMaximumTracksAvailableAmount(prev);
@@ -405,9 +404,10 @@ export function SellerListingsWorkspacePortal(props: SellerListingsWorkspacePort
                           });
                         }} placeholder={isAr ? "الكمية المتاحة" : "Available Amount"} />
                         <div className="space-y-2">
-                          <Input
+                          <GroupedDecimalInput
                             value={listingEditForm.price}
-                            onChange={(event) => setListingEditForm((prev) => ({ ...prev, price: normalizeDecimalInput(event.target.value) }))}
+                            normalize={normalizeDecimalInput}
+                            onValueChange={(price) => setListingEditForm((prev) => ({ ...prev, price }))}
                             placeholder={isAr ? "السعر" : "Price"}
                             className={`currency-money ${`transition-all duration-200 ${
                               listingEditPriceInvalid
@@ -420,23 +420,22 @@ export function SellerListingsWorkspacePortal(props: SellerListingsWorkspacePort
                           <p className={`text-xs transition-colors duration-200 ${
                             listingEditPriceInvalid ? "text-red-300" : listingEditPriceValid ? "text-emerald-300" : "text-[#9CA3AF]"
                           }`}>
-                            {listingEditForm.bankTransferProvider === "wise" ? (isAr ? "السعر بالدولار USD لكل USDT." : "Price in USD per USDT.") : !marketReferenceAvailable ? (isAr ? "بانتظار سعر USD/ILS محدّث" : "Waiting for a fresh USD/ILS quote") : listingEditPriceInvalid
+                            {currencyText(listingEditForm.bankTransferProvider === "wise" ? (isAr ? "السعر بالدولار USD لكل USDT." : "Price in USD per USDT.") : !marketReferenceAvailable ? (isAr ? "بانتظار سعر USD/ILS محدّث" : "Waiting for a fresh USD/ILS quote") : listingEditPriceInvalid
                               ? (isAr ? `السعر يتجاوز الحد الأقصى المسموح (${formatIls(maxAllowedListingPrice)}).` : `Price exceeds maximum allowed (${formatIls(maxAllowedListingPrice)}).`)
                               : listingEditPriceValid
                                 ? (isAr ? `السعر صالح. الحد الأقصى المسموح هو ${formatIls(maxAllowedListingPrice)}.` : `Valid price. Maximum allowed is ${formatIls(maxAllowedListingPrice)}.`)
-                                : (isAr ? `أدخل سعراً لا يتجاوز ${formatIls(maxAllowedListingPrice)}.` : `Enter a price up to ${formatIls(maxAllowedListingPrice)}.`)}
+                                : (isAr ? `أدخل سعراً لا يتجاوز ${formatIls(maxAllowedListingPrice)}.` : `Enter a price up to ${formatIls(maxAllowedListingPrice)}.`))}
                           </p>
                         </div>
-                        <Input aria-label={isAr ? "العملة" : "Currency"} readOnly={listingEditForm.bankTransferProvider === "wise"} value={listingEditForm.currency} onChange={(event) => setListingEditForm((prev) => ({ ...prev, currency: event.target.value }))} placeholder={isAr ? "العملة" : "Currency"} />
+                        <Input className="currency-money" aria-label={isAr ? "العملة" : "Currency"} readOnly={listingEditForm.bankTransferProvider === "wise"} value={listingEditForm.currency} onChange={(event) => setListingEditForm((prev) => ({ ...prev, currency: event.target.value }))} placeholder={isAr ? "العملة" : "Currency"} />
                         <select className="flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 py-2 text-sm text-white" value={listingEditForm.network} onChange={(event) => setListingEditForm((prev) => ({ ...prev, network: event.target.value as SupportedNetwork }))}>
                           <option value="TRC20">TRC20</option>
                           <option value="ERC20">ERC20</option>
                           <option value="BEP20">BEP20</option>
                           <option value="SOL">SOL</option>
                         </select>
-                        <Input className="currency-money" inputMode="decimal" value={listingEditForm.minimumTrade} onChange={(event) => setListingEditForm((prev) => ({ ...prev, minimumTrade: normalizeTradeAmountInput(event.target.value) }))} placeholder={isAr ? "الحد الأدنى للصفقة" : "Minimum Trade"} />
-                        <Input className="currency-money" inputMode="decimal" value={listingEditForm.maximumTrade} onChange={(event) => {
-                          const maximumTrade = normalizeTradeAmountInput(event.target.value);
+                        <GroupedDecimalInput className="currency-money" value={listingEditForm.minimumTrade} onValueChange={(minimumTrade) => setListingEditForm((prev) => ({ ...prev, minimumTrade }))} placeholder={isAr ? "الحد الأدنى للصفقة" : "Minimum Trade"} />
+                        <GroupedDecimalInput className="currency-money" value={listingEditForm.maximumTrade} onValueChange={(maximumTrade) => {
                           setListingEditForm((prev) => ({ ...prev, maximumTrade,
                             maximumTradeFollowsAmount: listingMaximumTracksAvailableAmount({ availableAmount: prev.availableAmount, maximumTrade }) }));
                         }} placeholder={isAr ? "الحد الأقصى للصفقة" : "Maximum Trade"} />

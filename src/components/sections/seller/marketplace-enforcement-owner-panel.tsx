@@ -2,6 +2,8 @@
 
 import { formatMoneyNumber } from "@/lib/accent-text";
 import { currencyText } from "@/components/ui/currency-text";
+import { GroupedDecimalInput } from "@/components/sections/usdt-exchange/usdt-number-input";
+import { useActionDialog } from "@/components/ui/use-action-dialog";
 import { ActionFeedback, useActionFeedbackState } from "@/components/ui/action-feedback";
 import { useId, useRef, useState } from "react";
 import { AlertTriangle, CheckCircle2, FileText, Gavel, ShieldAlert, Upload, X } from "lucide-react";
@@ -87,6 +89,7 @@ function localizedRestrictionMessage(status: EnforcementStatus, locale: "ar" | "
 
 export function MarketplaceEnforcementOwnerPanel({ locale, sellerId, initialStatus }: MarketplaceEnforcementOwnerPanelProps) {
   const isAr = locale === "ar";
+  const { actionDialog, confirmAction } = useActionDialog(isAr, sellerId);
   const [status, setStatus] = useState<EnforcementStatus>(initialStatus);
   const [busy, setBusy] = useState(false);
   const [error, setError, errorFeedbackKey] = useActionFeedbackState<string | null>(null);
@@ -145,7 +148,8 @@ export function MarketplaceEnforcementOwnerPanel({ locale, sellerId, initialStat
         setError(isAr ? "يجب رفع لقطة شاشة أو صورة أو ملف PDF واحد على الأقل كإثبات." : "At least one screenshot/image/PDF evidence file is required.");
         return;
       }
-      if (!window.confirm(isAr ? `فرض رسوم استعادة امتثال بقيمة ${feeAmount.toFixed(2)} USDT وتقييد إجراءات البائع؟` : `Issue Marketplace Compliance Recovery Fee for ${feeAmount.toFixed(2)} USDT and restrict seller actions?`)) return;
+      const displayFee = formatMoneyNumber(feeAmount.toFixed(2));
+      if (!(await confirmAction(isAr ? `فرض رسوم استعادة امتثال بقيمة ${displayFee} USDT وتقييد إجراءات البائع؟` : `Issue Marketplace Compliance Recovery Fee for ${displayFee} USDT and restrict seller actions?`))) return;
       const encodedEvidence = await Promise.all(issueFeeEvidenceFiles.map(async (file) => ({
         fileName: file.name,
         mimeType: file.type,
@@ -222,6 +226,7 @@ export function MarketplaceEnforcementOwnerPanel({ locale, sellerId, initialStat
 
   return (
     <Card className="border-red-500/25 bg-[#0B0B0B]/95">
+      {actionDialog}
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-red-100">
           <ShieldAlert className="h-5 w-5 text-red-300" />
@@ -284,7 +289,7 @@ export function MarketplaceEnforcementOwnerPanel({ locale, sellerId, initialStat
         {error ? <ActionFeedback revealKey={errorFeedbackKey} as="p" role="alert" className="text-sm text-red-300">{currencyText(error)}</ActionFeedback> : null}
 
         {issueFeeOpen ? (
-          <div className="space-y-3 rounded-2xl border border-white/10 bg-black/30 p-4">
+          <form className="space-y-3 rounded-2xl border border-white/10 bg-black/30 p-4" onSubmit={(event) => { event.preventDefault(); void runAction("issue_fee"); }}>
             <div>
               <p className="text-sm font-semibold text-white">{isAr ? "فرض رسوم استعادة السوق" : "Issue Marketplace Recovery Fee"}</p>
               <p className="mt-1 text-xs text-[#9CA3AF]">{currencyText(isAr ? "اختر مبلغ الرسوم قبل فرض التقييد ليتمكن البائع من رؤية رسوم الاستعادة الدقيقة." : "Choose the fee amount before issuing the restriction so the seller can see the exact recovery charge.")}</p>
@@ -292,12 +297,10 @@ export function MarketplaceEnforcementOwnerPanel({ locale, sellerId, initialStat
             <div className="grid gap-3 md:grid-cols-2">
               <label className="space-y-1.5 text-sm text-[#D1D5DB]">
                 <span className="text-xs uppercase tracking-[0.12em] text-[#9CA3AF]">{currencyText(isAr ? "مبلغ الرسوم بـ USDT" : "Fee amount in USDT")}</span>
-                <input
-                  type="number"
-                  min="0.01"
-                  step="0.01"
+                <GroupedDecimalInput
                   value={issueFeeAmount}
-                  onChange={(event) => setIssueFeeAmount(event.target.value)}
+                  maxFractionDigits={2}
+                  onValueChange={setIssueFeeAmount}
                   className="currency-money h-11 w-full rounded-xl border border-white/10 bg-[#080808] px-3 text-white outline-none transition focus:border-[#C9A227]"
                 />
               </label>
@@ -369,9 +372,9 @@ export function MarketplaceEnforcementOwnerPanel({ locale, sellerId, initialStat
             </div>
             <div className="flex flex-wrap gap-2">
               <Button type="button" variant="secondary" onClick={resetIssueFeeForm}>{isAr ? "إلغاء" : "Cancel"}</Button>
-              <Button type="button" disabled={busy} onClick={() => void runAction("issue_fee")}>{isAr ? "فرض رسوم الاستعادة" : "Issue Recovery Fee"}</Button>
+              <Button type="submit" disabled={busy}>{isAr ? "فرض رسوم الاستعادة" : "Issue Recovery Fee"}</Button>
             </div>
-          </div>
+          </form>
         ) : null}
 
         <div className="rounded-xl border border-white/10 bg-black/25 p-3">

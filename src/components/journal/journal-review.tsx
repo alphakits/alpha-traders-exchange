@@ -1,4 +1,5 @@
 "use client";
+import { JournalNumberInput } from "./journal-number-input";
 import { currencyText } from "@/components/ui/currency-text";
 import { useEffect, useRef, useState } from "react";
 import { Check, LoaderCircle, SlidersHorizontal, Star } from "lucide-react";
@@ -54,7 +55,7 @@ export function RulesForm({ initial,locale,adapter,onSaved,onDirty }: {initial:J
     <p className="j-section-copy">{t("Set your own limits. The journal flags them in your review; it does not control your broker.","حدد حدودك الخاصة. يظهر السجل التنبيهات في المراجعة ولا يتحكم بحساب الوسيط.")}</p>
     {error && <p className="j-error" role="alert">{currencyText(error)}</p>}
     <div className="j-form-grid">
-      <label className="j-field"><span>{currencyText(t("Daily loss limit · USD","حد الخسارة اليومي · USD"))}</span><input className="currency-money" value={limit} dir="ltr" inputMode="decimal" onChange={e=>setLimit(e.target.value)}/></label>
+      <label className="j-field"><span>{currencyText(t("Daily loss limit · USD","حد الخسارة اليومي · USD"))}</span><JournalNumberInput value={limit} dir="ltr" inputMode="decimal" onChange={e=>setLimit(e.target.value)}/></label>
       <label className="j-field"><span>{t("Maximum trades per day","أقصى عدد صفقات يومياً")}</span><input type="number" min={1} max={100} value={settings.maxTradesPerDay} onChange={e=>setSettings({...settings,maxTradesPerDay:Number(e.target.value)})}/></label>
       <label className="j-field j-span-2"><span>{t("Journal timezone","المنطقة الزمنية للسجل")}</span><select value={settings.timezone} onChange={e=>setSettings({...settings,timezone:e.target.value})}>
         {[...new Set([settings.timezone,"Asia/Jerusalem","Europe/Bucharest","America/New_York","Europe/London","Asia/Dubai","Asia/Singapore","UTC"])].map(zone=><option key={zone} value={zone}>{zone.replaceAll("_"," ")}</option>)}

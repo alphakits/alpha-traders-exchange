@@ -27,6 +27,7 @@ import { MarketplaceEnforcementOwnerPanel } from "@/components/sections/seller/m
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { GroupedDecimalInput } from "@/components/sections/usdt-exchange/usdt-number-input";
 import { Textarea } from "@/components/ui/textarea";
 import { createExchangeDisplayLookup, replaceExchangeEntityIds } from "@/lib/alpha-exchange-display";
 import { parseAdminDashboardDestination, type AdminDashboardSection } from "@/lib/action-destinations";
@@ -1546,8 +1547,8 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
     const seller = sellersById.get(manualCommissionSellerId);
     const amount = Number(manualCommissionAmount);
     const reason = manualCommissionReason.trim();
-    if (!seller || !Number.isFinite(amount) || amount < 0.01 || !reason) {
-      pushToast(t("Select a seller, enter at least 0.01 USDT, and provide a reason.", "اختر بائعًا وأدخل 0.01 USDT على الأقل وأضف السبب."));
+    if (!seller || !Number.isFinite(amount) || amount < 0.01 || amount > 1_000_000 || !reason) {
+      pushToast(t("Select a seller, enter 0.01 to 1,000,000 USDT, and provide a reason.", "اختر بائعًا وأدخل مبلغًا من 0.01 إلى 1,000,000 USDT وأضف السبب."));
       return;
     }
     if (!(await confirmAction(t(
@@ -2264,7 +2265,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                       {seller.sellerRankOverride ? <p className="text-[11px] text-[#FDE68A]">{t("Override active", "تعديل يدوي نشط")}</p> : null}
                                     </td>
                                     <td className="px-4 py-3 text-[#D1D5DB]">{moneyText(formatUsdt(Math.max(0, Number(seller.lifetimeCompletedVolumeUsdt ?? 0))))}</td>
-                                    <td className="px-4 py-3 text-[#D1D5DB]">{activeListings}</td>
+                                    <td className="px-4 py-3 text-[#D1D5DB]">{formatMoneyNumber(activeListings)}</td>
                                     <td className="px-4 py-3 text-[#D1D5DB]">{formatMoneyNumber(completedTrades)}</td>
                                     <td className="px-4 py-3">
                                       {isSuspended ? (
@@ -2890,7 +2891,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                         <td className="px-3 py-2 text-[#D1D5DB]">{report.reliability.editRate}%</td>
                                         <td className="px-3 py-2 text-[#D1D5DB]">{report.reliability.removalRate}%</td>
                                         <td className="px-3 py-2 text-[#D1D5DB]">{report.reliability.averageListingLifetimeHours || "—"}</td>
-                                        <td className="px-3 py-2 text-[#D1D5DB]">{formatMoneyNumber(report.completedTrades)}✓ / {report.cancelledTrades}✗</td>
+                                        <td className="px-3 py-2 text-[#D1D5DB]">{formatMoneyNumber(report.completedTrades)}✓ / {formatMoneyNumber(report.cancelledTrades)}✗</td>
                                         <td className="px-3 py-2">
                                           <span className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold capitalize ${tierTone[report.reliability.warningTier]}`}>
                                             {isArabic ? ({ none: "جيد", notice: "ملاحظة", warning: "تحذير", critical: "حرج" } as const)[report.reliability.warningTier] : report.reliability.warningTier}
@@ -3087,15 +3088,11 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                             </div>
                             <div>
                               <label htmlFor="manual-commission-amount" className="mb-1.5 block text-xs font-medium text-[#D1D5DB]">{currencyText(t("Commission amount (USDT)", "قيمة العمولة (USDT)"))}</label>
-                              <Input className="currency-money"
+                              <GroupedDecimalInput className="currency-money"
                                 id="manual-commission-amount"
-                                type="number"
-                                inputMode="decimal"
-                                min="0.01"
-                                max="1000000"
-                                step="0.01"
                                 value={manualCommissionAmount}
-                                onChange={(event) => setManualCommissionAmount(event.target.value)}
+                                maxFractionDigits={2}
+                                onValueChange={setManualCommissionAmount}
                                 placeholder="0.00"
                                 required
                               />
@@ -3126,7 +3123,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                               <Button
                                 type="submit"
                                 className="h-11 w-full bg-[#C9A227] text-black hover:bg-[#E3C65A]"
-                                disabled={manualCommissionSubmitting || !manualCommissionSellerId || Number(manualCommissionAmount) < 0.01 || !manualCommissionReason.trim()}
+                                disabled={manualCommissionSubmitting || !manualCommissionSellerId || Number(manualCommissionAmount) < 0.01 || Number(manualCommissionAmount) > 1_000_000 || !manualCommissionReason.trim()}
                               >
                                 {manualCommissionSubmitting ? t("Issuing commission...", "جارٍ إصدار العمولة...") : t("Issue Commission & Notify Seller", "إصدار العمولة وإشعار البائع")}
                               </Button>

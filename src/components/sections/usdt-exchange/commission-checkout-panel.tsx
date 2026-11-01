@@ -6,6 +6,7 @@ import { commissionAmountInput } from "@alpha-traders/contracts";
 import Link from "next/link";
 import { ChevronDown } from "lucide-react";
 import { HelpDetails } from "@/components/ui/help-details";
+import { GroupedDecimalInput } from "./usdt-number-input";
 import { CommissionNetworkFeeNotice } from "./commission-network-fee-notice";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useOptionalCanonicalSession } from "@/components/auth/canonical-session-provider";
@@ -244,15 +245,15 @@ function CheckoutContent({ isAr, embedded = false, onSettled, sessionAvailable }
       {data.verificationCode ? <p role="status" className="commission-notice rounded-xl border border-amber-300/20 p-3 text-sm">{currencyText(data.verificationCode === "receipt_pending" ? message("Payment found. Waiting for network confirmation. Do not send again.", "وُجدت الدفعة. ننتظر تأكيد الشبكة. لا تُعد الإرسال.") : data.verificationCode === "verification_unavailable" ? message("Verification is delayed. We will keep checking. Do not send again.", "تأخر التحقق. نواصل الفحص. لا تُعد الإرسال.") : message("Payment needs review. Check the original amount, network, and address. Do not pay again.", "تحتاج الدفعة للمراجعة. راجع المبلغ والشبكة والعنوان الأصلي. لا تدفع مجددًا."))}</p> : null}
       {data.status === "changed" ? <p role="alert" className="commission-notice">{currencyText(message("The amount due changed. Check your original payment. Do not send again.", "تغيّر المبلغ المستحق. راجع دفعتك الأصلية. لا تُعد الإرسال."))}</p> : null}
       </div>
-      {(!checkout || changingNetwork) && data.pendingCount > 0 ? <>
+      {(!checkout || changingNetwork) && data.pendingCount > 0 ? <form className="space-y-4" onSubmit={event => { event.preventDefault(); void create(); }}>
         <CommissionNetworkFeeNotice isAr={isAr} receiveAmountUsdt={data.totalDueUsdt} />
         <p className="text-sm text-slate-300">{currencyText(changingNetwork ? message("Choose the correct network before sending. The receiving address and exact payment amount will update.", "اختر الشبكة الصحيحة قبل الإرسال. سيتم تحديث عنوان الاستلام والمبلغ الدقيق.") : message("Choose your network, then get payment instructions.", "اختر الشبكة، ثم اعرض تعليمات الدفع."))}</p>
         <label className="block text-sm">{message("Network", "الشبكة")}<span className="relative mt-2 block"><select className={controls + " appearance-none pe-12"} style={{ colorScheme: "dark" }} value={network} disabled={busy} onChange={(event) => setNetwork(event.target.value as "TRC20" | "BEP20")}><option className="currency-money" value="TRC20">USDT · TRC20</option><option className="currency-money" value="BEP20">USDT · BEP20</option></select><ChevronDown aria-hidden="true" className="pointer-events-none absolute end-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-300" /></span></label>
-        {!changingNetwork ? <label className="block text-sm">{currencyText(message("Amount to receive (USDT)", "مبلغ الاستلام (USDT)"))}<input className={controls + " currency-money mt-2"} inputMode="decimal" dir="ltr" value={amount} disabled={busy} onChange={(event) => setAmount(event.target.value)} /></label> : null}
+        {!changingNetwork ? <label className="block text-sm">{currencyText(message("Amount to receive (USDT)", "مبلغ الاستلام (USDT)"))}<GroupedDecimalInput className={controls + " currency-money mt-2"} value={amount} onValueChange={setAmount} maxIntegerDigits={9} maxFractionDigits={6} required disabled={busy} /></label> : null}
         <label className="flex min-h-11 cursor-pointer items-center gap-3 text-sm"><input type="checkbox" className="h-5 w-5 shrink-0" checked={notSent} disabled={busy} onChange={(event) => setNotSent(event.target.checked)} />{message("I have not sent this payment yet.", "لم أرسل هذه الدفعة بعد.")}</label>
-        <button type="button" className="min-h-12 w-full rounded-xl bg-amber-400 px-5 py-3 font-semibold text-black disabled:opacity-40" disabled={busy || !notSent || (changingNetwork ? network === checkout?.network : !amount)} onClick={() => void create()}>{busy ? message("Preparing…", "جارٍ الإنشاء…") : changingNetwork ? message("Update payment network", "تحديث شبكة الدفع") : message("Get payment instructions", "عرض تعليمات الدفع")}</button>
+        <button type="submit" className="min-h-12 w-full rounded-xl bg-amber-400 px-5 py-3 font-semibold text-black disabled:opacity-40" disabled={busy || !notSent || (changingNetwork ? network === checkout?.network : !amount)}>{busy ? message("Preparing…", "جارٍ الإنشاء…") : changingNetwork ? message("Update payment network", "تحديث شبكة الدفع") : message("Get payment instructions", "عرض تعليمات الدفع")}</button>
         {changingNetwork ? <button type="button" className="min-h-11 w-full rounded-xl border border-white/20 px-4 py-3" disabled={busy} onClick={() => { setEditingCheckoutId(null); setNotSent(false); setError(""); }}>{message("Keep current network", "الإبقاء على الشبكة الحالية")}</button> : null}
-      </> : null}
+      </form> : null}
     </section> : null}
     {checkout && data?.status === "waiting" && !changingNetwork ? <section className="space-y-4 rounded-2xl border border-amber-300/30 p-5">
       <h2 className="font-semibold">{message("Platform must receive", "يجب أن تستلم المنصة")}</h2>

@@ -30,6 +30,7 @@ import { Link, useRouter } from "@/i18n/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { GroupedDecimalInput } from "@/components/ui/grouped-decimal-input";
 import { Textarea } from "@/components/ui/textarea";
 import { AccountWelcome } from "@/components/ui/account-welcome";
 import { ExchangeWorkspaceNavigation, type ExchangeWorkspaceAction } from "@/components/sections/usdt-exchange/exchange-workspace-navigation";
@@ -5434,10 +5435,10 @@ export function UsdtExchangePage({
                   <option value="response-fast">{isAr ? "الترتيب: أسرع استجابة" : "Sort: Fastest Response Time"}</option>
                   <option value="newest">{isAr ? "الترتيب: الأحدث" : "Sort: Newest Listing"}</option>
                 </select>
-                <Input className="currency-money" placeholder={isAr ? "أقل كمية USDT" : "Min USDT amount"} value={minAmountFilter} onChange={(event) => setMinAmountFilter(event.target.value)} />
-                <Input className="currency-money" placeholder={isAr ? "أعلى كمية USDT" : "Max USDT amount"} value={maxAmountFilter} onChange={(event) => setMaxAmountFilter(event.target.value)} />
-                <Input className="currency-money" disabled={mixedPriceCurrencies} placeholder={mixedPriceCurrencies ? (isAr ? "اختر عملة لتصفية السعر" : "Choose a currency to filter price") : `${isAr ? "أقل سعر" : "Min price"} (${currencyFilter === "all" ? uniqueCurrencies[0] ?? "ILS" : currencyFilter})`} value={minPriceFilter} onChange={(event) => setMinPriceFilter(event.target.value)} />
-                <Input className="currency-money" disabled={mixedPriceCurrencies} placeholder={mixedPriceCurrencies ? (isAr ? "اختر عملة لتصفية السعر" : "Choose a currency to filter price") : `${isAr ? "أعلى سعر" : "Max price"} (${currencyFilter === "all" ? uniqueCurrencies[0] ?? "ILS" : currencyFilter})`} value={maxPriceFilter} onChange={(event) => setMaxPriceFilter(event.target.value)} />
+                <GroupedDecimalInput className="currency-money" placeholder={isAr ? "أقل كمية USDT" : "Min USDT amount"} value={minAmountFilter} onValueChange={setMinAmountFilter} />
+                <GroupedDecimalInput className="currency-money" placeholder={isAr ? "أعلى كمية USDT" : "Max USDT amount"} value={maxAmountFilter} onValueChange={setMaxAmountFilter} />
+                <GroupedDecimalInput className="currency-money" disabled={mixedPriceCurrencies} placeholder={mixedPriceCurrencies ? (isAr ? "اختر عملة لتصفية السعر" : "Choose a currency to filter price") : `${isAr ? "أقل سعر" : "Min price"} (${currencyFilter === "all" ? uniqueCurrencies[0] ?? "ILS" : currencyFilter})`} value={minPriceFilter} onValueChange={setMinPriceFilter} />
+                <GroupedDecimalInput className="currency-money" disabled={mixedPriceCurrencies} placeholder={mixedPriceCurrencies ? (isAr ? "اختر عملة لتصفية السعر" : "Choose a currency to filter price") : `${isAr ? "أعلى سعر" : "Max price"} (${currencyFilter === "all" ? uniqueCurrencies[0] ?? "ILS" : currencyFilter})`} value={maxPriceFilter} onValueChange={setMaxPriceFilter} />
                 <Input placeholder={isAr ? "الحد الأدنى لنقاط ألفا" : "Min Alpha Score"} value={trustScoreFilter} onChange={(event) => setTrustScoreFilter(event.target.value)} />
                 <Button type="button" variant={onlineOnlyFilter ? "default" : "secondary"} onClick={() => setOnlineOnlyFilter((prev) => !prev)}>
                   {onlineOnlyFilter ? (isAr ? "البائعون المتصلون فقط" : "Online Sellers Only") : (isAr ? "إظهار البائعين المتصلين فقط" : "Show Online Sellers Only")}

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Bell, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { GroupedDecimalInput } from "./usdt-number-input";
 import { currencyText } from "@/components/ui/currency-text";
 import { fetchClientJson } from "@/lib/client-request-deadline";
 import { MARKETPLACE_PAYMENT_METHODS } from "@/lib/marketplace-payment-methods";
@@ -68,13 +68,15 @@ export function MarketplacePriceAlertPanel({ userId, isAr }: { userId: string; i
   const methodLabel = (method: string) => !isAr ? method : method === "Bank Transfer" ? "تحويل بنكي" : method === "Cardless ATM Withdrawal" ? "سحب بلا بطاقة" : "لقاء شخصي";
   return <MarketplaceToolPanel title={isAr ? "تنبيه سعر USDT" : "USDT price alert"} isAr={isAr} icon={<Bell aria-hidden="true" className="h-4 w-4 shrink-0 text-[#D4AF37]" />} className="border-[#C9A227]/25">
     <p className="mt-2 text-sm text-[#9CA3AF]">{currencyText(isAr ? "تنبيهات للعروض المناسبة وانخفاض الأسعار. لا يتم الشراء تلقائيًا." : "Get alerts for matching listings and price drops. No purchase is made automatically.")}</p>
+    <form onSubmit={event => { event.preventDefault(); void save(); }}>
     <fieldset disabled={!ready || busy} className="mt-4 grid gap-3 sm:grid-cols-3">
-      <label className="space-y-1 text-sm">{currencyText(isAr ? "أعلى سعر (₪ / USDT)" : "Maximum price (₪ / USDT)")}<Input className="currency-money" dir="ltr" inputMode="decimal" value={preference.maxPrice} onChange={e => setPreference(p => ({ ...p, maxPrice: e.target.value }))} /></label>
-      <label className="space-y-1 text-sm">{currencyText(isAr ? "أقل كمية USDT (اختياري)" : "Minimum USDT (optional)")}<Input className="currency-money" dir="ltr" inputMode="decimal" value={preference.minUsdt} onChange={e => setPreference(p => ({ ...p, minUsdt: e.target.value }))} /></label>
+      <label className="space-y-1 text-sm">{currencyText(isAr ? "أعلى سعر (₪ / USDT)" : "Maximum price (₪ / USDT)")}<GroupedDecimalInput className="currency-money" maxIntegerDigits={18} maxFractionDigits={4} value={preference.maxPrice} onValueChange={maxPrice => setPreference(p => ({ ...p, maxPrice }))} /></label>
+      <label className="space-y-1 text-sm">{currencyText(isAr ? "أقل كمية USDT (اختياري)" : "Minimum USDT (optional)")}<GroupedDecimalInput className="currency-money" maxIntegerDigits={18} maxFractionDigits={6} value={preference.minUsdt} onValueChange={minUsdt => setPreference(p => ({ ...p, minUsdt }))} /></label>
       <label className="space-y-1 text-sm">{isAr ? "طريقة الدفع" : "Payment method"}<select className="h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3" value={preference.paymentMethod} onChange={e => setPreference(p => ({ ...p, paymentMethod: e.target.value as MarketplacePriceAlert["paymentMethod"] }))}><option value="all">{isAr ? "أي طريقة" : "Any method"}</option>{MARKETPLACE_PAYMENT_METHODS.map(method => <option key={method} value={method}>{methodLabel(method)}</option>)}</select></label>
       <label className="flex items-center gap-2 text-sm sm:col-span-3"><input type="checkbox" checked={preference.enabled} onChange={e => setPreference(p => ({ ...p, enabled: e.target.checked }))} />{currencyText(isAr ? "تفعيل تنبيه السعر لحسابي" : "Enable price alerts for my account")}</label>
     </fieldset>
-    <div className="mt-3 flex flex-wrap items-center gap-3"><Button type="button" disabled={!ready || busy} onClick={() => void save()}>{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}{isAr ? "حفظ التنبيه" : "Save alert"}</Button>{!ready && message ? <Button type="button" variant="secondary" onClick={() => void load()}>{isAr ? "إعادة التحميل" : "Reload"}</Button> : null}<p role="status" aria-live="polite" className="text-sm text-[#D1D5DB]">{message || (!ready ? (isAr ? "جارٍ تحميل إعداداتك…" : "Loading your preferences…") : "")}</p></div>
+    <div className="mt-3 flex flex-wrap items-center gap-3"><Button type="submit" disabled={!ready || busy}>{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}{isAr ? "حفظ التنبيه" : "Save alert"}</Button>{!ready && message ? <Button type="button" variant="secondary" onClick={() => void load()}>{isAr ? "إعادة التحميل" : "Reload"}</Button> : null}<p role="status" aria-live="polite" className="text-sm text-[#D1D5DB]">{message || (!ready ? (isAr ? "جارٍ تحميل إعداداتك…" : "Loading your preferences…") : "")}</p></div>
+    </form>
     <p className="mt-2 text-xs text-[#9CA3AF]">{currencyText(isAr ? "الإشعارات تتبع إعدادات قنوات الإشعار الحالية. تحقق دائمًا من السعر والكمية المتاحة داخل العرض." : "Delivery follows your existing notification-channel preferences. Always check the listing's current price and available amount.")}</p>
   </MarketplaceToolPanel>;
 }

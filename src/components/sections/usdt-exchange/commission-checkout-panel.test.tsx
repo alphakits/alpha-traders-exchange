@@ -124,6 +124,23 @@ it("does not permit payment creation without pre-payment acknowledgement", async
   expect((button as HTMLButtonElement).disabled).toBe(true);
   expect(screen.queryByText(wallet)).toBeNull();
 });
+it("groups the receiving amount and posts the seller's exact valid decimal only", async () => {
+  fetchMock.mockResolvedValue(response({ ...ready, totalDueUsdt: 1234.00005 }));
+  render(<CommissionCheckoutPanel isAr={false} />);
+  const input = await screen.findByLabelText("Amount to receive (USDT)") as HTMLInputElement;
+  await waitFor(() => expect(input.value).toBe("1,234.00005"));
+  fireEvent.click(screen.getByRole("checkbox"));
+  const submit = screen.getByRole("button", { name: "Get payment instructions" });
+  fireEvent.change(input, { target: { value: "1,234.0000501" } });
+  fireEvent.click(submit);
+  expect(fetchMock.mock.calls.filter((call) => call[1]?.method === "POST")).toHaveLength(0);
+  fireEvent.change(input, { target: { value: "1234.000050" } });
+  expect(input.value).toBe("1,234.000050");
+  fireEvent.click(submit);
+  await waitFor(() => expect(fetchMock.mock.calls.filter((call) => call[1]?.method === "POST")).toHaveLength(1));
+  const post = fetchMock.mock.calls.find((call) => call[1]?.method === "POST");
+  expect(JSON.parse(post?.[1].body)).toMatchObject({ desiredAmount: "1234.000050", hasNotPaidYet: true });
+});
 it("39 for 40 is requested by seller and waits for independent verification, not owner approval", async () => {
   render(<CommissionCheckoutPanel isAr={false} />);
   fireEvent.change(await screen.findByLabelText("Amount to receive (USDT)"), { target: { value: "39" } });

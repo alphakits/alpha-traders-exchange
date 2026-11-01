@@ -189,8 +189,8 @@ describe("cardless listing limits and escape", () => {
     render(<Harness selectedPaymentMethod={selectedPaymentMethod} onClose={close} />);
     const amount = screen.getByLabelText(/USDT Amount/) as HTMLInputElement;
     expect(amount.readOnly).toBe(false);
-    fireEvent.change(amount, { target: { value: "660" } });
-    expect(amount.value).toBe("660");
+    fireEvent.change(amount, { target: { value: "1,660.123000" } });
+    expect(amount.value).toBe("1,660.123000");
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(close).toHaveBeenCalledOnce();
   });
@@ -240,8 +240,20 @@ it("shows and enforces the symmetric buyer offer range", () => {
   const field = screen.getByRole("spinbutton", { name: /price|offer/i }) as HTMLInputElement;
   expect(field.min).toBe("2.85");
   expect(field.max).toBe("3.55");
+  fireEvent.change(field, { target: { value: "2.84" } });
+  expect(field.getAttribute("aria-invalid")).toBe("true");
   fireEvent.change(field, { target: { value: "3.55" } });
   expect(field.getAttribute("aria-invalid")).not.toBe("true");
   fireEvent.change(field, { target: { value: "3.56" } });
+  expect(field.getAttribute("aria-invalid")).toBe("true");
+});
+
+it("groups four-digit negotiated prices and continues to reject out-of-range offers", () => {
+  render(<Harness priceMode="buyer_offer" selectedPrice={1250} />);
+  const field = screen.getByRole("textbox", { name: /price|offer/i }) as HTMLInputElement;
+  fireEvent.change(field, { target: { value: "1250.30" } });
+  expect(field.value).toBe("1,250.30");
+  expect(field.getAttribute("aria-invalid")).not.toBe("true");
+  fireEvent.change(field, { target: { value: "1,250.36" } });
   expect(field.getAttribute("aria-invalid")).toBe("true");
 });

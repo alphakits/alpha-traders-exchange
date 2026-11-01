@@ -1408,9 +1408,9 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                     </div>
                     <div className="space-y-1">
                       <dt className="text-[#9CA3AF]">{isAr ? "طرق الدفع" : "Payment methods"}</dt>
-                      <dd className="break-words text-white">{listingCreateSelectedMethods.length
+                      <dd className="break-words text-white">{currencyText(listingCreateSelectedMethods.length
                         ? listingCreateSelectedMethods.map((method) => `${paymentMethodLabel(method, isAr)}${isWiseListing && method === "Bank Transfer" ? " · Wise · USD" : ""}`).join(isAr ? "، " : ", ")
-                        : (isAr ? "اختر طريقة دفع" : "Choose a payment method")}</dd>
+                        : (isAr ? "اختر طريقة دفع" : "Choose a payment method"))}</dd>
                     </div>
                     {listingCreateRequiresBank && listingCreateSelectedBanks.length ? (
                       <div className="space-y-1">

@@ -1,4 +1,5 @@
 "use client";
+import { currencyText } from "@/components/ui/currency-text";
 
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -92,7 +93,7 @@ export function useActionDialog(isArabic: boolean, scope?: string) {
       }}
       className="fixed inset-0 m-auto max-h-[90dvh] w-[calc(100%_-_2rem)] max-w-lg overflow-y-auto rounded-2xl border border-amber-300/30 bg-[#101010] p-5 text-white backdrop:bg-black/80">
       {question ? <form className="space-y-4" onSubmit={(event) => { event.preventDefault(); finish(question.input ? value : "confirmed", question.id); }}>
-        <h2 id={`${id}-title`} className="whitespace-pre-wrap text-base font-semibold">{question.message}</h2>
+        <h2 id={`${id}-title`} className="whitespace-pre-wrap text-base font-semibold">{currencyText(question.message)}</h2>
         {question.input ? <input aria-label={question.message} autoFocus value={value} onChange={(event) => setValue(event.target.value)}
           className="h-12 w-full rounded-xl border border-white/20 bg-black px-3" /> : null}
         <div className="flex gap-3">

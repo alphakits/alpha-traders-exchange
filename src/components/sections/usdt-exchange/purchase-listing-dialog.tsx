@@ -14,6 +14,8 @@ import { Link } from "@/i18n/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { GroupedDecimalInput } from "@/components/ui/grouped-decimal-input";
+import { normalizePriceOfferInput } from "@/lib/price-offer";
 import { RoleBadge } from "@/components/ui/role-badge";
 import { RankBadge } from "@/components/ui/rank-badge";
 import { getIsraeliBankDisplayName, parseIsraeliBankSelection } from "@/lib/israeli-banks";
@@ -170,6 +172,15 @@ export function PurchaseListingDialog({
     || !validateCardlessIlsAmount(buyerInfo.cardlessIlsAmount, estimatedTotal.toFixed(2))
   );
   const paymentTotalInvalid = !Number.isFinite(estimatedTotal) || estimatedTotal <= 0;
+  const offerPriceField = {
+    id: "buyer-offered-price",
+    value: offeredPrice,
+    placeholder: minimumOfferedPrice || "0.00",
+    autoComplete: "off",
+    className: cn("currency-money pl-7 text-left", offerPriceInvalid ? "border-red-500/80" : offeredPrice && "border-emerald-500/70"),
+    "aria-invalid": offerPriceInvalid || undefined,
+    "aria-describedby": "buyer-offer-price-help",
+  };
   const purchaseDisabled = cardlessInvalid || paymentTotalInvalid || isSubmittingPurchase
     || (isWise && (!wiseEnabled || wiseAccountsLoading || !wiseAccounts.some(account => account.id === buyerInfo.buyerWiseAccountId && account.ownershipReviewStatus === "manually_reviewed")))
     || !selectedPaymentMethodIsAvailable
@@ -299,7 +310,7 @@ export function PurchaseListingDialog({
                 <div className="grid gap-3 md:grid-cols-3">
                   <div className="space-y-2 md:col-span-3">
                     <label htmlFor="buyer-usdt-amount" className="text-sm font-medium text-white">{currencyText(isAr ? "كمية USDT" : "USDT Amount")} <span className="text-red-300">*</span></label>
-                    <Input id="buyer-usdt-amount" dir="ltr" inputMode="decimal" placeholder={isCardless ? (isAr ? "تُحسب من مبلغ السحب أعلاه" : "Calculated from cash amount above") : (isAr ? "أدخل الكمية" : "Enter amount")} readOnly={isCardless} value={buyerInfo.usdtAmount} onChange={(event) => onBuyerAmountChange(event.target.value)} className={`currency-money ${`text-left ${buyerTradeAmountInvalid ? "border-red-500/80" : buyerTradeAmount > 0 ? "border-emerald-500/70" : ""}`}`} aria-invalid={buyerTradeAmountInvalid || undefined} aria-describedby="buyer-amount-help" />
+                    <GroupedDecimalInput id="buyer-usdt-amount" placeholder={isCardless ? (isAr ? "تُحسب من مبلغ السحب أعلاه" : "Calculated from cash amount above") : (isAr ? "أدخل الكمية" : "Enter amount")} readOnly={isCardless} value={buyerInfo.usdtAmount} onValueChange={onBuyerAmountChange} className={cn("currency-money text-left", buyerTradeAmountInvalid ? "border-red-500/80" : buyerTradeAmount > 0 && "border-emerald-500/70")} aria-invalid={buyerTradeAmountInvalid || undefined} aria-describedby="buyer-amount-help" />
                     {isCardless && cashBeforeFeeUsdt ? <div className="space-y-1 text-xs text-[#D1D5DB]" aria-live="polite">
                       <p className="commission-notice">{currencyText(isAr ? `قبل العمولة: ₪${buyerInfo.cardlessIlsAmount} ÷ ₪${cardlessPrice} = ${cashBeforeFeeUsdt} USDT` : `Before fee: ₪${buyerInfo.cardlessIlsAmount} ÷ ₪${cardlessPrice} = ${cashBeforeFeeUsdt} USDT`)}</p>
                       <p className="commission-notice">{currencyText(isAr ? `تستلم ${buyerInfo.usdtAmount} USDT. مبلغ السحب يشمل عمولة المشتري 1%.` : `You receive ${buyerInfo.usdtAmount} USDT. Your withdrawal amount includes the buyer’s 1% fee.`)}</p>
@@ -314,22 +325,9 @@ export function PurchaseListingDialog({
                       </label>
                       <div className="relative">
                         <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-sm currency-money">₪</span>
-                        <Input
-                          id="buyer-offered-price"
-                          dir="ltr"
-                          type="number"
-                          inputMode="decimal"
-                          min={minimumOfferedPrice}
-                          max={maximumOfferedPrice}
-                          step="0.01"
-                          autoComplete="off"
-                          placeholder={minimumOfferedPrice || "0.00"}
-                          value={offeredPrice}
-                          onChange={(event) => onOfferedPriceChange(event.target.value)}
-                          className={`currency-money ${`pl-7 text-left ${offerPriceInvalid ? "border-red-500/80" : offeredPrice ? "border-emerald-500/70" : ""}`}`}
-                          aria-invalid={offerPriceInvalid || undefined}
-                          aria-describedby="buyer-offer-price-help"
-                        />
+                        {Number(maximumOfferedPrice) >= 1000
+                          ? <GroupedDecimalInput {...offerPriceField} normalize={normalizePriceOfferInput} onValueChange={onOfferedPriceChange} />
+                          : <Input {...offerPriceField} type="number" dir="ltr" inputMode="decimal" min={minimumOfferedPrice} max={maximumOfferedPrice} step="0.01" onChange={(event) => onOfferedPriceChange(event.target.value)} />}
                       </div>
                       <p id="buyer-offer-price-help" className={`text-xs ${offerPriceInvalid ? "text-red-300" : "text-[#9CA3AF]"}`}>
                         {offerPriceInvalid ? "⚠ " : ""}{currencyText(isAr
