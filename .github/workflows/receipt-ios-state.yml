@@ -1,0 +1,63 @@
+name: Read Apple processing and App Review state for receipt build 31
+on:
+  push:
+    branches: [release/ios-receipts-upload-20261101]
+    paths: [.github/workflows/receipt-ios-state.yml]
+permissions:
+  contents: read
+jobs:
+  apple-state:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+      - name: Install the pinned Expo client
+        run: npm install --prefix "$RUNNER_TEMP/asc-read" --ignore-scripts --no-audit --no-fund eas-cli@23.2.0
+      - name: Read selected iPhone build and review state through App Store Connect
+        working-directory: apps/mobile
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          EXPO_APPLE_TEAM_ID: 7S2T48F834
+        run: |
+          cat > "$RUNNER_TEMP/asc-read/status.cjs" <<'JS'
+          const assert = require("node:assert/strict");
+          const { createGraphqlClient } = require("eas-cli/build/commandUtils/context/contextUtils/createGraphqlClient");
+          const { CredentialsContext } = require("eas-cli/build/credentials/context");
+          const { getAppStoreAuthAsync } = require("eas-cli/build/metadata/auth");
+          async function main() {
+            const projectDir = process.cwd();
+            const projectId = "e5dbc3ba-25fb-4373-8ded-c8c80cadc147";
+            const exp = { slug: "alpha-traders", ios: { bundleIdentifier: "com.alphakits.alphatraders" } };
+            const graphqlClient = createGraphqlClient({ accessToken: process.env.EXPO_TOKEN });
+            const credentialsCtx = new CredentialsContext({ projectInfo: { exp, projectId }, projectDir, graphqlClient, nonInteractive: true });
+            const { app } = await getAppStoreAuthAsync({ projectDir, projectId, exp, credentialsCtx,
+              profile: { ascAppId: "6812101323", bundleIdentifier: exp.ios.bundleIdentifier }, nonInteractive: true, graphqlClient });
+            assert.equal(app.id, "6812101323");
+            assert.equal(app.attributes.bundleId, exp.ios.bundleIdentifier);
+            const versions = await app.getAppStoreVersionsAsync({ query: { limit: 10, filter: { platform: "IOS" } } });
+            const version = versions.find(v => v.attributes.versionString === "1.2.0");
+            assert.ok(version, "Apple version 1.2.0 unavailable");
+            console.log("APPLE_VERSION " + JSON.stringify({ id: version.id, version: version.attributes.versionString,
+              state: version.attributes.appVersionState || version.attributes.appStoreState, releaseType: version.attributes.releaseType }));
+            const selected = await version.getBuildAsync();
+            console.log("APPLE_SELECTED_BUILD " + JSON.stringify(selected ? { id: selected.id, number: selected.attributes.version,
+              state: selected.attributes.processingState } : null));
+            const builds = await app.getBuildsAsync({ query: { limit: 20 } });
+            const b = builds.find(x => x.attributes.version === "31");
+            console.log("APPLE_RECEIPT_BUILD " + JSON.stringify(b ? { id: b.id, number: b.attributes.version,
+              uploadedAt: b.attributes.uploadedDate, processing: b.attributes.processingState, expired: b.attributes.expired } : null));
+            const reviews = await app.getReviewSubmissionsAsync({ query: { limit: 20 } });
+            console.log("APPLE_REVIEW_STATE " + JSON.stringify(reviews.filter(s => s.attributes.platform === "IOS")
+              .map(s => ({ id: s.id, state: s.attributes.state, submitted: s.attributes.submittedDate }))));
+          }
+          main().catch(e => {
+            const err = String(e.message).replace(/Bearer [^\s]+/gi, "[redacted]").split("\n")[0].slice(0,280);
+            console.error("Apple state lookup failed: " + err); process.exitCode=1;
+          });
+          JS
+          node "$RUNNER_TEMP/asc-read/status.cjs"
