@@ -1,4 +1,5 @@
 import "server-only";
+import { formatMeasuredResponseTime, sellerRatingDisplay, sellerScoreDisplay, type SellerMetricEvidence } from "@alpha-traders/contracts";
 
 import { createHash } from "node:crypto";
 
@@ -45,7 +46,7 @@ export type DiscordMarketActivitySnapshot = {
   siteUrl: string;
 };
 
-export type DiscordLeaderboardEntry = {
+export type DiscordLeaderboardEntry = SellerMetricEvidence & {
   displayName: string;
   completedTrades: number;
   trustScore: number | null;
@@ -149,7 +150,7 @@ function pulseMessage(
       ? []
       : [{
           name: "Measured listing response",
-          value: `~${formatInteger(snapshot.averageResponseMinutes)} min`,
+          value: formatMeasuredResponseTime(snapshot.averageResponseMinutes, false, 1),
           inline: true,
         }]),
   ];
@@ -209,8 +210,8 @@ function leaderboardMessage(
     : snapshot.entries.map((entry, index) => {
         const details = [
           `${formatInteger(entry.completedTrades)} completed`,
-          entry.trustScore === null ? null : `${entry.trustScore.toFixed(1)} trust`,
-          entry.rating === null ? null : `${entry.rating.toFixed(2)}★`,
+          entry.alphaScore || entry.trustScore !== null ? sellerScoreDisplay(entry).text : null,
+          entry.rating == null && entry.totalReviews == null ? null : sellerRatingDisplay(entry).text,
         ].filter(Boolean).join(" • ");
         return `**${index + 1}. ${escapeDiscordPlainText(entry.displayName)}**\n${details}`;
       }).join("\n\n");

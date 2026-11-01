@@ -75,7 +75,7 @@ import {
 } from "@/lib/notification-action-destination";
 import { getWalletAddressValidationError, normalizeWalletAddress } from "@/lib/wallet-address";
 import { useLiveUserPresence, useLivePresenceMap } from "@/lib/user-presence-client";
-import { formatMeasuredResponseTime } from "@alpha-traders/contracts";
+import { compareSellerResponseTimes, formatMeasuredResponseTime, measuredSellerResponseMinutes, sellerRatingDisplay, sellerScoreDisplay } from "@alpha-traders/contracts";
 import { deriveListingCountdown, deriveSellerPresence } from "@/lib/seller-presence";
 import { LISTING_CHANGE_REASONS, listingEditRequiresReason, validateListingChangeReason } from "@/lib/listing-change-reasons";
 import { publicAccountName } from "@/lib/public-account-identity";
@@ -1039,6 +1039,8 @@ type ListingCardProps = {
 };
 
 export const ListingCard = memo(function ListingCard({ listing, isAr, marketPricePerUsdt, isOwnerListing, canViewPrivateIdentity = false, requiresBuyerSetup = false, isOwnListing, isBuying, onOpen, onManageListing }: ListingCardProps) {
+  const rating = sellerRatingDisplay(listing.sellerReputation, isAr);
+  const score = sellerScoreDisplay(listing.sellerReputation, isAr);
   // Older cached responses may still carry the retired commission request lock.
   const requestBlockReason = listing.newRequestBlockReason === "commission_due" ? undefined : listing.newRequestBlockReason;
   const sellerLevel = listing.sellerReputation?.level;
@@ -1182,8 +1184,8 @@ export const ListingCard = memo(function ListingCard({ listing, isAr, marketPric
         <div className="compact-listing__stats grid grid-cols-4 gap-1.5 text-center text-xs">
           <div className={cn("rounded-xl border border-white/10 bg-black/25 p-3 text-[#D1D5DB] transition duration-300 hover:bg-black/35", `seller-rank-microcard seller-rank-microcard--${isOwnerListing ? "legendary" : sellerRankKey}`)}>
             <Star className="h-4 w-4 mx-auto text-[#F4D87A]" />
-            <p className="mt-1 break-words font-semibold leading-snug text-white">{(listing.sellerReputation?.rating ?? 0).toFixed(2)}</p>
-            <p className="text-[11px] text-[#9CA3AF]">{isAr ? "التقييم" : "Rating"}</p>
+            <p className="mt-1 break-words font-semibold leading-snug text-white">{rating.value}</p>
+            <p className="text-[11px] text-[#9CA3AF]">{rating.label}</p>
           </div>
           <div className={cn("rounded-xl border border-white/10 bg-black/25 p-3 text-[#D1D5DB] transition duration-300 hover:bg-black/35", `seller-rank-microcard seller-rank-microcard--${isOwnerListing ? "legendary" : sellerRankKey}`)}>
             <HandCoins className="h-4 w-4 mx-auto text-[#D1D5DB]" />
@@ -1192,13 +1194,13 @@ export const ListingCard = memo(function ListingCard({ listing, isAr, marketPric
           </div>
           <div className={cn("rounded-xl border border-white/10 bg-black/25 p-3 text-[#D1D5DB] transition duration-300 hover:bg-black/35", `seller-rank-microcard seller-rank-microcard--${isOwnerListing ? "legendary" : sellerRankKey}`)}>
             <Zap className="h-4 w-4 mx-auto text-[#F4D87A]" />
-            <p className="mt-1 break-words font-semibold leading-snug text-white">{currencyText(formatMeasuredResponseTime(listing.sellerReputation?.responseTimeMinutes, isAr))}</p>
+            <p className="mt-1 break-words font-semibold leading-snug text-white">{currencyText(formatMeasuredResponseTime(listing.sellerReputation?.responseTimeMinutes, isAr, listing.sellerReputation?.responseSampleCount))}</p>
             <p className="text-[11px] text-[#9CA3AF]">{isAr ? "الاستجابة" : "Response Time"}</p>
           </div>
           <div className={cn("rounded-xl border border-white/10 bg-black/25 p-3 text-[#D1D5DB] transition duration-300 hover:bg-black/35", `seller-rank-microcard seller-rank-microcard--${isOwnerListing ? "legendary" : sellerRankKey}`)}>
             <ShieldCheck className="h-4 w-4 mx-auto text-[#93C5FD]" />
-            <p className="mt-1 break-words font-semibold leading-snug text-white">{(listing.sellerReputation?.trustScore ?? 0).toFixed(1)}</p>
-            <p className="text-[11px] text-[#9CA3AF]">{isAr ? "درجة الثقة" : "Trust Score"}</p>
+            <p className="mt-1 break-words font-semibold leading-snug text-white">{score.value}</p>
+            <p className="text-[11px] text-[#9CA3AF]">{score.label}</p>
           </div>
         </div>
         <div className="compact-listing__details grid gap-2 text-xs text-[#9CA3AF]">
@@ -2826,7 +2828,7 @@ export function UsdtExchangePage({
       const maxAmountPass = !maxAmount || amount <= maxAmount;
       const minPricePass = mixedPriceCurrencies || !minPrice || price >= minPrice;
       const maxPricePass = mixedPriceCurrencies || !maxPrice || price <= maxPrice;
-      const trustPass = !trustScoreThreshold || (listing.sellerReputation?.trustScore ?? 0) >= trustScoreThreshold;
+      const trustPass = !trustScoreThreshold || (listing.sellerReputation?.alphaScore?.value ?? listing.sellerReputation?.trustScore ?? 0) >= trustScoreThreshold;
       const onlinePass = !onlineOnlyFilter || deriveSellerPresence(livePresence[listing.sellerId] ?? listing.sellerProfile ?? {}).online;
       return networkPass && currencyPass && paymentMethodPass && minAmountPass && maxAmountPass && minPricePass && maxPricePass && trustPass && onlinePass;
     });
@@ -2841,11 +2843,9 @@ export function UsdtExchangePage({
       if (sortBy === "amount-desc") return toNumber(b.availableAmount) - toNumber(a.availableAmount);
       if (sortBy === "trades-desc") return (b.sellerReputation?.completedTrades ?? 0) - (a.sellerReputation?.completedTrades ?? 0);
       if (sortBy === "rating-desc") return (b.sellerReputation?.rating ?? 0) - (a.sellerReputation?.rating ?? 0);
-      return toNumber(a.responseTime) - toNumber(b.responseTime);
+      if (sortBy === "response-fast") return compareSellerResponseTimes(a.sellerReputation, b.sellerReputation);
+      return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
     });
-    if (sortBy === "newest") {
-      sorted.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
-    }
     return sorted;
   }, [livePresence, listings, networkFilter, currencyFilter, paymentMethodFilter, minAmountFilter, maxAmountFilter, minPriceFilter, maxPriceFilter, trustScoreFilter, onlineOnlyFilter, sortBy, mixedPriceCurrencies]);
 
@@ -3390,15 +3390,19 @@ export function UsdtExchangePage({
     }, {});
     const repeatBuyersCount = Object.values(repeatBuyers).filter((count) => count > 1).length;
     const selfReputation = myListings.find((listing) => Boolean(listing.sellerReputation))?.sellerReputation ?? null;
+    const metrics = sellerRankSummary ?? selfReputation;
     return {
       activeListings: myListings.filter((listing) => isRequestableMarketplaceListing(listing)).length,
       pendingRequests: pendingSellerRequests.length,
       completedTrades: insightMetrics.completedTrades,
       totalUsdtSold: insightMetrics.totalUsdtSold,
       estimatedEarnings: insightMetrics.estimatedEarnings,
-      averageResponseTime: insightMetrics.averageResponseTimeMinutes
-        ? (isAr ? `${Math.round(insightMetrics.averageResponseTimeMinutes)} دقائق` : `${Math.round(insightMetrics.averageResponseTimeMinutes)} min`)
-        : (isAr ? "لا توجد بيانات كافية" : "Not enough data"),
+      rating: sellerRatingDisplay(metrics, isAr),
+      score: sellerScoreDisplay(metrics, isAr),
+      averageResponseTime: formatMeasuredResponseTime(
+        metrics?.responseTimeMinutes ?? insightMetrics.averageResponseTimeMinutes, isAr,
+        metrics?.responseSampleCount ?? insightMetrics.responseSampleCount,
+      ),
       tradeRequests: sellerRequests.length,
       successRate: insightMetrics.successRate,
       completionRate: insightMetrics.completionRate,
@@ -3407,7 +3411,7 @@ export function UsdtExchangePage({
       averageTradeSize: insightMetrics.averageTradeSize,
       reputation: selfReputation,
     };
-  }, [isAr, myListings, pendingSellerRequests.length, sellerRequests]);
+  }, [isAr, myListings, pendingSellerRequests.length, sellerRequests, sellerRankSummary]);
 
   const recentCompletedTrades = useMemo(
     () =>
@@ -3525,12 +3529,12 @@ export function UsdtExchangePage({
         .map((listing) => listing.sellerId),
     );
     const totalUsdtAvailable = sourceListings.reduce((sum, listing) => sum + toNumber(listing.availableAmount), 0);
-    const responseMinutes = sourceListings
-      .map((listing) => listing.sellerReputation?.responseTimeMinutes ?? 0)
-      .filter((value) => value > 0);
+    const sellers = new Map(sourceListings.map(listing => [listing.sellerId, listing.sellerReputation]));
+    const responseMinutes = Array.from(sellers.values(), measuredSellerResponseMinutes)
+      .filter((value): value is number => value !== null);
     const averageResponseMinutes = responseMinutes.length
-      ? Math.max(1, Math.round(responseMinutes.reduce((sum, value) => sum + value, 0) / responseMinutes.length))
-      : 0;
+      ? responseMinutes.reduce((sum, value) => sum + value, 0) / responseMinutes.length
+      : null;
     const networkCounts = sourceListings.reduce<Record<string, number>>((acc, listing) => {
       const key = safeText(listing.network, "TRC20");
       acc[key] = (acc[key] ?? 0) + 1;
@@ -5434,7 +5438,7 @@ export function UsdtExchangePage({
                 <Input className="currency-money" placeholder={isAr ? "أعلى كمية USDT" : "Max USDT amount"} value={maxAmountFilter} onChange={(event) => setMaxAmountFilter(event.target.value)} />
                 <Input className="currency-money" disabled={mixedPriceCurrencies} placeholder={mixedPriceCurrencies ? (isAr ? "اختر عملة لتصفية السعر" : "Choose a currency to filter price") : `${isAr ? "أقل سعر" : "Min price"} (${currencyFilter === "all" ? uniqueCurrencies[0] ?? "ILS" : currencyFilter})`} value={minPriceFilter} onChange={(event) => setMinPriceFilter(event.target.value)} />
                 <Input className="currency-money" disabled={mixedPriceCurrencies} placeholder={mixedPriceCurrencies ? (isAr ? "اختر عملة لتصفية السعر" : "Choose a currency to filter price") : `${isAr ? "أعلى سعر" : "Max price"} (${currencyFilter === "all" ? uniqueCurrencies[0] ?? "ILS" : currencyFilter})`} value={maxPriceFilter} onChange={(event) => setMaxPriceFilter(event.target.value)} />
-                <Input placeholder={isAr ? "أقل درجة ثقة" : "Min trust score"} value={trustScoreFilter} onChange={(event) => setTrustScoreFilter(event.target.value)} />
+                <Input placeholder={isAr ? "الحد الأدنى لنقاط ألفا" : "Min Alpha Score"} value={trustScoreFilter} onChange={(event) => setTrustScoreFilter(event.target.value)} />
                 <Button type="button" variant={onlineOnlyFilter ? "default" : "secondary"} onClick={() => setOnlineOnlyFilter((prev) => !prev)}>
                   {onlineOnlyFilter ? (isAr ? "البائعون المتصلون فقط" : "Online Sellers Only") : (isAr ? "إظهار البائعين المتصلين فقط" : "Show Online Sellers Only")}
                 </Button>
@@ -5756,7 +5760,7 @@ export function UsdtExchangePage({
           { value: `${todaysCompletedTrades.toLocaleString("en-IL")}`, labelAr: "صفقات مكتملة اليوم", label: "Completed Trades Today", icon: HandCoins },
           { value: `${marketplacePulse.verifiedSellers.toLocaleString("en-IL")}+`, labelAr: "بائعون موثقون", label: "Verified Sellers", icon: ShieldCheck },
           { value: formatUsdt(marketplacePulse.totalUsdtAvailable), labelAr: "USDT متاح", label: "USDT Available", icon: WalletCards },
-          { value: formatMeasuredResponseTime(marketplacePulse.averageResponseMinutes, isAr), labelAr: "متوسط الاستجابة", label: "Average Response", icon: Clock3 },
+          { value: marketplacePulse.averageResponseMinutes == null ? "—" : formatMeasuredResponseTime(marketplacePulse.averageResponseMinutes, isAr, 1), labelAr: "متوسط الاستجابة", label: "Average Response", icon: Clock3 },
         ].map((item) => {
           const Icon = item.icon;
           return (

@@ -1,4 +1,5 @@
 import "server-only";
+import { storedSellerMetricEvidence } from "@/lib/public-seller-reputation";
 import { isUncertainPostgresConnection, rollbackFailedTransaction } from "@/lib/postgres-transaction";
 
 import type { Pool, PoolClient } from "pg";
@@ -194,6 +195,7 @@ export function buildAuthoritativeDiscordListingSnapshot(input: {
 
   return {
     snapshotVersion: 2,
+    ...(showTradeStats ? storedSellerMetricEvidence(trustSnapshot) : {}),
     sellerDisplayName: publicTradingName || "Alpha Traders Seller",
     sellerLevel: stringValue(trustSnapshot?.level) || null,
     reliabilityTier: reliabilityTier(numberValue(trustSnapshot?.reliabilityScore)),
@@ -208,7 +210,7 @@ export function buildAuthoritativeDiscordListingSnapshot(input: {
       : (primaryPayment ? [primaryPayment] : []),
     presenceLabel: presence?.label ?? null,
     responseTimeMinutes: showTradeStats
-      ? numberValue(trustSnapshot?.responseTimeMinutes)
+      ? trustSnapshot?.responseTimeMinutes === 0 ? 0 : numberValue(trustSnapshot?.responseTimeMinutes)
       : null,
     rating: completedTrades ? ratingValue(trustSnapshot?.rating) : null,
     completedTrades,

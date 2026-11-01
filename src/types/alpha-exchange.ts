@@ -1,3 +1,4 @@
+import type { SellerMetricEvidence } from "@alpha-traders/contracts";
 import type { BankTransferProvider, WiseUsdAccount, WiseUsdAccountSnapshot } from "@/types/wise";
 
 export type UserRole =
@@ -362,7 +363,7 @@ export interface SellerOwnerToolData {
   };
 }
 
-export interface PremiumSellerProfileData {
+export interface PremiumSellerProfileData extends SellerMetricEvidence {
   sellerId: string;
   profile: SellerPublicProfile;
   sellerLevel: SellerLevel;
@@ -394,7 +395,7 @@ export interface PremiumSellerProfileData {
   ownerTools?: SellerOwnerToolData;
 }
 
-export interface SellerReputationSnapshot {
+export interface SellerReputationSnapshot extends SellerMetricEvidence {
   sellerId: string;
   trustScore: number;
   reliabilityScore: number;
@@ -911,6 +912,8 @@ export interface PurchaseRequest {
   amountAdjustmentCount?: number;
   /** Durable, server-owned follow-up committed with a terminal trade transition. */
   trustReconciliation?: { requestedAt: string; requestedByUserId: string; reconciledAt?: string };
+  /** First recorded seller terms proposal for measuring time to respond. */
+  firstSellerResponseAt?: string;
   termsProposal?: import("@alpha-traders/contracts").TradeTermsProposal;
   id: string;
   tradeId?: string;
@@ -1251,6 +1254,7 @@ export interface TrustScoreChangeLog {
   sellerId: string;
   oldScore: number;
   newScore: number;
+  alphaChange?: { from: number; to: number };
   reason: string;
   triggeredBy: string;
   createdAt: string;
@@ -1343,11 +1347,12 @@ export interface OwnerBusinessDashboardMetrics {
     fastestGrowingSeller: string;
     highestTrustScoreIncrease: string;
     averageResponseTimeMinutes: number;
+    responseSampleCount?: number;
     averageTradeCompletionTimeMinutes: number;
     averageBuyerRating: number;
     repeatBuyersPercent: number;
   };
-  sellerLeaderboard: Array<{
+  sellerLeaderboard: Array<SellerMetricEvidence & {
     sellerId: string;
     sellerName: string;
     trustScore: number;

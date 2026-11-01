@@ -1,5 +1,8 @@
 import type { AlphaExchangeNotification, MarketplaceListing, PurchaseRequest, SellerOnlineStatus, SellerPublicProfile, PremiumSellerProfileData } from "@/types/alpha-exchange";
 
+type SellerMetricUpdate = Partial<Pick<PremiumSellerProfileData,
+  "averageRating" | "alphaScore" | "responseTimeMinutes" | "responseSampleCount">>;
+
 export type RealtimeEvent = (
   | { type: "listing.created"; payload: { listing: MarketplaceListing } }
   | { type: "listing.removed"; payload: { listingId: string } }
@@ -13,8 +16,8 @@ export type RealtimeEvent = (
   | { type: "notification.created"; payload: { notification: AlphaExchangeNotification } }
   | { type: "notification.updated"; payload: { notification: AlphaExchangeNotification } }
   | { type: "notification.deleted"; payload: { notificationId: string; userId: string } }
-  | { type: "reputation.updated"; payload: { sellerId: string; trustScore?: number; reviewCount?: number } }
-  | { type: "review.count_changed"; payload: { sellerId: string; reviewCount: number } }
+  | { type: "reputation.updated"; payload: SellerMetricUpdate & { sellerId: string; trustScore?: number; reviewCount?: number } }
+  | { type: "review.count_changed"; payload: SellerMetricUpdate & { sellerId: string; reviewCount: number } }
 ) & { recipientUserId?: string };
 
 const realtimeListeners = new Set<(event: RealtimeEvent) => void>();
@@ -42,6 +45,22 @@ export function subscribeRealtimeEvents(listener: (event: RealtimeEvent) => void
 
 export function applyRealtimeMarketplaceEvent<T>(items: T[], event: RealtimeEvent) {
   switch (event.type) {
+    case "reputation.updated":
+    case "review.count_changed": {
+      return items.map(item => {
+        const listing = item as MarketplaceListing;
+        const previous = listing.sellerReputation;
+        if (listing.sellerId !== event.payload.sellerId || !previous) return item;
+        const { averageRating, alphaScore, responseTimeMinutes, responseSampleCount, reviewCount } = event.payload;
+        return { ...listing, sellerReputation: { ...previous,
+          rating: averageRating ?? previous.rating, totalReviews: reviewCount ?? previous.totalReviews,
+          alphaScore: alphaScore ?? previous.alphaScore,
+          responseTimeMinutes: responseTimeMinutes ?? previous.responseTimeMinutes,
+          responseSampleCount: responseSampleCount ?? previous.responseSampleCount,
+          trustScore: event.type === "reputation.updated" ? event.payload.trustScore ?? previous.trustScore : previous.trustScore,
+        } } as T;
+      });
+    }
     case "listing.created": {
       return items.some((item) => (item as MarketplaceListing).id === event.payload.listing.id)
         ? items
@@ -99,7 +118,11 @@ export function applyRealtimeSellerProfileEvent(profileData: PremiumSellerProfil
     return {
       ...profileData,
       trustScore: event.type === "reputation.updated" && typeof event.payload.trustScore === "number" ? event.payload.trustScore : profileData.trustScore,
-      totalReviews: event.type === "reputation.updated" && typeof event.payload.reviewCount === "number" ? event.payload.reviewCount : event.type === "review.count_changed" ? event.payload.reviewCount : profileData.totalReviews,
+      alphaScore: event.payload.alphaScore ?? profileData.alphaScore,
+      averageRating: event.payload.averageRating ?? profileData.averageRating,
+      responseTimeMinutes: event.payload.responseTimeMinutes ?? profileData.responseTimeMinutes,
+      responseSampleCount: event.payload.responseSampleCount ?? profileData.responseSampleCount,
+      totalReviews: event.payload.reviewCount ?? profileData.totalReviews,
     };
   }
   return profileData;

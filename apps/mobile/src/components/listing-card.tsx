@@ -1,4 +1,4 @@
-import { deriveUserPresence, formatMeasuredResponseTime, MAX_PRICE_OFFER_VARIANCE_ILS } from "@alpha-traders/contracts";
+import { deriveUserPresence, formatMeasuredResponseTime, sellerRatingDisplay, sellerScoreDisplay, MAX_PRICE_OFFER_VARIANCE_ILS } from "@alpha-traders/contracts";
 import { BrandedText as Text } from "./branded-text";
 import { memo, useEffect, useMemo, useState } from "react";
 import { Image, Pressable, StyleSheet, View } from "react-native";
@@ -101,7 +101,9 @@ export const ListingCard = memo(function ListingCard({ listing, onBuy, onOffer, 
     return () => clearInterval(timer);
   }, [isAr, listing.expiresAt]);
   const countdown = expiryLabel(listing.expiresAt, now, isAr);
-  const responseTime = formatMeasuredResponseTime(listing.seller.responseTimeMinutes, isAr);
+  const rating = sellerRatingDisplay(listing.seller, isAr);
+  const score = sellerScoreDisplay(listing.seller, isAr);
+  const responseTime = formatMeasuredResponseTime(listing.seller.responseTimeMinutes, isAr, listing.seller.responseSampleCount);
   const paymentMethods = useMemo(
     () => listing.paymentMethods.map((method) => mobilePaymentMethodLabel(method, locale)),
     [listing.paymentMethods, locale],
@@ -198,10 +200,10 @@ export const ListingCard = memo(function ListingCard({ listing, onBuy, onOffer, 
         </View>
 
         <View style={[styles.microGrid, isRTL && styles.rowReverse]}>
-          <MicroMetric icon="★" isRTL={isRTL} label={t("rating")} tone={tone} value={(listing.seller.rating ?? 0).toFixed(2)} />
+          <MicroMetric icon="★" isRTL={isRTL} label={rating.label} tone={tone} value={rating.value} />
           <MicroMetric icon="◉" isRTL={isRTL} label={copy("Trades", "الصفقات")} tone={tone} value={formatCount(listing.seller.completedTrades ?? 0)} />
           <MicroMetric icon="ϟ" isRTL={isRTL} label={t("responseTime")} tone={tone} value={responseTime} />
-          <MicroMetric icon="✓" isRTL={isRTL} label={t("trustScore")} tone={tone} value={(listing.seller.trustScore ?? 0).toFixed(1)} />
+          <MicroMetric icon="✓" isRTL={isRTL} label={score.label} tone={tone} value={score.value} />
         </View>
 
         <View style={styles.infoStack}>

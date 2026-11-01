@@ -9,6 +9,18 @@ const request = (status: PurchaseRequest["status"], overrides: Partial<PurchaseR
 }) as PurchaseRequest;
 
 describe("trust engine uses recorded seller facts", () => {
+  it("starts approved sellers at 80, moves with real feedback and response speed, and respects enforcement", () => {
+    const score = (requests: PurchaseRequest[], account = seller) => calculateSellerTrustSnapshot({seller: account, requests, listings: [], commissions: []});
+    expect(score([]).alphaScore).toEqual({ value: 80, starter: true });
+    expect(score([request("completed", { tradeCreatedAt: "2026-01-02T10:01:00Z", buyerReview: { rating: 5 } as PurchaseRequest["buyerReview"] })]).alphaScore).toEqual({ value: 90.7, starter: false });
+    expect(score([request("completed", { buyerReview: { rating: 1 } as PurchaseRequest["buyerReview"] })]).alphaScore).toEqual({ value: 50, starter: false });
+    const declined = request("declined", { timeline: [{ type: "request_declined", actorUserId: seller.id, createdAt: "2026-01-02T10:00:15Z" }] as PurchaseRequest["timeline"] });
+    expect(score([declined])).toMatchObject({ responseSampleCount: 1, responseTimeMinutes: 0.25, alphaScore: { value: 80, starter: false } });
+    const suspended = score([], { ...seller, sellerStatus: "suspended" });
+    expect(suspended.alphaScore?.value).toBeCloseTo(suspended.trustScore, 1);
+    expect(suspended.alphaScore?.starter).toBe(false);
+  });
+
   it("measures average trade size in USDT across ILS and USD settlement currencies", () => {
     const snapshot = calculateSellerTrustSnapshot({ seller, listings: [], requests: [
       request("completed", { id: "ils-trade", usdtAmount: "100", pricePerUsdt: "3.5", fiatAmount: "350", currency: "ILS" }),

@@ -1,6 +1,7 @@
 "use client";
 
 import { formatMoneyNumber } from "@/lib/accent-text";
+import { sellerRatingDisplay, sellerScoreDisplay } from "@alpha-traders/contracts";
 import { currencyText } from "@/components/ui/currency-text";
 import { UserPresence } from "@/components/ui/user-presence";
 
@@ -134,8 +135,8 @@ export function OwnerPendingListingsDashboard({ locale = "en" }: { locale?: "ar"
                 <div className="grid gap-3 md:grid-cols-2">
                   <div className="space-y-2 text-sm text-[#D1D5DB]">
                     <p className="text-base font-semibold text-white">{listing.sellerDisplayName}</p>
-                    <p className="inline-flex items-center gap-2"><Star className="h-4 w-4 text-[#C9A227]" /> {t("Seller Rating:", "تقييم البائع:")} <span className="text-white">{listing.sellerReputation?.rating.toFixed(2) ?? "—"}</span></p>
-                    <p>{t("Seller Trust Score:", "درجة ثقة البائع:")} <span className="text-white">{Math.round(listing.sellerReputation?.trustScore ?? 0)}%</span></p>
+                    <p className="inline-flex items-center gap-2"><Star className="h-4 w-4 text-[#C9A227]" /> {t("Seller Rating:", "تقييم البائع:")} <span className="text-white">{sellerRatingDisplay(listing.sellerReputation, isArabic).text}</span></p>
+                    <p>{sellerScoreDisplay(listing.sellerReputation, isArabic).label} <span className="text-white">{sellerScoreDisplay(listing.sellerReputation, isArabic).value}</span></p>
                     <p>{t("Seller Level:", "رتبة البائع:")} <span className="text-white capitalize">{sellerLevelLabel(listing.sellerReputation?.level ?? "bronze")}</span></p>
                     <p>{t("Lifetime Completed Trades:", "إجمالي الصفقات المكتملة:")} <span className="text-white">{(listing.sellerReputation?.completedTrades ?? 0).toLocaleString(isArabic ? "ar-IL" : "en-IL")}</span></p>
                     <p>{currencyText(t("Amount:", "الكمية:"))} <bdi dir="ltr" className="text-white">{currencyText(`${listing.availableAmount} USDT`)}</bdi></p>

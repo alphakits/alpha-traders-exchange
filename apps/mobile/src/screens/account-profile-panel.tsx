@@ -1,3 +1,4 @@
+import { formatMeasuredResponseTime, sellerRatingDisplay, sellerScoreDisplay } from "@alpha-traders/contracts";
 import { deriveUserPresence } from "@alpha-traders/contracts";
 import { BrandedText as Text } from "../components/branded-text";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -506,10 +507,11 @@ export function AccountProfilePanel() {
         <View style={[styles.metricsGrid, isRTL && styles.rowReverse]}>
           {stats.kind === "seller" ? (
             <>
-              <MetricCard isRTL={isRTL} label={t("trustScore")} value={`${localizedNumber(stats.trustScore, 1)} / 100`} />
+              <MetricCard isRTL={isRTL} label={sellerScoreDisplay(stats, isAr).label} value={sellerScoreDisplay(stats, isAr).value} />
               <MetricCard isRTL={isRTL} label={t("lifetimeVolume")} value={`${localizedNumber(stats.lifetimeCompletedVolumeUsdt, 6)} USDT`} />
               <MetricCard isRTL={isRTL} label={t("completedTrades")} value={localizedNumber(stats.completedTrades)} />
-              <MetricCard isRTL={isRTL} label={t("rating")} value={`${localizedNumber(stats.averageRating, 2)} ★`} />
+              <MetricCard isRTL={isRTL} label={t("rating")} value={sellerRatingDisplay(stats, isAr).text} />
+              <MetricCard isRTL={isRTL} label={t("responseTime")} value={formatMeasuredResponseTime(stats.responseTimeMinutes, isAr, stats.responseSampleCount)} />
               <MetricCard isRTL={isRTL} label={t("activeListings")} value={localizedNumber(stats.activeListings)} />
               <MetricCard isRTL={isRTL} label={copy("Average trade", "متوسط الصفقة")} value={`${localizedNumber(stats.averageTradeSizeUsdt, 2)} USDT`} />
             </>

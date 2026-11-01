@@ -74,8 +74,8 @@ describe("Discord listing message", () => {
       "Network": "TRC20",
       "Payment methods": "Bank Transfer • Cardless ATM Withdrawal",
       "Availability": "Online",
-      "Measured response": "~4 min",
-      "Seller rating": "⭐ 4.96 / 5",
+      "Measured response": "4 min",
+      "Seller rating": "4.96 ★",
       "Completed trades": "184",
     });
     expect(serialized).toContain("Approved Seller");

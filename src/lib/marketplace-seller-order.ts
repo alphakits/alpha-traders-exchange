@@ -2,6 +2,7 @@ import { sellerPrestigeRankWeight } from "@/lib/seller-prestige";
 import { normalizeSellerLevel } from "@/types/alpha-exchange";
 
 type MarketplaceSellerPriority = {
+  alphaScore?: { value: number };
   level?: string | null;
   completedTrades?: number | null;
   trustScore?: number | null;
@@ -19,5 +20,5 @@ export function compareMarketplaceSellers(
   return sellerPrestigeRankWeight(normalizeSellerLevel(right.level) ?? "bronze")
       - sellerPrestigeRankWeight(normalizeSellerLevel(left.level) ?? "bronze")
     || metric(right.completedTrades) - metric(left.completedTrades)
-    || metric(right.trustScore) - metric(left.trustScore);
+    || metric(right.alphaScore?.value ?? right.trustScore) - metric(left.alphaScore?.value ?? left.trustScore);
 }

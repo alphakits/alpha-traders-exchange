@@ -13,9 +13,9 @@ import { priceAlertSchema, priceAlertMatchesListing, readMarketplacePriceAlert, 
 import { accountSessionId, presentAccountSession } from "@/lib/account-session-presentation";
 import { buildMarketplaceOperationalSnapshot } from "@/lib/marketplace-operational-health";
 import { ownerFollowUpAlerts, OWNER_FOLLOW_UP_REASON } from "@/lib/owner-follow-up-alerts";
-import { measureSellerActivity } from "@/lib/seller-activity-metrics";
+import { hasVisibleCompletedReview, measureSellerActivity, withLegacySellerReviews } from "@/lib/seller-activity-metrics";
 import { readUserPresence, visibleUserPresence, endPresenceSession } from "@/lib/user-presence-store";
-import { deriveUserPresence } from "@alpha-traders/contracts";
+import { compareSellerResponseTimes, deriveUserPresence, type SellerMetricEvidence } from "@alpha-traders/contracts";
 import { normalizePrivateContact, requiresBuyerContact } from "@/lib/buyer-contact";
 import { verifyBinanceInternalCommissionDeposit } from "@/lib/commission-deposit-discovery";
 import { listingCommissionRequiredMessage } from "@/lib/listing-commission-policy";
@@ -29,7 +29,7 @@ import { isFinishedTrade } from "@/lib/admin-trade-actions";
 import { getTradeHeaderReminderKind, toTradeHeaderActivity } from "@/lib/trade-header-activity";
 import { buildOwnerActiveTradeSummaries } from "@/lib/owner-active-trades";
 import { buildSellerActiveTradeSummaries } from "@/lib/seller-active-trades";
-import { publicSellerReputation, publicSellerAchievements } from "@/lib/public-seller-reputation";
+import { publicSellerReputation, publicSellerAchievements, publicSellerMetricUpdate } from "@/lib/public-seller-reputation";
 import { nextProfileNameChangeAt, ProfileNameCooldownError } from "@/lib/profile-name-policy";
 import { verifyBep20Commission } from "@/lib/bep20-commission-verifier";
 import { isOwnerApprovedSeller } from "@/lib/seller-approval";
@@ -1676,7 +1676,7 @@ function buildSellerAchievements(db: AlphaExchangeDb, seller: AlphaExchangeUser,
     return ((Boolean(request.completedAt) && Boolean(request.usdtSentAt)) || ownerAttested) && hasCommissionRecord && !hasDispute;
   });
 
-  const reviews = sellerRequests.filter((request) => Boolean(request.buyerReview)).length;
+  const reviewFacts = measureSellerActivity(sellerRequests);
   // An owner recording external completion did not accept the trade as seller.
   // Unknown acceptance time contributes no response sample or speed award.
   const responses = measureSellerActivity(qualifyingTrades, evaluatedAt ? Date.parse(evaluatedAt) : Date.now());
@@ -1692,8 +1692,8 @@ function buildSellerAchievements(db: AlphaExchangeDb, seller: AlphaExchangeUser,
     rank: seller.sellerPrestigeRank ?? "bronze",
     lifetimeVolumeUsdt: Math.max(0, Number(seller.lifetimeCompletedVolumeUsdt ?? 0)),
     completedTrades: qualifyingTrades.length,
-    reviewCount: reviews,
-    averageRating: sellerRequests.filter((request) => request.buyerReview).reduce((sum, request) => sum + (request.buyerReview?.rating ?? 0), 0) / Math.max(1, reviews),
+    reviewCount: reviewFacts.totalReviews,
+    averageRating: reviewFacts.rating,
     responseTimeMinutes,
     completionRate,
     approvedAt: getSellerApprovedAt(db, seller.id) ?? seller.createdAt,
@@ -1857,7 +1857,7 @@ function buildPublicUserProfileDataForUser(input: {
   const completedAsBuyer = buyerActivity.completedTrades;
   const completedAsSeller = sellerRequests.filter((request) => request.status === "completed" || Boolean(request.completedAt) || isOwnerAttestedHistoricalCompletion(request)).length;
   const reviewsWritten = buyerActivity.reviewsGiven;
-  const reviewsReceived = sellerRequests.filter((request) => Boolean(request.buyerReview)).length;
+  const reviewsReceived = trustSnapshot?.totalReviews ?? 0;
 
   const showStats = user.showTradeStats !== false || canBypassVisibility;
   const presence = visibleUserPresence(user, user, db.users.find(row => row.id === viewerUserId));
@@ -1907,6 +1907,10 @@ function buildPublicUserProfileDataForUser(input: {
           trustScore: trustSnapshot.trustScore,
           publicVolumeRange: viewerIsOwner || platformOwner ? trustSnapshot.publicVolumeRange : undefined,
           rating: trustSnapshot.rating,
+          ...(showStats ? {
+            totalReviews: trustSnapshot.totalReviews, responseTimeMinutes: trustSnapshot.responseTimeMinutes,
+            responseSampleCount: trustSnapshot.responseSampleCount, alphaScore: trustSnapshot.alphaScore,
+          } : {}),
           badges: trustSnapshot.badges,
         }
       : null,
@@ -2327,6 +2331,7 @@ export async function getSellerProfileRouteData(input: {
         sellerName: listing.sellerDisplayName,
         sellerLevel: listing.sellerReputation?.level ?? "bronze",
         trustScore: listing.sellerReputation?.trustScore ?? 0,
+        alphaScore: listing.sellerReputation?.alphaScore,
         profilePhotoUrl: listing.sellerProfile?.profilePhotoUrl ?? "",
         publicVolumeRange: "",
       };
@@ -2400,7 +2405,7 @@ export async function getPremiumSellerProfile(input: {
     })),
   ], true);
   const reviews = completedTrades
-    .filter((request) => request.buyerReview && (viewerIsOwner || viewerIsSellerOwner || request.buyerReview.hidden !== true))
+    .filter((request) => request.buyerReview && Number.isFinite(request.buyerReview.rating) && request.buyerReview.rating >= 1 && request.buyerReview.rating <= 5 && (viewerIsOwner || viewerIsSellerOwner || hasVisibleCompletedReview(request)))
     .map((request) => ({
       id: canSeeExactSellerStats ? `review-${request.id}` : `review-${createHash("sha256").update(request.id).digest("hex").slice(0, 24)}`,
       tradeId: canSeeExactSellerStats ? request.tradeId ?? request.id : "",
@@ -2422,7 +2427,6 @@ export async function getPremiumSellerProfile(input: {
     .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime());
 
   const completionRate = sellerRequests.length ? (completedTrades.length / sellerRequests.length) * 100 : 0;
-  const responseTimeMinutes = measureSellerActivity(sellerRequests).responseTimeMinutes;
   const completedBuyerCounts = completedTrades.reduce<Record<string, number>>((acc, request) => {
     acc[request.buyerId] = (acc[request.buyerId] ?? 0) + 1;
     return acc;
@@ -2449,12 +2453,12 @@ export async function getPremiumSellerProfile(input: {
     createdAt: review.createdAt,
   }));
   const trustChanges = db.trustScoreHistory
-    .filter((entry) => entry.sellerId === seller.id && entry.newScore > entry.oldScore)
+    .filter((entry) => entry.sellerId === seller.id && entry.alphaChange && entry.alphaChange.to > entry.alphaChange.from)
     .slice(0, 6)
     .map((entry) => ({
       id: `activity-trust-${entry.id}`,
       type: "trust_score_updated" as const,
-      message: `Trust score increased from ${entry.oldScore.toFixed(1)} to ${entry.newScore.toFixed(1)}.`,
+      message: `Alpha Score increased from ${entry.alphaChange!.from} to ${entry.alphaChange!.to}.`,
       createdAt: entry.createdAt,
     }));
   const achievementActivities = (trustSnapshot.badges ?? []).slice(0, 6).map((badge) => ({
@@ -2541,11 +2545,13 @@ export async function getPremiumSellerProfile(input: {
     exactTradeVolume: canSeeExactSellerStats ? Number(trustSnapshot.totalUsdtVolume.toFixed(2)) : undefined,
     commissionPaid: canSeeExactSellerStats ? Number(trustSnapshot.estimatedCommissionPaid.toFixed(6)) : undefined,
     averageTradeSize: canSeeExactSellerStats ? Number(trustSnapshot.averageTradeSize.toFixed(2)) : undefined,
-    averageRating: Number(trustSnapshot.rating.toFixed(2)),
-    responseTimeMinutes: Number(responseTimeMinutes.toFixed(2)),
+    averageRating: trustSnapshot.rating,
+    responseTimeMinutes: trustSnapshot.responseTimeMinutes,
+    responseSampleCount: trustSnapshot.responseSampleCount,
+    alphaScore: trustSnapshot.alphaScore,
     completionRate: Number(completionRate.toFixed(2)),
     repeatBuyersPercent: Number(repeatBuyersPercent.toFixed(2)),
-    totalReviews: reviews.length,
+    totalReviews: trustSnapshot.totalReviews ?? 0,
     yearsOnPlatform: Number(yearsOnPlatform.toFixed(2)),
     badges: trustSnapshot.badges ?? [],
     promotionHistory: canSeeExactSellerStats ? [...(seller.sellerPromotionHistory ?? [])].sort((left, right) => new Date(right.promotedAt).getTime() - new Date(left.promotedAt).getTime()).slice(0, 20) : [],
@@ -3068,7 +3074,7 @@ function normalizeDb(db: AlphaExchangeDb): AlphaExchangeDb {
       displayNumber: normalizeDisplayNumber((application as { displayNumber?: unknown }).displayNumber),
       status: isValidSellerApplicationStatus(application.status) ? application.status : "pending",
     })),
-    purchaseRequests: (db.purchaseRequests ?? []).map((request) => ({
+    purchaseRequests: withLegacySellerReviews(db.purchaseRequests ?? [], db.sellerReviews).map((request) => ({
       ...request,
       displayNumber: normalizeDisplayNumber((request as { displayNumber?: unknown }).displayNumber),
       status: isValidPurchaseStatus(request.status) ? request.status : "pending",
@@ -3119,7 +3125,7 @@ function normalizeDb(db: AlphaExchangeDb): AlphaExchangeDb {
               return {
                 id: typeof item.id === "string" ? item.id : `timeline-${request.id}-${index + 1}`,
                 type: typeof item.type === "string" && isValidTradeTimelineType(item.type) ? item.type : "request_submitted",
-                actorUserId: typeof item.actorUserId === "string" ? item.actorUserId : request.buyerId,
+                actorUserId: typeof item.actorUserId === "string" ? item.actorUserId : item.actorRole === "approved_seller" ? request.sellerId : request.buyerId,
                 actorRole: item.actorRole === "owner" || item.actorRole === "admin" || item.actorRole === "approved_seller" ? item.actorRole : "buyer",
                 message: typeof item.message === "string" && item.message.trim() ? item.message : "Trade event",
                 createdAt: typeof item.createdAt === "string" ? item.createdAt : request.createdAt,
@@ -3172,10 +3178,10 @@ function normalizeDb(db: AlphaExchangeDb): AlphaExchangeDb {
         typeof (request as { reviewUnlockedAt?: string }).reviewUnlockedAt === "string" ? (request as { reviewUnlockedAt: string }).reviewUnlockedAt : undefined,
       buyerReview:
         (request as { buyerReview?: { reviewerUserId?: string; rating?: number; comment?: string; createdAt?: string; hidden?: boolean; hiddenReason?: string } }).buyerReview &&
-        typeof (request as { buyerReview: { reviewerUserId?: string } }).buyerReview.reviewerUserId === "string"
+        typeof request.buyerReview?.reviewerUserId === "string" && request.buyerReview.reviewerUserId === request.buyerId && Number(request.buyerReview.rating) >= 1 && Number(request.buyerReview.rating) <= 5
           ? {
               reviewerUserId: (request as { buyerReview: { reviewerUserId: string } }).buyerReview.reviewerUserId,
-              rating: Number((request as { buyerReview: { rating?: number } }).buyerReview.rating ?? 5),
+              rating: Number(request.buyerReview!.rating),
               comment: String((request as { buyerReview: { comment?: string } }).buyerReview.comment ?? "").trim(),
               createdAt: String((request as { buyerReview: { createdAt?: string } }).buyerReview.createdAt ?? request.updatedAt),
               hidden: (request as { buyerReview: { hidden?: boolean } }).buyerReview.hidden === true,
@@ -6110,6 +6116,11 @@ function hasConcreteSellerRiskSignal(snapshot: SellerReputationSnapshot) {
     || snapshot.cancellationRate >= 20;
 }
 
+function sellerMetricsAudience(seller?: AlphaExchangeUser) {
+  return seller && (seller.isProfileHidden || seller.showTradeStats === false || seller.disabled || seller.sellerStatus === "suspended")
+    ? { recipientUserId: seller.id } : {};
+}
+
 async function recalculateTrustEngine(db: AlphaExchangeDb, input: { reason: string; triggeredBy: string; suppressSideEffects?: boolean }) {
   const previous = new Map(db.trustSnapshots.map((entry) => [entry.sellerId, entry.snapshot]));
   const owner = getOwnerUser(db);
@@ -6119,7 +6130,6 @@ async function recalculateTrustEngine(db: AlphaExchangeDb, input: { reason: stri
   const listingsBySeller = new Map<string, MarketplaceListing[]>();
   const requestsBySeller = new Map<string, PurchaseRequest[]>();
   const commissionsBySeller = new Map<string, CommissionRecord[]>();
-  const visibleReviewCountBySeller = new Map<string, number>();
 
   for (const listing of db.marketplaceListings) {
     const bucket = listingsBySeller.get(listing.sellerId);
@@ -6137,11 +6147,6 @@ async function recalculateTrustEngine(db: AlphaExchangeDb, input: { reason: stri
     const bucket = commissionsBySeller.get(record.sellerId);
     if (bucket) bucket.push(record);
     else commissionsBySeller.set(record.sellerId, [record]);
-  }
-
-  for (const request of db.purchaseRequests) {
-    if (!request.buyerReview || request.buyerReview.hidden === true) continue;
-    visibleReviewCountBySeller.set(request.sellerId, (visibleReviewCountBySeller.get(request.sellerId) ?? 0) + 1);
   }
 
   const computed = rankTrustSnapshots(
@@ -6199,7 +6204,10 @@ async function recalculateTrustEngine(db: AlphaExchangeDb, input: { reason: stri
     const scoreChanged = Math.round(oldScore * 10) !== Math.round(newScore * 10);
     const levelChanged = previousSnapshot && previousSnapshot.level !== snapshot.level;
     const sharpDrop = previousSnapshot && oldScore - newScore >= 8;
-    const trustIncreased = previousSnapshot && newScore - oldScore >= 1;
+    const previousAlpha = previousSnapshot?.alphaScore?.value;
+    const currentAlpha = snapshot.alphaScore?.value;
+    const alphaChange = previousAlpha != null && currentAlpha != null && previousAlpha !== currentAlpha
+      ? { from: previousAlpha, to: currentAlpha } : undefined;
     const flagged = isSellerTrustFlagged(snapshot);
     const wasFlagged = isSellerTrustFlagged(previousSnapshot);
     // A low baseline score for a newly calculated seller is not a new risk
@@ -6214,28 +6222,32 @@ async function recalculateTrustEngine(db: AlphaExchangeDb, input: { reason: stri
         : hasConcreteSellerRiskSignal(snapshot)
     );
 
-    if (scoreChanged && !input.suppressSideEffects) {
+    const publicMetricsChanged = snapshot.totalReviews !== previousSnapshot?.totalReviews
+      || snapshot.rating !== previousSnapshot?.rating || snapshot.alphaScore?.value !== previousSnapshot?.alphaScore?.value
+      || snapshot.alphaScore?.starter !== previousSnapshot?.alphaScore?.starter
+      || snapshot.responseTimeMinutes !== previousSnapshot?.responseTimeMinutes || snapshot.responseSampleCount !== previousSnapshot?.responseSampleCount;
+    if ((scoreChanged || publicMetricsChanged) && !input.suppressSideEffects) {
       const reputationEvent: Parameters<typeof publishRealtimeEvent>[0] = {
         type: "reputation.updated",
-        payload: {
-          sellerId: snapshot.sellerId,
-          trustScore: newScore,
-          reviewCount: visibleReviewCountBySeller.get(snapshot.sellerId) ?? 0,
-        },
+        ...sellerMetricsAudience(seller),
+        payload: { ...publicSellerMetricUpdate(snapshot), trustScore: newScore },
       };
       const pending = tradeMutationPublications.get(db);
       if (pending) pending.trustEvents.push(reputationEvent);
       else publishRealtimeEvent(reputationEvent);
+    }
+    if ((scoreChanged || alphaChange) && !input.suppressSideEffects) {
       db.trustScoreHistory.unshift({
         id: `trust-score-${randomUUID()}`,
         sellerId: snapshot.sellerId,
         oldScore,
         newScore,
+        alphaChange,
         reason: input.reason,
         triggeredBy: input.triggeredBy,
         createdAt: now,
       });
-      await appendAuditLog(db, {
+      if (scoreChanged) await appendAuditLog(db, {
         action: "trust_score_updated",
         actorUserId: input.triggeredBy,
         targetUserId: snapshot.sellerId,
@@ -6243,18 +6255,18 @@ async function recalculateTrustEngine(db: AlphaExchangeDb, input: { reason: stri
       });
     }
 
-    if (trustIncreased && !input.suppressSideEffects) {
+    if (alphaChange && alphaChange.to - alphaChange.from >= 1 && !input.suppressSideEffects) {
       pushNotification(db, {
         userId: snapshot.sellerId,
         category: "trust",
-        title: "Trust score increased",
-        message: `Your trust score increased from ${oldScore.toFixed(1)} to ${newScore.toFixed(1)}.`,
+        title: "Alpha Score increased",
+        message: `Your Alpha Score increased from ${alphaChange.from} to ${alphaChange.to}.`,
       });
       pushActivityLog(db, {
         userId: snapshot.sellerId,
         category: "trust",
-        title: "Trust score increased",
-        details: `Trust score improved to ${newScore.toFixed(1)}.`,
+        title: "Alpha Score increased",
+        details: `Alpha Score improved to ${alphaChange.to}.`,
       });
     }
 
@@ -9247,6 +9259,7 @@ export interface MarketplacePulseData {
   completedTrades: number;
   totalVolumeUsdt: number;
   averageResponseMinutes: number;
+  responseSampleCount?: number;
   trendingNetwork: SupportedNetwork | null;
   popularPaymentMethod: string | null;
   lastCompletedTrade: { network: SupportedNetwork; completedAt: string } | null;
@@ -9353,12 +9366,18 @@ export async function getMarketplacePulse(dbInput?: AlphaExchangeDb): Promise<Ma
       if (normalized) paymentCounts.set(normalized, (paymentCounts.get(normalized) ?? 0) + 1);
     }
   }
+  const requestsBySeller = new Map<string, PurchaseRequest[]>();
+  for (const request of db.purchaseRequests) {
+    const group = requestsBySeller.get(request.sellerId);
+    if (group) group.push(request);
+    else requestsBySeller.set(request.sellerId, [request]);
+  }
   for (const sellerId of new Set(activeListings.map(listing => listing.sellerId))) {
-    const minutes = measureSellerActivity(db.purchaseRequests.filter(request => request.sellerId === sellerId)).responseTimeMinutes;
-    if (minutes > 0) responseSamples.push(minutes);
+    const facts = measureSellerActivity(requestsBySeller.get(sellerId) ?? []);
+    if (facts.responseSampleCount) responseSamples.push(facts.responseTimeMinutes);
   }
   const averageResponseMinutes = responseSamples.length
-    ? Math.max(1, Math.round(responseSamples.reduce((sum, value) => sum + value, 0) / responseSamples.length))
+    ? responseSamples.reduce((sum, value) => sum + value, 0) / responseSamples.length
     : 0;
   const topEntry = (counts: Map<string, number>) => {
     let best: string | null = null;
@@ -9412,6 +9431,7 @@ export async function getMarketplacePulse(dbInput?: AlphaExchangeDb): Promise<Ma
     completedTrades,
     totalVolumeUsdt,
     averageResponseMinutes,
+    responseSampleCount: responseSamples.length,
     trendingNetwork: networkCounts.size ? trendingNetwork : null,
     popularPaymentMethod,
     lastCompletedTrade: lastCompleted
@@ -10966,6 +10986,7 @@ export async function updateTradeTerms(input: {
       if (request.commissionCalculationVersion === COMMISSION_CALCULATION_VERSION) assertPayableTradeCommission(amount);
       if (!Number.isFinite(Number(fiat)) || Number(fiat) <= 0 || Number(amount) > Number(listingUnreservedAmount(snapshot, listing, request.id)) || Number(amount) < getPurchaseMinimumTrade(listing.minimumTrade, isCardlessAtmPaymentMethod(request.paymentMethod)) || Number(amount) > Number(listing.maximumTrade || listing.availableAmount)) throw new TradeBlockedError("trade-terms-invalid", "Amount exceeds the available balance or trade limits.", input.requestId);
       request.amountAdjustmentCount = getTradeAmountAdjustmentCount(request) + 1;
+      request.firstSellerResponseAt ??= request.termsProposal?.createdAt ?? now;
       request.termsProposal = { id: randomUUID(), kind: counter ? "counter_offer" : "amount_correction", status: "pending", pricePerUsdt: price, usdtAmount: amount, fiatAmount: fiat, createdAt: now };
       if (counter && isFaceToFacePaymentMethod(request.paymentMethod)) request.sellerSafetyAcknowledged = true;
       message = `Seller proposed ${amount} USDT for ${request.currency} ${fiat} at ${price} per USDT. Buyer confirmation required.`;
@@ -13153,7 +13174,8 @@ export interface BuyerAccountStats {
 
 type BuyerActivityStats = Omit<BuyerAccountStats, "kind">;
 
-export interface SellerAccountStats {
+export interface SellerAccountStats extends SellerMetricEvidence {
+  responseTimeMinutes?: number;
   kind: "seller";
   sellerLevel: SellerLevel;
   nextLevel?: SellerLevel;
@@ -13247,6 +13269,10 @@ export async function getAccountProfileData(userId: string): Promise<{
       activeListings: sellerRequestableListingCount(db, user.id),
       pendingListings: db.marketplaceListings.filter((listing) => listing.sellerId === user.id && isListingPendingApproval(listing)).length,
       averageRating: reputation.rating,
+      totalReviews: reputation.totalReviews,
+      responseTimeMinutes: reputation.responseTimeMinutes,
+      responseSampleCount: reputation.responseSampleCount,
+      alphaScore: reputation.alphaScore,
       buyerActivity: buildBuyerActivityStats(db, user.id),
     };
     return { profile, stats };
@@ -13912,8 +13938,7 @@ export async function submitBuyerTradeReview(input: {
       progressPercent: number;
       promoted: boolean;
     };
-    sellerId: string;
-    reviewCount: number;
+    metrics: ReturnType<typeof publicSellerMetricUpdate>;
     created: boolean;
     publication?: DeferredNotificationPublication | null;
   };
@@ -13943,8 +13968,7 @@ export async function submitBuyerTradeReview(input: {
           progressPercent: currentSnapshot.prestigeProgressPercent ?? 0,
           promoted: false,
         },
-        sellerId: request.sellerId,
-        reviewCount: snapshot.purchaseRequests.filter((item) => item.sellerId === request.sellerId && item.buyerReview && item.buyerReview.hidden !== true).length,
+        metrics: publicSellerMetricUpdate(currentSnapshot),
         created: false,
       };
       return snapshot;
@@ -14013,8 +14037,7 @@ export async function submitBuyerTradeReview(input: {
         progressPercent: sellerSnapshotAfter.prestigeProgressPercent ?? 0,
         promoted: sellerSnapshotBefore.level !== sellerSnapshotAfter.level,
       },
-      sellerId: request.sellerId,
-      reviewCount: snapshot.purchaseRequests.filter((item) => item.sellerId === request.sellerId && item.buyerReview && item.buyerReview.hidden !== true).length,
+      metrics: publicSellerMetricUpdate(sellerSnapshotAfter),
       created: true,
       publication,
     };
@@ -14040,7 +14063,8 @@ export async function submitBuyerTradeReview(input: {
     if (result.publication) publishNotificationPublication(result.publication);
     publishRealtimeEvent({
       type: "review.count_changed",
-      payload: { sellerId: result.sellerId, reviewCount: result.reviewCount },
+      ...sellerMetricsAudience(db.users.find(user => user.id === result.metrics.sellerId)),
+      payload: result.metrics,
     });
   }
   return { review: result.review, sellerProgress: result.sellerProgress };
@@ -14276,10 +14300,8 @@ export async function moderateSellerReview(input: {
   await writeDb(db, { selectedTables: PURCHASE_REQUEST_ONLY_TABLES });
   publishRealtimeEvent({
     type: "review.count_changed",
-    payload: {
-      sellerId: request.sellerId,
-      reviewCount: db.purchaseRequests.filter((item) => item.sellerId === request.sellerId && item.buyerReview && item.buyerReview.hidden !== true).length,
-    },
+    ...sellerMetricsAudience(db.users.find(user => user.id === request.sellerId)),
+    payload: publicSellerMetricUpdate(computeSellerReputationSnapshot(db, request.sellerId)),
   });
   return nextReview;
 }
@@ -18163,7 +18185,7 @@ export async function getOwnerBusinessDashboardForAdmin(dbInput?: AlphaExchangeD
   const evidenceVerified = evidenceTrackedTrades.filter((request) => hasBuyerEvidence(request.id) && hasSellerEvidence(request.id)).length;
   const evidenceMissing = missingBuyerEvidence + missingSellerEvidence;
   const buyerReviewsThisWeek = db.purchaseRequests
-    .filter((request) => request.buyerReview && isThisWeek(request.buyerReview.createdAt))
+    .filter((request) => hasVisibleCompletedReview(request) && isThisWeek(request.buyerReview?.createdAt))
     .map((request) => request.buyerReview?.rating ?? 0)
     .filter((rating) => rating > 0);
   const trustHistoryThisWeek = db.trustScoreHistory.filter((entry) => isThisWeek(entry.createdAt));
@@ -18230,11 +18252,12 @@ export async function getOwnerBusinessDashboardForAdmin(dbInput?: AlphaExchangeD
 
   const leaderboard = [...trustSnapshots]
     .sort((left, right) => {
-      if (right.trustScore !== left.trustScore) return right.trustScore - left.trustScore;
+      const scoreDifference = (right.alphaScore?.value ?? right.trustScore) - (left.alphaScore?.value ?? left.trustScore);
+      if (scoreDifference) return scoreDifference;
       if (right.totalUsdtVolume !== left.totalUsdtVolume) return right.totalUsdtVolume - left.totalUsdtVolume;
       if (right.completedTrades !== left.completedTrades) return right.completedTrades - left.completedTrades;
       if (right.rating !== left.rating) return right.rating - left.rating;
-      return left.responseTimeMinutes - right.responseTimeMinutes;
+      return compareSellerResponseTimes(left, right);
     })
     .slice(0, 10)
     .map((snapshot) => ({
@@ -18243,8 +18266,11 @@ export async function getOwnerBusinessDashboardForAdmin(dbInput?: AlphaExchangeD
       trustScore: Number(snapshot.trustScore.toFixed(1)),
       tradeVolumeUsdt: Number(snapshot.totalUsdtVolume.toFixed(2)),
       completedTrades: snapshot.completedTrades,
-      averageRating: Number(snapshot.rating.toFixed(2)),
-      responseTimeMinutes: Number(snapshot.responseTimeMinutes.toFixed(2)),
+      averageRating: snapshot.rating,
+      totalReviews: snapshot.totalReviews,
+      responseTimeMinutes: snapshot.responseTimeMinutes,
+      responseSampleCount: snapshot.responseSampleCount,
+      alphaScore: snapshot.alphaScore,
     }));
 
   // A carried shortfall is part of an existing fee. An owner-attested historical
@@ -18340,9 +18366,8 @@ export async function getOwnerBusinessDashboardForAdmin(dbInput?: AlphaExchangeD
         highestTrustIncreaseEvent
           ? `${sellerName(highestTrustIncreaseEvent.sellerId)} (+${(highestTrustIncreaseEvent.newScore - highestTrustIncreaseEvent.oldScore).toFixed(1)})`
           : "No trust changes yet",
-      averageResponseTimeMinutes: Number(
-        responseFacts.responseTimeMinutes.toFixed(2),
-      ),
+      averageResponseTimeMinutes: responseFacts.responseTimeMinutes,
+      responseSampleCount: responseFacts.responseSampleCount,
       averageTradeCompletionTimeMinutes: Number(
         (tradeCompletionMinutes.length ? tradeCompletionMinutes.reduce((sum, value) => sum + value, 0) / tradeCompletionMinutes.length : 0).toFixed(2),
       ),

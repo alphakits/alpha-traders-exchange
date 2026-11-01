@@ -1,4 +1,5 @@
 import "server-only";
+import { formatMeasuredResponseTime, sellerRatingDisplay, sellerScoreDisplay, type SellerMetricEvidence } from "@alpha-traders/contracts";
 
 import type { RESTPostAPIChannelMessageJSONBody } from "discord.js";
 
@@ -12,7 +13,7 @@ import {
   isSafeDiscordLinkUrl,
 } from "@/lib/discord/listing-publisher";
 
-export type DiscordPublicSellerProfile = {
+export type DiscordPublicSellerProfile = SellerMetricEvidence & {
   displayName: string;
   level: string | null;
   rating: number | null;
@@ -47,9 +48,10 @@ export function buildDiscordSellerProfileCard(
           inline: true,
         }]
       : []),
-    ...(profile.rating === null
+    ...(profile.rating === null && profile.totalReviews == null
       ? []
-      : [{ name: "Rating", value: `${profile.rating.toFixed(2)} / 5`, inline: true }]),
+      : [{ name: "Rating", value: sellerRatingDisplay(profile).text, inline: true }]),
+    ...(profile.alphaScore ? [{ name: sellerScoreDisplay(profile).label, value: sellerScoreDisplay(profile).value, inline: true }] : []),
     ...(profile.reliabilityScore === null
       ? []
       : [{
@@ -80,11 +82,11 @@ export function buildDiscordSellerProfileCard(
           inline: true,
         }]
       : []),
-    ...(profile.responseTimeMinutes === null
+    ...(profile.responseTimeMinutes === null && profile.responseSampleCount == null
       ? []
       : [{
           name: "Measured response",
-          value: `~${profile.responseTimeMinutes.toLocaleString("en-IL")} min`,
+          value: formatMeasuredResponseTime(profile.responseTimeMinutes, false, profile.responseSampleCount),
           inline: true,
         }]),
   ];
