@@ -1158,6 +1158,7 @@ test("buyer can keep or cancel a request and then publish it again after the coo
   ]);
   expect(cancellation.status(), await cancellation.text()).toBe(200);
   await expect(page.getByRole("button", { name: "Confirm cancellation", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("status").filter({ hasText: "Request cancelled." })).toHaveText("Request cancelled. Its publication still counts toward your 24-hour limit.");
   expect((await state(page.request)).usdtDemands?.find(item => item.id === demand.id)?.state).toBe("cancelled");
   await ageDemandPastCooldown(page.request, demand.id); await page.reload();
   await page.getByRole("button", { name: "Publish again", exact: true }).click();
