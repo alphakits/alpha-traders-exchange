@@ -189,6 +189,7 @@ export function WebsiteAppShell({ onNativeReady }: WebsiteAppShellProps) {
   const loadErrorRef = useRef(false);
   const localeRef = useRef<MobileLocale>(DEFAULT_MOBILE_LOCALE);
   const activeSessionRef = useRef<{ userId: string; locale: MobileLocale } | null>(null);
+  const sessionEpochRef = useRef(0);
   const pendingLocaleWriteRef = useRef(Promise.resolve());
   const pendingBadgeRef = useRef<{ userId: string; unreadCount: number } | null>(null);
   const pendingReviewRef = useRef<string | null>(null);
@@ -209,6 +210,7 @@ export function WebsiteAppShell({ onNativeReady }: WebsiteAppShellProps) {
   const [isLoading, setIsLoading] = useState(true);
   const [loadFailed, setLoadFailed] = useState(false);
   const [isPrivacyMasked, setIsPrivacyMasked] = useState(AppState.currentState !== "active");
+  const [webNotificationReminders, setWebNotificationReminders] = useState(false);
   const [pushSetupIssue, setPushSetupIssue] = useState<PushSetupIssue | null>(null);
   const { isOnline } = useNetworkStatus();
   const readiness = useMobileAppReadiness(locale, isOnline);
@@ -297,7 +299,7 @@ export function WebsiteAppShell({ onNativeReady }: WebsiteAppShellProps) {
     }
     if (pushRegistrationKeyRef.current === key) {
       if (pushRegistrationResultRef.current) {
-        sendMessageToWebsite(pushRegistrationResultRef.current);
+        sendMessageToWebsite({ ...pushRegistrationResultRef.current, userId });
       }
       return;
     }
@@ -318,15 +320,16 @@ export function WebsiteAppShell({ onNativeReady }: WebsiteAppShellProps) {
       };
       return;
     }
+    const sessionEpoch = sessionEpochRef.current;
     const task = (async () => {
       const result = await registerForNativePushNotifications(nextLocale);
-      if (activeSessionRef.current?.userId !== userId) return;
+      if (sessionEpochRef.current !== sessionEpoch || activeSessionRef.current?.userId !== userId || activeSessionRef.current.locale !== nextLocale) return;
       setPushSetupIssue(pushSetupIssueFromRegistrationStatus(result.status));
       if (result.status === "registered") {
         pushRegistrationKeyRef.current = key;
         pushRegistrationResultRef.current = result;
       }
-      sendMessageToWebsite(result);
+      sendMessageToWebsite({ ...result, userId });
     })();
     pushRegistrationInFlightRef.current = task;
     void task.finally(() => {
@@ -486,6 +489,7 @@ export function WebsiteAppShell({ onNativeReady }: WebsiteAppShellProps) {
         .then(() => AsyncStorage.setItem(WEBSITE_SESSION_LOCALE_KEY, sessionLocale))
         .catch(() => undefined);
       if (!message.authenticated) {
+        sessionEpochRef.current++;
         activeSessionRef.current = null;
         pendingBadgeRef.current = null;
         pendingPushRegistrationRef.current = null;
@@ -493,8 +497,13 @@ export function WebsiteAppShell({ onNativeReady }: WebsiteAppShellProps) {
         pushRegistrationResultRef.current = null;
         pendingReviewRef.current = null;
         setPushSetupIssue(null);
+        setWebNotificationReminders(false);
         void Notifications.setBadgeCountAsync(0).catch(() => undefined);
         return;
+      }
+      if (activeSessionRef.current?.userId !== message.userId) {
+        sessionEpochRef.current++;
+        setWebNotificationReminders(false);
       }
       activeSessionRef.current = { userId: message.userId, locale: message.locale };
       if (pendingBadgeRef.current?.userId === message.userId) {
@@ -519,6 +528,15 @@ export function WebsiteAppShell({ onNativeReady }: WebsiteAppShellProps) {
       };
       return;
     }
+    if (message.type === "alpha.web.notification-reminders" && activeSessionRef.current?.userId === message.userId) {
+      setWebNotificationReminders(true);
+      return;
+    }
+    if (message.type === "alpha.web.push-settings" && activeSessionRef.current?.userId === message.userId) {
+      if (pushSetupIssue === "denied") void Linking.openSettings().catch(() => undefined);
+      else ensurePushRegistration(message.userId, message.locale, true);
+      return;
+    }
     if (
       message.type === "alpha.web.push-registration"
       && activeSessionRef.current?.userId === message.userId
@@ -533,7 +551,7 @@ export function WebsiteAppShell({ onNativeReady }: WebsiteAppShellProps) {
       pendingReviewRef.current = message.tradeReference;
       attemptPendingReview();
     }
-  }, [attemptPendingReview, ensurePushRegistration]);
+  }, [attemptPendingReview, ensurePushRegistration, pushSetupIssue]);
 
   const recoverPushSetup = useCallback(() => {
     if (pushSetupIssue === "denied") {
@@ -671,6 +689,14 @@ export function WebsiteAppShell({ onNativeReady }: WebsiteAppShellProps) {
           onShouldStartLoadWithRequest={shouldStart}
           onNavigationStateChange={rememberNavigation}
           onLoadStart={() => {
+            // A replacement document must announce its own session and setup
+            // support; old permission tasks cannot certify the new document.
+            sessionEpochRef.current++;
+            activeSessionRef.current = null;
+            pendingPushRegistrationRef.current = null;
+            pushRegistrationKeyRef.current = null;
+            pushRegistrationResultRef.current = null;
+            setWebNotificationReminders(false);
             loadErrorRef.current = false;
             setLoadFailed(false);
             if (!hasLoadedContentRef.current) setIsLoading(true);
@@ -707,7 +733,7 @@ export function WebsiteAppShell({ onNativeReady }: WebsiteAppShellProps) {
         />
       ) : null}
 
-      {pushSetupIssue && pushRecoveryLabels && !isLoading && !loadFailed ? (
+      {!webNotificationReminders && pushSetupIssue && pushRecoveryLabels && !isLoading && !loadFailed ? (
         <View accessibilityRole="alert" style={styles.pushRecoveryBanner}>
           <Text style={[styles.pushRecoveryTitle, locale === "ar" && styles.rtlText]}>
             {pushRecoveryLabels.title}

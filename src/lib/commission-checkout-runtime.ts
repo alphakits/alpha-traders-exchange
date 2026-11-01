@@ -1,7 +1,8 @@
 import "server-only";
 import { getRuntimePostgresPool } from "@/lib/postgres-runtime";
 import { getAlphaExchangeRepository } from "@/lib/alpha-exchange-repository";
-import { invalidateAlphaExchangeStoreCache } from "@/lib/alpha-exchange-store";
+import { invalidateAlphaExchangeStoreCache, publishCommittedNotifications } from "@/lib/alpha-exchange-store";
+import type { AlphaExchangeDb, AlphaExchangeNotification } from "@/types/alpha-exchange";
 import { verifyBep20Commission } from "@/lib/bep20-commission-verifier";
 import { resolveCommissionWalletForNetwork } from "@/lib/commission-config";
 import { verifyBinanceInternalCommissionDeposit, scanTronCommissionDeposits, scanBep20CommissionDeposits, scanBinanceCommissionDeposits } from "@/lib/commission-deposit-discovery";
@@ -35,9 +36,17 @@ export async function getCommissionCheckoutRuntime() {
     read: () => repository.loadSelectedSnapshot(["users", "commissions", "audit_logs"]),
     async atomic(mutation) {
       const snapshot = await repository.loadSnapshot();
-      let result = mutation(snapshot);
+      let notifications: AlphaExchangeNotification[] = [];
+      const apply = (latest: AlphaExchangeDb) => {
+        const existingIds = new Set(latest.notifications.map(notification => notification.id));
+        const result = mutation(latest);
+        notifications = latest.notifications.filter(notification => !existingIds.has(notification.id));
+        return result;
+      };
+      let result = apply(snapshot);
       await repository.saveSnapshot(snapshot, { selectedTables: ["commissions", "audit_logs", "notifications"],
-        rebaseOnLatest: (latest) => { result = mutation(latest); return latest; } });
+        rebaseOnLatest: (latest) => { result = apply(latest); return latest; } });
+      publishCommittedNotifications(notifications);
       return result;
     },
     destination(network) {
