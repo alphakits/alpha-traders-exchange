@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { ChevronLeft, ChevronRight, X, Plus, BookOpen, Sparkles } from "lucide-react";
 import { dailyResults, money, shiftDate, type JournalLocale, type JournalTrade } from "@/lib/journal/model";
 
@@ -69,6 +69,21 @@ export function EquityChart({ trades, locale }: { trades:JournalTrade[];locale:J
     for(let i=1;i<days.length;i++)if(Math.abs(points[i+1][0]-x)<Math.abs(points[nearest+1][0]-x))nearest=i;
     setSelectedDate(days[nearest].date);
   };
+  const exploreKey=(event:KeyboardEvent<HTMLInputElement>)=>{
+    if(event.key==="Escape"){setSelectedDate(null);return;}
+    let next=active>=0?active:days.length-1;
+    switch(event.key){
+      case "Home":next=0;break;
+      case "End":next=days.length-1;break;
+      case "ArrowLeft":case "ArrowDown":next-=1;break;
+      case "ArrowRight":case "ArrowUp":next+=1;break;
+      default:return;
+    }
+    // A range at its boundary (including a one-day journal) emits no change.
+    // Selecting explicitly also lets keyboard users resume after Escape.
+    event.preventDefault();
+    setSelectedDate(days[Math.max(0,Math.min(days.length-1,next))].date);
+  };
   return <div className="j-equity" dir="ltr">
     <div className="j-chart-readout" dir={locale==="ar"?"rtl":"ltr"}>
       <div><span>{activeDay?`${dateLabel(activeDay.date,locale,true)} · ${t("Cumulative","تراكمي")}`:t("Period total","إجمالي الفترة")}</span><strong><Amount cents={active>=0?values[active+1]:running} locale={locale}/></strong></div>
@@ -89,7 +104,7 @@ export function EquityChart({ trades, locale }: { trades:JournalTrade[];locale:J
       </svg>
     </div>
     <div className="j-chart-labels"><span>{t("Start","البداية")}</span><span>{dateLabel(days[0].date,locale,true)} — {dateLabel(days[days.length-1].date,locale,true)}</span></div>
-    <input className="j-chart-scrubber" type="range" min={0} max={Math.max(0,days.length-1)} value={active>=0?active:days.length-1} aria-label={t("Explore daily results","استكشاف النتائج اليومية")} aria-valuetext={`${dateLabel((activeDay??days[days.length-1]).date,locale,true)}, ${t("Cumulative","تراكمي")} ${money(active>=0?values[active+1]:running,locale,true)}`} onChange={e=>setSelectedDate(days[Number(e.target.value)].date)} onKeyDown={e=>{if(e.key==="Escape")setSelectedDate(null);}}/>
+    <input className="j-chart-scrubber" type="range" min={0} max={Math.max(0,days.length-1)} value={active>=0?active:days.length-1} aria-label={t("Explore daily results","استكشاف النتائج اليومية")} aria-valuetext={`${dateLabel((activeDay??days[days.length-1]).date,locale,true)}, ${t("Cumulative","تراكمي")} ${money(active>=0?values[active+1]:running,locale,true)}`} onChange={e=>setSelectedDate(days[Number(e.target.value)].date)} onKeyDown={exploreKey}/>
   </div>;
 }
 export function Calendar({ month,onMonth,trades,locale,today,onDay,reviews }: {
