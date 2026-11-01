@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   sendPhoneVerificationCode: vi.fn(),
   checkSharedRateLimit: vi.fn(),
   createRateLimitResponse: vi.fn(),
+  phoneVerificationDeliveryPreflight: vi.fn(),
 }));
 
 vi.mock("@/lib/api-auth", () => ({ requireApiUser: mocks.requireApiUser }));
@@ -16,13 +17,15 @@ vi.mock("@/lib/alpha-exchange-store", () => ({
 }));
 vi.mock("@/lib/phone-verification-delivery", () => ({
   sendPhoneVerificationCode: mocks.sendPhoneVerificationCode,
+  phoneVerificationDeliveryPreflight: mocks.phoneVerificationDeliveryPreflight,
+  getPhoneVerificationChannels: () => ({ sms: true, whatsapp: true }),
 }));
 vi.mock("@/lib/rate-limit", () => ({
   checkSharedRateLimit: mocks.checkSharedRateLimit,
   createRateLimitResponse: mocks.createRateLimitResponse,
 }));
 
-import { POST } from "./route";
+import { GET, POST } from "./route";
 
 describe("profile phone verification code delivery", () => {
   beforeEach(() => {
@@ -32,6 +35,7 @@ describe("profile phone verification code delivery", () => {
       unauthorized: null,
     });
     mocks.checkSharedRateLimit.mockReset().mockResolvedValue({ allowed: true });
+    mocks.phoneVerificationDeliveryPreflight.mockReset().mockReturnValue(null);
     mocks.beginProfilePhoneVerification.mockReset().mockResolvedValue({
       phone: "+972541234567",
       code: "482901",
@@ -45,6 +49,43 @@ describe("profile phone verification code delivery", () => {
 
   afterEach(() => {
     vi.unstubAllEnvs();
+  });
+
+  it.each(["sms", "whatsapp"])("passes an explicit %s choice to delivery", async channel => {
+    const response = await POST(new Request("https://example.test/api/alpha-exchange/phone/send-code", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ phone: "+972541234567", channel }),
+    }) as never);
+    expect(response.status).toBe(200);
+    expect(mocks.sendPhoneVerificationCode).toHaveBeenCalledWith(expect.objectContaining({ channel }));
+  });
+
+  it("rejects an invalid choice before creating an account challenge", async () => {
+    const response = await POST(new Request("https://example.test/api/alpha-exchange/phone/send-code", {
+      method: "POST", body: JSON.stringify({ phone: "+972541234567", channel: "auto" }),
+    }) as never);
+    expect(response.status).toBe(400);
+    expect(mocks.beginProfilePhoneVerification).not.toHaveBeenCalled();
+    expect(mocks.sendPhoneVerificationCode).not.toHaveBeenCalled();
+  });
+
+  it("does not replace a challenge or consume its send allowance when a channel is unavailable", async () => {
+    mocks.phoneVerificationDeliveryPreflight.mockReturnValue({ ok: false, error: "Unavailable", supportCode: "OTP_PROVIDER_CONFIGURATION" });
+    const response = await POST(new Request("https://example.test/api/alpha-exchange/phone/send-code", {
+      method: "POST", body: JSON.stringify({ phone: "+972541234567", channel: "whatsapp" }),
+    }) as never);
+    expect(response.status).toBe(503);
+    expect(mocks.beginProfilePhoneVerification).not.toHaveBeenCalled();
+    expect(mocks.sendPhoneVerificationCode).not.toHaveBeenCalled();
+  });
+
+  it("returns authenticated, uncached channel capabilities", async () => {
+    const response = await GET();
+    expect(response!.headers.get("cache-control")).toBe("no-store");
+    expect(await response!.json()).toEqual({ channels: { sms: true, whatsapp: true } });
+    const denied = new Response("Unauthorized", { status: 401 });
+    mocks.requireApiUser.mockResolvedValue({ user: null, unauthorized: denied });
+    expect(await GET()).toBe(denied);
   });
 
   it("returns email-only mode without rate limiting, persisting, or sending a code", async () => {

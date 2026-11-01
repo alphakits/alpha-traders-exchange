@@ -1,16 +1,19 @@
+import { deriveUserPresence, formatMeasuredResponseTime, sellerRatingDisplay, sellerScoreDisplay, MAX_PRICE_OFFER_VARIANCE_ILS } from "@alpha-traders/contracts";
+import { BrandedText as Text } from "./branded-text";
 import { memo, useEffect, useMemo, useState } from "react";
-import { Image, Pressable, StyleSheet, Text, View } from "react-native";
+import { Image, Pressable, StyleSheet, View } from "react-native";
 import type { MobileMarketplaceListing } from "@alpha-traders/contracts";
 import { colors, radius, spacing, typography } from "@alpha-traders/design-tokens";
 import { useLocale } from "../i18n/locale-context";
 import { GoldButton } from "./gold-button";
+import { SELLER_PROFILE_TONES } from "./rank-tones";
 import { mobilePaymentMethodLabel } from "../trades/trade-labels";
 import { safeRemoteImageUrl } from "../media/safe-media-url";
 import {
   formatCount,
   formatCurrencyAmountAsUsd,
-  formatFinancialNumber,
   formatUsd,
+  formatWholeUsdtNumber,
 } from "../finance/financial-display";
 
 type ListingCardProps = {
@@ -30,14 +33,9 @@ type RankTone = {
   pill: string;
 };
 
-const RANK_TONES: Record<"bronze" | "silver" | "gold" | "diamond" | "elite" | "owner", RankTone> = {
-  bronze: { accent: "#C97A45", accentSoft: "rgba(201,122,69,0.12)", border: "rgba(201,122,69,0.42)", card: "rgba(28,17,12,0.95)", name: "#F2C59F", pill: "rgba(88,48,26,0.78)" },
-  silver: { accent: "#C8D1DF", accentSoft: "rgba(194,205,220,0.12)", border: "rgba(194,205,220,0.45)", card: "rgba(24,27,33,0.95)", name: "#F1F4F9", pill: "rgba(71,80,96,0.78)" },
-  gold: { accent: "#D7A82D", accentSoft: "rgba(212,175,55,0.13)", border: "rgba(212,175,55,0.46)", card: "rgba(31,23,11,0.96)", name: "#FDE59A", pill: "rgba(112,79,12,0.8)" },
-  diamond: { accent: "#8EC5FF", accentSoft: "rgba(138,197,255,0.13)", border: "rgba(138,197,255,0.48)", card: "rgba(12,24,42,0.96)", name: "#D9F2FF", pill: "rgba(38,71,116,0.8)" },
-  elite: { accent: "#F4D87A", accentSoft: "rgba(212,175,55,0.14)", border: "rgba(212,175,55,0.52)", card: "rgba(37,14,17,0.97)", name: "#F8D778", pill: "rgba(104,19,22,0.86)" },
-  owner: { accent: "#F4D87A", accentSoft: "rgba(185,28,28,0.17)", border: "rgba(239,68,68,0.58)", card: "rgba(42,12,16,0.98)", name: "#FFD98A", pill: "rgba(122,15,19,0.9)" },
-};
+const RANK_TONES = Object.fromEntries(Object.entries(SELLER_PROFILE_TONES).map(([rank, tone]) => [rank, {
+  accent: tone.accent, accentSoft: tone.soft, border: tone.border, card: tone.surface, name: tone.light, pill: tone.soft,
+}])) as Record<keyof typeof SELLER_PROFILE_TONES, RankTone>;
 
 function rankLabel(level: MobileMarketplaceListing["seller"]["level"], isAr: boolean, owner: boolean) {
   if (owner) return isAr ? "بائع أسطوري" : "Legendary Seller";
@@ -59,18 +57,6 @@ function listingReference(listing: MobileMarketplaceListing) {
     ? Math.floor(Number(listing.displayNumber))
     : stableNumberFromId(listing.id);
   return `#LS-${String(number).padStart(6, "0")}`;
-}
-
-function lastActiveLabel(value: string | undefined, isAr: boolean) {
-  if (!value) return isAr ? "غير متصل" : "Offline";
-  const timestamp = new Date(value).getTime();
-  if (!Number.isFinite(timestamp)) return isAr ? "غير متصل" : "Offline";
-  const minutes = Math.max(1, Math.round((Date.now() - timestamp) / 60_000));
-  if (minutes < 60) return isAr ? `منذ ${formatCount(minutes)} د` : `${formatCount(minutes)} min ago`;
-  const hours = Math.round(minutes / 60);
-  if (hours < 24) return isAr ? `منذ ${formatCount(hours)} س` : `${formatCount(hours)}h ago`;
-  const days = Math.round(hours / 24);
-  return isAr ? `منذ ${formatCount(days)} ي` : `${formatCount(days)}d ago`;
 }
 
 function expiryLabel(expiresAt: string | undefined, now: number, isAr: boolean) {
@@ -106,18 +92,18 @@ export const ListingCard = memo(function ListingCard({ listing, onBuy, onOffer, 
   const isOwner = listing.seller.isOwner;
   const toneKey = isOwner ? "owner" : (listing.seller.level ?? "bronze");
   const tone = RANK_TONES[toneKey];
-  const isOnline = listing.seller.onlineStatus === "online";
   const profilePhotoUrl = safeRemoteImageUrl(listing.seller.profilePhotoUrl);
   const [now, setNow] = useState(() => Date.now());
+  const presence = deriveUserPresence(listing.seller, now);
+  const isOnline = presence.online;
   useEffect(() => {
-    if (!expiryLabel(listing.expiresAt, Date.now(), isAr)) return;
     const timer = setInterval(() => setNow(Date.now()), 30_000);
     return () => clearInterval(timer);
   }, [isAr, listing.expiresAt]);
   const countdown = expiryLabel(listing.expiresAt, now, isAr);
-  const responseTime = listing.seller.responseTimeMinutes !== undefined
-    ? `${formatCount(Math.max(0, Math.round(listing.seller.responseTimeMinutes)))} ${t("minutesShort")}`
-    : listing.responseTime;
+  const rating = sellerRatingDisplay(listing.seller, isAr);
+  const score = sellerScoreDisplay(listing.seller, isAr);
+  const responseTime = formatMeasuredResponseTime(listing.seller.responseTimeMinutes, isAr, listing.seller.responseSampleCount);
   const paymentMethods = useMemo(
     () => listing.paymentMethods.map((method) => mobilePaymentMethodLabel(method, locale)),
     [listing.paymentMethods, locale],
@@ -157,7 +143,7 @@ export const ListingCard = memo(function ListingCard({ listing, onBuy, onOffer, 
               <Text style={styles.dotSeparator}>•</Text>
               <View style={[styles.presence, isRTL && styles.rowReverse]}>
                 <View style={[styles.statusDot, isOnline && styles.statusDotOnline]} />
-                <Text style={[styles.statusText, isOnline && styles.statusOnline]}>{isOnline ? t("online") : t("offline")}</Text>
+                <Text style={[styles.statusText, isOnline && styles.statusOnline]}>{isAr ? presence.compactLabelAr : presence.compactLabel}</Text>
               </View>
             </View>
             <Text style={[styles.reference, isRTL && styles.rtlText]}>{copy("Listing", "العرض")} {listingReference(listing)}</Text>
@@ -171,7 +157,8 @@ export const ListingCard = memo(function ListingCard({ listing, onBuy, onOffer, 
         <View style={[styles.badges, isRTL && styles.rowReverse]}>
           <Text style={[styles.verifiedBadge, { borderColor: tone.border }]}>{copy("✓ Approved seller", "✓ بائع معتمد")}</Text>
           <Text style={[styles.rankBadge, { backgroundColor: tone.pill, borderColor: tone.border, color: tone.name }]}>{rankLabel(listing.seller.level, isAr, isOwner)}</Text>
-          {listing.seller.emailVerified || isOwner ? <Text style={styles.emailBadge}>✓ {copy("Verified Email", "بريد موثّق")}</Text> : null}
+          {listing.seller.emailVerified ? <Text style={styles.emailBadge}>✓ {copy("Verified Email", "بريد موثّق")}</Text> : null}
+          {listing.seller.isPhoneVerified === true ? <Text style={styles.emailBadge}>✓ {copy("Verified Phone", "هاتف موثّق")}</Text> : null}
           {isOwner ? <Text style={styles.platformBadge}>✓ {copy("Official Platform Account", "حساب المنصة الرسمي")}</Text> : null}
         </View>
 
@@ -181,7 +168,7 @@ export const ListingCard = memo(function ListingCard({ listing, onBuy, onOffer, 
             <View style={[styles.usdtAmountRow, isRTL && styles.rowReverse]}>
               <View style={styles.usdtIcon}><Text style={styles.usdtIconText}>₮</Text></View>
               <Text adjustsFontSizeToFit numberOfLines={1} style={[styles.usdtAmount, isRTL && styles.rtlText]}>
-                {formatFinancialNumber(listing.availableAmount, { maximumFractionDigits: 6 })}
+                {formatWholeUsdtNumber(listing.availableAmount)}
               </Text>
             </View>
             <Text style={[styles.usdtUnit, isRTL && styles.rtlText]}>USDT</Text>
@@ -213,15 +200,15 @@ export const ListingCard = memo(function ListingCard({ listing, onBuy, onOffer, 
         </View>
 
         <View style={[styles.microGrid, isRTL && styles.rowReverse]}>
-          <MicroMetric icon="★" isRTL={isRTL} label={t("rating")} tone={tone} value={(listing.seller.rating ?? 0).toFixed(2)} />
+          <MicroMetric icon="★" isRTL={isRTL} label={rating.label} tone={tone} value={rating.value} />
           <MicroMetric icon="◉" isRTL={isRTL} label={copy("Trades", "الصفقات")} tone={tone} value={formatCount(listing.seller.completedTrades ?? 0)} />
           <MicroMetric icon="ϟ" isRTL={isRTL} label={t("responseTime")} tone={tone} value={responseTime} />
-          <MicroMetric icon="✓" isRTL={isRTL} label={t("trustScore")} tone={tone} value={(listing.seller.trustScore ?? 0).toFixed(1)} />
+          <MicroMetric icon="✓" isRTL={isRTL} label={score.label} tone={tone} value={score.value} />
         </View>
 
         <View style={styles.infoStack}>
           <View style={styles.infoPanel}>
-            <Text style={[styles.infoLine, isRTL && styles.rtlText]}>{copy("Last active", "آخر نشاط")}: <Text style={isOnline ? styles.onlineValue : styles.infoValue}>{isOnline ? t("online") : lastActiveLabel(listing.seller.lastActiveAt, isAr)}</Text></Text>
+            <Text style={[styles.infoLine, isRTL && styles.rtlText]}>{copy("Last active", "آخر نشاط")}: <Text style={isOnline ? styles.onlineValue : styles.infoValue}>{isAr ? presence.labelAr : presence.label}</Text></Text>
             <Text style={[styles.infoLine, isRTL && styles.rtlText]}>{copy("Network", "الشبكة")}: <Text style={styles.infoValue}>{listing.network}</Text></Text>
             <Text style={[styles.infoLine, isRTL && styles.rtlText]}>{t("payment")}:</Text>
             <View style={[styles.paymentMethods, isRTL && styles.rowReverse]}>
@@ -229,7 +216,7 @@ export const ListingCard = memo(function ListingCard({ listing, onBuy, onOffer, 
             </View>
           </View>
           <View style={styles.infoPanel}>
-            <Text style={[styles.infoLine, isRTL && styles.rtlText]}>{copy("Trade limits", "حدود الصفقة")}: <Text style={styles.infoValue}>{formatFinancialNumber(listing.minimumTrade, { maximumFractionDigits: 6 })} – {formatFinancialNumber(listing.maximumTrade, { maximumFractionDigits: 6 })} USDT</Text></Text>
+            <Text style={[styles.infoLine, isRTL && styles.rtlText]}>{listing.paymentMethods.includes("Cardless ATM Withdrawal") ? copy("Maximum; ATM quantity follows the code", "الحد الأقصى؛ كمية ATM تُحسب من الرمز") : copy("Trade limits", "حدود الصفقة")}: <Text style={styles.infoValue}>{listing.paymentMethods.includes("Cardless ATM Withdrawal") ? "" : `${formatWholeUsdtNumber(listing.minimumTrade)} – `}{formatWholeUsdtNumber(listing.maximumTrade)} USDT</Text></Text>
             <Text style={[styles.infoLine, isRTL && styles.rtlText]}>{copy("Trade flow", "مسار الصفقة")}: <Text style={styles.escrowValue}>{copy("Structured and recorded by Alpha Traders", "منظّم ومسجّل عبر Alpha Traders")}</Text></Text>
             <Text style={[styles.infoLine, isRTL && styles.rtlText]}>{copy("Region", "المنطقة")}: <Text style={styles.infoValue}>{listing.seller.country || copy("Israel", "إسرائيل")}</Text></Text>
           </View>
@@ -246,7 +233,7 @@ export const ListingCard = memo(function ListingCard({ listing, onBuy, onOffer, 
           {listing.actions.canMakeOffer ? (
             <Pressable accessibilityRole="button" onPress={onOffer} style={({ pressed }) => [styles.offerButton, pressed && styles.pressed]}>
               <Text style={styles.offerLabel}>◇ {t("makeOffer")}</Text>
-              <Text style={styles.offerCaption}>{copy("Up to", "حتى")} {formatUsd(0.35 / usdIlsRate, 2)} {copy("lower", "أقل")}</Text>
+              <Text style={styles.offerCaption}>±{formatUsd(MAX_PRICE_OFFER_VARIANCE_ILS / usdIlsRate, 4)} {copy("from listing price", "من سعر الإعلان")}</Text>
             </Pressable>
           ) : null}
         </View>

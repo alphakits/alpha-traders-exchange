@@ -198,6 +198,7 @@ export type MobileRegistrationInput = {
   confirmPassword: string;
   whatsappNumber: string;
   agreedToTerms: boolean;
+  ageConfirmed: boolean;
 };
 
 export function registerMobile(input: MobileRegistrationInput, locale: MobileLocale) {
@@ -234,6 +235,9 @@ export type MobileContactInput = {
 export type PublicMarketPairKey = "ethUsdt" | "btcUsdt" | "usdtIls";
 
 export type PublicMarketPair = {
+  quotedAt?: string;
+  validUntil?: string;
+  quoteStatus?: "live" | "closed" | "stale" | "unavailable";
   key: PublicMarketPairKey;
   label: string;
   price: number;
@@ -523,6 +527,7 @@ export function sendMobilePhoneVerificationCode(
   tokens: MobileAuthTokens,
   locale: MobileLocale,
   phone: string,
+  channel?: "sms" | "whatsapp",
 ) {
   return mobileRequest<{
     ok: true;
@@ -533,7 +538,7 @@ export function sendMobilePhoneVerificationCode(
     locale,
     method: "POST",
     accessToken: tokens.accessToken,
-    body: { phone },
+    body: { phone, ...(channel ? { channel } : {}) },
   });
 }
 
@@ -853,6 +858,21 @@ export function updateMobileTrade(
   });
 }
 
+export function updateMobileTradeTerms(tokens: MobileAuthTokens, locale: MobileLocale, requestId: string, body: { action: string; value: string; proposalId?: string; expectedUpdatedAt: string; safetyAcknowledged: boolean }) {
+  return mobileRequest<MobileTradeMutationResponse>(`/api/mobile/v1/trades/${encodeURIComponent(requestId)}`, { locale, method: "PATCH", accessToken: tokens.accessToken, body });
+}
+
+export function recalculateMobileCardlessAmount(tokens: MobileAuthTokens, locale: MobileLocale, requestId: string) {
+  return mobileRequest<MobileTradeMutationResponse>(`/api/mobile/v1/trades/${encodeURIComponent(requestId)}`, { locale, method: "PATCH", accessToken: tokens.accessToken, body: { action: "recalculate_cardless_amount" } });
+}
+
+export function completeMobileTrade(tokens: MobileAuthTokens, locale: MobileLocale, requestId: string) {
+  return mobileRequest<MobileTradeMutationResponse>(`/api/mobile/v1/trades/${encodeURIComponent(requestId)}`, {
+    locale, method: "PATCH", accessToken: tokens.accessToken,
+    body: { action: "complete_trade", usdtSentConfirmed: true },
+  });
+}
+
 export function completeMobileCashTrade(
   tokens: MobileAuthTokens,
   locale: MobileLocale,
@@ -866,6 +886,21 @@ export function completeMobileCashTrade(
   });
 }
 
+export function submitMobileCardlessCode(
+  tokens: MobileAuthTokens,
+  locale: MobileLocale,
+  requestId: string,
+  details: import("@alpha-traders/contracts").CardlessWithdrawalDetails | { usePreparedDetails: true },
+  clientOperationId: string,
+) {
+  return mobileRequest<MobileTradeMutationResponse>(`/api/mobile/v1/trades/${encodeURIComponent(requestId)}`, {
+    locale,
+    method: "PATCH",
+    accessToken: tokens.accessToken,
+    body: { action: "submit_cardless_code", ...details, clientOperationId },
+  });
+}
+
 export function getMobileTradeBankDetails(
   tokens: MobileAuthTokens,
   locale: MobileLocale,
@@ -873,7 +908,7 @@ export function getMobileTradeBankDetails(
 ) {
   return mobileRequest<MobileTradeBankDetailsResponse>(
     `/api/mobile/v1/trades/${encodeURIComponent(requestId)}/bank-details`,
-    { locale, accessToken: tokens.accessToken },
+    { locale, method: "POST", accessToken: tokens.accessToken },
   );
 }
 
@@ -952,6 +987,7 @@ export function submitMobileBuyerReview(
   requestId: string,
   rating: number,
   comment: string,
+  mode: "buyer_review" | "seller_buyer_review" = "buyer_review",
 ) {
   return mobileRequest<MobileTradeDetailResponse>(
     `/api/mobile/v1/trades/${encodeURIComponent(requestId)}/review`,
@@ -959,7 +995,7 @@ export function submitMobileBuyerReview(
       locale,
       method: "POST",
       accessToken: tokens.accessToken,
-      body: { rating, comment },
+      body: { rating, comment, mode },
     },
   );
 }

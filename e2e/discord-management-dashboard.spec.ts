@@ -171,8 +171,11 @@ test("reconciliation confirmation sends no arbitrary Discord target", async ({ p
       status: 202,
       contentType: "application/json",
       body: JSON.stringify({
+        action: "reconcile_managed_integration",
         disposition: "accepted",
         status: "pending",
+        acceptedAt: new Date().toISOString(),
+        resultCode: null,
       }),
     });
   });

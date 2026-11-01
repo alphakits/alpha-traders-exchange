@@ -13,6 +13,7 @@ vi.mock("@/i18n/navigation", () => ({
 import {
   canRevealTradeRoomBankDetails,
   getPrimaryAction,
+  getTradeProgressIndex,
   getTradeRoomSessionKey,
   isTradeRoomChatNearBottom,
   groupTradeTimelineEntries,
@@ -20,6 +21,7 @@ import {
   mergeTradeRoomSnapshotPreservingOptimisticMessages,
   mergeTradeRoomMessages,
   resolveTradeRoomChatAttempt,
+  resolveTradeRoomGuidanceTarget,
   revealTradeRoomDeepLinkTarget,
   shouldRestartTradeRoomStreamAfterPageShow,
   shouldAutoScrollTradeRoomChat,
@@ -94,7 +96,7 @@ describe("Trade Room client stability helpers", () => {
     expect(edited.clientMessageId).toBe("message-id-3");
   });
 
-  it("shows sensitive bank details only for a linked bank-transfer trade after acceptance", () => {
+  it("makes linked bank-transfer details available before acceptance and closes disclosure after settlement", () => {
     const acceptedBankTransfer = {
       ...room({ status: "accepted" }).request,
       paymentMethod: "Bank Transfer",
@@ -102,13 +104,22 @@ describe("Trade Room client stability helpers", () => {
     } as PurchaseRequest;
 
     expect(canRevealTradeRoomBankDetails(acceptedBankTransfer, false)).toBe(true);
-    expect(canRevealTradeRoomBankDetails({ ...acceptedBankTransfer, status: "pending" }, false)).toBe(false);
+    expect(canRevealTradeRoomBankDetails({ ...acceptedBankTransfer, status: "pending" }, false)).toBe(true);
     expect(canRevealTradeRoomBankDetails({ ...acceptedBankTransfer, paymentMethod: "Cardless ATM Withdrawal" }, false)).toBe(false);
     expect(canRevealTradeRoomBankDetails({ ...acceptedBankTransfer, sellerBankAccountId: undefined }, false)).toBe(false);
     expect(canRevealTradeRoomBankDetails(acceptedBankTransfer, true)).toBe(false);
+    expect(canRevealTradeRoomBankDetails({ ...acceptedBankTransfer, status: "completed" }, false)).toBe(false);
   });
 
-  it("guides Face-to-Face through cash, receipt, USDT confirmation, then seller-only completion", () => {
+  it("lets both Wise participants reveal private instructions only during active bank-transfer stages", () => {
+    const wiseTrade = { ...room({ status: "accepted" }).request, paymentMethod: "Bank Transfer", currency: "USD", bankTransferProvider: "wise" } as PurchaseRequest;
+    expect(canRevealTradeRoomBankDetails(wiseTrade, true)).toBe(true);
+    expect(canRevealTradeRoomBankDetails(wiseTrade, false)).toBe(true);
+    expect(canRevealTradeRoomBankDetails({ ...wiseTrade, status: "completed" }, true)).toBe(false);
+    expect(canRevealTradeRoomBankDetails({ ...wiseTrade, paymentMethod: "Face-to-Face (Meet in Person)" }, true)).toBe(false);
+  });
+
+  it("guides Face-to-Face through cash receipt and explicit seller delivery completion", () => {
     const acceptedFaceToFace = {
       ...room({ status: "accepted" }).request,
       paymentMethod: "Face-to-Face (Meet in Person)",
@@ -119,23 +130,24 @@ describe("Trade Room client stability helpers", () => {
     const buyerAction = getPrimaryAction(acceptedFaceToFace, "buyer-1", false, true);
     expect(buyerAction).toMatchObject({
       label: "I Handed Over the Cash",
-      nextStatus: "payment_sent",
+      nextStatus: "funds_received",
     });
     expect(buyerAction).not.toHaveProperty("requiresEvidenceSide");
-    expect(getPrimaryAction(acceptedFaceToFace, "seller-1", true, true)).toBeNull();
+    expect(getPrimaryAction(acceptedFaceToFace, "seller-1", true, true)).toMatchObject({ label: "استلمت النقد", nextStatus: "funds_received" });
     expect(getPrimaryAction({ ...acceptedFaceToFace, status: "payment_sent" }, "seller-1", true, true)).toMatchObject({
       label: "استلمت النقد",
       nextStatus: "funds_received",
     });
     expect(getPrimaryAction({ ...acceptedFaceToFace, status: "funds_received" }, "seller-1", false, true)).toMatchObject({
-      label: "Confirm USDT Sent",
-      nextStatus: "usdt_sent",
+      label: "Mark Trade as Completed",
+      nextStatus: "completed",
+      command: "complete_trade",
     });
     expect(getPrimaryAction({ ...acceptedFaceToFace, status: "funds_received" }, "buyer-1", false, true)).toBeNull();
     expect(getPrimaryAction({ ...acceptedFaceToFace, status: "usdt_sent" }, "seller-1", false, true)).toMatchObject({
       label: "Mark Trade as Completed",
       nextStatus: "completed",
-      command: "complete_cash_trade",
+      command: "complete_trade",
     });
     expect(getPrimaryAction({ ...acceptedFaceToFace, status: "usdt_sent" }, "buyer-1", false, true)).toBeNull();
     expect(getPrimaryAction({ ...acceptedFaceToFace, status: "pending" }, "buyer-1", false, true)).toBeNull();
@@ -157,7 +169,7 @@ describe("Trade Room client stability helpers", () => {
     } as PurchaseRequest;
 
     expect(getPrimaryAction(cardless, "buyer-1", false, false)).toMatchObject({
-      label: "I Sent the Withdrawal Code",
+      label: "Send & Confirm Withdrawal Details",
       mode: "status",
       nextStatus: "payment_sent",
     });
@@ -177,20 +189,19 @@ describe("Trade Room client stability helpers", () => {
     expect(getPrimaryAction({ ...cardless, status: "usdt_sent" }, "seller-1", true, false)).toMatchObject({
       label: "تحديد الصفقة كمكتملة",
       nextStatus: "completed",
-      command: "complete_cash_trade",
+      command: "complete_trade",
     });
   });
 
-  it("requires confirmation and keeps the guided cash action on both responsive website surfaces", () => {
+  it("requires confirmation and has a single primary action across responsive surfaces", () => {
     const source = readFileSync(join(process.cwd(), "src/components/sections/trade-room/trade-room-page.tsx"), "utf8");
 
-    expect(source).toContain("!window.confirm(primaryAction.confirmationMessage)");
-    expect(source.match(/onClick=\{\(\) => void handlePrimaryAction\(\)\}/g)).toHaveLength(2);
+    expect(source).not.toContain("window.confirm(");
+    expect(source).toContain("useActionDialog");
+    expect(source).toContain("{actionDialog}");
+    expect(source.match(/onClick=\{\(\) => void handlePrimaryAction\(\)\}/g)).toHaveLength(1);
     expect(source).toContain('action: action.command');
     expect(source).toContain('isCashTrade ? (');
-    expect(source).toContain('No Evidence Upload Required');
-    expect(source).toContain('Confirming USDT sent and completing the trade are two separate seller-only actions');
-    expect(source).toContain('buyer confirmation is not required');
     expect(source).toContain('The buyer wallet stays hidden from the seller until the seller confirms actual cash receipt.');
     expect(source).toContain('h-auto min-h-12 w-full whitespace-normal');
   });
@@ -210,12 +221,18 @@ describe("Trade Room client stability helpers", () => {
     }
   });
 
+  it("advances past stale receipt links when USDT arrives and past stale action links at completion", () => {
+    expect(resolveTradeRoomGuidanceTarget({ priorState: "r:payment_sent", currentState: "r:usdt_sent", status: "usdt_sent", action: "upload-payment-receipt", hash: "#evidence" })).toBe("action-required");
+    expect(resolveTradeRoomGuidanceTarget({ priorState: "r:usdt_sent", currentState: "r:review_open", status: "review_open", action: "complete-cash-trade", hash: "#action-required" })).toBe("action-required");
+    expect(resolveTradeRoomGuidanceTarget({ priorState: "r:payment_sent", currentState: "r:payment_sent", status: "payment_sent", action: null, hash: "#chat" })).toBe("chat");
+  });
+
   it("mirrors server text limits and handles clipboard failures inside the Trade Room", () => {
     const source = readFileSync(join(process.cwd(), "src/components/sections/trade-room/trade-room-page.tsx"), "utf8");
 
-    expect(source).toContain('maxLength={1200}');
+    expect(source).toContain('maxLength={isOwnerChat ? OWNER_TRADE_CHAT_MESSAGE_MAX_LENGTH : TRADE_CHAT_MESSAGE_MAX_LENGTH}');
     expect(source).toContain('maxLength={1000}');
-    expect(source.match(/maxLength=\{500\}/g)).toHaveLength(2);
+    expect(source.match(/maxLength=\{500\}/g)).toHaveLength(3);
     expect(source).toContain("await navigator.clipboard.writeText(chatDraft)");
     expect(source).toContain('setChatErrorMessage(isAr ? "تعذر نسخ الرسالة." : "Could not copy the message.")');
   });
@@ -247,6 +264,13 @@ describe("Trade Room client stability helpers", () => {
     });
 
     expect(tradeRoomSnapshotSignature(deliveredMiddle)).not.toBe(tradeRoomSnapshotSignature(base));
+  });
+
+  it("replaces an older cached identity when canonical public IDs arrive without a trade change", () => {
+    const cached = room();
+    const refreshed = { ...cached, counterpart: { ...cached.counterpart, buyerPublicId: "#S-100001", sellerPublicId: "#S-200002" } };
+    expect(shouldIgnoreRegressiveSnapshot(cached, refreshed, false)).toBe(false);
+    expect(tradeRoomSnapshotSignature(refreshed)).not.toBe(tradeRoomSnapshotSignature(cached));
   });
 
   it("shows newest timeline activity first and groups adjacent duplicate updates", () => {
@@ -300,6 +324,34 @@ describe("Trade Room client stability helpers", () => {
     expect(confirmedMessages.map((entry) => entry.id)).toEqual(["counterparty-update", "server-message-1"]);
   });
 
+  it("replaces an optimistic bubble when the committed message arrives before the send response", () => {
+    const optimistic = message("optimistic-msg-attempt-1", "2026-08-22T12:00:00.000Z", {
+      clientMessageId: "attempt-1", message: "Hello",
+    });
+    const confirmed = message("server-message-1", "2026-08-22T12:00:01.000Z", {
+      clientMessageId: "attempt-1", message: "Hello",
+    });
+    const reconciled = mergeTradeRoomSnapshotPreservingOptimisticMessages(
+      room({ messages: [optimistic] }), room({ messages: [confirmed] }),
+    );
+    expect(reconciled.messages).toEqual([confirmed]);
+  });
+
+  it.each([
+    { clientMessageId: "another-attempt" },
+    { senderUserId: "seller-1" },
+    { purchaseRequestId: "another-trade" },
+  ])("does not merge distinct messages with identical text: %j", (difference) => {
+    const optimistic = message("optimistic-msg-attempt-1", "2026-08-22T12:00:00.000Z", {
+      clientMessageId: "attempt-1", message: "Hello",
+    });
+    const other = { ...optimistic, id: "server-message", ...difference };
+    const reconciled = mergeTradeRoomSnapshotPreservingOptimisticMessages(
+      room({ messages: [optimistic] }), room({ messages: [other] }),
+    );
+    expect(reconciled.messages).toHaveLength(2);
+  });
+
   it("returns the incoming snapshot unchanged when no optimistic chat message exists", () => {
     const current = room({ messages: [message("earlier", "2026-08-22T12:00:00.000Z")] });
     const incoming = room({ status: "payment_sent", messages: [message("server", "2026-08-22T12:00:01.000Z")] });
@@ -310,6 +362,10 @@ describe("Trade Room client stability helpers", () => {
   it("restarts a Trade Room stream only when a BFCache page is restored", () => {
     expect(shouldRestartTradeRoomStreamAfterPageShow({ persisted: true })).toBe(true);
     expect(shouldRestartTradeRoomStreamAfterPageShow({ persisted: false })).toBe(false);
+  });
+
+  it.each(["upload-payment-receipt", "upload-seller-evidence"])("opens the current step for legacy %s notification links", (action) => {
+    expect(resolveTradeRoomGuidanceTarget({ priorState: null, currentState: "r:accepted", status: "accepted", action, hash: "#evidence" })).toBe("action-required");
   });
 
   it("keeps reconnecting with bounded backoff during long mobile network interruptions", () => {
@@ -344,6 +400,22 @@ describe("Trade Room client stability helpers", () => {
     })).toBe(false);
   });
 
+  it.each([
+    ["pending", 0], ["accepted", 1], ["payment_sent", 2], ["funds_received", 3],
+    ["usdt_release_pending", 3], ["usdt_sent", 4], ["review_open", 5], ["completed", 5], ["locked", 5],
+  ] as const)("only counts confirmed milestones for %s", (status, index) => {
+    expect(getTradeProgressIndex(status)).toBe(index);
+  });
+
+  it("does not move an already visible result", () => {
+    const target = document.createElement("div");
+    document.body.append(target);
+    target.getBoundingClientRect = () => ({ top: 120, height: 80 }) as DOMRect;
+    const scroll = vi.spyOn(window, "scrollTo").mockImplementation(() => {});
+    revealTradeRoomDeepLinkTarget(target);
+    expect(scroll).not.toHaveBeenCalled();
+  });
+
   it("uses one measured page scroll and focus for a deep-link target", () => {
     const header = document.createElement("header");
     const target = document.createElement("section");
@@ -351,11 +423,11 @@ describe("Trade Room client stability helpers", () => {
     Object.defineProperty(window, "scrollY", { configurable: true, value: 150 });
     Object.defineProperty(header, "getBoundingClientRect", {
       configurable: true,
-      value: () => ({ height: 80 }) as DOMRect,
+      value: () => ({ bottom: 80, height: 80 }) as DOMRect,
     });
     Object.defineProperty(target, "getBoundingClientRect", {
       configurable: true,
-      value: () => ({ top: 250 }) as DOMRect,
+      value: () => ({ top: 850, height: 400 }) as DOMRect,
     });
     const scrollTo = vi.fn();
     const focus = vi.fn();
@@ -365,7 +437,7 @@ describe("Trade Room client stability helpers", () => {
     revealTradeRoomDeepLinkTarget(target);
 
     expect(scrollTo).toHaveBeenCalledTimes(1);
-    expect(scrollTo).toHaveBeenCalledWith({ top: 304, behavior: "auto" });
+    expect(scrollTo).toHaveBeenCalledWith({ top: 904, behavior: "auto" });
     expect(focus).toHaveBeenCalledWith({ preventScroll: true });
   });
 });

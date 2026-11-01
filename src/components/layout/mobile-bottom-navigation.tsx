@@ -1,12 +1,13 @@
 "use client";
 
-import { Bell, Handshake, House, Store, UserRound } from "lucide-react";
+import { Handshake, House, Newspaper, Store, UserRound } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import type { ComponentType } from "react";
 import { useCanonicalSession } from "@/components/auth/canonical-session-provider";
 import { Link, usePathname } from "@/i18n/navigation";
 import type { AppLocale } from "@/i18n/routing";
 import { cn } from "@/lib/utils";
+import { getInterfaceAccess } from "@alpha-traders/contracts";
 
 type MobileDestination = {
   href: string;
@@ -35,13 +36,9 @@ export function MobileBottomNavigation({ locale }: { locale: AppLocale }) {
   // covering the other on short phones and landscape displays.
   if (pathname.startsWith("/trade-room/")) return null;
 
-  const isAdminOwner = user.role === "owner"
-    || user.role === "admin"
-    || (user.roles ?? []).some((role) => role === "owner" || role === "admin");
-  const isSellerWorkspaceUser = user.role === "approved_seller"
-    || (user.roles ?? []).includes("approved_seller")
-    || user.sellerStatus === "approved_seller"
-    || user.sellerStatus === "suspended";
+  const access = getInterfaceAccess(user);
+  const isAdminOwner = access.administration;
+  const isSellerWorkspaceUser = access.sellerWorkspace;
   const isOwnerPurchaseRequests = isAdminOwner
     && pathname === "/admin/alpha-exchange"
     && section === "purchase-requests";
@@ -52,21 +49,14 @@ export function MobileBottomNavigation({ locale }: { locale: AppLocale }) {
   const isTradesDestination = isOwnerPurchaseRequests || isBuyerTradeHistory;
   const tradesHref = isAdminOwner
     ? "/admin/alpha-exchange?section=purchase-requests"
-    : isSellerWorkspaceUser
-      ? "/trade-room"
-      : "/usdt-exchange?section=trade-history#my-trade-requests-section";
+    : "/trades";
 
   const destinations: MobileDestination[] = [
     {
-      href: "/dashboard",
+      href: "/",
       label: isAr ? "الرئيسية" : "Home",
       icon: House,
-      isActive: (current) => !isTradesDestination && (
-        current === "/dashboard"
-        || current.startsWith("/dashboard/")
-        || current === "/admin"
-        || current.startsWith("/admin/")
-      ),
+      isActive: (current) => current === "/",
     },
     {
       href: "/usdt-exchange",
@@ -82,13 +72,13 @@ export function MobileBottomNavigation({ locale }: { locale: AppLocale }) {
       href: tradesHref,
       label: isAr ? "الصفقات" : "Trades",
       icon: Handshake,
-      isActive: (current) => isTradesDestination || current === "/trade-room" || current.startsWith("/trade-room/"),
+      isActive: (current) => isTradesDestination || current === "/trades" || current === "/trade-room" || current.startsWith("/trade-room/"),
     },
     {
-      href: "/notifications",
-      label: isAr ? "الإشعارات" : "Notifications",
-      icon: Bell,
-      isActive: (current) => current === "/notifications" || current.startsWith("/notifications/"),
+      href: "/news",
+      label: isAr ? "الأخبار" : "News",
+      icon: Newspaper,
+      isActive: (current) => current === "/news" || current.startsWith("/news/"),
     },
     {
       href: "/profile",
@@ -99,17 +89,19 @@ export function MobileBottomNavigation({ locale }: { locale: AppLocale }) {
       ),
     },
   ];
+  const visibleDestinations = destinations.filter((destination) => access.trading || destination.icon !== Handshake);
 
   return (
     <>
       <div aria-hidden="true" className="h-[calc(4rem+env(safe-area-inset-bottom))] lg:hidden" />
       <nav
+        data-mobile-bottom-navigation
         aria-label={isAr ? "التنقل الرئيسي للهاتف" : "Mobile primary navigation"}
         dir={isAr ? "rtl" : "ltr"}
         className="fixed inset-x-0 bottom-0 z-[45] border-t border-white/10 bg-[#070707]/95 shadow-[0_-12px_32px_rgba(0,0,0,0.5)] backdrop-blur-xl [padding-bottom:env(safe-area-inset-bottom)] lg:hidden"
       >
-        <div className="mx-auto grid h-16 w-full max-w-lg grid-cols-5 px-1">
-          {destinations.map((destination) => {
+        <div className={cn("mx-auto grid h-16 w-full max-w-lg px-1", visibleDestinations.length === 5 ? "grid-cols-5" : "grid-cols-4")}>
+          {visibleDestinations.map((destination) => {
             const active = destination.isActive(pathname, section);
             const Icon = destination.icon;
             return (

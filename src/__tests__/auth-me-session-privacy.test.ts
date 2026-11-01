@@ -87,6 +87,16 @@ describe("GET /api/auth/me session privacy", () => {
     mocks.isVerified.mockReturnValue(true);
   });
 
+  it("does not expire a replacement browser cookie when an old session read finishes late", async () => {
+    mocks.getCurrentSessionUser.mockResolvedValue(null);
+    mocks.getCurrentSessionToken.mockResolvedValue("superseded-session-token");
+    const response = await GET();
+    expect(await response.json()).toEqual({ user: null });
+    expect(mocks.clearUserSession).toHaveBeenCalledWith("superseded-session-token");
+    expect(mocks.expireAuthCookies).not.toHaveBeenCalled();
+    expect(mocks.cookies).not.toHaveBeenCalled();
+  });
+
   it("returns the shared safe session DTO rather than persistence-only credential fields", async () => {
     mocks.getCurrentSessionUser.mockResolvedValue(rawUser());
 
@@ -133,5 +143,24 @@ describe("GET /api/auth/me session privacy", () => {
     expect(response.status).toBe(200);
     expect(payload.user.isPhotoVerified).toBe(false);
     expect(setCookie).not.toHaveBeenCalledWith("alpha_exchange_phone_verified", "1", expect.any(Object));
+  });
+
+  it("returns a retryable 503 without logging out a user when session storage fails", async () => {
+    const failureLog = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    mocks.getCurrentSessionToken.mockResolvedValue("existing-session-token");
+    mocks.getCurrentSessionUser.mockRejectedValue(new Error("database timeout with private details"));
+
+    const response = await GET();
+    const payload = await response.json();
+
+    expect(response.status).toBe(503);
+    expect(response.headers.get("Cache-Control")).toContain("no-store");
+    expect(response.headers.get("Retry-After")).toBe("3");
+    expect(payload).toEqual({ error: "SESSION_TEMPORARILY_UNAVAILABLE" });
+    expect(mocks.clearUserSession).not.toHaveBeenCalled();
+    expect(mocks.expireAuthCookies).not.toHaveBeenCalled();
+    expect(mocks.cookies).not.toHaveBeenCalled();
+    expect(JSON.stringify(failureLog.mock.calls)).not.toContain("private details");
+    failureLog.mockRestore();
   });
 });

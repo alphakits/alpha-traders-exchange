@@ -1,3 +1,4 @@
+import { BrandedText as Text } from "../components/branded-text";
 import { useCallback, useMemo } from "react";
 import {
   ActivityIndicator,
@@ -5,7 +6,6 @@ import {
   Pressable,
   RefreshControl,
   StyleSheet,
-  Text,
   View,
 } from "react-native";
 import { useIsFocused, useRouter } from "expo-router";

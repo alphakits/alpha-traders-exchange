@@ -16,7 +16,7 @@ vi.mock("next/server", async (importOriginal) => ({
 }));
 vi.mock("@/lib/api-auth", () => ({
   requireApiUser: mocks.requireApiUser,
-  requireEmailVerificationForTrading: () => null,
+  requireMarketplaceVerificationForTrading: () => null,
 }));
 vi.mock("@/lib/roles", () => ({ hasRole: () => true }));
 vi.mock("@/lib/rate-limit", () => ({
@@ -32,6 +32,7 @@ vi.mock("@/lib/action-destinations", () => ({
 vi.mock("@/lib/alpha-exchange-store", () => ({
   createPurchaseRequest: mocks.createPurchaseRequest,
   getMyPurchaseRequests: vi.fn(),
+  sanitizePurchaseRequestForActor: (purchase: Record<string, unknown>) => purchase,
 }));
 
 import { POST } from "@/app/api/alpha-exchange/purchase-requests/route";
@@ -40,7 +41,7 @@ function request(payload: Record<string, unknown>) {
   return new NextRequest("http://localhost/api/alpha-exchange/purchase-requests", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
+    body: JSON.stringify({ feePolicyVersion: "buyer_seller_1pct_v1", ...payload }),
   });
 }
 

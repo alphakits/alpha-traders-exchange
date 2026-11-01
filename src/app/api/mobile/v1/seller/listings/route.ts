@@ -1,3 +1,4 @@
+import { FxReferenceUnavailableError } from "@/lib/fx-reference-policy";
 import { NextRequest } from "next/server";
 import {
   canPublishListings,
@@ -22,6 +23,7 @@ import {
   serializeIsraeliBankSelection,
 } from "@/lib/israeli-banks";
 import { fetchUsdIlsMarketRate, getListingPriceValidationError } from "@/lib/listing-price-validation";
+import { normalizeListingPrice } from "@/lib/price-offer";
 import {
   MAX_LISTING_PAYMENT_METHODS,
   requiresIsraeliBankSelection,
@@ -98,6 +100,7 @@ export async function GET(request: NextRequest) {
       },
     }, requestId);
   } catch (error) {
+    if (error instanceof FxReferenceUnavailableError) return mobileError("SERVICE_UNAVAILABLE", requestId, locale, 503);
     logEvent("error", {
       event: "mobile_seller_listings_list",
       outcome: "failed",
@@ -123,6 +126,7 @@ export async function POST(request: NextRequest) {
     const rate = await checkSharedRateLimit({
       headers: request.headers,
       key: "mobile:seller-listing-create",
+      identifier: auth.user.id,
       maxRequests: 10,
       windowMs: 60_000,
     });
@@ -131,9 +135,10 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await readMobileJsonBody(request);
+    if (body?.bankTransferProvider === "wise" || body?.wiseAccountId) return mobileError("INVALID_REQUEST", requestId, locale, 400);
     if (!body) return mobileError("INVALID_REQUEST", requestId, locale, 400);
     const availableAmount = String(body.availableAmount ?? "").trim();
-    const price = String(body.price ?? "").trim();
+    const price = normalizeListingPrice(String(body.price ?? "").trim()) ?? "";
     const currency = String(body.currency ?? "ILS").trim().slice(0, 10).toUpperCase() || "ILS";
     const network = body.network;
     const resolvedPaymentMethods = resolveListingPaymentMethods(body.paymentMethods);
@@ -169,7 +174,7 @@ export async function POST(request: NextRequest) {
         return mobileError("INVALID_REQUEST", requestId, locale, 400);
       }
     }
-    const marketRate = await fetchUsdIlsMarketRate();
+    const marketRate = currency === "ILS" ? await fetchUsdIlsMarketRate() : undefined;
     if (getListingPriceValidationError({ price, currency, marketRate })) {
       return mobileError("INVALID_REQUEST", requestId, locale, 400);
     }
@@ -195,6 +200,7 @@ export async function POST(request: NextRequest) {
     });
     return mobileJson({ listing: toMobileSellerListing(listing) }, requestId, { status: 201 });
   } catch (error) {
+    if (error instanceof FxReferenceUnavailableError) return mobileError("SERVICE_UNAVAILABLE", requestId, locale, 503);
     logEvent("error", {
       event: "mobile_seller_listing_create",
       outcome: "failed",

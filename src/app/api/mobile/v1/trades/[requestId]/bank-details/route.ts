@@ -17,7 +17,7 @@ type RouteContext = {
 
 const RESOURCE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
 
-export async function GET(request: NextRequest, context: RouteContext) {
+export async function POST(request: NextRequest, context: RouteContext) {
   const requestId = createMobileRequestId(request);
   const locale = resolveMobileLocale(request);
   const metadata = parseMobileClientMetadata(request);
@@ -39,6 +39,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
     if (!isMobileTradeParticipant(room.request, auth.user.id) || room.request.buyerId !== auth.user.id) {
       return mobileError("TRADE_NOT_FOUND", requestId, locale, 404);
     }
+    if (room.request.bankTransferProvider === "wise") return mobileError("TRADE_ACTION_NOT_ALLOWED", requestId, locale, 400);
     const details = await getTradeRoomBankDetails({
       purchaseRequestId: params.requestId,
       actorUserId: auth.user.id,

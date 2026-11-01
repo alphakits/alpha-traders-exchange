@@ -1,5 +1,6 @@
 import { spawnSync } from "node:child_process";
 import process from "node:process";
+import { getNpmCommand } from "./npm-command.mjs";
 
 const includeBrowserTests = process.argv.includes("--with-e2e");
 const unknownArguments = process.argv.slice(2).filter((argument) => argument !== "--with-e2e");
@@ -9,12 +10,38 @@ if (unknownArguments.length > 0) {
   process.exit(2);
 }
 
-const npmExecutable = process.platform === "win32" ? "npm.cmd" : "npm";
+const npmCommand = getNpmCommand();
+const npmExecutable = npmCommand.command;
 const steps = [
   {
     label: "Repository patch integrity",
     executable: "git",
     arguments: ["diff", "--check"],
+  },
+  {
+    label: "Expo URI decoder backport integrity",
+    executable: process.execPath,
+    arguments: ["scripts/patch-expo-uri-decoder.mjs", "--check"],
+  },
+  {
+    label: "Dependency security backport integrity",
+    executable: process.execPath,
+    arguments: ["scripts/patch-dependency-security.mjs", "--check"],
+  },
+  {
+    label: "Patched validator compatibility and cross-platform npm invocation",
+    executable: process.execPath,
+    arguments: ["--test", "scripts/test-updated-validator.mjs", "scripts/test-npm-command.mjs"],
+  },
+  {
+    label: "Fresh production dependency advisories",
+    executable: process.execPath,
+    arguments: ["scripts/check-dependency-advisories.mjs"],
+  },
+  {
+    label: "Fresh standalone worker dependency advisories",
+    executable: process.execPath,
+    arguments: ["scripts/check-worker-dependency-advisories.mjs"],
   },
   {
     label: "Unit and integration tests",
@@ -24,17 +51,17 @@ const steps = [
   {
     label: "Full Exchange App Review rehearsal",
     executable: npmExecutable,
-    arguments: ["run", "mobile:review-rehearsal"],
+    arguments: [...npmCommand.prefixArgs, "run", "mobile:review-rehearsal"],
   },
   {
-    label: "Ten-trade Exchange scale rehearsal",
+    label: "Fifteen-seller Exchange scale rehearsal",
     executable: npmExecutable,
-    arguments: ["run", "mobile:scale-rehearsal"],
+    arguments: [...npmCommand.prefixArgs, "run", "mobile:scale-rehearsal"],
   },
   {
     label: "Code-quality checks",
     executable: process.execPath,
-    arguments: ["./node_modules/eslint/bin/eslint.js", "."],
+    arguments: ["./node_modules/eslint/bin/eslint.js", ".", "--max-warnings=0"],
   },
   {
     label: "TypeScript validation",
@@ -44,40 +71,67 @@ const steps = [
   {
     label: "Native app TypeScript validation",
     executable: npmExecutable,
-    arguments: ["run", "mobile:typecheck"],
+    arguments: [...npmCommand.prefixArgs, "run", "mobile:typecheck"],
   },
   {
     label: "Native app configuration and dependency validation",
     executable: npmExecutable,
-    arguments: ["run", "mobile:doctor"],
+    arguments: [...npmCommand.prefixArgs, "run", "mobile:doctor"],
   },
   {
     label: "Mobile App Store source readiness",
     executable: npmExecutable,
-    arguments: ["run", "mobile:store-readiness"],
+    arguments: [...npmCommand.prefixArgs, "run", "mobile:store-readiness"],
   },
   {
     label: "Generated build cleanup",
     executable: npmExecutable,
-    arguments: ["run", "clean"],
+    arguments: [...npmCommand.prefixArgs, "run", "clean"],
   },
   {
     label: "Production build",
     executable: npmExecutable,
-    arguments: ["run", "build"],
+    arguments: [...npmCommand.prefixArgs, "run", "build"],
   },
   {
     label: "Native iOS and Android bundle export",
     executable: npmExecutable,
-    arguments: ["run", "mobile:export"],
+    arguments: [...npmCommand.prefixArgs, "run", "mobile:export"],
   },
 ];
 
 if (includeBrowserTests) {
   steps.push({
+    label: "Buy Requests isolated production flows and accessibility",
+    executable: process.execPath,
+    arguments: ["./node_modules/playwright/cli.js", "test", "--config=playwright.usdt-requests-offline.config.ts"],
+    env: { USDT_OFFLINE_PRODUCTION: "1" },
+  });
+  steps.push({
+    label: "Wise isolated USD lifecycle and phone layouts",
+    executable: process.execPath,
+    arguments: ["./node_modules/playwright/cli.js", "test", "--config=playwright.wise-draft.config.ts"],
+    env: { WISE_OFFLINE_PRODUCTION: "1" },
+  });
+  steps.push({
     label: "Mobile and desktop browser flows",
     executable: process.execPath,
     arguments: ["./node_modules/playwright/cli.js", "test"],
+  });
+  steps.push({
+    label: "Mandatory phone verification and exact owner exceptions",
+    executable: process.execPath,
+    arguments: ["./node_modules/playwright/cli.js", "test", "--config=playwright.phone-verification.config.ts"],
+  });
+  steps.push({
+    label: "WebKit marketplace and owner browser flows",
+    executable: process.execPath,
+    arguments: ["./node_modules/playwright/cli.js", "test", "--config=playwright.webkit.config.ts"],
+  });
+  steps.push({
+    label: "WebKit mandatory phone and age verification",
+    executable: process.execPath,
+    arguments: ["./node_modules/playwright/cli.js", "test", "--config=playwright.webkit.phone-verification.config.ts"],
   });
 }
 
@@ -90,7 +144,7 @@ for (const [index, step] of steps.entries()) {
 
   const result = spawnSync(step.executable, step.arguments, {
     cwd: process.cwd(),
-    env: { ...process.env, CI: "1" },
+    env: { ...process.env, CI: "1", ...step.env },
     stdio: "inherit",
   });
 

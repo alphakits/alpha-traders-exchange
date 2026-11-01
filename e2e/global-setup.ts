@@ -3,6 +3,7 @@ import { promisify } from "node:util";
 import type { FullConfig } from "@playwright/test";
 import alphaExchangeSeed from "../data/alpha-exchange-db.json";
 import { resolveBuyerFixture } from "./support/buyer-fixture";
+import { createE2eSellerApprovalVerification } from "./support/seller-verification";
 
 const scrypt = promisify(scryptCallback);
 const TEST_SUPPORT_HEADERS = {
@@ -26,6 +27,8 @@ const SELLER = {
   password: "E2eSeller!Launch2026",
 };
 const LISTING_ID = "e2e-global-seller-listing";
+const GUEST = { id: "e2e-global-guest", email: "e2e-global-guest@example.test", password: "E2eGuest!Launch2026" };
+const STUDENT = { id: "e2e-global-student", email: "e2e-global-student@example.test", password: "E2eStudent!Launch2026" };
 
 type RuntimeDb = Record<string, unknown>;
 
@@ -104,11 +107,11 @@ function upsertUser(db: RuntimeDb, input: {
   email: string;
   passwordHash: string;
   fullName: string;
-  role: "owner" | "admin" | "approved_seller";
+  role: "owner" | "admin" | "approved_seller" | "guest" | "student";
   roles: string[];
   sellerStatus: "buyer" | "approved_seller";
   verifiedPhone: string;
-  onboardingSelection: "buyer" | "seller_applicant";
+  onboardingSelection: "buyer" | "seller_applicant" | "guest" | "student";
   isFoundingSeller?: boolean;
 }) {
   const users = ensureArray<Record<string, unknown>>(db.users).filter((user) => {
@@ -116,6 +119,7 @@ function upsertUser(db: RuntimeDb, input: {
     return email !== input.email.toLowerCase() && String(user.id ?? "") !== input.id;
   });
   const now = nowIso();
+  const bankAccountId = `bank-${input.id}`;
   users.push({
     id: input.id,
     fullName: input.fullName,
@@ -124,6 +128,9 @@ function upsertUser(db: RuntimeDb, input: {
     role: input.role,
     roles: input.roles,
     sellerStatus: input.sellerStatus,
+    ...(input.sellerStatus === "approved_seller" ? {
+      sellerApprovalVerification: createE2eSellerApprovalVerification(now),
+    } : {}),
     whatsappNumber: "+972500000111",
     preferredNetworks: ["TRC20"],
     preferredPaymentMethods: ["Bank Transfer"],
@@ -147,6 +154,20 @@ function upsertUser(db: RuntimeDb, input: {
     availabilityStatus: "available",
     notificationPreferences: { inApp: true, email: false, sms: false },
     isFoundingSeller: input.isFoundingSeller ?? false,
+    ...(input.role === "approved_seller" || input.role === "owner" ? {
+      sellerBankAccounts: [{
+        id: bankAccountId,
+        sellerId: input.id,
+        accountHolderName: input.fullName,
+        bankName: "Bank Hapoalim",
+        branchNumber: "123",
+        accountNumber: "9000000111",
+        accountLast4: "0111",
+        isDefault: true,
+        createdAt: now,
+        updatedAt: now,
+      }],
+    } : {}),
     createdAt: now,
     updatedAt: now,
   });
@@ -168,6 +189,7 @@ function upsertSellerListing(db: RuntimeDb, sellerId: string) {
     network: "TRC20",
     paymentMethod: "Bank Transfer",
     paymentMethods: ["Bank Transfer"],
+    bankAccountId: `bank-${sellerId}`,
     bankName: "Bank Hapoalim",
     minimumTrade: "100",
     maximumTrade: "1500",
@@ -183,10 +205,12 @@ function upsertSellerListing(db: RuntimeDb, sellerId: string) {
 }
 
 async function provisionRoleFixtures(baseUrl: string) {
-  const [ownerHash, adminHash, sellerHash] = await Promise.all([
+  const [ownerHash, adminHash, sellerHash, guestHash, studentHash] = await Promise.all([
     hashPassword(OWNER.password),
     hashPassword(ADMIN.password),
     hashPassword(SELLER.password),
+    hashPassword(GUEST.password),
+    hashPassword(STUDENT.password),
   ]);
 
   const db = await readRuntimeDb(baseUrl);
@@ -225,6 +249,16 @@ async function provisionRoleFixtures(baseUrl: string) {
     onboardingSelection: "seller_applicant",
     isFoundingSeller: true,
   });
+  upsertUser(db, {
+    ...GUEST, passwordHash: guestHash, fullName: "E2E Global Guest",
+    role: "guest", roles: ["guest"], sellerStatus: "buyer",
+    verifiedPhone: "+972500010004", onboardingSelection: "guest",
+  });
+  upsertUser(db, {
+    ...STUDENT, passwordHash: studentHash, fullName: "E2E Global Student",
+    role: "student", roles: ["student"], sellerStatus: "buyer",
+    verifiedPhone: "+972500010005", onboardingSelection: "student",
+  });
   upsertSellerListing(db, SELLER.id);
   await writeRuntimeDb(baseUrl, db);
 
@@ -234,6 +268,10 @@ async function provisionRoleFixtures(baseUrl: string) {
   process.env.E2E_ADMIN_PASSWORD = ADMIN.password;
   process.env.E2E_SELLER_EMAIL = SELLER.email;
   process.env.E2E_SELLER_PASSWORD = SELLER.password;
+  process.env.E2E_GUEST_EMAIL = GUEST.email;
+  process.env.E2E_GUEST_PASSWORD = GUEST.password;
+  process.env.E2E_STUDENT_EMAIL = STUDENT.email;
+  process.env.E2E_STUDENT_PASSWORD = STUDENT.password;
 
   const buyer = await resolveBuyerFixture(
     (process.env.E2E_BUYER_EMAIL ?? "").toLowerCase(),

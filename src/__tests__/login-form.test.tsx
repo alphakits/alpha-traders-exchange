@@ -1,6 +1,10 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { renderToString } from "react-dom/server";
+import { hydrateRoot } from "react-dom/client";
 import { LoginForm } from "@/components/auth/login-form";
+import { CanonicalSessionProvider } from "@/components/auth/canonical-session-provider";
+import { LOCALE_CHOICE_COOKIE } from "@/i18n/locale-preference";
 
 vi.mock("@/i18n/navigation", () => ({
   Link: ({ children, href, ...props }: React.AnchorHTMLAttributes<HTMLAnchorElement> & { href: string }) => (
@@ -11,6 +15,256 @@ vi.mock("@/i18n/navigation", () => ({
 describe("LoginForm", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    localStorage.clear();
+  });
+
+  afterEach(() => {
+    delete window.ReactNativeWebView;
+  });
+
+  it.each(["en", "ar"] as const)("keeps %s credentials and submission disabled until hydration is ready", async (locale) => {
+    const container = document.createElement("div");
+    container.innerHTML = renderToString(<LoginForm locale={locale} />);
+    document.body.append(container);
+    const controls = () => [...container.querySelectorAll<HTMLInputElement | HTMLButtonElement>("form input, form button")];
+    try {
+      expect(controls().length).toBe(5);
+      expect(container.querySelector("form")?.getAttribute("method")).toBe("post");
+      expect(controls().every(control => control.disabled)).toBe(true);
+      let root: ReturnType<typeof hydrateRoot> | undefined;
+      try {
+        await act(async () => { root = hydrateRoot(container, <LoginForm locale={locale} />); });
+        expect(container.querySelector("form")?.getAttribute("data-hydrated")).toBe("true");
+        expect(controls().every(control => !control.disabled)).toBe(true);
+      } finally {
+        if (root) await act(async () => root?.unmount());
+      }
+    } finally {
+      container.remove();
+    }
+  });
+
+  it("keeps the existing website login without the app-only artwork", () => {
+    const page = render(<LoginForm locale="en" />);
+    expect(page.container.querySelector('[data-login-surface="web"]')).not.toBeNull();
+    expect(page.container.querySelector("[data-app-login-network]")).toBeNull();
+    expect(screen.getByText("Sign in to continue.")).toBeTruthy();
+    expect(screen.getByRole("checkbox", { name: "Remember Me" })).toBeTruthy();
+  });
+
+  it.each([
+    ["en", false], ["ar", false], ["en", true], ["ar", true],
+  ] as const)("explains exchange sign-in in %s with native app=%s", (locale, native) => {
+    if (native) window.ReactNativeWebView = { postMessage: vi.fn() };
+    const page = render(<LoginForm locale={locale} redirectTo={`/${locale}/usdt-exchange?mode=buy`} />);
+    expect(page.container.textContent).toContain(locale === "ar"
+      ? "سجّل الدخول لتصفّح عروض USDT."
+      : "Sign in to browse USDT listings.");
+  });
+
+  it.each([
+    ["en", "Password", "Show password"],
+    ["ar", "كلمة المرور", "إظهار كلمة المرور"],
+  ] as const)("shows the app design with working login controls in %s", (locale, passwordLabel, showLabel) => {
+    const postMessage = vi.fn();
+    window.ReactNativeWebView = { postMessage };
+    const page = render(<LoginForm locale={locale} />);
+    expect(page.container.querySelector('[data-login-surface="app"]')).not.toBeNull();
+    expect(page.container.querySelector("[data-app-login-network]")?.getAttribute("aria-hidden")).toBe("true");
+    const password = screen.getByLabelText(passwordLabel) as HTMLInputElement;
+    fireEvent.change(password, { target: { value: "app-test-password" } });
+    fireEvent.click(screen.getByRole("button", { name: showLabel }));
+    expect(password.type).toBe("text");
+    expect(password.value).toBe("app-test-password");
+    fireEvent.click(screen.getByRole("checkbox"));
+    expect(localStorage.getItem("alpha.auth.remember-me.v1")).toBe("false");
+    expect(postMessage.mock.calls.map(([raw]) => JSON.parse(raw).action)).toEqual(["load", "clear"]);
+  });
+
+  it.each([
+    ["en", "Password", "Show password", "Hide password"],
+    ["ar", "كلمة المرور", "إظهار كلمة المرور", "إخفاء كلمة المرور"],
+  ] as const)("reveals and hides the same password without submitting in %s", (locale, label, show, hide) => {
+    const fetch = vi.fn();
+    vi.stubGlobal("fetch", fetch);
+    render(<LoginForm locale={locale} />);
+    const password = screen.getByLabelText(label) as HTMLInputElement;
+    fireEvent.change(password, { target: { value: "test-password" } });
+    expect(password.type).toBe("password");
+    fireEvent.click(screen.getByRole("button", { name: show }));
+    expect(password.type).toBe("text");
+    expect(password.value).toBe("test-password");
+    expect(screen.getByRole("button", { name: hide }).getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(screen.getByRole("button", { name: hide }));
+    expect(password.type).toBe("password");
+    expect(password.value).toBe("test-password");
+    expect(fetch).not.toHaveBeenCalled();
+    expect(localStorage.length).toBe(0);
+  });
+
+  it("cancels an unanswered native forget request when the login screen closes", async () => {
+    vi.useFakeTimers();
+    window.ReactNativeWebView = { postMessage: vi.fn() };
+    const page = render(<LoginForm locale="en" />);
+    try {
+      fireEvent.click(screen.getByRole("checkbox", { name: "Remember Me" }));
+      expect(window.ReactNativeWebView.postMessage).toHaveBeenCalledTimes(2);
+      page.unmount();
+      expect(window.__alphaRememberedLoginRequestId).toBeUndefined();
+    } finally {
+      page.unmount();
+      await act(async () => { await vi.runOnlyPendingTimersAsync(); });
+      vi.useRealTimers();
+    }
+  });
+
+  it("restores only the remember preference when the login page is reopened", () => {
+    const first = render(<LoginForm locale="en" />);
+    fireEvent.change(screen.getByLabelText("Email"), { target: { value: "test@example.test" } });
+    fireEvent.change(screen.getByLabelText("Password"), { target: { value: "test-password" } });
+    fireEvent.click(screen.getByRole("checkbox", { name: "Remember Me" }));
+    expect(localStorage.getItem("alpha.auth.remember-me.v1")).toBe("false");
+    expect(localStorage.length).toBe(1);
+    first.unmount();
+    render(<LoginForm locale="en" />);
+    expect((screen.getByRole("checkbox") as HTMLInputElement).checked).toBe(false);
+    expect((screen.getByLabelText("Email") as HTMLInputElement).value).toBe("");
+    expect((screen.getByLabelText("Password") as HTMLInputElement).value).toBe("");
+    fireEvent.click(screen.getByRole("checkbox"));
+    expect(localStorage.getItem("alpha.auth.remember-me.v1")).toBe("true");
+  });
+
+  it("keeps sign-in usable when preference storage is blocked", () => {
+    vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => { throw new Error("Unavailable"); });
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new Error("Unavailable"); });
+    render(<LoginForm locale="en" />);
+    const checkbox = screen.getByRole("checkbox") as HTMLInputElement;
+    expect(checkbox.checked).toBe(true);
+    fireEvent.click(checkbox);
+    expect(checkbox.checked).toBe(false);
+  });
+
+  it("conceals a revealed password when the app or tab goes into the background", () => {
+    render(<LoginForm locale="en" />);
+    fireEvent.click(screen.getByRole("button", { name: "Show password" }));
+    const hidden = vi.spyOn(document, "hidden", "get").mockReturnValue(true);
+    fireEvent(document, new Event("visibilitychange"));
+    expect((screen.getByLabelText("Password") as HTMLInputElement).type).toBe("password");
+    hidden.mockRestore();
+  });
+
+  it.each([
+    ["en", undefined, "/en/usdt-exchange"],
+    ["ar", undefined, "/ar/usdt-exchange"],
+    ["ar", "/en/academy", "/ar/academy"],
+    ["en", "/ar/academy", "/en/academy"],
+    ["en", "/en/learn-with-mark?utm_source=friend", "/en/learn-with-mark?utm_source=friend"],
+    ["ar", "/ar/learn-with-mark#mark-explains", "/ar/learn-with-mark#mark-explains"],
+    ["ar", "/ar/usdt-exchange?mode=buy&sort=trust-desc", "/ar/usdt-exchange?mode=buy&sort=trust-desc"],
+    ["ar", "/en/trade-room/trade-1?tab=messages#latest", "/ar/trade-room/trade-1?tab=messages#latest"],
+  ] as const)("keeps the selected %s page language after login with destination %s", async (locale, redirectTo, expected) => {
+    const originalLocation = window.location;
+    const replace = vi.fn();
+    Object.defineProperty(window, "location", { configurable: true, value: { ...originalLocation, replace } });
+    document.cookie = `${LOCALE_CHOICE_COOKIE}=${locale}; Path=/`;
+    const fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ user: { role: "buyer", roles: ["buyer"] } }) });
+    vi.stubGlobal("fetch", fetch);
+    try {
+      render(<LoginForm locale={locale} redirectTo={redirectTo} />);
+      fireEvent.change(screen.getByLabelText(locale === "ar" ? "البريد الإلكتروني" : "Email"), { target: { value: "buyer@example.test" } });
+      fireEvent.change(screen.getByLabelText(locale === "ar" ? "كلمة المرور" : "Password"), { target: { value: "test-password" } });
+      fireEvent.click(screen.getByRole("button", { name: locale === "ar" ? "تسجيل الدخول" : "Login" }));
+      await waitFor(() => expect(replace).toHaveBeenCalledWith(expected));
+      expect(document.cookie).toContain(`${LOCALE_CHOICE_COOKIE}=${locale}`);
+      expect(fetch).toHaveBeenCalledTimes(1);
+    } finally {
+      Object.defineProperty(window, "location", { configurable: true, value: originalLocation });
+    }
+  });
+
+  it.each([
+    ["/en/lessons?q=risk", "#risk-management", "/ar/lessons?q=risk#risk-management"],
+    ["/en/lessons#beginner-guides", "#risk-management", "/ar/lessons#beginner-guides"],
+    ["//outside.test", "#risk-management", "/ar/usdt-exchange"],
+  ])("preserves a browser-carried section for destination %s without replacing an explicit section", async (redirectTo, hash, expected) => {
+    const originalLocation = window.location;
+    const replace = vi.fn();
+    Object.defineProperty(window, "location", { configurable: true, value: { ...originalLocation, hash, replace } });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({ user: { role: "buyer", roles: ["buyer"] } }) }));
+    try {
+      render(<LoginForm locale="ar" redirectTo={redirectTo} />);
+      fireEvent.change(screen.getByLabelText("البريد الإلكتروني"), { target: { value: "buyer@example.test" } });
+      fireEvent.change(screen.getByLabelText("كلمة المرور"), { target: { value: "test-password" } });
+      fireEvent.click(screen.getByRole("button", { name: "تسجيل الدخول" }));
+      await waitFor(() => expect(replace).toHaveBeenCalledWith(expected));
+    } finally {
+      Object.defineProperty(window, "location", { configurable: true, value: originalLocation });
+    }
+  });
+
+  it.each(["en", "ar"] as const)("carries the free Academy intent into %s account creation", locale => {
+    render(<LoginForm locale={locale} redirectTo={`/${locale}/academy`} />);
+    expect(document.querySelector('a[href="/register?intent=learn"]')).not.toBeNull();
+  });
+
+  it.each(["en", "ar"] as const)("carries the mentorship destination into %s account creation", locale => {
+    render(<LoginForm locale={locale} redirectTo={`/${locale}/learn-with-mark?utm_source=friend`} />);
+    expect(document.querySelector('a[href="/register?intent=mentorship"]')).not.toBeNull();
+  });
+
+  it.each(["/ar/trade-room/trade-1", "//outside.test", "/ar/login", "/login"])("restores a valid cookie session from Login with safe destination %s", async (redirectTo) => {
+    const originalLocation = window.location;
+    const replaceSpy = vi.fn();
+    Object.defineProperty(window, "location", { configurable: true, value: { ...originalLocation, replace: replaceSpy } });
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ user: { id: "buyer-1", role: "buyer", roles: ["buyer"] } }) });
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      render(<CanonicalSessionProvider initialSessionUser={null}><LoginForm locale="ar" redirectTo={redirectTo} /></CanonicalSessionProvider>);
+      await act(async () => { await Promise.resolve(); });
+      expect(replaceSpy).toHaveBeenCalledWith(redirectTo.includes("trade-room") ? redirectTo : "/ar/usdt-exchange");
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(fetchMock.mock.calls[0][0]).toBe("/api/auth/me");
+    } finally {
+      Object.defineProperty(window, "location", { configurable: true, value: originalLocation });
+    }
+  });
+
+  it.each([
+    ["buyer", "/ar/admin/alpha-exchange", "/ar/dashboard"],
+    ["buyer", "/ar/dashboard/seller", "/ar/dashboard"],
+    ["student", "/ar/trades", "/ar/profile"],
+    ["guest", "/ar/trade-room/owned-trade", "/ar/trade-room/owned-trade"],
+  ])("hides the restored login form and skips a forbidden destination for %s", async (role, redirectTo, expected) => {
+    const originalLocation = window.location;
+    const replaceSpy = vi.fn();
+    Object.defineProperty(window, "location", { configurable: true, value: { ...originalLocation, replace: replaceSpy } });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({
+      user: { id: "restored-account", role, roles: [role], sellerStatus: "buyer", onboardingSelection: role },
+    })));
+    try {
+      render(<CanonicalSessionProvider initialSessionUser={null}><LoginForm locale="ar" redirectTo={redirectTo} /></CanonicalSessionProvider>);
+      await waitFor(() => expect(replaceSpy).toHaveBeenCalledWith(expected));
+      expect(screen.queryByRole("button", { name: "تسجيل الدخول" })).toBeNull();
+      expect(screen.queryByLabelText("كلمة المرور")).toBeNull();
+      expect(screen.queryByRole("link", { name: "أنشئ حسابًا" })).toBeNull();
+    } finally {
+      Object.defineProperty(window, "location", { configurable: true, value: originalLocation });
+    }
+  });
+
+  it("keeps Login available when the session is anonymous or unavailable", async () => {
+    const originalLocation = window.location;
+    const replaceSpy = vi.fn();
+    Object.defineProperty(window, "location", { configurable: true, value: { ...originalLocation, replace: replaceSpy } });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 503, json: async () => ({}) }));
+    try {
+      render(<CanonicalSessionProvider initialSessionUser={null}><LoginForm locale="en" /></CanonicalSessionProvider>);
+      await act(async () => { await Promise.resolve(); });
+      expect(replaceSpy).not.toHaveBeenCalled();
+      expect(screen.getByRole("button", { name: "Login" })).toBeTruthy();
+    } finally {
+      Object.defineProperty(window, "location", { configurable: true, value: originalLocation });
+    }
   });
 
   it("redirects immediately after a successful login without waiting for the profile check", async () => {
@@ -45,7 +299,7 @@ describe("LoginForm", () => {
     fireEvent.change(screen.getByLabelText("Password"), { target: { value: "abc12345" } });
     fireEvent.click(screen.getByRole("button", { name: "Login" }));
 
-    await waitFor(() => expect(replaceSpy).toHaveBeenCalledWith("/en/dashboard/seller"));
+    await waitFor(() => expect(replaceSpy).toHaveBeenCalledWith("/en/dashboard"));
     expect(fetchMock).toHaveBeenCalledTimes(1);
 
     Object.defineProperty(window, "location", {
@@ -91,6 +345,40 @@ describe("LoginForm", () => {
     render(<LoginForm locale="en" />);
     const forgotLink = screen.getByRole("link", { name: "Forgot your password?" });
     expect(forgotLink.getAttribute("href")).toBe("/forgot-password");
+  });
+
+  it("keeps login usable when an upstream rejection returns a structured error", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({ ok: false, status: 403, json: async () => ({ error: { message: "Upstream rejection", code: "FORBIDDEN" } }) })
+      .mockResolvedValueOnce({ ok: false, status: 401, json: async () => ({ error: "Invalid credentials." }) });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<LoginForm locale="en" />);
+    fireEvent.change(screen.getByLabelText("Email"), { target: { value: "audit@example.test" } });
+    fireEvent.change(screen.getByLabelText("Password"), { target: { value: "test-password" } });
+    fireEvent.click(screen.getByRole("button", { name: "Login" }));
+
+    expect(await screen.findByRole("alert")).toHaveProperty("textContent", "Login failed.");
+    expect((screen.getByRole("button", { name: "Login" }) as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "Login" }));
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toBe("Invalid credentials."));
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([false, true])("keeps verification-email recovery usable with structured response copy (ok=%s)", async (ok) => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({ ok: false, status: 403, json: async () => ({ requiresEmailVerification: true }) })
+      .mockResolvedValueOnce({ ok, json: async () => ({ error: { message: "Internal rejection", code: "UPSTREAM" }, message: { sent: true } }) });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<LoginForm locale="en" />);
+    fireEvent.change(screen.getByLabelText("Email"), { target: { value: "audit@example.test" } });
+    fireEvent.change(screen.getByLabelText("Password"), { target: { value: "test-password" } });
+    fireEvent.click(screen.getByRole("button", { name: "Login" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Resend verification email" }));
+    expect(await screen.findByText(ok
+      ? "If the account exists and is unverified, a new verification email has been sent."
+      : "Failed to resend verification email.")).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Resend verification email" }) as HTMLButtonElement).disabled).toBe(false);
+    expect(screen.queryByText("Internal rejection")).toBeNull();
   });
 
   it("shows password-reset success confirmation when arriving from reset flow", () => {

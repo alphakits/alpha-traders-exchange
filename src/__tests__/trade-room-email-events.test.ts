@@ -1,3 +1,6 @@
+import { buildTradeReceipt } from "@/lib/trade-receipt";
+import { receiptRequest, receiptCommission } from "@/test-utils/trade-receipt";
+import { publicAccountId } from "@/lib/public-account-identity";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AlphaExchangeDb, AlphaExchangeUser, PurchaseRequest } from "@/types/alpha-exchange";
 
@@ -119,6 +122,23 @@ describe("Trade Room email events", () => {
     sendMarketplaceEmailMock.mockResolvedValue({ ok: true });
   });
 
+  it("sends separate completion receipts to both participants with stable keys and their own locale", async () => {
+    const request = { ...receiptRequest(), buyerId: BUYER_ID, sellerId: SELLER_ID };
+    request.completionReceipt = buildTradeReceipt(request, { ...receiptCommission, sellerId: SELLER_ID }, "completion");
+    const deliver = await prepareTradeEventEmails({ event: "trade_completed", request });
+    await deliver();
+    expect(sendMarketplaceEmailMock).toHaveBeenCalledTimes(2);
+    for (const [id, locale] of [[BUYER_ID, "ar"], [SELLER_ID, "en"]]) {
+      expect(sendMarketplaceEmailMock).toHaveBeenCalledWith(expect.objectContaining({
+        to: `${id}@example.test`, recipientLocale: locale,
+        completionReceipt: request.completionReceipt,
+        idempotencyKey: `trade-lifecycle:receipt-trade:trade_completed:${id}`,
+        actionPath: "/trade-room/receipt-trade#trade-receipt",
+      }));
+    }
+    expect(JSON.stringify(sendMarketplaceEmailMock.mock.calls)).not.toContain("PRIVATE");
+  });
+
   it("sends Arabic-first and English lifecycle copy to the seller for a new buy request", async () => {
     const deliver = await prepareTradeEventEmails({
       event: "new_buy_request",
@@ -133,8 +153,8 @@ describe("Trade Room email events", () => {
       recipientLocale: "en",
       title: { ar: "طلب شراء جديد", en: "New Buy Request" },
       message: {
-        ar: "طلب Buyer One شراء 125 USDT. راجع الطلب في غرفة الصفقة.",
-        en: "Buyer One requested 125 USDT. Review the request in your Trade Room.",
+        ar: `طلب ${publicAccountId({ id: "buyer-1", role: "buyer" })} شراء 125 USDT. راجع الطلب في غرفة الصفقة.`,
+        en: `${publicAccountId({ id: "buyer-1", role: "buyer" })} requested 125 USDT. Review the request in your Trade Room.`,
       },
       actionPath: "/trade-room/purchase-1",
     }));
@@ -181,6 +201,20 @@ describe("Trade Room email events", () => {
         ar: expect.stringContaining("لا يلزم رفع صورة"),
         en: expect.stringContaining("no photo is required"),
       },
+    }));
+  });
+
+  it("emails the seller when the face-to-face buyer confirms cash receipt", async () => {
+    const request = { ...createRequest("funds_received"), paymentMethod: "Face-to-Face (Meet in Person)" };
+    request.timeline = [{ id: "cash-confirmation", type: "buyer_confirmed_funds", actorUserId: request.buyerId, actorRole: "buyer", message: "Buyer confirmed the seller received the cash", createdAt: request.updatedAt }];
+    const deliver = await prepareTradeEventEmails({ event: "seller_funds_received", request });
+    await deliver();
+    expect(sendMarketplaceEmailMock).toHaveBeenCalledTimes(1);
+    expect(sendMarketplaceEmailMock).toHaveBeenCalledWith(expect.objectContaining({
+      to: "seller-1@example.test",
+      title: { ar: "أكد المشتري استلام البائع للنقد", en: "Buyer Confirmed Cash Receipt" },
+      message: expect.objectContaining({ en: expect.stringContaining("Verify the cash, send USDT") }),
+      idempotencyKey: "trade-lifecycle:purchase-1:seller_funds_received:seller-1",
     }));
   });
 

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { submitBuyerTradeReview, submitSellerReviewResponse } from "@/lib/alpha-exchange-store";
-import { requireApiUser, requireEmailVerificationForTrading } from "@/lib/api-auth";
+import { submitBuyerTradeReview, submitSellerReviewResponse, submitSellerBuyerReview } from "@/lib/alpha-exchange-store";
+import { requireApiUser, requireMarketplaceVerificationForTrading } from "@/lib/api-auth";
 import { checkSharedRateLimit } from "@/lib/rate-limit";
 import { logEvent } from "@/lib/structured-logging";
 
@@ -10,8 +10,11 @@ type RouteContext = {
 
 export async function POST(request: NextRequest, context: RouteContext) {
   const routeStartedAt = Date.now();
-  const diagnosticId = request.headers.get("X-Review-Diagnostic-Id")?.trim() || null;
+  const diagnosticId = request.headers.get("X-Review-Diagnostic-Id")?.trim().slice(0, 100) || null;
+  const tracePhase = (phase: string) => logEvent("info", { event: "trade_review_phase", outcome: "success", metadata: { phase, diagnosticId, elapsedMs: Date.now() - routeStartedAt } });
+  tracePhase("authentication_started");
   const { user, unauthorized } = await requireApiUser();
+  tracePhase("authentication_finished");
   if (!user) {
     logEvent("warn", {
       event: "trade_review_submission",
@@ -20,23 +23,26 @@ export async function POST(request: NextRequest, context: RouteContext) {
     });
     return unauthorized;
   }
-  const emailVerificationRequired = requireEmailVerificationForTrading(user);
+  const emailVerificationRequired = requireMarketplaceVerificationForTrading(user);
   if (emailVerificationRequired) {
     logEvent("warn", {
       event: "trade_review_submission",
       actorUserId: user.id,
       actorRole: user.role,
       outcome: "denied",
-      reason: "email_verification_required",
+      reason: "marketplace_verification_required",
     });
     return emailVerificationRequired;
   }
+  tracePhase("rate_limit_started");
   const rate = await checkSharedRateLimit({
     headers: request.headers,
     key: "exchange:review-submit",
+    identifier: user.id,
     maxRequests: 20,
     windowMs: 60_000,
   });
+  tracePhase("rate_limit_finished");
   if (!rate.allowed) {
     logEvent("warn", {
       event: "trade_review_submission",
@@ -53,6 +59,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
     const validationStartedAt = Date.now();
     const body = await request.json();
     const mode = String(body.mode ?? "buyer_review").trim();
+    tracePhase("save_started");
 
     if (mode === "buyer_review") {
       const rating = Number(body.rating ?? 0);
@@ -108,6 +115,12 @@ export async function POST(request: NextRequest, context: RouteContext) {
       });
     }
 
+    if (mode === "seller_buyer_review") {
+      const updated = await submitSellerBuyerReview({ requestId, sellerUserId: user.id,
+        rating: Number(body.rating), comment: String(body.comment ?? "") });
+      return NextResponse.json(updated, { headers: { "Cache-Control": "no-store" } });
+    }
+
     if (mode === "seller_response") {
       const message = String(body.message ?? "").slice(0, 2000);
       const validationMs = Date.now() - validationStartedAt;
@@ -149,12 +162,21 @@ export async function POST(request: NextRequest, context: RouteContext) {
     });
     return NextResponse.json({ error: "Invalid review mode." }, { status: 400 });
   } catch (error) {
+    const errorCode = error && typeof error === "object" && "code" in error ? String(error.code) : undefined;
+    const databaseUnavailable = (error instanceof Error && /query read timeout|statement timeout|timeout exceeded|connection terminated|connection closed|persistence.*unavailable/i.test(error.message))
+      || (errorCode !== undefined && ["57014", "55P03", "08000", "08003", "08006", "57P01", "57P02", "57P03", "ETIMEDOUT", "ECONNRESET"].includes(errorCode));
     logEvent("error", {
       event: "trade_review_submission",
       outcome: "failed",
-      reason: "submission_failed",
-      metadata: { errorType: error instanceof Error ? error.name : typeof error },
+      reason: databaseUnavailable ? "database_unavailable" : "submission_failed",
+      metadata: { errorType: error instanceof Error ? error.name : typeof error, errorCode, diagnosticId, routeMs: Date.now() - routeStartedAt },
     });
+    if (databaseUnavailable) {
+      return NextResponse.json({ error: "Could not confirm your review was saved. Please submit the same feedback again.", code: "REVIEW_SAVE_UNCONFIRMED" }, {
+        status: 503,
+        headers: { "Retry-After": "2", "Cache-Control": "no-store" },
+      });
+    }
     return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to submit review." }, { status: 400 });
   }
 }

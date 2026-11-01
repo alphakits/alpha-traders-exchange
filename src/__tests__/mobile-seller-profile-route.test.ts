@@ -61,6 +61,7 @@ beforeEach(() => {
       onlineStatus: "online",
       availabilityStatus: "available",
       isEmailVerified: true,
+      isPhoneVerified: true,
       isOwner: false,
       isFoundingMember: true,
       isFoundingSeller: true,
@@ -85,7 +86,7 @@ beforeEach(() => {
         id: "private-review-id",
         tradeId: "private-trade-id",
         buyerId: "private-buyer-id",
-        buyerName: "Verified Buyer",
+        buyerName: "Legacy Private Buyer",
         rating: 5,
         comment: "Excellent trade.",
         createdAt: "2026-09-01T00:00:00.000Z",
@@ -114,6 +115,7 @@ describe("GET /api/mobile/v1/marketplace/listings/[listingId]/seller", () => {
     expect(response.status).toBe(200);
     expect(payload.requestId).toBe("seller-request-1");
     expect(payload.seller).toMatchObject({
+      isPhoneVerified: true,
       listingId: "listing-1",
       displayName: "Alpha OTC",
       isCurrentUser: false,
@@ -123,7 +125,7 @@ describe("GET /api/mobile/v1/marketplace/listings/[listingId]/seller", () => {
       canBuyNow: true,
       latestReviews: [
         {
-          buyerDisplayName: "Verified Buyer",
+          buyerDisplayName: expect.stringMatching(/^AT-\d{6,7}$/),
           comment: "Excellent trade.",
           sellerResponse: { message: "Thank you." },
         },
@@ -134,6 +136,7 @@ describe("GET /api/mobile/v1/marketplace/listings/[listingId]/seller", () => {
       "private-review-id",
       "private-trade-id",
       "private-buyer-id",
+      "Legacy Private Buyer",
       "private@example.test",
       "+972500000000",
       "audit-secret",
@@ -158,6 +161,21 @@ describe("GET /api/mobile/v1/marketplace/listings/[listingId]/seller", () => {
       canMakeOffer: false,
     });
     expect(JSON.stringify(payload)).not.toContain("private-seller-id");
+  });
+
+  it("excludes moderated reviews from the native projection", async () => {
+    const current = await mocks.getPremiumSellerProfile();
+    mocks.getPremiumSellerProfile.mockResolvedValue({
+      ...current,
+      latestReviews: [{ ...current.latestReviews[0], hidden: true }],
+    });
+    const response = await GET(request("listing-1", "token"), {
+      params: Promise.resolve({ listingId: "listing-1" }),
+    });
+    const payload = await response.json();
+    expect(response.status).toBe(200);
+    expect(payload.seller.latestReviews).toEqual([]);
+    expect(JSON.stringify(payload)).not.toContain("Excellent trade.");
   });
 
   it("removes an unsafe seller image URL from the native projection", async () => {

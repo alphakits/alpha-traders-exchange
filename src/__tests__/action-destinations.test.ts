@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  adminActiveTradesDestination,
   adminCommissionDestination,
   adminMarketplaceEnforcementDestination,
   adminMarketplaceListingsDestination,
@@ -78,6 +79,19 @@ describe("canonical action destinations", () => {
     });
   });
 
+  it("opens the active list without hiding an explicitly requested historical trade", () => {
+    const destination = adminActiveTradesDestination();
+    expect(destination).toBe("/admin/alpha-exchange?section=purchase-requests&status=active");
+    expect(parseAdminDashboardDestination(new URL(destination, "https://example.test").searchParams)).toEqual({
+      section: "purchase-requests", purchaseRequestFilter: "active",
+    });
+    expect(parseAdminDashboardDestination(new URLSearchParams("section=purchase-requests&status=active&requestId=completed-trade"))).toEqual({
+      section: "purchase-requests", purchaseRequestId: "completed-trade",
+    });
+    expect(parseAdminDashboardDestination(new URLSearchParams("section=purchase-requests&status=invalid"))).toEqual({ section: "purchase-requests" });
+    expect(parseAdminDashboardDestination(new URLSearchParams("section=overview&status=active"))).toEqual({ section: "overview" });
+  });
+
   it("fails malformed or mismatched admin entity queries safely", () => {
     expect(parseAdminDashboardDestination(new URLSearchParams("section=marketplace-listings&listing=not%20an%20id"))).toEqual({
       section: "marketplace-listings",
@@ -94,7 +108,7 @@ describe("canonical action destinations", () => {
   it("resolves active trade actions for the current actor", () => {
     expect(tradeDestination(request("accepted"), "buyer-1")).toContain("action=upload-payment-receipt#evidence");
     expect(tradeDestination(request("payment_sent"), "seller-1")).toContain("action=confirm-money-received#action-required");
-    expect(tradeDestination(request("usdt_sent"), "buyer-1")).toContain("action=confirm-usdt-received#action-required");
+    expect(tradeDestination(request("usdt_sent"), "buyer-1")).toContain("action=open-trade#status-banner");
   });
 
   it("routes cash trades through confirmations and seller-only completion", () => {
@@ -107,7 +121,7 @@ describe("canonical action destinations", () => {
     expect(tradeDestination(cashRequest("payment_sent"), "seller-1")).toContain("action=confirm-money-received#action-required");
     expect(tradeDestination(cashRequest("funds_received"), "seller-1")).toContain("action=confirm-usdt-sent#action-required");
     expect(tradeDestination(cashRequest("usdt_sent"), "seller-1")).toContain("action=complete-cash-trade#action-required");
-    expect(tradeDestination(cashRequest("usdt_sent"), "buyer-1")).toBe("/trade-room/purchase-123?action=open-trade#status-banner");
+    expect(tradeDestination(cashRequest("usdt_sent"), "buyer-1")).toContain("action=open-trade#status-banner");
   });
 
   it("resolves completed trades to history/review context", () => {

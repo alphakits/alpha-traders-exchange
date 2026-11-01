@@ -7,7 +7,6 @@ import { getSafeInternalNotificationDestination } from "@/lib/notification-actio
 import { isNotificationActionRequired } from "@/lib/notification-action-required";
 import { localizeNotificationCopy } from "@/lib/notification-localization";
 import type { AlphaExchangeNotification, NotificationTradeSnapshot } from "@/types/alpha-exchange";
-import { isCashTradePaymentMethod } from "@/lib/marketplace-payment-methods";
 
 const RESOURCE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
 
@@ -75,13 +74,12 @@ function currentTradeActionRequired(
   if (!snapshot) return false;
   const isBuyer = snapshot.buyerId === recipientUserId;
   const isSeller = snapshot.sellerId === recipientUserId;
-  const cashTrade = isCashTradePaymentMethod(snapshot.paymentMethod);
   if (snapshot.currentStage === "pending") return isSeller;
   if (snapshot.currentStage === "accepted") return isBuyer;
   if (snapshot.currentStage === "payment_sent") return isSeller;
   if (snapshot.currentStage === "funds_received") return isSeller;
   if (snapshot.currentStage === "usdt_release_pending") return isSeller;
-  if (snapshot.currentStage === "usdt_sent") return cashTrade ? isSeller : isBuyer;
+  if (snapshot.currentStage === "usdt_sent") return isSeller;
   if (snapshot.currentStage === "review_open" || snapshot.currentStage === "completed") return isBuyer;
   return false;
 }

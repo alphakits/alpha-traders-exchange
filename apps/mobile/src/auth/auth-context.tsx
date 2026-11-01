@@ -63,7 +63,7 @@ function shouldDiscardSession(error: unknown) {
 }
 
 export function AuthProvider({ children }: PropsWithChildren) {
-  const { locale, isHydrated } = useLocale();
+  const { locale, isHydrated, resetLocale } = useLocale();
   const localeRef = useRef(locale);
   const tokensRef = useRef<MobileAuthTokens | null>(null);
   const persistSessionRef = useRef(true);
@@ -95,10 +95,12 @@ export function AuthProvider({ children }: PropsWithChildren) {
     } catch {
       tokensRef.current = null;
     } finally {
+      localeRef.current = "en";
+      resetLocale();
       setUser(null);
       setStatus("anonymous");
     }
-  }, [storeTokens]);
+  }, [resetLocale, storeTokens]);
 
   const discardSessionIfCurrent = useCallback(async (snapshot: MobileSessionSnapshot) => {
     if (!canCommitMobileSessionRefresh(snapshot, currentSessionSnapshot())) return false;
@@ -176,6 +178,8 @@ export function AuthProvider({ children }: PropsWithChildren) {
       await initializeSecureStorageForInstall();
       let tokens = await loadStoredTokens();
       if (!tokens) {
+        localeRef.current = "en";
+        resetLocale();
         tokensRef.current = null;
         setUser(null);
         setStatus("anonymous");
@@ -208,7 +212,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
       // device session. The recovery screen lets the user retry in place.
       setStatus("unavailable");
     }
-  }, [discardSession, storeTokens]);
+  }, [discardSession, resetLocale, storeTokens]);
 
   useEffect(() => {
     if (!isHydrated || bootStarted.current) return;
@@ -223,12 +227,14 @@ export function AuthProvider({ children }: PropsWithChildren) {
       sessionGenerationRef.current += 1;
       persistSessionRef.current = rememberMe;
       await storeTokens(response.tokens);
+      localeRef.current = "en";
+      resetLocale();
       setUser(response.user);
       setStatus("authenticated");
     } finally {
       setIsBusy(false);
     }
-  }, [storeTokens]);
+  }, [resetLocale, storeTokens]);
 
   const logout = useCallback(async (scope: "device" | "all" = "device") => {
     setIsBusy(true);

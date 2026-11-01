@@ -1,5 +1,8 @@
+import { sellerFeeResponsibilityNotice } from "@alpha-traders/contracts";
+import { BrandedText as Text } from "../../src/components/branded-text";
+import { AttentionSiren } from "../../src/components/attention-siren";
 import { useEffect, useState } from "react";
-import { Alert, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { Alert, Pressable, StyleSheet, TextInput, View } from "react-native";
 import * as Clipboard from "expo-clipboard";
 import { Redirect, useRouter } from "expo-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -7,10 +10,12 @@ import type { MobileCommissionNetwork } from "@alpha-traders/contracts";
 import { colors, radius, spacing, typography } from "@alpha-traders/design-tokens";
 import { getMobileSellerCommissions, submitMobileSellerCommissionPayment } from "../../src/api/mobile-api";
 import { useAuth } from "../../src/auth/auth-context";
+import { canUseSellerTools } from "../../src/auth/seller-access";
 import { GoldButton } from "../../src/components/gold-button";
 import { NativePageShell } from "../../src/components/native-page-shell";
 import { useLocale } from "../../src/i18n/locale-context";
 import { formatCount, formatUsdt } from "../../src/finance/financial-display";
+import { formatCommissionAmount } from "@alpha-traders/contracts";
 import {
   BINANCE_USDT_TRC20_COMMISSION_ADDRESS,
   formatExactTrc20CommissionAmount,
@@ -24,7 +29,7 @@ import {
   TRON_TRANSACTION_ID_LENGTH,
 } from "../../src/commissions/tron-commission-payment";
 
-const COMMISSION_NETWORK: MobileCommissionNetwork = "TRC20";
+const BEP20_ADDRESS = "0x7088a120cde7351dbf3e7831a9da3f74058c89a0";
 
 export default function SellerCommissionsScreen() {
   const router = useRouter();
@@ -32,9 +37,8 @@ export default function SellerCommissionsScreen() {
   const { status, user, requestWithSession } = useAuth();
   const { locale, isRTL } = useLocale();
   const isAr = locale === "ar";
-  const canSell = user?.sellerStatus === "approved_seller"
-    || user?.sellerStatus === "suspended"
-    || user?.roles.some((role) => role === "approved_seller" || role === "admin" || role === "owner") === true;
+  const carriedReason = isAr ? "وصلت دفعة عمولة سابقة ناقصة. هذا هو المبلغ المتبقي فقط. نسبة عمولتك لم تتغيّر." : "An earlier commission payment arrived short. This is only the remaining amount. Your commission rate has not changed.";
+  const canSell = canUseSellerTools(user) || user?.sellerStatus === "suspended";
   const queryKey = ["mobile-seller-commissions", user?.id ?? "anonymous", locale] as const;
   const query = useQuery({
     enabled: status === "authenticated" && canSell,
@@ -43,12 +47,16 @@ export default function SellerCommissionsScreen() {
       getMobileSellerCommissions(tokens, requestLocale, signal)),
     refetchInterval: 30_000,
   });
+  const [commissionNetwork, setCommissionNetwork] = useState<MobileCommissionNetwork>("TRC20");
+  const expectedAddress = commissionNetwork === "BEP20" ? BEP20_ADDRESS : BINANCE_USDT_TRC20_COMMISSION_ADDRESS;
   const [commissionId, setCommissionId] = useState("");
   const [transactionHash, setTransactionHash] = useState("");
   const [error, setError] = useState("");
   const [addressCopied, setAddressCopied] = useState(false);
   const [amountCopied, setAmountCopied] = useState(false);
   const [pendingCommissionId, setPendingCommissionId] = useState<string | null>(null);
+  const savedNetwork = query.data?.payableRecords.find((record) => record.commissionId === commissionId)?.paymentNetwork;
+  useEffect(() => { if (savedNetwork === "TRC20" || savedNetwork === "BEP20") setCommissionNetwork(savedNetwork); }, [commissionId, savedNetwork]);
 
   useEffect(() => {
     const records = query.data?.payableRecords ?? [];
@@ -84,7 +92,7 @@ export default function SellerCommissionsScreen() {
     mutationFn: () => requestWithSession((tokens, requestLocale) =>
       submitMobileSellerCommissionPayment(tokens, requestLocale, {
         commissionId,
-        network: COMMISSION_NETWORK,
+        network: commissionNetwork,
         paymentSignature: transactionHash,
       })),
     onSuccess: (response) => {
@@ -99,10 +107,10 @@ export default function SellerCommissionsScreen() {
           ? (isAr ? "تمت تسوية جميع العمولات وإزالة القيود المتعلقة بالعمولة. وتظل أي قيود أخرى على الحساب سارية." : "All commission dues are settled and commission-related restrictions are cleared. Any other account restrictions still apply.")
           : (isAr ? "تم التحقق من هذه الدفعة. ما زالت هناك عمولات أخرى مستحقة." : "This payment was verified. Other commissions are still due.")
         : response.verification?.pending
-          ? (isAr ? "تم إرسال الدفعة. سيتم التحقق منها تلقائيًا بعد التأكيد النهائي على شبكة TRON." : "Payment submitted. It will be verified automatically after TRON final confirmation.")
+          ? (isAr ? "تم حفظ مرجع الدفعة. سيعيد النظام فحص الاستلام تلقائيًا؛ لا ترسل دفعة أخرى." : "Payment reference saved. The system will retry receipt verification automatically; do not send another payment.")
           : isAr
-            ? `لم تُحتسب الدفعة.${verificationNotes ? ` ${verificationNotes}` : ""} ألصق TxID مختلفًا وصالحًا أدناه وأرسله مرة أخرى.`
-            : `Payment was not credited.${verificationNotes ? ` ${verificationNotes}` : ""} Paste a different valid TRON TxID below and submit it again.`;
+            ? `لم تُحتسب الدفعة.${verificationNotes ? ` ${verificationNotes}` : ""} راجع الدفعة الأصلية واستخدم TxID الصحيح عند الحاجة. لا تدفع مرة أخرى.`
+            : `Payment was not credited.${verificationNotes ? ` ${verificationNotes}` : ""} Review the original payment and use its correct TxID if needed. Do not pay again.`;
       Alert.alert(isAr ? "حالة الدفع" : "Payment status", message);
     },
     onError: (mutationError) => setError(mutationError instanceof Error ? mutationError.message : (isAr ? "تعذر التحقق من الدفع." : "The payment could not be verified.")),
@@ -112,10 +120,10 @@ export default function SellerCommissionsScreen() {
   if (!canSell) return <Redirect href="/seller-application" />;
 
   const selectedRecord = query.data?.payableRecords.find((record) => record.commissionId === commissionId);
-  const selectedNetwork = query.data?.paymentNetworks.find((item) => item.network === COMMISSION_NETWORK);
+  const selectedNetwork = query.data?.paymentNetworks.find((item) => item.network === commissionNetwork);
   const paymentRailReady = selectedNetwork?.available === true
-    && selectedNetwork.walletAddress === BINANCE_USDT_TRC20_COMMISSION_ADDRESS;
-  const transactionIdIsValid = isValidTronTransactionId(transactionHash);
+    && selectedNetwork.walletAddress === expectedAddress;
+  const transactionIdIsValid = (commissionNetwork === "BEP20" ? /^0x[a-fA-F0-9]{64}$/.test(transactionHash) : isValidTronTransactionId(transactionHash));
   const transactionIdHasInput = transactionHash.length > 0;
   const selectedVerification = resolveCommissionPaymentVerificationUi(selectedRecord, pendingCommissionId);
   const pendingForSelectedRecord = selectedVerification.state === "pending";
@@ -133,6 +141,34 @@ export default function SellerCommissionsScreen() {
     ? (selectedRecord.paymentAmountDue ?? selectedRecord.amountDue)
     : 0;
   const formattedSelectedPaymentAmount = formatExactTrc20CommissionAmount(selectedPaymentAmount);
+  const scanState = !paymentRailReady ? "unavailable" : selectedVerification.state;
+  const scanStatus = {
+    ready: {
+      label: isAr ? "بانتظار الدفعة المطابقة" : "Awaiting a matching payment",
+      detail: isAr ? "أرسل المبلغ الدقيق إلى العنوان الظاهر على الشبكة المختارة. لا يلزم إدخال TxID لبدء الفحص." : "Send the exact amount to the displayed address on the selected network. No TxID is needed to start the checks.",
+      color: colors.goldBright,
+    },
+    pending: {
+      label: isAr ? "جارٍ التحقق من الدفعة" : "Verifying payment",
+      detail: isAr ? "تم حفظ مرجع الدفعة. يستمر التحقق تلقائيًا؛ يمكنك مراجعة تفاصيله أدناه." : "Your payment reference is saved. Verification continues automatically; its details are shown below.",
+      color: "#93C5FD",
+    },
+    failed: {
+      label: isAr ? "الدفعة بحاجة إلى مراجعة" : "Payment needs review",
+      detail: isAr ? "لم يتم التحقق من المرجع المحفوظ. راجع السبب أدناه، ويمكنك استخدام TxID الصحيح لطلب فحص مباشر." : "The saved reference could not be verified. Review the reason below and use the correct TxID for a direct check if needed.",
+      color: colors.warning,
+    },
+    verified: {
+      label: isAr ? "تم التحقق من الدفعة" : "Payment verified",
+      detail: isAr ? "تمت مطابقة الدفعة. لا يلزم إدخال معرّف معاملة آخر." : "The payment was matched. No further transaction ID is needed.",
+      color: colors.success,
+    },
+    unavailable: {
+      label: isAr ? "الدفع غير متاح حاليًا" : "Payment currently unavailable",
+      detail: isAr ? "عنوان الاستلام للشبكة المختارة غير جاهز. لا ترسل أي مبلغ؛ راجع تنبيه العنوان أدناه." : "The recipient check for the selected network is unavailable. Do not send funds; review the address warning below.",
+      color: colors.danger,
+    },
+  }[scanState];
 
   async function copyRecipientAddress() {
     if (!paymentRailReady) {
@@ -142,7 +178,7 @@ export default function SellerCommissionsScreen() {
       return;
     }
     try {
-      await Clipboard.setStringAsync(BINANCE_USDT_TRC20_COMMISSION_ADDRESS);
+      await Clipboard.setStringAsync(expectedAddress);
       setAddressCopied(true);
       setError("");
     } catch {
@@ -181,14 +217,14 @@ export default function SellerCommissionsScreen() {
     }
     if (!paymentRailReady) {
       setError(isAr
-        ? "تم إيقاف الدفع مؤقتًا لأن عنوان TRC20 لا يطابق عنوان Binance الرسمي. لا ترسل أي مبلغ."
-        : "Payment is temporarily disabled because the TRC20 destination does not match the official Binance address. Do not send funds.");
+        ? "تم إيقاف الدفع مؤقتًا لأن عنوان الشبكة المختارة لا يطابق عنوان Binance الرسمي. لا ترسل أي مبلغ."
+        : "Payment is temporarily disabled because the selected destination does not match the official Binance address. Do not send funds.");
       return;
     }
     if (!transactionIdIsValid) {
       setError(isAr
-        ? "ألصق TxID الخاص بمعاملة TRON: يجب أن يتكون من 64 خانة سداسية بالضبط (0-9 و a-f)، من دون 0x."
-        : "Paste the TRON transaction TxID: exactly 64 hexadecimal characters (0-9 and a-f), without 0x.");
+        ? "ألصق معرّف المعاملة الصحيح للشبكة المختارة. يبدأ معرّف BEP20 بـ 0x."
+        : "Paste the transaction ID for the selected network. BEP20 hashes start with 0x.");
       return;
     }
     setError("");
@@ -202,8 +238,8 @@ export default function SellerCommissionsScreen() {
       subtitle={isAr ? "تسوية عمولات الصفقات والعمولات الصادرة عن الإدارة." : "Settle trade commissions and documented admin-issued commissions."}
     >
       <View style={[styles.statusCard, query.data?.status === "overdue" && styles.overdueCard]}>
-        <Text style={[styles.statusTitle, isRTL && styles.rtlText]}>{query.data?.status === "clear" ? `✓ ${isAr ? "لا توجد عمولات مستحقة" : "No commission due"}` : (isAr ? "عمولة تحتاج إلى الدفع" : "Commission payment required")}</Text>
-        <Text style={[styles.total, isRTL && styles.rtlText]}>{formatUsdt(query.data?.totalAmountDue ?? 0)}</Text>
+        <Text style={[styles.statusTitle, isRTL && styles.rtlText]}>{(query.data?.pendingCount ?? 0) > 0 ? <AttentionSiren /> : null}{query.data?.status === "clear" ? `✓ ${isAr ? "لا توجد عمولات مستحقة" : "No commission due"}` : (isAr ? "عمولة تحتاج إلى الدفع" : "Commission payment required")}</Text>
+        <Text style={[styles.total, isRTL && styles.rtlText]}>{formatUsdt(query.data?.totalAmountDue ?? 0, 6)}</Text>
         <Text style={[styles.body, isRTL && styles.rtlText]}>{isAr ? "السجلات غير المدفوعة" : "Unpaid records"}: {formatCount(query.data?.pendingCount ?? 0)}</Text>
       </View>
 
@@ -225,10 +261,10 @@ export default function SellerCommissionsScreen() {
                 style={[styles.option, commissionId === record.commissionId && styles.optionSelected]}
               >
                 <Text style={[styles.optionTitle, isRTL && styles.rtlText]}>{commissionId === record.commissionId ? "✓ " : ""}{formatExactTrc20CommissionAmount(record.paymentAmountDue ?? record.amountDue)}</Text>
-                {recordContext.isAdminIssued ? (
+                {recordContext.isAdminIssued || record.source === "tolerance_carry_forward" ? (
                   <View style={styles.adminIssuedCard}>
-                    <Text style={[styles.adminIssuedTitle, isRTL && styles.rtlText]}>{isAr ? "عمولة صادرة عن الإدارة" : "Admin-issued commission"}</Text>
-                    {recordContext.issueReason ? <Text style={[styles.body, isRTL && styles.rtlText]}>{recordContext.issueReason}</Text> : null}
+                    <Text style={[styles.adminIssuedTitle, isRTL && styles.rtlText]}>{record.source === "tolerance_carry_forward" ? (isAr ? "رصيد عمولة مرحّل" : "Carried commission balance") : (isAr ? "عمولة صادرة عن الإدارة" : "Admin-issued commission")}</Text>
+                    {record.source === "tolerance_carry_forward" || recordContext.issueReason ? <Text style={[styles.body, isRTL && styles.rtlText]}>{record.source === "tolerance_carry_forward" ? carriedReason : recordContext.issueReason}</Text> : null}
                   </View>
                 ) : recordContext.tradeReference ? (
                   <Text style={[styles.body, isRTL && styles.rtlText]}>{isAr ? "الصفقة" : "Trade"}: #{recordContext.tradeReference}</Text>
@@ -237,7 +273,7 @@ export default function SellerCommissionsScreen() {
                 )}
                 {record.dueAt ? <Text style={[styles.body, isRTL && styles.rtlText]}>{isAr ? "الاستحقاق" : "Due"}: {new Date(record.dueAt).toLocaleDateString(isAr ? "ar-IL" : "en-IL")}</Text> : null}
                 {recordVerification.state === "pending" ? <Text style={[styles.optionVerificationPending, isRTL && styles.rtlText]}>{isAr ? "التحقق التلقائي قيد التشغيل" : "Automatic verification pending"}</Text> : null}
-                {recordVerification.state === "failed" ? <Text style={[styles.optionVerificationFailed, isRTL && styles.rtlText]}>{isAr ? "لم تُحتسب الدفعة — يلزم TxID جديد" : "Not credited — new TxID required"}</Text> : null}
+                {recordVerification.state === "failed" ? <Text style={[styles.optionVerificationFailed, isRTL && styles.rtlText]}>{isAr ? "الدفعة بحاجة إلى مراجعة" : "Payment needs review"}</Text> : null}
                 {recordVerification.state === "verified" ? <Text style={[styles.optionVerificationVerified, isRTL && styles.rtlText]}>{isAr ? "تم التحقق من الدفع" : "Payment verified"}</Text> : null}
                 {relatedRequestId ? (
                   <GoldButton onPress={() => router.push({ pathname: "/trade/[requestId]", params: { requestId: relatedRequestId } })} variant="ghost">{isAr ? "فتح الصفقة" : "Open trade"}</GoldButton>
@@ -253,31 +289,71 @@ export default function SellerCommissionsScreen() {
           <Text accessibilityRole="header" style={[styles.title, isRTL && styles.rtlText]}>
             {legacyPendingForSelectedRecord
               ? (isAr ? "التحقق من دفع العمولة" : "Commission payment verification")
-              : (isAr ? "دفع العمولة عبر USDT TRC20" : "Pay commission by USDT TRC20")}
+              : (isAr ? "دفع العمولة عبر USDT" : "Pay commission by USDT")}
           </Text>
 
-          {selectedRecord.source === "admin_manual" ? (
+          {selectedRecord.source === "admin_manual" || selectedRecord.source === "tolerance_carry_forward" ? (
             <View style={styles.adminIssuedCard}>
-              <Text style={[styles.adminIssuedTitle, isRTL && styles.rtlText]}>{isAr ? "عمولة صادرة عن الإدارة" : "Admin-issued commission"}</Text>
-              {selectedRecord.issueReason ? <Text style={[styles.body, isRTL && styles.rtlText]}>{selectedRecord.issueReason}</Text> : null}
+              <Text style={[styles.adminIssuedTitle, isRTL && styles.rtlText]}>{selectedRecord.source === "tolerance_carry_forward" ? (isAr ? "رصيد عمولة مرحّل" : "Carried commission balance") : (isAr ? "عمولة صادرة عن الإدارة" : "Admin-issued commission")}</Text>
+              {selectedRecord.source === "tolerance_carry_forward" || selectedRecord.issueReason ? <Text style={[styles.body, isRTL && styles.rtlText]}>{selectedRecord.source === "tolerance_carry_forward" ? carriedReason : selectedRecord.issueReason}</Text> : null}
             </View>
           ) : null}
 
+          <View style={styles.automationCard}>
+            <View style={[styles.automationHeader, isRTL && styles.rowReverse]}>
+              <Text accessibilityRole="header" style={[styles.automationTitle, isRTL && styles.rtlText]}>{isAr ? "فحص ذكي للبلوك تشين" : "Smart Blockchain Scan"}</Text>
+              <View style={styles.automationBadge}>
+                <Text style={styles.automationBadgeText}>{isAr ? "تأكيد تلقائي" : "Automatic confirmation"}</Text>
+              </View>
+            </View>
+            <Text style={[styles.scanCaption, isRTL && styles.rtlText]}>{isAr ? "فحص تلقائي كل دقيقة. الدفعات المطابقة لا تحتاج إلى صورة أو موافقة يدوية." : "Automatic checks every minute. Matching payments need no screenshot or manual approval."}</Text>
+            <View accessibilityLiveRegion="polite" style={[styles.scanStatus, isRTL && styles.rowReverse]}>
+              <View importantForAccessibility="no" style={[styles.scanStatusDot, { backgroundColor: scanStatus.color }]} />
+              <Text style={[styles.scanStatusLabel, { color: scanStatus.color }, isRTL && styles.rtlText]}>{scanStatus.label}</Text>
+            </View>
+            <Text style={[styles.body, isRTL && styles.rtlText]}>{scanStatus.detail}</Text>
+            <View style={[styles.scanSteps, isRTL && styles.rowReverse]}>
+              {[
+                isAr ? "المبلغ الدقيق" : "Exact amount",
+                isAr ? "تحقق تلقائي" : "Auto verification",
+                isAr ? "تسجيلها مدفوعة" : "Marked paid",
+              ].map((label, index) => (
+                <View key={index} style={styles.scanStep}>
+                  <Text style={styles.scanStepNumber}>{index + 1}</Text>
+                  <Text style={[styles.scanStepLabel, isRTL && styles.rtlText]}>{label}</Text>
+                </View>
+              ))}
+            </View>
+            <View style={styles.scanChecks}>
+              <Text style={[styles.scanChecksLabel, isRTL && styles.rtlText]}>{isAr ? "مطابقة المبلغ · عنوان الاستلام · الشبكة" : "Amount match · Recipient · Network"}</Text>
+              <Text style={[styles.scanCaption, isRTL && styles.rtlText]}>{isAr ? "يشمل الفحص معاملات البلوك تشين وإيداعات Binance المدعومة." : "Checks include blockchain receipts and supported Binance deposits."}</Text>
+            </View>
+            <Text style={[styles.scanCaption, isRTL && styles.rtlText]}>{isAr ? "تُسجَّل الدفعة كمدفوعة بعد التحقق، وتُزال قيود العمولة بعد تسوية جميع المستحقات. وتبقى أي قيود أخرى على الحساب سارية." : "Verified receipts mark the record paid. Commission restrictions clear once all dues are settled; other account restrictions still apply."}</Text>
+          </View>
+
           {!legacyPendingForSelectedRecord ? <>
           <View style={styles.networkLockCard}>
-            <Text style={[styles.networkLockTitle, isRTL && styles.rtlText]}>{isAr ? "USDT · شبكة TRON (TRC20) فقط" : "USDT · TRON (TRC20) ONLY"}</Text>
+            <View style={{ flexDirection: "row", gap: 12 }}>
+              {(["TRC20", "BEP20"] as const).map((network) => <Pressable key={network} accessibilityRole="radio" accessibilityState={{ checked: network === commissionNetwork }} onPress={() => { setCommissionNetwork(network); setTransactionHash(""); setAddressCopied(false); }}><Text style={{ color: network === commissionNetwork ? colors.gold : colors.textMuted, padding: 12 }}>{network}</Text></Pressable>)}
+            </View>
+            <Text style={[styles.networkLockTitle, isRTL && styles.rtlText]}>{isAr ? "USDT · TRC20 / BEP20" : "USDT · TRC20 / BEP20"}</Text>
             <Text style={[styles.body, isRTL && styles.rtlText]}>
-              {isAr ? "هذه هي شبكة دفع العمولة الوحيدة. لا تختر أي شبكة أخرى." : "This is the only commission-payment network. Do not select another network."}
+              {isAr ? "أرسل عبر الشبكة المحددة أعلاه فقط. يجب أن تطابق شبكة الإرسال عنوان الاستلام." : "Send only on the network selected above. The sending network must match the recipient address."}
             </Text>
           </View>
 
+          {selectedRecord?.feePolicyVersion === "buyer_seller_1pct_v1" ? <View style={styles.instructionsCard}>
+            <Text style={[styles.body, styles.commissionNotice]}>{isAr ? "عمولتك كبائع (1%)" : "Your seller fee (1%)"}: {formatCommissionAmount(selectedRecord.sellerFeeAmount ?? 0)} USDT</Text>
+            <Text style={[styles.body, styles.commissionNotice]}>{isAr ? "حصة المشتري المستحقة لألفا (1%)" : "Buyer share payable to Alpha (1%)"}: {formatCommissionAmount(selectedRecord.buyerFeeCollectedAmount ?? 0)} USDT</Text>
+            <Text style={[styles.body, styles.commissionNotice, isRTL && styles.rtlText]}>{sellerFeeResponsibilityNotice(isAr ? "ar" : "en")}</Text>
+          </View> : null}
           <View style={styles.instructionsCard}>
-            <Text style={[styles.instructionsTitle, isRTL && styles.rtlText]}>{isAr ? "طريقة الدفع من Binance أو محفظة TRC20" : "Pay from Binance or another TRC20 wallet"}</Text>
+            <Text style={[styles.instructionsTitle, isRTL && styles.rtlText]}>{isAr ? "طريقة الدفع من Binance أو محفظة على الشبكة المختارة" : "Pay from Binance or another wallet"}</Text>
             <Text style={[styles.instruction, isRTL && styles.rtlText]}>{isAr ? "1. افتح السحب أو الإرسال واختر USDT." : "1. Open Withdraw or Send and choose USDT."}</Text>
-            <Text style={[styles.instruction, isRTL && styles.rtlText]}>{isAr ? "2. اختر شبكة TRON (TRC20) والصق عنوان Binance الرسمي أدناه." : "2. Select the TRON (TRC20) network and paste the official Binance address below."}</Text>
+            <Text style={[styles.instruction, isRTL && styles.rtlText]}>{isAr ? "2. اختر الشبكة المحددة أعلاه والصق عنوان Binance الرسمي أدناه." : "2. Select the network chosen above and paste the official Binance address below."}</Text>
             <Text style={[styles.instruction, isRTL && styles.rtlText]}>{isAr ? `3. يجب أن يصل إلى العنوان ${formattedSelectedPaymentAmount} بالضبط بعد الرسوم. أدخل الخانات الست كلها ولا تقرّب المبلغ.` : `3. Exactly ${formattedSelectedPaymentAmount} must reach the address after fees. Enter all six decimals; do not round.`}</Text>
-            <Text style={[styles.instruction, isRTL && styles.rtlText]}>{isAr ? "4. إذا كان المبلغ أقل من الحد الأدنى للسحب في Binance أو منصتك، استخدم محفظة أو منصة أخرى تدعم TRC20. لا ترفع أو تقرّب المبلغ." : "4. If the amount is below Binance's or your exchange's withdrawal minimum, use another wallet or exchange that supports TRC20. Do not increase or round the amount."}</Text>
-            <Text style={[styles.instruction, isRTL && styles.rtlText]}>{isAr ? "5. بعد اكتمال السحب، انسخ TxID من سجل السحب والصقه هنا مرة واحدة." : "5. After the withdrawal completes, copy the TxID from withdrawal history and paste it here once."}</Text>
+            <Text style={[styles.instruction, isRTL && styles.rtlText]}>{isAr ? "4. إذا كان المبلغ أقل من الحد الأدنى للسحب في Binance أو منصتك، استخدم محفظة أو منصة أخرى تدعم الشبكة المختارة. لا ترفع أو تقرّب المبلغ." : "4. If the amount is below Binance's or your exchange's withdrawal minimum, use another wallet or exchange that supports the selected network. Do not increase or round the amount."}</Text>
+            <Text style={[styles.instruction, isRTL && styles.rtlText]}>{isAr ? "5. انتظر التحقق التلقائي بعد تأكيد الشبكة. إذا تأخر اكتشاف الدفعة، انسخ TxID من سجل السحب والصقه هنا. لا تدفع مرة أخرى." : "5. Wait for automatic verification after network confirmation. If detection is delayed, copy the TxID from withdrawal history and paste it here. Do not pay again."}</Text>
           </View>
 
           <View style={styles.amountCard}>
@@ -294,13 +370,14 @@ export default function SellerCommissionsScreen() {
               <Text style={styles.copyButtonText}>{amountCopied ? (isAr ? "✓ تم نسخ المبلغ" : "✓ Amount copied") : (isAr ? "نسخ المبلغ الدقيق" : "Copy exact amount")}</Text>
             </Pressable>
             <Text style={[styles.exactAmountWarning, isRTL && styles.rtlText]}>{isAr ? "لا تقرّب المبلغ. يجب أن تتطابق الخانات العشرية الست، ورسوم الشبكة ليست جزءًا منه." : "Do not round. All six decimal places must match; the network fee is not part of this amount."}</Text>
+            <Text style={[styles.body, isRTL && styles.rtlText]}>{isAr ? "يرجى تحمّل رسوم الشبكة حتى يصل المبلغ الظاهر كاملًا. إذا قُبلت دفعة ووصلت ناقصة قليلًا، يُضاف المبلغ المتبقي فقط إلى عمولتك التالية." : "Please cover the network fee so the full amount shown arrives. If an accepted payment arrives a little short, only the missing amount is added to your next commission."}</Text>
           </View>
 
           <View style={styles.walletCard}>
-            <Text style={[styles.label, isRTL && styles.rtlText]}>{isAr ? "عنوان Binance الرسمي لاستلام USDT — TRC20 فقط" : "Official Binance USDT recipient address — TRC20 ONLY"}</Text>
-            <Text selectable={paymentRailReady} style={[styles.wallet, isRTL && styles.rtlText]}>{BINANCE_USDT_TRC20_COMMISSION_ADDRESS}</Text>
+            <Text style={[styles.label, isRTL && styles.rtlText]}>{isAr ? "عنوان Binance الرسمي لاستلام USDT — الشبكة المختارة" : "Official Binance USDT recipient address — selected network"}</Text>
+            <Text selectable={paymentRailReady} style={[styles.wallet, isRTL && styles.rtlText]}>{expectedAddress}</Text>
             <Pressable
-              accessibilityLabel={isAr ? "نسخ عنوان Binance TRC20 الرسمي" : "Copy official Binance TRC20 address"}
+              accessibilityLabel={isAr ? "نسخ عنوان استلام العمولة" : "Copy commission recipient address"}
               accessibilityRole="button"
               accessibilityState={{ disabled: !paymentRailReady }}
               disabled={!paymentRailReady}
@@ -310,7 +387,7 @@ export default function SellerCommissionsScreen() {
               <Text style={styles.copyButtonText}>{addressCopied ? (isAr ? "✓ تم نسخ العنوان" : "✓ Address copied") : (isAr ? "نسخ العنوان" : "Copy address")}</Text>
             </Pressable>
             <Text accessibilityLiveRegion="polite" style={[styles.warning, isRTL && styles.rtlText]}>
-              {isAr ? "لا تستخدم Binance Pay أو التحويل الداخلي أو ERC20 أو BEP20 أو Polygon أو Solana. يجب أن يظهر الدفع كمعاملة عامة على شبكة TRON حتى يتم التحقق منه." : "Do not use Binance Pay, an internal transfer, ERC20, BEP20, Polygon, or Solana. The payment must be a public TRON transaction so it can be verified."}
+              {isAr ? "أرسل USDT إلى العنوان الظاهر على الشبكة المختارة فقط: TRC20 أو BEP20. تُفحص أيضًا تحويلات Binance الداخلية إلى هذا العنوان تلقائيًا. لا تستخدم Binance Pay أو UID أو البريد الإلكتروني." : "Send USDT to the displayed address on the selected TRC20 or BEP20 network. Binance internal transfers to this deposit address are also checked automatically. Do not use Binance Pay, UID, or email transfers."}
             </Text>
           </View>
 
@@ -323,9 +400,10 @@ export default function SellerCommissionsScreen() {
           <View style={styles.field}>
             <Text style={[styles.label, isRTL && styles.rtlText]}>
               {failedForSelectedRecord || pendingForSelectedRecord
-                ? (isAr ? "معرّف معاملة TRON بديل (TxID) — 64 خانة سداسية" : "Replacement TRON transaction ID (TxID) — 64 hex characters")
-                : (isAr ? "معرّف معاملة TRON (TxID) — 64 خانة سداسية" : "TRON transaction ID (TxID) — 64 hex characters")}
+                ? (isAr ? "معرّف المعاملة البديل للشبكة المختارة" : "Replacement Transaction ID for the selected network")
+                : (isAr ? "معرّف المعاملة — اختياري" : "Transaction ID — optional")}
             </Text>
+            {!failedForSelectedRecord && !pendingForSelectedRecord ? <Text style={[styles.scanCaption, isRTL && styles.rtlText]}>{isAr ? "الفحص تلقائي. استخدم هذا الحقل فقط إذا تأخر اكتشاف الدفعة واحتجت إلى فحص مباشر." : "Checks are automatic. Use this only if detection is delayed and you need a direct check."}</Text> : null}
             <TextInput
               autoCapitalize="none"
               autoCorrect={false}
@@ -335,7 +413,7 @@ export default function SellerCommissionsScreen() {
                 setTransactionHash(normalizeTronTransactionIdInput(value));
                 setError("");
               }}
-              placeholder={isAr ? "TxID من 64 خانة (0-9 و a-f)" : "64-character TRON TxID (0-9, a-f)"}
+              placeholder={isAr ? "معرّف TRC20 أو BEP20 يبدأ بـ 0x" : "TRC20 TxID or BEP20 0x hash"}
               placeholderTextColor={colors.textMuted}
               selectionColor={colors.gold}
               spellCheck={false}
@@ -345,25 +423,21 @@ export default function SellerCommissionsScreen() {
             <View style={[styles.inputMeta, isRTL && styles.rowReverse]}>
               <Text style={[transactionIdHasInput && !transactionIdIsValid ? styles.fieldError : styles.hint, isRTL && styles.rtlText]}>
                 {transactionIdHasInput && !transactionIdIsValid
-                  ? (isAr ? "يجب أن يكون 64 حرفًا سداسيًا بالضبط، من دون 0x." : "Must be exactly 64 hex characters, without 0x.")
+                  ? commissionNetwork === "BEP20"
+                    ? (isAr ? "يجب أن يبدأ بـ 0x ثم 64 حرفًا سداسيًا بالضبط." : "Must start with 0x followed by exactly 64 hex characters.")
+                    : (isAr ? "يجب أن يكون 64 حرفًا سداسيًا بالضبط، من دون 0x." : "Must be exactly 64 hex characters, without 0x.")
                   : (isAr ? "استخدم TxID من سجل سحب Binance، وليس رقم الطلب." : "Use the TxID from Binance withdrawal history, not the order number.")}
               </Text>
-              <Text style={styles.counter}>{transactionHash.length}/{TRON_TRANSACTION_ID_LENGTH}</Text>
+              <Text style={styles.counter}>{transactionHash.length}/{commissionNetwork === "BEP20" ? 66 : TRON_TRANSACTION_ID_LENGTH}</Text>
             </View>
           </View>
 
-          <View style={styles.automationCard}>
-            <Text style={[styles.automationTitle, isRTL && styles.rtlText]}>{isAr ? "✓ التحقق تلقائي بالكامل" : "✓ Fully automatic verification"}</Text>
-            <Text style={[styles.body, isRTL && styles.rtlText]}>
-              {isAr ? "ألصق TxID مرة واحدة. يفحص النظام شبكة TRON تلقائيًا، وإذا كانت المعاملة تنتظر التأكيد النهائي يعيد الفحص كل 5 دقائق ويفتح صلاحيات البائع فور التحقق. لا تدفع مرة أخرى." : "Paste the TxID once. The system checks TRON automatically; if final confirmation is pending, it retries every 5 minutes and unlocks seller access as soon as verification succeeds. Do not pay again."}
-            </Text>
-          </View>
           </> : null}
 
           {pendingForSelectedRecord ? (
             <View accessibilityRole="alert" style={styles.pendingCard}>
-              <Text style={[styles.pendingTitle, isRTL && styles.rtlText]}>{isAr ? "التحقق التلقائي قيد التشغيل" : "Automatic verification is active"}</Text>
-              <Text style={[styles.body, isRTL && styles.rtlText]}>{isAr ? "تم حفظ TxID. المعاملة تنتظر التأكيد النهائي على TRON وسيعيد النظام فحصها تلقائيًا. لا ترسل دفعة أخرى." : "Your TxID is saved. The transaction is awaiting final TRON confirmation and will be checked again automatically. Do not send another payment."}</Text>
+              <Text style={[styles.pendingTitle, isRTL && styles.rtlText]}>{isAr ? "جارٍ التحقق من الدفعة" : "Verifying payment"}</Text>
+              <Text style={[styles.body, isRTL && styles.rtlText]}>{isAr ? "تم حفظ TxID. سيعيد النظام فحص الاستلام تلقائيًا؛ قد يستغرق ظهور الدفعة أو تأكيد الشبكة بعض الوقت. لا ترسل دفعة أخرى." : "Your TxID is saved. Receipt verification will retry automatically; deposit visibility or network confirmation can take time. Do not send another payment."}</Text>
               <Text style={[styles.body, isRTL && styles.rtlText]}>
                 {legacyPendingForSelectedRecord
                   ? (isAr
@@ -381,7 +455,7 @@ export default function SellerCommissionsScreen() {
           {failedForSelectedRecord ? (
             <View accessibilityRole="alert" style={styles.failedCard}>
               <Text style={[styles.failedTitle, isRTL && styles.rtlText]}>{isAr ? "لم تُحتسب الدفعة" : "Payment was not credited"}</Text>
-              <Text style={[styles.body, isRTL && styles.rtlText]}>{isAr ? "انتهى التحقق من TxID السابق بالفشل. ألصق TxID مختلفًا وصالحًا في الحقل أعلاه وأرسله مرة أخرى." : "Verification of the previous TxID failed. Paste a different valid TxID in the field above and submit it again."}</Text>
+              <Text style={[styles.body, isRTL && styles.rtlText]}>{isAr ? "لم يتم التحقق من المرجع المحفوظ. راجع تفاصيل الدفعة الأصلية أدناه، وإذا كان TxID غير صحيح فأرسل المعرّف الصحيح. لا تدفع مرة أخرى." : "The saved reference could not be verified. Review the original payment details below. If its TxID is incorrect, submit the correct one. Do not pay again."}</Text>
               {selectedVerification.notes ? <Text style={[styles.verificationFailureReason, isRTL && styles.rtlText]}>{isAr ? "السبب" : "Reason"}: {selectedVerification.notes}</Text> : null}
               {savedTransactionId ? <Text selectable style={[styles.verificationDetail, isRTL && styles.rtlText]}>{isAr ? "TxID السابق" : "Previous TxID"}: {savedTransactionId}</Text> : null}
             </View>
@@ -390,7 +464,7 @@ export default function SellerCommissionsScreen() {
           {verifiedForSelectedRecord ? (
             <View accessibilityRole="alert" style={styles.verifiedCard}>
               <Text style={[styles.verifiedTitle, isRTL && styles.rtlText]}>{isAr ? "تم التحقق من الدفع" : "Payment verified"}</Text>
-              <Text style={[styles.body, isRTL && styles.rtlText]}>{isAr ? "تمت مطابقة الدفعة على شبكة TRON ولا يلزم إرسال TxID آخر." : "The TRON payment was matched successfully. No further TxID is required."}</Text>
+              <Text style={[styles.body, isRTL && styles.rtlText]}>{isAr ? "تمت مطابقة الدفعة على الشبكة المختارة ولا يلزم إرسال TxID آخر." : "The payment was matched successfully. No further TxID is required."}</Text>
             </View>
           ) : null}
 
@@ -400,7 +474,7 @@ export default function SellerCommissionsScreen() {
               ? (isAr ? "استبدال TxID المحفوظ والتحقق" : "Replace saved TxID & verify")
               : failedForSelectedRecord
                 ? (isAr ? "إرسال TxID البديل والتحقق مجددًا" : "Submit replacement TxID & verify again")
-                : (isAr ? "إرسال TxID والتحقق تلقائيًا" : "Submit TxID & verify automatically")}
+                : (isAr ? "فحص TxID — اختياري" : "Check TxID — optional")}
           </GoldButton> : null}
         </View>
       ) : null}
@@ -412,27 +486,28 @@ export default function SellerCommissionsScreen() {
 const styles = StyleSheet.create({
   statusCard: { backgroundColor: "rgba(216,180,74,0.08)", borderColor: colors.borderGold, borderRadius: radius.lg, borderWidth: 1, gap: spacing.sm, padding: spacing.lg },
   overdueCard: { backgroundColor: "rgba(240,106,106,0.08)", borderColor: colors.danger },
-  statusTitle: { color: colors.text, fontSize: typography.section, fontWeight: "900" },
+  statusTitle: { color: colors.commissionNotice, fontSize: typography.section, fontWeight: "900" },
+  commissionNotice: { color: colors.commissionNotice },
   total: { color: colors.goldBright, fontSize: 30, fontWeight: "900" },
-  body: { color: colors.textMuted, fontSize: typography.small, lineHeight: 21 },
+  body: { color: colors.commissionNotice, fontSize: typography.small, lineHeight: 21 },
   section: { backgroundColor: colors.surface, borderColor: colors.border, borderRadius: radius.lg, borderWidth: 1, gap: spacing.md, padding: spacing.lg },
-  title: { color: colors.text, fontSize: typography.section, fontWeight: "900" },
+  title: { color: colors.commissionNotice, fontSize: typography.section, fontWeight: "900" },
   option: { backgroundColor: colors.surfaceRaised, borderColor: colors.border, borderRadius: radius.md, borderWidth: 1, gap: spacing.sm, padding: spacing.md },
   optionSelected: { backgroundColor: "rgba(41,121,255,0.12)", borderColor: "#6CAEFF" },
   optionTitle: { color: colors.text, fontSize: typography.small, fontWeight: "900" },
   adminIssuedCard: { backgroundColor: "rgba(216,180,74,0.08)", borderColor: colors.borderGold, borderRadius: radius.md, borderWidth: 1, gap: spacing.xs, padding: spacing.sm },
-  adminIssuedTitle: { color: colors.goldBright, fontSize: typography.small, fontWeight: "900" },
+  adminIssuedTitle: { color: colors.commissionNotice, fontSize: typography.small, fontWeight: "900" },
   optionVerificationPending: { color: "#93C5FD", fontSize: typography.caption, fontWeight: "800" },
   optionVerificationFailed: { color: colors.danger, fontSize: typography.caption, fontWeight: "800" },
   optionVerificationVerified: { color: colors.success, fontSize: typography.caption, fontWeight: "800" },
   networkLockCard: { backgroundColor: "rgba(41,121,255,0.12)", borderColor: "#6CAEFF", borderRadius: radius.md, borderWidth: 1, gap: spacing.xs, padding: spacing.md },
   networkLockTitle: { color: "#93C5FD", fontSize: typography.body, fontWeight: "900" },
   instructionsCard: { backgroundColor: colors.surfaceRaised, borderColor: colors.border, borderRadius: radius.md, borderWidth: 1, gap: spacing.sm, padding: spacing.md },
-  instructionsTitle: { color: colors.text, fontSize: typography.body, fontWeight: "900" },
-  instruction: { color: colors.textMuted, fontSize: typography.small, lineHeight: 21 },
+  instructionsTitle: { color: colors.commissionNotice, fontSize: typography.body, fontWeight: "900" },
+  instruction: { color: colors.commissionNotice, fontSize: typography.small, lineHeight: 21 },
   amountCard: { backgroundColor: "rgba(50,196,141,0.08)", borderColor: colors.success, borderRadius: radius.md, borderWidth: 1, gap: spacing.xs, padding: spacing.md },
   amount: { color: colors.success, fontSize: typography.title, fontWeight: "900" },
-  exactAmountWarning: { color: colors.warning, fontSize: typography.caption, fontWeight: "700", lineHeight: 18 },
+  exactAmountWarning: { color: colors.commissionNotice, fontSize: typography.caption, fontWeight: "700", lineHeight: 18 },
   walletCard: { backgroundColor: "rgba(0,0,0,0.28)", borderColor: colors.borderGold, borderRadius: radius.md, borderWidth: 1, gap: spacing.sm, padding: spacing.md },
   label: { color: colors.text, fontSize: typography.small, fontWeight: "900" },
   wallet: { color: colors.goldBright, fontFamily: "monospace", fontSize: typography.small, fontWeight: "800", lineHeight: 21 },
@@ -449,8 +524,21 @@ const styles = StyleSheet.create({
   hint: { color: colors.textMuted, flex: 1, fontSize: typography.caption, lineHeight: 18 },
   fieldError: { color: colors.danger, flex: 1, fontSize: typography.caption, fontWeight: "700", lineHeight: 18 },
   counter: { color: colors.textMuted, fontFamily: "monospace", fontSize: typography.caption },
-  automationCard: { backgroundColor: "rgba(50,196,141,0.08)", borderColor: colors.success, borderRadius: radius.md, borderWidth: 1, gap: spacing.xs, padding: spacing.md },
-  automationTitle: { color: colors.success, fontSize: typography.small, fontWeight: "900" },
+  automationCard: { backgroundColor: "rgba(50,196,141,0.08)", borderColor: "rgba(50,196,141,0.3)", borderRadius: radius.lg, borderWidth: 1, gap: spacing.sm, padding: spacing.md },
+  automationHeader: { alignItems: "flex-start", flexDirection: "row", flexWrap: "wrap", gap: spacing.sm, justifyContent: "space-between" },
+  automationTitle: { color: colors.text, flexShrink: 1, fontSize: typography.body, fontWeight: "900" },
+  automationBadge: { backgroundColor: "rgba(50,196,141,0.12)", borderColor: "rgba(50,196,141,0.3)", borderRadius: radius.pill, borderWidth: 1, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs },
+  automationBadgeText: { color: colors.success, fontSize: typography.caption, fontWeight: "800" },
+  scanStatus: { alignItems: "center", flexDirection: "row", gap: spacing.sm },
+  scanStatusDot: { borderRadius: radius.pill, height: 6, width: 6 },
+  scanStatusLabel: { flex: 1, fontSize: typography.small, fontWeight: "800" },
+  scanSteps: { flexDirection: "row", flexWrap: "wrap", gap: spacing.xs, marginVertical: spacing.xs },
+  scanStep: { alignItems: "center", backgroundColor: colors.surfaceRaised, borderColor: colors.border, borderRadius: radius.md, borderWidth: 1, flex: 1, gap: spacing.xs, minWidth: 65, paddingHorizontal: spacing.xs, paddingVertical: spacing.sm },
+  scanStepNumber: { color: colors.success, fontSize: typography.caption, fontWeight: "900" },
+  scanStepLabel: { color: colors.textMuted, fontSize: typography.caption, fontWeight: "700", lineHeight: 17, textAlign: "center" },
+  scanChecks: { borderTopColor: colors.border, borderTopWidth: 1, gap: spacing.xs, paddingTop: spacing.sm },
+  scanChecksLabel: { color: colors.text, fontSize: typography.caption, fontWeight: "800", lineHeight: 18 },
+  scanCaption: { color: colors.commissionNotice, fontSize: typography.caption, lineHeight: 18 },
   pendingCard: { backgroundColor: "rgba(41,121,255,0.12)", borderColor: "#6CAEFF", borderRadius: radius.md, borderWidth: 1, gap: spacing.xs, padding: spacing.md },
   pendingTitle: { color: "#93C5FD", fontSize: typography.small, fontWeight: "900" },
   failedCard: { backgroundColor: "rgba(240,106,106,0.08)", borderColor: colors.danger, borderRadius: radius.md, borderWidth: 1, gap: spacing.xs, padding: spacing.md },

@@ -1,9 +1,7 @@
 "use client";
 
 import type { Lesson } from "@/types/academy";
-import { createClient } from "@/lib/supabase/client";
 
-const LEARNER_KEY_STORAGE = "alpha-traders:learner-key";
 const PROGRESS_STORAGE = "alpha-traders:lesson-progress";
 const LEARNING_META_STORAGE = "alpha-traders:learning-meta";
 const QUIZ_PASS_PERCENT = 70;
@@ -43,7 +41,7 @@ type LearningMeta = {
   totalStudyMinutes: number;
 };
 
-function defaultState(lessonId: string, courseId: string, lessonSlug: string): LessonProgressState {
+export function createDefaultLessonProgress(lessonId: string, courseId: string, lessonSlug: string): LessonProgressState {
   return {
     lessonId,
     courseId,
@@ -72,21 +70,14 @@ function defaultMeta(): LearningMeta {
   };
 }
 
-export function getLearnerKey() {
-  if (typeof window === "undefined") return "server-render";
-  const existing = window.localStorage.getItem(LEARNER_KEY_STORAGE);
-  if (existing) return existing;
-  const generated = typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `anon-${Date.now()}`;
-  window.localStorage.setItem(LEARNER_KEY_STORAGE, generated);
-  return generated;
-}
-
 function readAllProgress() {
   if (typeof window === "undefined") return {} as Record<string, LessonProgressState>;
-  const raw = window.localStorage.getItem(PROGRESS_STORAGE);
-  if (!raw) return {} as Record<string, LessonProgressState>;
   try {
-    return JSON.parse(raw) as Record<string, LessonProgressState>;
+    const raw = window.localStorage.getItem(PROGRESS_STORAGE);
+    const parsed = raw ? JSON.parse(raw) : null;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? parsed as Record<string, LessonProgressState>
+      : {} as Record<string, LessonProgressState>;
   } catch {
     return {} as Record<string, LessonProgressState>;
   }
@@ -115,14 +106,21 @@ function writeLearningMeta(meta: LearningMeta) {
 
 export function getLessonProgressState(lessonId: string, courseId: string, lessonSlug: string) {
   const all = readAllProgress();
-  return all[lessonId] ?? defaultState(lessonId, courseId, lessonSlug);
+  return all[lessonId] ?? createDefaultLessonProgress(lessonId, courseId, lessonSlug);
 }
 
-export function getCourseProgressPercent(_courseId: string, courseLessonIds: string[]) {
+export function getCourseProgressPercent(courseId: string, courseLessonIds: string[]) {
   if (!courseLessonIds.length) return 0;
   const all = readAllProgress();
-  const completed = courseLessonIds.filter((lessonId) => all[lessonId]?.lessonCompleted).length;
+  const completed = courseLessonIds.filter((lessonId) => all[lessonId]?.courseId === courseId && all[lessonId]?.lessonCompleted === true).length;
   return Math.round((completed / courseLessonIds.length) * 100);
+}
+
+/** Completion is exact, independent of the rounded percentage used for display. */
+export function isCourseComplete(courseId: string, courseLessonIds: string[]) {
+  if (!courseLessonIds.length) return false;
+  const all = readAllProgress();
+  return courseLessonIds.every((lessonId) => all[lessonId]?.courseId === courseId && all[lessonId]?.lessonCompleted === true);
 }
 
 export function isQuizPassed(score: number | null) {
@@ -184,59 +182,10 @@ export function getDashboardSnapshot(lessons: Lesson[]) {
   };
 }
 
-async function persistToSupabase(progress: LessonProgressState, eventType: LearningEventType) {
-  const supabase = createClient();
-  const learnerKey = getLearnerKey();
-
-  const { error: eventError } = await supabase.from("lesson_progress_events").insert({
-    learner_key: learnerKey,
-    lesson_id: progress.lessonId,
-    course_id: progress.courseId,
-    event_type: eventType,
-    payload: {
-      lessonSlug: progress.lessonSlug,
-      videoWatched: progress.videoWatched,
-      pdfOpened: progress.pdfOpened,
-      pdfReadProgress: progress.pdfReadProgress,
-      quizCompleted: progress.quizCompleted,
-      lessonCompleted: progress.lessonCompleted,
-      bookmarked: progress.bookmarked,
-      quizScore: progress.quizScore,
-      notes: progress.notes,
-      videoPositionSeconds: progress.videoPositionSeconds,
-    },
-  });
-
-  if (eventError) {
-    throw eventError;
-  }
-
-  const { error: stateError } = await supabase.from("lesson_progress_state").upsert(
-    {
-      learner_key: learnerKey,
-      lesson_id: progress.lessonId,
-      course_id: progress.courseId,
-      video_watched: progress.videoWatched,
-      pdf_opened: progress.pdfOpened,
-      quiz_completed: progress.quizCompleted,
-      lesson_completed: progress.lessonCompleted,
-      bookmarked: progress.bookmarked,
-      quiz_score: progress.quizScore,
-      updated_at: progress.updatedAt,
-    },
-    { onConflict: "learner_key,lesson_id" },
-  );
-
-  if (stateError) {
-    throw stateError;
-  }
-}
-
 export async function updateLessonProgress({
   lessonId,
   courseId,
   lessonSlug,
-  eventType,
   updater,
 }: {
   lessonId: string;
@@ -246,7 +195,7 @@ export async function updateLessonProgress({
   updater: (current: LessonProgressState) => LessonProgressState;
 }) {
   const all = readAllProgress();
-  const current = all[lessonId] ?? defaultState(lessonId, courseId, lessonSlug);
+  const current = all[lessonId] ?? createDefaultLessonProgress(lessonId, courseId, lessonSlug);
   const nextBase = updater(current);
 
   const next = {
@@ -271,11 +220,8 @@ export async function updateLessonProgress({
     lastActivityAt: next.updatedAt,
   });
 
-  try {
-    await persistToSupabase(next, eventType);
-  } catch (error) {
-    console.error("Failed to persist lesson progress to Supabase", error);
-  }
+  // Progress is browser-local, like the native app's device-local store.
+  // The legacy remote write had no read/restore path or authenticated owner.
 
   return next;
 }

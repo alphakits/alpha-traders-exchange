@@ -10,7 +10,10 @@ production-user data.
 
 - The release commit passed `npm run mobile:review-rehearsal`,
   `npm run mobile:scale-rehearsal`,
-  `npm run verify:release`, and `npm run mobile:store-readiness`.
+  `npm run verify:release:full`, and `npm run mobile:store-readiness`.
+- The 148-flow Chromium report and immutable workflow run URL identify that
+  exact commit. A run that stopped for billing, quota, checkout, or browser
+  installation did not pass and blocks this dry run.
 - That exact backend commit is deployed and `npm run mobile:review-surface`
   passes against `https://www.alphatraders.co.il`.
 - The iOS build is signed from the same commit and its build number is recorded.
@@ -88,6 +91,8 @@ Keep the following in the private release record, never in Git or ordinary App
 Review notes:
 
 - the public preflight output and UTC timestamp;
+- the successful 148-flow browser reliability run URL, exact commit, and
+  report/artifact locator;
 - exact signed build URL, build number, commit SHA, and backend deployment ID;
 - the completed bilingual journey table and device matrix;
 - redacted recordings of push routing, evidence permission, privacy masking,

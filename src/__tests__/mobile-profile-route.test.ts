@@ -7,6 +7,7 @@ import type {
   SellerAccountStats,
 } from "@/lib/alpha-exchange-store";
 import type { AlphaExchangeUser } from "@/types/alpha-exchange";
+import { createTestSellerApprovalVerification } from "@/test-utils/seller-verification";
 
 const mocks = vi.hoisted(() => ({
   checkSharedRateLimit: vi.fn(),
@@ -26,6 +27,7 @@ vi.mock("@/lib/mobile-api-auth", () => ({ requireMobileApiUser: mocks.requireMob
 vi.mock("@/lib/rate-limit", () => ({ checkSharedRateLimit: mocks.checkSharedRateLimit }));
 vi.mock("@/lib/structured-logging", () => ({ logEvent: mocks.logEvent }));
 
+import { ProfileNameCooldownError } from "@/lib/profile-name-policy";
 import { GET, PATCH } from "@/app/api/mobile/v1/profile/route";
 
 const user = {
@@ -44,6 +46,7 @@ const user = {
   role: "approved_seller",
   roles: ["approved_seller", "buyer"],
   sellerStatus: "approved_seller",
+  sellerApprovalVerification: createTestSellerApprovalVerification(),
   emailVerified: true,
   emailVerificationTokenHash: "never-return-verification-token",
   isFoundingMember: true,
@@ -139,6 +142,12 @@ beforeEach(() => {
 });
 
 describe("mobile v1 account profile route", () => {
+  it("returns the weekly name restriction to existing mobile clients", async () => {
+    mocks.updateAccountProfileData.mockRejectedValueOnce(new ProfileNameCooldownError("2026-09-28T12:00:00.000Z"));
+    const response = await PATCH(mobileRequest("PATCH", { fullName: "Another Name" }));
+    expect(response.status).toBe(409);
+    expect(JSON.stringify(await response.json())).toContain("PROFILE_NAME_COOLDOWN");
+  });
   it("returns the website-parity profile projection without authentication secrets", async () => {
     const response = await GET(mobileRequest("GET"));
     const payload = await response.json();

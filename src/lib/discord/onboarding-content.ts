@@ -7,9 +7,9 @@ import type { RESTPostAPIChannelMessageJSONBody } from "discord.js";
 import {
   ALLOWED_LISTING_EXPIRATION_HOURS,
   COMMISSION_GRACE_PERIOD_DAYS,
-  COMMISSION_RATE,
   MAX_ACTIVE_LISTINGS_PER_SELLER,
 } from "@/lib/marketplace-policy";
+import { MARKETPLACE_BUYER_FEE_RATE, MARKETPLACE_SELLER_FEE_RATE, MARKETPLACE_TOTAL_FEE_RATE } from "@/lib/trade-amount";
 import { SELLER_PRESTIGE_TIERS } from "@/lib/seller-prestige";
 import { getOfficialOwnerWhatsAppUrl } from "@/lib/official-contact";
 import {
@@ -82,7 +82,7 @@ function rulesFields() {
     value: `Up to ${MAX_ACTIVE_LISTINGS_PER_SELLER} active listings. Expiration options: ${ALLOWED_LISTING_EXPIRATION_HOURS.join(", ")} hours.`,
   }, {
     name: "Commission",
-    value: `${COMMISSION_RATE * 100}% of completed trade USDT volume, with the current ${COMMISSION_GRACE_PERIOD_DAYS}-day grace period. Pending commission blocks new or renewed listings.`,
+    value: `New trades: ${MARKETPLACE_BUYER_FEE_RATE * 100}% buyer + ${MARKETPLACE_SELLER_FEE_RATE * 100}% seller = ${MARKETPLACE_TOTAL_FEE_RATE * 100}% total. After completion, the seller pays Alpha the full ${MARKETPLACE_TOTAL_FEE_RATE * 100}% in USDT. The buyer’s ${MARKETPLACE_BUYER_FEE_RATE * 100}% is included in the displayed payment total. Do not collect it twice; the seller remains responsible for both shares if the buyer share was not collected. Historical trades retain their issued fee terms. The current grace period is ${COMMISSION_GRACE_PERIOD_DAYS} days. Pending commission blocks new or renewed listings.`,
   }, {
     name: "Vacation and restrictions",
     value: "Vacation Mode hides the seller from new buyer requests. Suspension and marketplace restrictions remain website-controlled.",

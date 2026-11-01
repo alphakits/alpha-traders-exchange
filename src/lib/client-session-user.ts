@@ -1,3 +1,4 @@
+import { publicAccountName, ownerAccountName } from "@/lib/public-account-identity";
 import type {
   AlphaExchangeUser,
   OnboardingSelection,
@@ -10,6 +11,11 @@ import type {
   UserRole,
 } from "@/types/alpha-exchange";
 import { normalizePreferredLocale } from "@/lib/preferred-locale";
+import { isOwnerApprovedSeller } from "@/lib/seller-approval";
+import { normalizeRolesForUser, resolvePrimaryRole } from "@/lib/roles";
+import { isVerified } from "@/lib/verification-bypass";
+import { isAccountPhoneVerificationExempt } from "@/lib/phone-verification-exemptions";
+import { hasAdultConfirmation } from "@/lib/age-eligibility";
 
 /**
  * The intentionally small, browser-safe representation of the current user.
@@ -24,6 +30,8 @@ export type ClientSessionUser = {
   role: UserRole;
   roles?: UserRole[];
   sellerStatus: SellerStatus;
+  /** Privacy-safe authorization result; absent values fail closed for older clients. */
+  sellerApprovalVerified?: boolean;
   whatsappNumber: string;
   preferredNetworks: SupportedNetwork[];
   profilePhotoUrl: string;
@@ -44,6 +52,9 @@ export type ClientSessionUser = {
   isFoundingSeller?: boolean;
   emailVerified?: boolean;
   isPhotoVerified?: boolean;
+  adultConfirmed?: boolean;
+  /** Server-resolved exception for one of the three authorized existing accounts. */
+  phoneVerificationExempt?: boolean;
   buyerVerificationStatus?: "not_started" | "otp_sent" | "verified";
   onboardingSelection?: OnboardingSelection;
   onboardingCompletedAt?: string;
@@ -53,12 +64,14 @@ export type ClientSessionUser = {
 /** Runtime allowlist for seller records rendered in the admin workspace. */
 export type AdminSellerSummary = {
   id: string;
+  disabled?: boolean;
   fullName: string;
   email: string;
   whatsappNumber: string;
   role: UserRole;
   roles: UserRole[];
   sellerStatus: SellerStatus;
+  sellerApprovalVerified: boolean;
   availabilityStatus?: SellerAvailabilityStatus;
   lifetimeCompletedVolumeUsdt?: number;
   sellerPrestigeRank?: SellerLevel;
@@ -77,29 +90,40 @@ type ClientSessionUserOptions = {
   isPhotoVerified?: boolean;
 };
 
-/** Runtime allowlist for the small user summary rendered by the admin dashboard. */
-export function toAdminUserSummary(user: AlphaExchangeUser) {
+/** Runtime allowlist for the private, admin-only user/contact summary. */
+export function toAdminUserSummary(user: AlphaExchangeUser, privateIdentity = false) {
   return {
+    whatsappNumber: privateIdentity ? user.whatsappNumber : "",
     id: user.id,
-    fullName: user.fullName,
-    email: user.email,
+    fullName: privateIdentity ? ownerAccountName(user) : publicAccountName(user),
+    email: privateIdentity ? user.email : "",
     role: user.role,
     roles: user.roles ?? [user.role],
     disabled: user.disabled === true,
+    sellerStatus: user.sellerStatus,
     createdAt: user.createdAt,
   };
 }
 
 /** Runtime allowlist for admin seller-management responses. */
-export function toAdminSellerSummary(user: AlphaExchangeUser): AdminSellerSummary {
+export function toAdminSellerSummary(user: AlphaExchangeUser, privateIdentity = false): AdminSellerSummary {
+  const roles = normalizeRolesForUser({
+    email: user.email,
+    role: user.role,
+    roles: user.roles,
+    sellerStatus: user.sellerStatus,
+    sellerApprovalVerification: user.sellerApprovalVerification,
+  });
   return {
     id: user.id,
-    fullName: user.fullName,
-    email: user.email,
-    whatsappNumber: user.whatsappNumber,
-    role: user.role,
-    roles: user.roles ?? [user.role],
+    fullName: privateIdentity ? ownerAccountName(user) : publicAccountName(user),
+    email: privateIdentity ? user.email : "",
+    whatsappNumber: privateIdentity ? user.whatsappNumber : "",
+    role: resolvePrimaryRole(roles),
+    roles,
+    disabled: user.disabled === true,
     sellerStatus: user.sellerStatus,
+    sellerApprovalVerified: isOwnerApprovedSeller(user),
     availabilityStatus: user.availabilityStatus,
     lifetimeCompletedVolumeUsdt: user.lifetimeCompletedVolumeUsdt,
     sellerPrestigeRank: user.sellerPrestigeRank,
@@ -122,13 +146,21 @@ export function toClientSessionUser(
   options: ClientSessionUserOptions = {},
 ): ClientSessionUser | null {
   if (!user) return null;
+  const roles = normalizeRolesForUser({
+    email: user.email,
+    role: user.role,
+    roles: user.roles,
+    sellerStatus: user.sellerStatus,
+    sellerApprovalVerification: user.sellerApprovalVerification,
+  });
   return {
     id: user.id,
     fullName: user.fullName,
     email: user.email,
-    role: user.role,
-    roles: user.roles ?? [user.role],
+    role: resolvePrimaryRole(roles),
+    roles,
     sellerStatus: user.sellerStatus,
+    sellerApprovalVerified: isOwnerApprovedSeller(user),
     whatsappNumber: user.whatsappNumber,
     preferredNetworks: user.preferredNetworks,
     profilePhotoUrl: user.profilePhotoUrl,
@@ -148,7 +180,9 @@ export function toClientSessionUser(
     isFoundingMember: user.isFoundingMember,
     isFoundingSeller: user.isFoundingSeller,
     emailVerified: user.emailVerified === true,
-    isPhotoVerified: options.isPhotoVerified ?? Boolean(user.verifiedPhone && user.phoneVerifiedAt),
+    isPhotoVerified: options.isPhotoVerified ?? isVerified(user),
+    adultConfirmed: hasAdultConfirmation(user),
+    phoneVerificationExempt: isAccountPhoneVerificationExempt(user),
     buyerVerificationStatus: user.buyerVerificationStatus,
     onboardingSelection: user.onboardingSelection,
     onboardingCompletedAt: user.onboardingCompletedAt,

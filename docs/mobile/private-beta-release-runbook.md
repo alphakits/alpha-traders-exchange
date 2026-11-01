@@ -19,7 +19,7 @@ npm run mobile:verify
 The reviewer rehearsal is non-financial and isolated from production storage.
 It exercises the full fictional buyer/seller lifecycle and safety paths using
 only in-memory data; `verify:release:full` runs it again as a named blocking
-step. The scale rehearsal completes ten isolated fictional trades concurrently,
+step. The scale rehearsal completes fifteen isolated fictional trades concurrently,
 including chat, evidence, settlement, listing reopening, commissions, and
 reviews. Neither test is a production load test. A failure blocks the release
 before deployment.
@@ -131,9 +131,9 @@ Use TestFlight for the owner's iPhone and broader iOS beta testing:
    commit SHA, signing team, EAS build URL, and App Store Connect upload status.
    Do not record private keys, API keys, passwords, or verification codes.
 
-The TestFlight workflow sets `submit_beta_review: false`, does not name any
-external testing group, and does not submit the app for public App Store review.
-Public submission remains a separate release-owner and legal approval.
+The TestFlight workflow uses an EAS `submit` job for the completed production
+build. It does not name an external testing group or include a public App Store
+review step. Public submission remains a separate release-owner and legal approval.
 
 For a named device-specific fallback, point `release/iphone-installed-preview`
 to the same approved commit and trigger **Alpha Traders iPhone Installed

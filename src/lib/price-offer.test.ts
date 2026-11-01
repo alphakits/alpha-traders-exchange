@@ -12,6 +12,7 @@ describe("buyer price offers", () => {
     expect(getPriceOfferBounds("3.30")).toEqual({
       listingPrice: "3.30",
       minimumPrice: "2.95",
+      maximumPrice: "3.65",
       maximumDiscount: "0.35",
     });
     expect(validatePriceOffer("3.30", "2.95")).toEqual({
@@ -22,9 +23,33 @@ describe("buyer price offers", () => {
     });
   });
 
+  it("normalizes decimal comma and Arabic numeric keyboards", () => {
+    expect(normalizePriceOfferInput("3,23")).toBe("3.23");
+    expect(normalizePriceOfferInput("٣٫٢٣")).toBe("3.23");
+  });
+
+  it("calculates the exact production offer range from the legacy three-decimal listing price", () => {
+    expect(getPriceOfferBounds("3.263")).toEqual({
+      listingPrice: "3.26",
+      minimumPrice: "2.91",
+      maximumPrice: "3.61",
+      maximumDiscount: "0.35",
+    });
+    expect(validatePriceOffer("3.263", "3.23")).toEqual({
+      ok: true,
+      listingPrice: "3.26",
+      offeredPrice: "3.23",
+      discount: "0.03",
+    });
+    expect(getPriceOfferBounds("₪3.263 ILS")).toMatchObject({ listingPrice: "3.26" });
+    expect(getPriceOfferBounds("3.266")).toMatchObject({ listingPrice: "3.27", minimumPrice: "2.92" });
+  });
+
   it("accepts any cent price inside the range and rejects both boundaries outside it", () => {
     expect(validatePriceOffer("3.30", "3.29")).toMatchObject({ ok: true, discount: "0.01" });
-    expect(validatePriceOffer("3.30", "3.30")).toMatchObject({ ok: false, code: "PRICE_OFFER_NOT_LOWER" });
+    expect(validatePriceOffer("3.30", "3.30")).toMatchObject({ ok: true, discount: "0.00" });
+    expect(validatePriceOffer("3.30", "3.65")).toMatchObject({ ok: true, offeredPrice: "3.65", discount: "-0.35" });
+    expect(validatePriceOffer("3.30", "3.66")).toMatchObject({ ok: false, code: "PRICE_OFFER_ABOVE_MAXIMUM", maximumPrice: "3.65" });
     expect(validatePriceOffer("3.30", "2.94")).toMatchObject({
       ok: false,
       code: "PRICE_OFFER_BELOW_MINIMUM",
@@ -42,4 +67,12 @@ describe("buyer price offers", () => {
     expect(normalizePriceOfferInput("₪ 2.9999")).toBe("2.99");
     expect(normalizePriceOfferInput("3..2")).toBe("3.2");
   });
+});
+
+// Both cent boundaries are inclusive; low-price listings never allow zero.
+it("accepts the entire symmetric cent range and preserves a positive floor", () => {
+  for (let cents = 295; cents <= 365; cents += 1) expect(validatePriceOffer("3.30", (cents / 100).toFixed(2)).ok).toBe(true);
+  expect(getPriceOfferBounds("0.01")).toMatchObject({ minimumPrice: "0.01", maximumPrice: "0.36" });
+  expect(validatePriceOffer("0.01", "0.36").ok).toBe(true);
+  expect(validatePriceOffer("0.01", "0").ok).toBe(false);
 });

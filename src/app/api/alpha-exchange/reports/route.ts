@@ -1,16 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { reportSeller } from "@/lib/alpha-exchange-store";
-import { requireApiUser, requireEmailVerificationForTrading } from "@/lib/api-auth";
+import { requireApiUser, requireMarketplaceVerificationForTrading } from "@/lib/api-auth";
 import { checkSharedRateLimit } from "@/lib/rate-limit";
 
 export async function POST(request: NextRequest) {
   const { user, unauthorized } = await requireApiUser();
   if (!user) return unauthorized;
-  const emailVerificationRequired = requireEmailVerificationForTrading(user);
+  const emailVerificationRequired = requireMarketplaceVerificationForTrading(user);
   if (emailVerificationRequired) return emailVerificationRequired;
   const rate = await checkSharedRateLimit({
     headers: request.headers,
     key: "exchange:report-seller",
+    identifier: user.id,
     maxRequests: 8,
     windowMs: 60_000,
   });

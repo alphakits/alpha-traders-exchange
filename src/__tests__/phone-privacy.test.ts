@@ -40,6 +40,7 @@ describe("phone privacy boundaries", () => {
     for (const actor of [
       ["seller-privacy", "approved_seller"],
       ["buyer-privacy", "buyer"],
+      ["admin-privacy", "admin"],
     ] as const) {
       const redacted = sanitizePurchaseRequestForActor(request, actor[0], actor[1]);
       expect(redacted).not.toHaveProperty("buyerWhatsapp");
@@ -48,7 +49,7 @@ describe("phone privacy boundaries", () => {
       expect(JSON.stringify(redacted)).not.toContain(BUYER_EMAIL);
       expect(JSON.stringify(redacted)).not.toContain(BUYER_TELEGRAM);
     }
-    const adminAuditView = sanitizePurchaseRequestForActor(request, "admin-privacy", "admin");
+    const adminAuditView = sanitizePurchaseRequestForActor(request, "owner-privacy", "owner");
     expect(adminAuditView.buyerWhatsapp).toBe(BUYER_PHONE);
     expect(adminAuditView.buyerNotes).toContain(BUYER_EMAIL);
   });

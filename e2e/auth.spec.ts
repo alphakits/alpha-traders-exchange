@@ -59,24 +59,25 @@ test.describe("Guest access", () => {
     await expect(page.locator("body")).toBeVisible();
   });
 
-  test("protected route /en/academy redirects to login", async ({ page }) => {
+  test("protected route /en/academy redirects to login with its destination", async ({ page }) => {
     await page.goto("/en/academy");
-    await expect(page).toHaveURL(/\/en\/login/);
+    await expect(page).toHaveURL(/\/en\/login\?redirectTo=%2Fen%2Facademy$/);
   });
 
-  test("protected route /en/usdt-exchange redirects to login", async ({ page }) => {
+  test("guest Alpha Exchange entry opens login with a clear explanation", async ({ page }) => {
     await page.goto("/en/usdt-exchange");
-    await expect(page).toHaveURL(/\/en\/login/);
+    await expect(page).toHaveURL(/\/en\/login\?redirectTo=%2Fen%2Fusdt-exchange$/);
+    await expect(page.getByText("Sign in to browse USDT listings.")).toBeVisible();
   });
 
-  test("protected route /en/dashboard redirects to login", async ({ page }) => {
+  test("protected route /en/dashboard redirects to login with its destination", async ({ page }) => {
     await page.goto("/en/dashboard");
-    await expect(page).toHaveURL(/\/en\/login/);
+    await expect(page).toHaveURL(/\/en\/login\?redirectTo=%2Fen%2Fdashboard$/);
   });
 
-  test("protected route /en/profile redirects to login", async ({ page }) => {
+  test("protected route /en/profile redirects to login with its destination", async ({ page }) => {
     await page.goto("/en/profile");
-    await expect(page).toHaveURL(/\/en\/login/);
+    await expect(page).toHaveURL(/\/en\/login\?redirectTo=%2Fen%2Fprofile$/);
   });
 
   test("login page is publicly accessible", async ({ page }) => {
@@ -130,7 +131,7 @@ test.describe("Authentication", () => {
     await expect(page).not.toHaveURL(/\/login/);
   });
 
-  test("invalid credentials show error message", async ({ page }) => {
+  test("invalid credentials show a safe error message", async ({ page }) => {
     await page.request.post("/api/auth/logout").catch(() => {});
     await page.goto("/en/login");
     const form = page.locator('form[data-hydrated="true"]').first();
@@ -140,8 +141,12 @@ test.describe("Authentication", () => {
     await form.locator('button[type="submit"]').click();
     // Should stay on login page
     await expect(page).toHaveURL(/\/en\/login/);
-    // Error message visible
-    await expect(page.locator("text=/invalid|incorrect|not found/i")).toBeVisible({ timeout: 10_000 });
+    // A visible, accessible message must be shown without leaking provider or
+    // infrastructure details when the configured auth backend is unavailable.
+    const error = page.getByRole("main").getByRole("alert");
+    await expect(error).toBeVisible({ timeout: 10_000 });
+    await expect(error).toContainText(/invalid|incorrect|not found|unable to sign in|try again/i);
+    await expect(error).not.toContainText(/supabase|database|configuration|environment variable/i);
   });
 
   test("session persists after page refresh", async ({ page }) => {
@@ -154,14 +159,28 @@ test.describe("Authentication", () => {
     expect(page.url()).toBe(urlAfterLogin);
   });
 
-  test("logout clears session and redirects to login", async ({ page }) => {
+  test("logout clears session and requires login for protected pages", async ({ page }) => {
     test.setTimeout(60_000);
     test.skip(!BUYER_EMAIL || !BUYER_PASSWORD, "Set E2E_BUYER_EMAIL and E2E_BUYER_PASSWORD to run credentialed login checks.");
     await login(page, BUYER_EMAIL, BUYER_PASSWORD);
-    await page.request.post("/api/auth/logout");
-    // After logout, protected route redirects to login
+    const [logoutResponse] = await Promise.all([
+      page.waitForResponse(response => response.url().endsWith("/api/auth/logout") && response.request().method() === "POST"),
+      page.locator("header").first().getByRole("button", { name: "Sign out", exact: true }).click(),
+    ]);
+    expect(logoutResponse.ok()).toBe(true);
+    // Finish the actual logout navigation before requesting another page. An
+    // out-of-band API logout races the old protected page's session redirect.
+    await expect(page).toHaveURL(/\/en\/?$/, { timeout: 30_000 });
+    await expect(page.locator("header").first().getByRole("button", { name: "Sign out", exact: true })).toHaveCount(0);
+    // Session discovery is public: signed-out clients receive 200/user:null.
+    // Separately require the private account endpoint to deny the old session.
+    const signedOutSession = await page.request.get("/api/auth/me");
+    expect(signedOutSession.status()).toBe(200);
+    expect(await signedOutSession.json()).toEqual({ user: null });
+    expect((await page.request.get("/api/alpha-exchange/account-sessions")).status()).toBe(401);
+    // Logout must remove access while retaining the protected destination.
     await page.goto("/en/academy");
-    await expect(page).toHaveURL(/\/en\/login/, { timeout: 30_000 });
+    await expect(page).toHaveURL(/\/en\/login\?redirectTo=%2Fen%2Facademy$/, { timeout: 30_000 });
   });
 });
 
@@ -248,7 +267,8 @@ test.describe("Role-based access", () => {
     test.skip(!BUYER_EMAIL || !BUYER_PASSWORD, "Set E2E_BUYER_EMAIL and E2E_BUYER_PASSWORD to run credentialed login checks.");
     await login(page, BUYER_EMAIL, BUYER_PASSWORD);
     await page.goto("/en/admin/alpha-exchange", { timeout: 75_000 });
-    await expect(page).toHaveURL(/\/en\/usdt-exchange$/, { timeout: 10_000 });
+    await expect(page).toHaveURL(/\/en\/dashboard$/, { timeout: 10_000 });
+    await expect(page.getByRole("link", { name: /Owner Dashboard|Admin Dashboard/i })).toHaveCount(0);
   });
 
   test("/api/auth/me returns user for authenticated session", async ({ page }) => {
@@ -287,7 +307,7 @@ test.describe("Infrastructure", () => {
     const resp = await page.goto("/en");
     const headers = resp!.headers();
     expect(headers["x-content-type-options"]).toBe("nosniff");
-    expect(headers["x-frame-options"]).toBe("SAMEORIGIN");
+    expect(headers["x-frame-options"]).toBe("DENY");
     expect(headers["referrer-policy"]).toBe("strict-origin-when-cross-origin");
   });
 });

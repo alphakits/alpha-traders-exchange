@@ -18,7 +18,7 @@ function getSupabaseServiceRoleKey() {
   return process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";
 }
 
-export function createSupabaseAuthClient(options?: { requestHeaders?: Headers }) {
+export function createSupabaseAuthClient(options?: { requestHeaders?: Headers; signal?: AbortSignal }) {
   const url = getSupabaseUrl();
   const anonKey = getSupabaseAnonKey();
   if (!url || !anonKey) {
@@ -30,9 +30,20 @@ export function createSupabaseAuthClient(options?: { requestHeaders?: Headers })
     // Preserve real client IP for provider-side abuse controls behind proxies (Vercel/CDN).
     globalHeaders["x-forwarded-for"] = forwardedFor;
   }
+  const operationSignal = options?.signal;
   return createClient(url, anonKey, {
     global: {
       headers: globalHeaders,
+      ...(operationSignal ? {
+        fetch: (input: RequestInfo | URL, init?: RequestInit) => {
+          operationSignal.throwIfAborted();
+          const fetchSignal = init?.signal ?? (input instanceof Request ? input.signal : undefined);
+          return fetch(input, {
+            ...init,
+            signal: fetchSignal ? AbortSignal.any([operationSignal, fetchSignal]) : operationSignal,
+          });
+        },
+      } : {}),
     },
     auth: {
       autoRefreshToken: false,

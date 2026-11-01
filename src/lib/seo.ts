@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import type { AppLocale } from "@/i18n/routing";
 import { getSiteUrl } from "@/lib/site-url";
+import { isPrivateSearchPath } from "@/lib/seo-indexing";
 import {
   BRAND_NAME,
   BRAND_OFFICIAL_SOCIALS,
@@ -30,11 +31,21 @@ export function buildPageMetadata({
   return {
     title,
     description,
+    // Supplemental indexing directives, never a replacement for account controls.
+    ...(isPrivateSearchPath(path) ? {
+      robots: {
+        index: false,
+        follow: false,
+        nocache: true,
+        googleBot: { index: false, follow: false, noimageindex: true, nosnippet: true },
+      },
+    } : {}),
     alternates: {
       canonical,
       languages: {
         ar: `${siteUrl}/ar${path}`,
         en: `${siteUrl}/en${path}`,
+        "x-default": `${siteUrl}/en${path}`,
       },
     },
     openGraph: {
@@ -96,7 +107,7 @@ export function buildSiteIdentitySchemas() {
       "@type": "Organization",
       "@id": organizationId,
       name: BRAND_NAME,
-      alternateName: BRAND_PRIMARY_NAME,
+      alternateName: [BRAND_PRIMARY_NAME, "Alpha Traders Academy & Exchange", "Alpha Exchange"],
       url: siteUrl,
       logo: {
         "@type": "ImageObject",
@@ -105,7 +116,7 @@ export function buildSiteIdentitySchemas() {
         height: 512,
       },
       description:
-        "Trading education and a structured peer-to-peer USDT marketplace workflow with manually approved sellers.",
+        "Alpha Traders Academy & Exchange provides free structured trading education and a peer-to-peer USDT/ILS marketplace workflow with manually approved sellers.",
       email: BRAND_SUPPORT_EMAIL,
       sameAs: [...BRAND_OFFICIAL_SOCIALS],
       contactPoint: {
@@ -121,12 +132,38 @@ export function buildSiteIdentitySchemas() {
       "@type": "WebSite",
       "@id": websiteId,
       name: BRAND_NAME,
-      alternateName: BRAND_PRIMARY_NAME,
+      alternateName: [BRAND_PRIMARY_NAME, "Alpha Traders Academy & Exchange"],
       url: siteUrl,
       inLanguage: ["en", "ar"],
       publisher: { "@id": organizationId },
     },
   ];
+}
+
+
+export function buildFaqSchema({
+  locale,
+  path,
+  faqs,
+}: {
+  locale: AppLocale;
+  path: string;
+  faqs: Array<{ question: string; answer: string }>;
+}) {
+  return {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    "@id": `${siteUrl}/${locale}${path}#faq`,
+    inLanguage: locale,
+    mainEntity: faqs.map((faq) => ({
+      "@type": "Question",
+      name: faq.question,
+      acceptedAnswer: {
+        "@type": "Answer",
+        text: faq.answer,
+      },
+    })),
+  };
 }
 
 export function buildTrustFaqSchema(locale: AppLocale) {

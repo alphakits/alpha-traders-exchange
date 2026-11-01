@@ -7,7 +7,7 @@ const mocks = vi.hoisted(() => ({
   logEvent: vi.fn(),
   prepareTradeEventEmails: vi.fn(),
   requireApiUser: vi.fn(),
-  requireEmailVerificationForTrading: vi.fn(),
+  requireMarketplaceVerificationForTrading: vi.fn(),
   updatePurchaseRequestStatus: vi.fn(),
 }));
 
@@ -17,7 +17,7 @@ vi.mock("next/server", async (importOriginal) => ({
 }));
 vi.mock("@/lib/api-auth", () => ({
   requireApiUser: mocks.requireApiUser,
-  requireEmailVerificationForTrading: mocks.requireEmailVerificationForTrading,
+  requireMarketplaceVerificationForTrading: mocks.requireMarketplaceVerificationForTrading,
 }));
 vi.mock("@/lib/rate-limit", () => ({ checkRateLimit: mocks.checkRateLimit }));
 vi.mock("@/lib/structured-logging", () => ({ logEvent: mocks.logEvent }));
@@ -43,22 +43,31 @@ function statusRequest(status: string) {
   });
 }
 
-function actionRequest(action: string) {
+function actionRequest(action: string, payload: Record<string, unknown> = {}) {
   return new NextRequest("http://localhost/api/alpha-exchange/purchase-requests/purchase-1", {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ action }),
+    body: JSON.stringify({ action, ...payload }),
   });
 }
 
 describe("Trade Room status route post-commit reliability", () => {
+  it("passes explicit seller completion and delivery confirmation to settlement", async () => {
+    const response = await PATCH(actionRequest("complete_trade", { usdtSentConfirmed: true }), {
+      params: Promise.resolve({ requestId: "purchase-1" }),
+    });
+    expect(response.status).toBe(200);
+    expect(mocks.updatePurchaseRequestStatus).toHaveBeenCalledWith(expect.objectContaining({
+      actorUserId: "seller-1", nextStatus: "completed", completionMode: "seller", usdtSentConfirmed: true,
+    }));
+  });
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.requireApiUser.mockResolvedValue({
       user: { id: "seller-1", role: "approved_seller", emailVerified: true },
       unauthorized: null,
     });
-    mocks.requireEmailVerificationForTrading.mockReturnValue(null);
+    mocks.requireMarketplaceVerificationForTrading.mockReturnValue(null);
     mocks.checkRateLimit.mockReturnValue({ allowed: true, retryAfterSeconds: 0, reason: null });
     mocks.updatePurchaseRequestStatus.mockResolvedValue({
       request: {
@@ -149,6 +158,33 @@ describe("Trade Room status route post-commit reliability", () => {
       actorUserId: "seller-1",
       nextStatus: "completed",
       completionMode: "cash_trade",
+    }));
+  });
+
+  it("maps Cardless ATM code submission to one atomic payment confirmation", async () => {
+    mocks.requireApiUser.mockResolvedValueOnce({
+      user: { id: "buyer-1", role: "buyer", emailVerified: true },
+      unauthorized: null,
+    });
+    const response = await PATCH(actionRequest("submit_cardless_code", {
+      withdrawalCode: "482913",
+      verificationKind: "id_number",
+      verificationValue: "012345678",
+      clientOperationId: "0123456789abcdef0123456789abcdef",
+    }), {
+      params: Promise.resolve({ requestId: "purchase-1" }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(mocks.updatePurchaseRequestStatus).toHaveBeenCalledWith(expect.objectContaining({
+      requestId: "purchase-1",
+      actorUserId: "buyer-1",
+      actorRole: "buyer",
+      nextStatus: "payment_sent",
+      cardlessWithdrawalCode: "482913",
+      cardlessVerificationKind: "id_number",
+      cardlessVerificationValue: "012345678",
+      clientOperationId: "0123456789abcdef0123456789abcdef",
     }));
   });
 

@@ -1,8 +1,10 @@
 import { redirect } from "next/navigation";
+import Link from "next/link";
 import { buildPageMetadata } from "@/lib/seo";
 import { getCurrentSessionUser } from "@/lib/auth";
 import { hasRole } from "@/lib/roles";
 import { AlphaExchangeAdminDashboard } from "@/components/admin/alpha-exchange-admin-dashboard";
+import { OwnerLiveAnalyticsPanel } from "@/components/admin/owner-live-analytics-panel";
 
 export const dynamic = "force-dynamic";
 
@@ -53,9 +55,28 @@ export default async function AlphaExchangeAdminPage({
   if (!user) {
     redirect(`/${locale}/login?redirectTo=${encodeURIComponent(buildAdminDestination(locale, query))}`);
   }
-  if (!hasRole(user, "admin")) {
+  const isOwner = hasRole(user, "owner");
+  if (!isOwner && !hasRole(user, "admin")) {
     redirect(`/${locale}/usdt-exchange`);
   }
 
-  return <AlphaExchangeAdminDashboard locale={locale === "ar" ? "ar" : "en"} isOwner={hasRole(user, "owner")} />;
+  // The exchange snapshot includes owner-only personal and financial records.
+  // Do not mount its polling dashboard for an admin who cannot read that API.
+  if (!isOwner) {
+    const isAr = locale === "ar";
+    return <section className="section-container page-shell" dir={isAr ? "rtl" : "ltr"}>
+      <h1 className="text-2xl font-semibold text-white">{isAr ? "لوحة عمليات الإدارة" : "Admin Operations Dashboard"}</h1>
+      <p className="mt-4 max-w-2xl text-[#D1D5DB]">{isAr
+        ? "سجلات الصفقات والبيانات الشخصية والأدوات المالية متاحة لمالك المنصة فقط. يمكنك متابعة إدارة حسابك من ملفك الشخصي."
+        : "Exchange records, personal details and financial controls are available to the platform owner only. You can continue managing your account from your profile."}</p>
+      <Link href={`/${locale}/profile`} className="mt-6 inline-flex min-h-11 items-center rounded-xl border border-[#C9A227]/40 px-4 text-[#F4D87A] underline underline-offset-4">
+        {isAr ? "فتح ملفي الشخصي" : "Open my profile"}
+      </Link>
+    </section>;
+  }
+
+  return <>
+    <OwnerLiveAnalyticsPanel locale={locale === "ar" ? "ar" : "en"} />
+    <AlphaExchangeAdminDashboard locale={locale === "ar" ? "ar" : "en"} isOwner />
+  </>;
 }

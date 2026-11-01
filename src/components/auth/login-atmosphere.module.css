@@ -1,0 +1,163 @@
+.page {
+  position: relative;
+  isolation: isolate;
+  width: 100%;
+  padding-block: 1rem;
+}
+
+/* The web login shares the viewport with its header. Keep the form intrinsic:
+   short windows, validation messages and enlarged text must never be clipped.
+   Native-app and longer auth pages retain their own layouts. */
+.authShell:has(.page[data-login-surface="web"]) {
+  min-height: 100dvh;
+}
+
+.authShell:has(.page[data-login-surface="web"]) > header {
+  flex-shrink: 0;
+  gap: .5rem;
+  padding-block: .5rem 0;
+}
+
+.authShell:has(.page[data-login-surface="web"]) > header > a {
+  min-width: 0;
+  gap: .5rem;
+  padding: .375rem .625rem;
+}
+
+.authShell:has(.page[data-login-surface="web"]) > header img {
+  width: clamp(2.25rem, 6dvh, 3.5rem);
+  height: clamp(2.25rem, 6dvh, 3.5rem);
+}
+
+.authShell:has(.page[data-login-surface="web"]) > main {
+  min-width: 0;
+  padding-block: clamp(.5rem, 1.5dvh, 1.25rem);
+}
+
+.page[data-login-surface="web"] {
+  min-width: 0;
+  padding-block: 0;
+}
+
+.page[data-login-surface="web"] .card > * {
+  min-width: 0;
+}
+
+.page[data-login-surface="web"] :is(.panel, .promo) {
+  padding: clamp(1rem, 3dvh, 2.5rem);
+}
+
+.page[data-login-surface="web"] .heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: .5rem;
+}
+
+.heading h1 {
+  order: -1;
+  margin: 0;
+  font-size: clamp(1.75rem, 4dvh, 2.25rem);
+  line-height: 1.2;
+}
+
+.intro { margin-top: .5rem; line-height: 1.5; }
+.form { margin-top: clamp(.75rem, 2dvh, 1.5rem); gap: clamp(.5rem, 1.5dvh, 1rem); }
+.field { min-width: 0; gap: .375rem; }
+.register { margin-top: .75rem; }
+.options { gap-block: 0; }
+.page[data-login-surface="web"] .promo h2 { margin-top: 1rem; font-size: clamp(1.5rem, 3.6dvh, 2.25rem); }
+.page[data-login-surface="web"] .promo h2 + p { margin-top: .75rem; line-height: 1.5; }
+.page[data-login-surface="web"] .promoFeatures { margin-top: 1.5rem; gap: .5rem; }
+.page[data-login-surface="web"] .promoWorkspace { padding-top: 1.5rem; }
+
+@media (min-width: 64rem) {
+  /* These benefits already appear beside the form on desktop. */
+  .page[data-login-surface="web"] .benefits { display: none; }
+}
+
+@media (max-height: 56.25rem) {
+  .page[data-login-surface="web"] .promoWorkspace { display: none; }
+}
+
+@media (max-height: 46rem) {
+  .page[data-login-surface="web"] .benefits { display: none; }
+  .page[data-login-surface="web"] .promoFeatures { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .page[data-login-surface="web"] :is(.panel, .promo) { padding: 1rem; }
+  .form { margin-top: .75rem; gap: .5rem; }
+  .field { gap: .25rem; }
+  .field input { height: 2.75rem; }
+  .field button[aria-controls="login-password"] { top: 0; right: 0; }
+  .form > button { height: 2.75rem; }
+  .register { margin-top: .5rem; }
+}
+
+/* Landscape tablets and short/zoomed desktop windows use the available width
+   for the credentials, instead of adding another vertical stack. */
+@media (min-width: 40rem) and (max-height: 34rem) {
+  .page[data-login-surface="web"] .card { max-width: 52rem; grid-template-columns: minmax(0, 1fr); }
+  .page[data-login-surface="web"] .promo { display: none; }
+  .page[data-login-surface="web"] .panel { padding: .5rem 1.25rem; }
+  .page[data-login-surface="web"] .panel > div:last-child { max-width: none; }
+  .intro { display: none; }
+  .form { grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 1rem; }
+  .options { grid-column: 1; grid-row: 2; }
+  .form > button { grid-column: 2; grid-row: 2; }
+}
+
+.atmosphere {
+  position: fixed;
+  z-index: -1;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  background: radial-gradient(ellipse at 50% 26%, #231908 0%, #0c0a06 38%, #050505 76%);
+}
+
+.glow {
+  position: absolute;
+  inset: -10%;
+  opacity: .7;
+  background: radial-gradient(ellipse at 15% 30%, #d997192b, transparent 38%),
+    radial-gradient(ellipse at 90% 78%, #41c6bd14, transparent 35%);
+  animation: drift 12s ease-in-out infinite alternate;
+}
+
+.grid {
+  position: absolute;
+  inset: 0;
+  opacity: .16;
+  background-image: linear-gradient(#d4af3726 1px, transparent 1px), linear-gradient(90deg, #d4af3726 1px, transparent 1px);
+  background-size: 56px 56px;
+  mask-image: radial-gradient(ellipse, transparent 22%, black 100%);
+}
+
+.circuit { position: absolute; width: 100%; height: 100%; inset: 0; }
+.wires { stroke: #d4af37; stroke-width: 1; opacity: .16; }
+.energy { stroke: #ffd979; stroke-width: 1.7; stroke-linecap: round; stroke-dasharray: 2 23; opacity: .65; animation: signal 16s linear infinite; }
+.nodes { stroke: #b99436; fill: #161106; opacity: .48; }
+.nodes circle { fill: #f3cd6d; stroke: none; }
+
+.card {
+  position: relative;
+  border-color: #d4af3738;
+  background: linear-gradient(145deg, #19150ffa, #080909f7 60%);
+  box-shadow: 0 28px 90px #0009, 0 1px 0 #ffe6a014 inset;
+}
+
+.card::before {
+  content: "";
+  position: absolute;
+  inset: 0 16% auto;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, #f7d57d, transparent);
+  opacity: .7;
+}
+
+@keyframes signal { to { stroke-dashoffset: -100; } }
+@keyframes drift { to { transform: translate3d(3%, 2%, 0); opacity: 1; } }
+@media (min-width: 1024px) { .page { padding-block: 2rem; } }
+@media (prefers-reduced-motion: reduce) {
+  .glow, .energy { animation: none; }
+}

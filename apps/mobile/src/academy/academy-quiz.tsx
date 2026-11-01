@@ -1,5 +1,6 @@
+import { BrandedText as Text } from "../components/branded-text";
 import { useMemo, useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, View } from "react-native";
 import type { MobileAcademyQuizQuestion, MobileLocale } from "@alpha-traders/contracts";
 import { colors, radius, spacing, typography } from "@alpha-traders/design-tokens";
 import { GoldButton } from "../components/gold-button";

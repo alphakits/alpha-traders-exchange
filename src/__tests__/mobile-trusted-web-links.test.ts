@@ -25,7 +25,7 @@ describe("native trusted website links", () => {
       "https://www.alphatraders.co.il/ar/usdt-exchange",
     );
     expect(trustedWebUrl("sellerWorkspace", "en")).toBe(
-      "https://www.alphatraders.co.il/en/dashboard/seller",
+      "https://www.alphatraders.co.il/en/usdt-exchange#my-listings-section",
     );
   });
 });

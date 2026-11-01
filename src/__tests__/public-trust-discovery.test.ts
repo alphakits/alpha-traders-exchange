@@ -89,7 +89,7 @@ describe("public trust and AI discovery", () => {
 
     expect(organization).toMatchObject({
       name: "Alpha Traders Academy & Exchange",
-      alternateName: "Alpha Traders",
+      alternateName: ["Alpha Traders", "Alpha Traders Academy & Exchange", "Alpha Exchange"],
       url: "https://www.alphatraders.co.il",
       email: "support@alphatraders.co.il",
     });
@@ -133,7 +133,7 @@ describe("public trust and AI discovery", () => {
 
     expect(userFacingTradeSources).toContain("Structured trade · direct settlement");
     expect(userFacingTradeSources).toContain("Trade flow recorded by Alpha Traders");
-    expect(userFacingTradeSources).toContain("Trade Flow Status");
+    expect(userFacingTradeSources).toContain("Trade Progress");
     expect(userFacingTradeSources).not.toMatch(/Escrow protected|escrow by Alpha Traders|Escrow reminder|Escrow Visualization|USDT Locked/);
     expect(userFacingTradeSources).not.toMatch(/ضمان Alpha Traders|حالة الضمان|صفقة مؤمّنة عبر Alpha Traders|USDT مقفول/);
   });

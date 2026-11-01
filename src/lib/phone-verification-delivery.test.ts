@@ -7,11 +7,17 @@ const mocks = vi.hoisted(() => ({
   sendWhatsAppAuthenticationCodeWithRetry: vi.fn(),
   sendTwilioMessageWithRetry: vi.fn(),
   getBilingualOtpSms: vi.fn((code: string) => `verification:${code}`),
+  logEvent: vi.fn(),
 }));
 
-vi.mock("@/lib/notification-platform", () => ({
+vi.mock("@/lib/structured-logging", () => ({ logEvent: mocks.logEvent }));
+
+vi.mock("@/lib/notification-platform", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/notification-platform")>(),
   getBilingualOtpSms: mocks.getBilingualOtpSms,
-  isTwilioSendEnabled: (env: NodeJS.ProcessEnv = process.env) => (
+  isTwilioOtpSendEnabled: (env: NodeJS.ProcessEnv = process.env) => (
+    env.ALPHA_EXCHANGE_TWILIO_OTP_SEND_ENABLED?.trim().toLowerCase() === "true"
+    ||
     env.ALPHA_EXCHANGE_TWILIO_SEND_ENABLED?.trim().toLowerCase() === "true"
   ),
   normalizeE164: (phone: string) => /^\+[1-9]\d{7,14}$/.test(phone) ? phone : null,
@@ -34,6 +40,7 @@ describe("phone verification delivery selection", () => {
     mocks.sendWhatsAppAuthenticationCodeWithRetry.mockReset();
     mocks.sendTwilioMessageWithRetry.mockReset();
     mocks.getBilingualOtpSms.mockClear();
+    mocks.logEvent.mockReset();
   });
 
   afterEach(() => {
@@ -80,36 +87,35 @@ describe("phone verification delivery selection", () => {
     expect(mocks.sendTwilioMessageWithRetry).toHaveBeenCalledWith({
       to: "+15557654321",
       body: "verification:482901",
+      purpose: "verification",
+      maxAttempts: 1,
     });
     expect(mocks.sendWhatsAppAuthenticationCodeWithRetry).not.toHaveBeenCalled();
   });
 
-  it("uses only direct Meta WhatsApp when explicitly selected and ready", async () => {
+  it("records provider failure diagnostics without the recipient, OTP, credentials, or raw error", async () => {
+    vi.stubEnv("ALPHA_EXCHANGE_PHONE_VERIFICATION_ENABLED", "true");
+    vi.stubEnv("ALPHA_EXCHANGE_PHONE_VERIFICATION_PROVIDER", "twilio");
+    vi.stubEnv("ALPHA_EXCHANGE_TWILIO_OTP_SEND_ENABLED", "true");
+    vi.stubEnv("TWILIO_ACCOUNT_SID", "ACprivate");
+    vi.stubEnv("TWILIO_AUTH_TOKEN", "private-token");
+    vi.stubEnv("TWILIO_PHONE_NUMBER", "+15551234567");
+    mocks.sendTwilioMessageWithRetry.mockResolvedValue({ ok: false, httpStatus: 401, providerCode: "20003", attempts: 1, retryable: false, error: "private provider message +972541234567 482901" });
+    await sendPhoneVerificationCode({ phone: "+972541234567", code: "482901" });
+    expect(mocks.logEvent).toHaveBeenCalledWith("warn", expect.objectContaining({ metadata: { provider: "twilio", httpStatus: 401, providerErrorNumber: 20003, attempts: 1, retryable: false } }));
+    const logged = JSON.stringify(mocks.logEvent.mock.calls);
+    for (const privateValue of ["+972541234567", "+15551234567", "482901", "ACprivate", "private-token", "private provider message"]) expect(logged).not.toContain(privateValue);
+  });
+
+  it("keeps legacy WhatsApp configuration unavailable even when its provider is ready", async () => {
     vi.stubEnv("ALPHA_EXCHANGE_PHONE_VERIFICATION_ENABLED", "true");
     vi.stubEnv("ALPHA_EXCHANGE_PHONE_VERIFICATION_PROVIDER", "whatsapp");
     mocks.getWhatsAppAuthenticationReadiness.mockReturnValue({ readyToSend: true });
-    mocks.sendWhatsAppAuthenticationCodeWithRetry.mockResolvedValue({
-      ok: true,
-      messageId: "wamid.otp",
-      status: "accepted",
-      attempts: 1,
-    });
-
-    await expect(sendPhoneVerificationCode({
-      phone: "+972541234567",
-      code: "482901",
-      locale: "ar",
-    })).resolves.toEqual({ ok: true, provider: "whatsapp", channel: "whatsapp" });
-
-    expect(mocks.sendWhatsAppAuthenticationCodeWithRetry).toHaveBeenCalledWith({
-      to: "+972541234567",
-      code: "482901",
-      locale: "ar",
-      maxAttempts: 1,
-    });
+    expect(getPhoneVerificationProvider()).toBe("disabled");
+    expect(await sendPhoneVerificationCode({ phone: "+972541234567", code: "482901", locale: "ar" })).toMatchObject({ ok: false });
+    expect(mocks.sendWhatsAppAuthenticationCodeWithRetry).not.toHaveBeenCalled();
     expect(mocks.sendTwilioMessageWithRetry).not.toHaveBeenCalled();
   });
-
   it("fails closed without falling back when WhatsApp approval is not ready", async () => {
     vi.stubEnv("ALPHA_EXCHANGE_PHONE_VERIFICATION_ENABLED", "true");
     vi.stubEnv("ALPHA_EXCHANGE_PHONE_VERIFICATION_PROVIDER", "whatsapp");
@@ -123,7 +129,7 @@ describe("phone verification delivery selection", () => {
 
     expect(result).toEqual(expect.objectContaining({
       ok: false,
-      provider: "whatsapp",
+      provider: "disabled",
       retryable: false,
       supportCode: "OTP_PROVIDER_CONFIGURATION",
     }));

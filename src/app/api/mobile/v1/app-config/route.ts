@@ -9,6 +9,11 @@ import {
 } from "@/lib/mobile-api";
 import { resolveMobileVersionPolicy } from "@/lib/mobile-version-policy";
 
+// App startup waits for this policy before the WebView becomes interactive.
+// Keep it on the edge: it is pure configuration work and does not need the
+// Node.js/database runtime or its cold-start path.
+export const runtime = "edge";
+
 export async function GET(request: NextRequest) {
   const requestId = createMobileRequestId(request);
   const locale = resolveMobileLocale(request);

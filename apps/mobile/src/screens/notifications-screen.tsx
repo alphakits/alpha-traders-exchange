@@ -1,3 +1,4 @@
+import { BrandedText as Text } from "../components/branded-text";
 import { useCallback } from "react";
 import {
   ActivityIndicator,
@@ -5,7 +6,6 @@ import {
   Pressable,
   RefreshControl,
   StyleSheet,
-  Text,
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -131,12 +131,12 @@ function NotificationCard({
         </View>
         <View style={styles.cardCopy}>
           <View style={[styles.titleRow, isRTL && styles.rowReverse]}>
-            <Text numberOfLines={2} style={[styles.cardTitle, isRTL && styles.rtlText]}>
+            <Text numberOfLines={2} style={[styles.cardTitle, notification.destination?.screen === "seller_commissions" && { color: colors.commissionNotice }, isRTL && styles.rtlText]}>
               {title}
             </Text>
             {!notification.isRead ? <View accessible={false} style={styles.unreadDot} /> : null}
           </View>
-          <Text style={[styles.cardMessage, isRTL && styles.rtlText]}>{message}</Text>
+          <Text style={[styles.cardMessage, notification.destination?.screen === "seller_commissions" && { color: colors.commissionNotice }, isRTL && styles.rtlText]}>{message}</Text>
         </View>
       </View>
       <View style={[styles.cardFooter, isRTL && styles.rowReverse]}>

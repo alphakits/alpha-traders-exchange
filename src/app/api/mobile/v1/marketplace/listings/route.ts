@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { compareSellerResponseTimes } from "@alpha-traders/contracts";
 import type {
   MobileMarketplaceListing,
   MobileMarketplaceSort,
@@ -19,6 +20,7 @@ import {
 } from "@/lib/mobile-api";
 import type { MarketplaceListing } from "@/types/alpha-exchange";
 import { safeMobileMediaUrl } from "@/lib/mobile-safe-media-url";
+import { compareMarketplaceSellers } from "@/lib/marketplace-seller-order";
 
 const RESOURCE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
 const SUPPORTED_NETWORKS = new Set<MobileSupportedNetwork>(["TRC20", "ERC20", "BEP20", "SOL"]);
@@ -36,33 +38,17 @@ function numericValue(value: string | number | undefined) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function marketplaceRank(listing: MobileMarketplaceListing) {
-  const level = listing.seller.level;
-  if (level === "elite") return 5;
-  if (level === "diamond") return 4;
-  if (level === "gold") return 3;
-  if (level === "silver") return 2;
-  return 1;
-}
-
 function sortListings(listings: MobileMarketplaceListing[], sort: MobileMarketplaceSort) {
   return [...listings].sort((left, right) => {
     if (sort === "price-asc") return numericValue(left.price) - numericValue(right.price);
     if (sort === "amount-desc") return numericValue(right.availableAmount) - numericValue(left.availableAmount);
     if (sort === "rating-desc") return (right.seller.rating ?? 0) - (left.seller.rating ?? 0);
     if (sort === "response-fast") {
-      return numericValue(left.seller.responseTimeMinutes ?? left.responseTime)
-        - numericValue(right.seller.responseTimeMinutes ?? right.responseTime);
+      return compareSellerResponseTimes(left.seller, right.seller);
     }
     if (sort === "newest") return new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime();
-    return marketplaceRank(right) - marketplaceRank(left)
-      || Number(right.seller.isFeaturedSeller) - Number(left.seller.isFeaturedSeller)
-      || (right.seller.trustScore ?? 0) - (left.seller.trustScore ?? 0)
-      || (right.seller.rating ?? 0) - (left.seller.rating ?? 0)
-      || numericValue(left.seller.responseTimeMinutes ?? left.responseTime)
-        - numericValue(right.seller.responseTimeMinutes ?? right.responseTime)
-      || (right.seller.completedTrades ?? 0) - (left.seller.completedTrades ?? 0)
-      || new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime();
+    return compareMarketplaceSellers(left.seller, right.seller)
+      || left.id.localeCompare(right.id);
   });
 }
 
@@ -81,13 +67,19 @@ function toMobileListing(listing: MarketplaceListing, viewerUserId?: string): Mo
       isFoundingSeller: profile?.isFoundingSeller === true,
       isFeaturedSeller: profile?.isFeaturedSeller === true,
       emailVerified: profile?.emailVerified === true || profile?.isEmailVerified === true,
+      isPhoneVerified: profile?.isPhoneVerified === true,
       onlineStatus: profile?.onlineStatus ?? "offline",
       availabilityStatus: profile?.availabilityStatus ?? "away",
       lastActiveAt: profile?.lastActiveAt,
+      lastSeenAt: profile?.lastSeenAt,
+      presenceHidden: profile?.presenceHidden,
       country: profile?.country,
       level: reputation?.level,
       trustScore: reputation?.trustScore,
       rating: reputation?.rating,
+      totalReviews: reputation?.totalReviews,
+      responseSampleCount: reputation?.responseSampleCount,
+      alphaScore: reputation?.alphaScore,
       completedTrades: reputation?.completedTrades,
       responseTimeMinutes: reputation?.responseTimeMinutes,
     },
@@ -97,6 +89,7 @@ function toMobileListing(listing: MarketplaceListing, viewerUserId?: string): Mo
     currency: listing.currency,
     network: listing.network,
     paymentMethods: [...listing.paymentMethods],
+    bankName: listing.bankName,
     minimumTrade: listing.minimumTrade,
     maximumTrade: listing.maximumTrade,
     responseTime: listing.responseTime,
@@ -147,6 +140,7 @@ export async function GET(request: NextRequest) {
       viewerUserId = auth.user.id;
     }
     const visibleListings = (await getMarketplaceListings(undefined, undefined, viewerUserId))
+      .filter((listing) => listing.bankTransferProvider !== "wise")
       .filter((listing) => listing.status === "active" && listing.approvalStatus !== "rejected")
       .filter((listing) => !listingId || listing.id === listingId)
       .map((listing) => toMobileListing(listing, viewerUserId));

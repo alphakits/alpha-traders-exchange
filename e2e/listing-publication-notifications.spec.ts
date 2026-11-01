@@ -3,6 +3,7 @@ import { promisify } from "node:util";
 import { expect, request, test, type APIRequestContext } from "@playwright/test";
 import type { AlphaExchangeDb, UserRole } from "@/types/alpha-exchange";
 import { E2E_BASE_URL } from "./support/base-url";
+import { createE2eSellerApprovalVerification } from "./support/seller-verification";
 
 const scrypt = promisify(scryptCallback);
 const TEST_SUPPORT_HEADERS = {
@@ -121,6 +122,9 @@ async function upsertQaUser(db: AlphaExchangeDb, input: {
     role: input.role,
     roles: normalizeRoles(input.roles, input.role),
     sellerStatus: input.sellerStatus,
+    ...(input.sellerStatus === "approved_seller" ? {
+      sellerApprovalVerification: createE2eSellerApprovalVerification(now, QA_USER_IDS.owner),
+    } : {}),
     emailVerified: true,
     emailVerifiedAt: now,
     verifiedPhone: input.verifiedPhone,
@@ -131,6 +135,20 @@ async function upsertQaUser(db: AlphaExchangeDb, input: {
     buyerDisplayName: input.fullName,
     onboardingSelection: "buyer" as const,
     onboardingCompletedAt: now,
+    ...(input.role === "approved_seller" || input.role === "owner" ? {
+      sellerBankAccounts: [{
+        id: `bank-${input.id}`,
+        sellerId: input.id,
+        accountHolderName: input.fullName,
+        bankName: "Bank Hapoalim",
+        branchNumber: "123",
+        accountNumber: "9000000111",
+        accountLast4: "0111",
+        isDefault: true,
+        createdAt: now,
+        updatedAt: now,
+      }],
+    } : {}),
     createdAt: now,
     updatedAt: now,
   };
@@ -263,6 +281,7 @@ test.describe("listing publication notification regression", () => {
         currency: "ILS",
         network: "TRC20",
         paymentMethods: ["Bank Transfer"],
+        bankAccountId: `bank-${QA_USER_IDS.seller}`,
         bankName: "Bank Hapoalim",
         minimumTrade: "50",
         maximumTrade: "550",

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { NextRequest } from "next/server";
 import { cookies } from "next/headers";
 import { createEmailVerificationTokenForUser, upsertUserProfileForAuth } from "@/lib/alpha-exchange-store";
@@ -6,10 +6,16 @@ import { authenticateLocalUser, createUserSession } from "@/lib/auth";
 import { checkRateLimit, checkSharedRateLimit } from "@/lib/rate-limit";
 import { getSiteUrl } from "@/lib/site-url";
 import { buildAuthEmail, sendAuthEmailViaResend } from "@/lib/auth-email-delivery";
+import { AUTH_PROVIDER_TIMEOUT_MS } from "@/lib/auth-request-deadline";
 
 const phoneVerificationMocks = vi.hoisted(() => ({
   isMarketplacePhoneVerificationDisabled: vi.fn(),
   isVerified: vi.fn(),
+}));
+
+const supabaseAuthMocks = vi.hoisted(() => ({
+  createClient: vi.fn(),
+  signInWithPassword: vi.fn(),
 }));
 
 vi.mock("next/headers", () => ({
@@ -42,9 +48,7 @@ vi.mock("@/lib/rate-limit", () => ({
 }));
 
 vi.mock("@/lib/supabase-auth-provider", () => ({
-  createSupabaseAuthClient: vi.fn(() => ({
-    auth: { signInWithPassword: vi.fn() },
-  })),
+  createSupabaseAuthClient: supabaseAuthMocks.createClient,
   inferLocaleFromRequest: vi.fn(() => "en"),
 }));
 
@@ -98,6 +102,13 @@ beforeEach(() => {
   mockCheckRateLimit.mockReturnValue({ allowed: true, retryAfterSeconds: 0, reason: null });
   mockCheckSharedRateLimit.mockResolvedValue({ allowed: true, retryAfterSeconds: 0, reason: null });
   mockAuthenticateLocalUser.mockResolvedValue(null);
+  supabaseAuthMocks.signInWithPassword.mockResolvedValue({
+    data: { user: null },
+    error: { message: "Invalid login credentials" },
+  });
+  supabaseAuthMocks.createClient.mockReturnValue({
+    auth: { signInWithPassword: supabaseAuthMocks.signInWithPassword },
+  });
   mockCreateEmailVerificationTokenForUser.mockResolvedValue({ token: "a".repeat(64) } as never);
   mockUpsertUserProfileForAuth.mockResolvedValue(verifiedLocalUser as never);
   mockCreateUserSession.mockResolvedValue({ token: "test-session-token", expiresAt: "2030-01-01T00:00:00.000Z" });
@@ -108,7 +119,143 @@ beforeEach(() => {
   phoneVerificationMocks.isVerified.mockReturnValue(false);
 });
 
+afterEach(() => {
+  vi.useRealTimers();
+});
+
 describe("POST /api/auth/login", () => {
+  it.each(["deadline", "caller"] as const)("returns a safe 503 for %s cancellation without sessions or cookies", async (cancellation) => {
+    vi.useFakeTimers();
+    const caller = new AbortController();
+    let finishProvider!: (value: unknown) => void;
+    supabaseAuthMocks.signInWithPassword.mockImplementationOnce(() => new Promise((resolve) => { finishProvider = resolve; }));
+    const responsePromise = POST(new Request("https://example.com/api/auth/login", {
+      method: "POST", headers: { "content-type": "application/json" }, signal: caller.signal,
+      body: JSON.stringify({ email: "buyer@example.test", password: "test-password" }),
+    }) as unknown as NextRequest);
+    await vi.advanceTimersByTimeAsync(0);
+    const providerSignal = supabaseAuthMocks.createClient.mock.calls[0]?.[0].signal as AbortSignal;
+    expect(providerSignal.aborted).toBe(false);
+    if (cancellation === "deadline") await vi.advanceTimersByTimeAsync(AUTH_PROVIDER_TIMEOUT_MS);
+    else caller.abort();
+    const response = await responsePromise;
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: "Unable to sign in. Please try again." });
+    expect(response.headers.get("cache-control")).toContain("no-store");
+    expect(providerSignal.aborted).toBe(true);
+    finishProvider({ data: { user: { email: "buyer@example.test", email_confirmed_at: "2026-01-01", user_metadata: {} } }, error: null });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(supabaseAuthMocks.signInWithPassword).toHaveBeenCalledTimes(1);
+    expect(mockUpsertUserProfileForAuth).not.toHaveBeenCalled();
+    expect(mockCreateUserSession).not.toHaveBeenCalled();
+    expect(setCookie).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it.each([
+    ["deadline", "error"], ["deadline", "success"], ["caller", "error"], ["caller", "success"],
+  ] as const)("does not let an SDK abort-to-%s/%s race authenticate or become an invalid-credentials response", async (cancellation, providerResult) => {
+    vi.useFakeTimers();
+    const caller = new AbortController();
+    supabaseAuthMocks.createClient.mockImplementationOnce(({ signal }: { signal: AbortSignal }) => ({
+      auth: { signInWithPassword: supabaseAuthMocks.signInWithPassword.mockImplementationOnce(() => new Promise((resolve) => {
+        signal.addEventListener("abort", () => resolve(providerResult === "error"
+          ? { data: null, error: { message: "private body abort", status: 400 } }
+          : { data: { user: { email: "buyer@example.test", email_confirmed_at: "2026-01-01", user_metadata: {} } }, error: null }), { once: true });
+      })) },
+    }));
+    const responsePromise = POST(new Request("https://example.com/api/auth/login", {
+      method: "POST", headers: { "content-type": "application/json" }, signal: caller.signal,
+      body: JSON.stringify({ email: "buyer@example.test", password: "test-password" }),
+    }) as unknown as NextRequest);
+    await vi.advanceTimersByTimeAsync(0);
+    if (cancellation === "deadline") await vi.advanceTimersByTimeAsync(AUTH_PROVIDER_TIMEOUT_MS);
+    else caller.abort();
+    const response = await responsePromise;
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: "Unable to sign in. Please try again." });
+    expect(supabaseAuthMocks.signInWithPassword).toHaveBeenCalledTimes(1);
+    expect(mockUpsertUserProfileForAuth).not.toHaveBeenCalled();
+    expect(mockCreateUserSession).not.toHaveBeenCalled();
+    expect(setCookie).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it.each([
+    ["application/json", '{"email":"buyer@example.test", "password": "NeverLogThisSecret"}'],
+    ["application/json", '{"email":"buyer@example.test","password":"NeverLogThisSecret\\\\with\\\"quotes"}'],
+    ["application/x-www-form-urlencoded", "email=buyer%40example.test&password=NeverLogThisSecret"],
+    ["application/json", 'NeverLogThisSecret {"password":'],
+  ])("never logs login content with diagnostics enabled (%s)", async (contentType, body) => {
+    vi.stubEnv("ALPHA_AUTH_DEBUG", "1");
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const warnLog = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const infoLog = vi.spyOn(console, "info").mockImplementation(() => undefined);
+    try {
+      const response = await POST(new Request("https://example.com/api/auth/login", { method: "POST", headers: { "content-type": contentType }, body }) as unknown as NextRequest);
+      expect([400, 401]).toContain(response.status);
+      expect(JSON.stringify([...errorLog.mock.calls, ...warnLog.mock.calls, ...infoLog.mock.calls])).not.toContain("NeverLogThisSecret");
+    } finally {
+      errorLog.mockRestore(); warnLog.mockRestore(); infoLog.mockRestore(); vi.unstubAllEnvs();
+    }
+  });
+
+  it.each([
+    { error: { message: "private provider failure", status: 503 }, status: 503 },
+    { error: { message: "email rate limit exceeded", status: 429 }, status: 429 },
+  ])("distinguishes a provider failure from invalid credentials ($status)", async ({ error, status }) => {
+    supabaseAuthMocks.signInWithPassword.mockResolvedValue({ data: null, error });
+    const response = await POST(new Request("https://example.com/api/auth/login", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email: "buyer@example.test", password: "test-password" }),
+    }) as unknown as NextRequest);
+    expect(response.status).toBe(status);
+    const payload = await response.json();
+    expect(payload.error).not.toContain("private provider");
+    expect(payload.error).not.toBe("Invalid credentials.");
+    expect(mockCreateUserSession).not.toHaveBeenCalled();
+  });
+  it.each([
+    ["local", true], ["local", false], ["supabase", true], ["supabase", false],
+  ] as const)("honors remember-me cookies for %s with rememberMe=%s", async (provider, rememberMe) => {
+    if (provider === "local") {
+      mockAuthenticateLocalUser.mockResolvedValue(verifiedLocalUser as never);
+    } else {
+      supabaseAuthMocks.signInWithPassword.mockResolvedValue({
+        data: { user: { email: "buyer@example.test", email_confirmed_at: "2026-01-01", user_metadata: {} } },
+        error: null,
+      });
+    }
+    const response = await POST(new Request("https://example.com/api/auth/login", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email: "buyer@example.test", password: "test-password", rememberMe }),
+    }) as unknown as NextRequest);
+    expect(response.status).toBe(200);
+    expect(setCookie).not.toHaveBeenCalledWith("ALPHA_LOCALE_CHOICE", expect.anything(), expect.anything());
+    expect(mockCreateUserSession).toHaveBeenCalledWith("local-user", rememberMe ? 14 : 1);
+    expect(setCookie).toHaveBeenCalledWith("alpha-auth", "test-session-token", expect.objectContaining({
+      httpOnly: true, sameSite: "lax", path: "/",
+      expires: rememberMe ? new Date("2030-01-01T00:00:00.000Z") : undefined,
+    }));
+    expect(setCookie).toHaveBeenCalledWith("alpha-verified", "1", expect.objectContaining({
+      httpOnly: true,
+      expires: rememberMe ? new Date("2030-01-01T00:00:00.000Z") : undefined,
+    }));
+  });
+
+  it("preserves the explicit language choice after a successful Supabase login", async () => {
+    supabaseAuthMocks.signInWithPassword.mockResolvedValue({
+      data: { user: { email: "buyer@example.test", email_confirmed_at: "2026-01-01", user_metadata: {} } },
+      error: null,
+    });
+    const response = await POST(new Request("https://example.com/api/auth/login", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email: "buyer@example.test", password: "test-password" }),
+    }) as unknown as NextRequest);
+    expect(response.status).toBe(200);
+    expect(setCookie).not.toHaveBeenCalledWith("ALPHA_LOCALE_CHOICE", expect.anything(), expect.anything());
+  });
+
   it("returns a friendly error when the JSON body is malformed", async () => {
     const request = new Request("https://example.com/api/auth/login", {
       method: "POST",
@@ -121,6 +268,36 @@ describe("POST /api/auth/login", () => {
 
     const payload = await response.json();
     expect(payload).toEqual({ error: "Invalid JSON body." });
+  });
+
+  it("returns a non-enumerating response for invalid provider credentials", async () => {
+    const request = new Request("https://example.com/api/auth/login", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email: "unknown@example.com", password: "wrong-password" }),
+    }) as unknown as NextRequest;
+
+    const response = await POST(request);
+
+    expect(response.status).toBe(401);
+    expect(setCookie).not.toHaveBeenCalledWith("ALPHA_LOCALE_CHOICE", expect.anything(), expect.anything());
+    expect(await response.json()).toEqual({ error: "Invalid credentials." });
+  });
+
+  it("does not expose authentication-provider configuration failures", async () => {
+    supabaseAuthMocks.createClient.mockImplementationOnce(() => {
+      throw new Error("Supabase authentication is not configured.");
+    });
+    const request = new Request("https://example.com/api/auth/login", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email: "unknown@example.com", password: "wrong-password" }),
+    }) as unknown as NextRequest;
+
+    const response = await POST(request);
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: "Unable to sign in. Please try again." });
   });
 
   it("validates malformed credentials before consuming login rate-limit capacity", async () => {
@@ -150,6 +327,25 @@ describe("POST /api/auth/login", () => {
     expect(response.status).toBe(200);
     expect(mockCheckRateLimit).toHaveBeenCalledTimes(2);
     expect(mockCheckSharedRateLimit).not.toHaveBeenCalled();
+  });
+
+  it.each([null, [], "credentials", { email: ["buyer@example.com"], password: "password" }, { email: "buyer@example.com", password: { value: "password" } }, { email: "a".repeat(255) + "@example.com", password: "password" }, { email: "buyer@example.com", password: "p".repeat(257) }])("rejects malformed or oversized credentials without calling authentication (%j)", async body => {
+    const response = await POST(new Request("https://example.com/api/auth/login", {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+    }) as unknown as NextRequest);
+    expect(response.status).toBe(400);
+    expect(mockAuthenticateLocalUser).not.toHaveBeenCalled();
+    expect(supabaseAuthMocks.signInWithPassword).not.toHaveBeenCalled();
+  });
+
+  it("stops an oversized body sent without Content-Length before authentication", async () => {
+    const response = await POST(new Request("https://example.com/api/auth/login", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email: "buyer@example.com", password: "p".repeat(20_000) }),
+    }) as unknown as NextRequest);
+    expect(response.status).toBe(413);
+    expect(mockAuthenticateLocalUser).not.toHaveBeenCalled();
+    expect(mockCheckRateLimit).not.toHaveBeenCalled();
   });
 
   it.each([false, undefined])("rejects a local account without an explicit verified-email marker", async (emailVerified) => {
@@ -206,6 +402,7 @@ describe("POST /api/auth/login", () => {
       emailVerified: true,
     }));
     expect(mockCreateUserSession).toHaveBeenCalledWith(verifiedLocalUser.id, 14);
+    expect(setCookie).not.toHaveBeenCalledWith("ALPHA_LOCALE_CHOICE", expect.anything(), expect.anything());
     expect(setCookie).toHaveBeenCalledWith("alpha-verified", "1", expect.any(Object));
     expect(setCookie).toHaveBeenCalledWith("alpha-phone-verified", "", expect.any(Object));
     expect(setCookie).not.toHaveBeenCalledWith("alpha-phone-verified", "1", expect.any(Object));

@@ -1,4 +1,5 @@
-import { Image, ImageBackground, StyleSheet, Text, View } from "react-native";
+import { BrandedText as Text } from "./branded-text";
+import { Image, ImageBackground, StyleSheet, View } from "react-native";
 import { colors, radius, spacing, typography } from "@alpha-traders/design-tokens";
 import workspaceImage from "../../../../public/images/hero/hero-trading-office.webp";
 import technicalImage from "../../../../public/images/course-materials/webp/image48.webp";

@@ -54,4 +54,12 @@ describe("browser security headers", () => {
     const headers = buildSecurityHeaders({ isProduction: true });
     expect(new Set(headers.map((header) => header.key)).size).toBe(headers.length);
   });
+
+  it("does not allow the removed external news widget or third-party account scripts", () => {
+    const directives = cspDirectives(true);
+    expect(directives.get("frame-src")).not.toContain("https://www.tradingview-widget.com");
+    expect(directives.get("frame-src")).not.toContain("https:");
+    expect(directives.get("frame-src")).toEqual(["'self'"]);
+    expect(directives.get("script-src")).toEqual(["'self'", "'unsafe-inline'"]);
+  });
 });

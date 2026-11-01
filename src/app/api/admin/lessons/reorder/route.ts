@@ -1,3 +1,4 @@
+import { privateAdminResponse } from "@/lib/admin-response";
 import { NextRequest, NextResponse } from "next/server";
 import { adminErrorStatus, resolveAdminIdentity } from "@/lib/admin-auth";
 import { reorderLessons } from "@/lib/admin-store";
@@ -9,8 +10,8 @@ export async function POST(request: NextRequest) {
       items: Array<{ id: string; order: number; category?: "beginner" | "intermediate" | "advanced"; courseId?: string }>;
     };
     const lessons = await reorderLessons(body.items || [], identity.role);
-    return NextResponse.json({ lessons });
+    return privateAdminResponse(NextResponse.json({ lessons }));
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to reorder lessons." }, { status: adminErrorStatus(error) });
+    return privateAdminResponse(NextResponse.json({ error: error instanceof Error ? error.message : "Failed to reorder lessons." }, { status: adminErrorStatus(error) }));
   }
 }

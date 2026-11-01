@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("@/lib/postgres-runtime", () => ({
   getRuntimePostgresPool: () => null,
 }));
+vi.mock("@/lib/realtime", () => ({ publishRealtimeEvent: vi.fn() }));
 
 import {
   MARKETPLACE_SMOKE_TEST_MARKER,
@@ -13,7 +14,9 @@ import {
   invalidateAlphaExchangeStoreCache,
   purgeMarketplaceSmokeTestByAdmin,
 } from "@/lib/alpha-exchange-store";
-import type { AlphaExchangeDb, MarketplaceListing, PurchaseRequest } from "@/types/alpha-exchange";
+import { getAlphaExchangeRepository } from "@/lib/alpha-exchange-repository";
+import { publishRealtimeEvent } from "@/lib/realtime";
+import type { AlphaExchangeDb, AlphaExchangeUser, MarketplaceListing, PurchaseRequest } from "@/types/alpha-exchange";
 
 const CREATED_AT = "2026-09-04T14:45:00.000Z";
 const UPDATED_AT = "2026-09-04T14:50:00.000Z";
@@ -85,7 +88,9 @@ function seedDb(): AlphaExchangeDb {
   const smokeRequest = request("request-smoke", true);
   const realRequest = request("request-real");
   return {
-    users: [],
+    users: [{ id: "owner", fullName: "Synthetic Owner", email: "owner@example.test", passwordHash: "test-hash",
+      role: "owner", roles: ["owner", "admin"], sellerStatus: "buyer", emailVerified: true,
+      availabilityStatus: "available", createdAt: CREATED_AT, updatedAt: UPDATED_AT } as AlphaExchangeUser],
     sellerApplications: [],
     marketplaceListings: [smokeListing, realListing],
     purchaseRequests: [smokeRequest, realRequest],
@@ -139,6 +144,7 @@ function seedDb(): AlphaExchangeDb {
 
 describe("marketplace smoke-test purge", () => {
   beforeEach(() => {
+    vi.restoreAllMocks();
     vi.clearAllMocks();
     globalThis.__alphaExchangeMemorySnapshot = undefined as never;
     globalThis.__alphaExchangeMemoryEvidenceContent = undefined as never;
@@ -146,7 +152,82 @@ describe("marketplace smoke-test purge", () => {
     invalidateAlphaExchangeStoreCache();
   });
 
-  it("removes the exact synthetic listing, trade, messages, notifications, logs, and trust history while preserving real records", () => {
+  it("preserves unrelated records containing the shared smoke marker or a longer identifier", () => {
+    const db = seedDb();
+    db.notifications.push({ ...db.notifications[1], id: "notification-other-smoke", message: MARKETPLACE_SMOKE_TEST_MARKER });
+    db.activityLog.push({ ...db.activityLog[1], id: "activity-longer-id", details: "Listing listing-smoke-other approved" });
+    const result = purgeMarketplaceSmokeTestSnapshot(db, "listing-smoke").snapshot;
+    expect(result.notifications.some(item => item.id === "notification-other-smoke")).toBe(true);
+    expect(result.activityLog.some(item => item.id === "activity-longer-id")).toBe(true);
+  });
+
+  it("preserves unattributed trust history and alerts even for the same seller and timestamp", () => {
+    const db = seedDb();
+    db.notifications.push({ id: "same-seller-trust", userId: "seller-smoke", category: "trust", title: "Trust score increased",
+      message: "An independent account update", isRead: false, createdAt: UPDATED_AT });
+    const result = purgeMarketplaceSmokeTestSnapshot(db, "listing-smoke").snapshot;
+    expect(result.trustScoreHistory).toEqual(db.trustScoreHistory);
+    expect(result.auditLogs.some(item => item.id === "audit-smoke-trust")).toBe(true);
+    expect(result.notifications.some(item => item.id === "same-seller-trust")).toBe(true);
+  });
+
+  it("rejects a missing administrative actor without deleting or publishing anything", async () => {
+    globalThis.__alphaExchangeMemorySnapshot = { ...seedDb(), __runtimeVersion: 0 } as never;
+    await expect(purgeMarketplaceSmokeTestByAdmin({ listingId: "listing-smoke", actorUserId: "missing" })).rejects.toThrow(/admin access/i);
+    expect((globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb).marketplaceListings).toHaveLength(2);
+    expect(publishRealtimeEvent).not.toHaveBeenCalled();
+  });
+
+  it.each(["disabled", "demoted"])("rejects an administrator %s while the purge waits to commit", async change => {
+    globalThis.__alphaExchangeMemorySnapshot = { ...seedDb(), __runtimeVersion: 0 } as never;
+    const repository = await getAlphaExchangeRepository();
+    const persist = repository.saveSnapshot.bind(repository);
+    vi.spyOn(repository, "saveSnapshot").mockImplementationOnce(async (incoming, options) => {
+      const newer = await repository.loadSnapshot();
+      if (change === "disabled") newer.users[0].disabled = true;
+      else { newer.users[0].role = "buyer"; newer.users[0].roles = ["buyer"]; }
+      await persist(newer, { selectedTables: ["users"] });
+      await persist(incoming, options);
+    });
+    await expect(purgeMarketplaceSmokeTestByAdmin({ listingId: "listing-smoke", actorUserId: "owner" })).rejects.toThrow(/admin access/i);
+    expect((globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb).marketplaceListings).toHaveLength(2);
+    expect(publishRealtimeEvent).not.toHaveBeenCalled();
+  });
+
+  it("retains all records if the atomic trust-and-cleanup write fails", async () => {
+    globalThis.__alphaExchangeMemorySnapshot = { ...seedDb(), __runtimeVersion: 0 } as never;
+    const repository = await getAlphaExchangeRepository();
+    const persist = repository.saveSnapshot.bind(repository);
+    vi.spyOn(repository, "saveSnapshot").mockImplementation(async (incoming, options) => {
+      if (options?.selectedTables?.includes("trust_snapshots")) throw new Error("Synthetic trust persistence failure");
+      await persist(incoming, options);
+    });
+    await expect(purgeMarketplaceSmokeTestByAdmin({ listingId: "listing-smoke", actorUserId: "owner" })).rejects.toThrow("Synthetic trust persistence failure");
+    const persisted = globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb;
+    expect(persisted.marketplaceListings).toHaveLength(2);
+    expect(persisted.purchaseRequests).toHaveLength(2);
+    expect(persisted.auditLogs.some(item => item.reason === "Guarded smoke-test cleanup")).toBe(false);
+    expect(publishRealtimeEvent).not.toHaveBeenCalled();
+  });
+
+  it("refuses cleanup if payment starts while its write is waiting", async () => {
+    globalThis.__alphaExchangeMemorySnapshot = { ...seedDb(), __runtimeVersion: 0 } as never;
+    const repository = await getAlphaExchangeRepository();
+    const persist = repository.saveSnapshot.bind(repository);
+    vi.spyOn(repository, "saveSnapshot").mockImplementationOnce(async (incoming, options) => {
+      const newer = await repository.loadSnapshot();
+      newer.purchaseRequests[0].paymentSentAt = UPDATED_AT;
+      await persist(newer, { selectedTables: ["purchase_requests"] });
+      await persist(incoming, options);
+    });
+    await expect(purgeMarketplaceSmokeTestByAdmin({ listingId: "listing-smoke", actorUserId: "owner" })).rejects.toThrow(/payment, evidence/);
+    const persisted = globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb;
+    expect(persisted.marketplaceListings).toHaveLength(2);
+    expect(persisted.purchaseRequests[0].paymentSentAt).toBe(UPDATED_AT);
+    expect(publishRealtimeEvent).not.toHaveBeenCalled();
+  });
+
+  it("removes exact synthetic records while preserving real records and unattributed trust history", () => {
     const result = purgeMarketplaceSmokeTestSnapshot(seedDb(), "listing-smoke");
 
     expect(result.requestIds).toEqual(["request-smoke"]);
@@ -155,9 +236,9 @@ describe("marketplace smoke-test purge", () => {
     expect(result.snapshot.purchaseRequests.map((item) => item.id)).toEqual(["request-real"]);
     expect(result.snapshot.tradeMessages).toEqual([]);
     expect(result.snapshot.notifications.map((item) => item.id)).toEqual(["notification-real"]);
-    expect(result.snapshot.auditLogs.map((item) => item.id)).toEqual(["audit-real"]);
+    expect(result.snapshot.auditLogs.map((item) => item.id)).toEqual(["audit-smoke-trust", "audit-real"]);
     expect(result.snapshot.activityLog.map((item) => item.id)).toEqual(["activity-real"]);
-    expect(result.snapshot.trustScoreHistory.map((item) => item.id)).toEqual(["trust-real"]);
+    expect(result.snapshot.trustScoreHistory.map((item) => item.id)).toEqual(["trust-smoke", "trust-real"]);
     expect(result.snapshot.smsDeliveries).toEqual([]);
   });
 
@@ -187,6 +268,10 @@ describe("marketplace smoke-test purge", () => {
     expect(persisted.marketplaceListings.map((item) => item.id)).toEqual(["listing-real"]);
     expect(persisted.purchaseRequests.map((item) => item.id)).toEqual(["request-real"]);
     expect(persisted.notifications.map((item) => item.id)).toEqual(["notification-real"]);
-    expect(persisted.auditLogs.map((item) => item.id)).toEqual(["audit-real"]);
+    expect(persisted.auditLogs).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "audit-smoke-trust" }), expect.objectContaining({ id: "audit-real" }),
+      expect.objectContaining({ action: "listing_removed", actorUserId: "owner", reason: "Guarded smoke-test cleanup" }),
+    ]));
+    expect(persisted.auditLogs).toHaveLength(3);
   });
 });

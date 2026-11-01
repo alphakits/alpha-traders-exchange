@@ -1,9 +1,9 @@
+import { BrandedText as Text } from "./branded-text";
 import type { PropsWithChildren } from "react";
 import {
   ActivityIndicator,
   Pressable,
   StyleSheet,
-  Text,
   type PressableProps,
 } from "react-native";
 import { colors, radius, spacing, typography } from "@alpha-traders/design-tokens";
@@ -50,6 +50,7 @@ export function GoldButton({
         />
       ) : (
         <Text
+          accentTone={variant === "gold" ? "onGold" : "default"}
           style={[
             styles.label,
             variant === "gold"

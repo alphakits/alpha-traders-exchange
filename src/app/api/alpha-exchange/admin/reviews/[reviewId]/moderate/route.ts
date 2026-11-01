@@ -11,7 +11,8 @@ export async function POST(request: NextRequest, context: RouteContext) {
   try {
     const { reviewId } = await context.params;
     const body = await request.json() as { hide?: boolean; reason?: string };
-    const hide = Boolean(body.hide);
+    if (typeof body.hide !== "boolean") return NextResponse.json({ error: "hide must be a boolean." }, { status: 400 });
+    const hide = body.hide;
     const reason = String(body.reason ?? "").trim();
     if (!reason) return NextResponse.json({ error: "Reason is required." }, { status: 400 });
 

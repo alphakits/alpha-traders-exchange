@@ -1,6 +1,8 @@
 import { redirect } from "next/navigation";
 import { buildPageMetadata } from "@/lib/seo";
 import { getCurrentSessionUser } from "@/lib/auth";
+import { getTradeRoomRequestForUserById } from "@/lib/alpha-exchange-store";
+import { getInterfacePageDestination } from "@alpha-traders/contracts";
 import { allowsRuntimeDiagnostics } from "@/lib/runtime-safety";
 import { TradeRoomPage } from "@/components/sections/trade-room/trade-room-page";
 
@@ -18,10 +20,13 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
 
 export default async function TradeRoomRoute({
   params,
+  searchParams,
 }: {
   params: Promise<{ locale: string; requestId: string }>;
+  searchParams: Promise<{ view?: string | string[] }>;
 }) {
-  const { locale, requestId } = await params;
+  const [{ locale, requestId }, query] = await Promise.all([params, searchParams]);
+  const returnTo = `/${locale}/trade-room/${encodeURIComponent(requestId)}${query.view === "history" ? "?view=history" : ""}`;
   const user = await getCurrentSessionUser();
   if (allowsRuntimeDiagnostics() && process.env.ALPHA_EXCHANGE_DEBUG_TRADE_ROOM === "1") console.log("[trade-room-open] route entry", {
     locale,
@@ -35,9 +40,20 @@ export default async function TradeRoomRoute({
     if (allowsRuntimeDiagnostics() && process.env.ALPHA_EXCHANGE_DEBUG_TRADE_ROOM === "1") console.log("[trade-room-open] route redirect unauthenticated", {
       locale,
       requestId,
-      destination: `/${locale}/login?redirectTo=/${locale}/trade-room/${requestId}`,
+      destination: `/${locale}/login?redirectTo=${encodeURIComponent(returnTo)}`,
     });
-    redirect(`/${locale}/login?redirectTo=/${locale}/trade-room/${requestId}`);
+    redirect(`/${locale}/login?redirectTo=${encodeURIComponent(returnTo)}`);
+  }
+
+  const destination = getInterfacePageDestination(user, returnTo, locale === "ar" ? "ar" : "en");
+  if (destination) {
+    // A participant can have a guest/student profile (including older buyer
+    // accounts). The role-only dashboard guard must not strand an existing
+    // trade. This read is actor-scoped; APIs still authorize every room action.
+    const participantRequest = await getTradeRoomRequestForUserById({
+      userId: user.id, role: user.role, requestId,
+    });
+    if (!participantRequest) redirect(destination);
   }
 
   return (

@@ -28,7 +28,8 @@ describe("mobile website parity", () => {
     expect(shell).toContain("sharedCookiesEnabled");
     expect(shell).toContain("cacheEnabled");
     expect(shell).toContain("allowsBackForwardNavigationGestures");
-    expect(shell).toContain('if (!request.isTopFrame) return decision === "allow"');
+    expect(shell).toContain("websiteRequestNavigationDecision(request)");
+    expect(shell).toContain('originWhitelist={["*"]}');
     expect(shell).not.toContain("injectedJavaScript=");
     expect(shell).toContain("onMessage={handleWebsiteMessage}");
     expect(shell).toContain("addNotificationResponseReceivedListener");
@@ -46,7 +47,7 @@ describe("mobile website parity", () => {
     expect(shell).toContain("allowFileAccess={false}");
     expect(shell).toContain('readiness.status === "update_required"');
     expect(shell).toContain("useMobileAppReadiness(locale, isOnline)");
-    expect(shell).toContain("const [locale, storedResumeUrl, storedMigrationState] = await Promise.all([");
+    expect(shell).toContain("const [storedLocale, storedResumeUrl, storedMigrationState] = await Promise.all([");
     expect(shell).toContain('readiness.status === "checking" || (isLoading && !loadFailed)');
     expect(shell).toContain('loadFailed && readiness.status !== "checking"');
     expect(shell).toContain('accessibilityLiveRegion="polite"');
@@ -61,8 +62,8 @@ describe("mobile website parity", () => {
     expect(nativeNotifications).toContain("ExecutionEnvironment.StoreClient");
     expect(navigation).toContain('https://www.alphatraders.co.il');
     expect(mobilePackage).toContain('"react-native-webview": "13.16.1"');
-    expect(mobilePackage).toContain('"expo-notifications": "~57.0.17"');
-    expect(mobilePackage).toContain('"expo-store-review": "~57.0.2"');
+    expect(mobilePackage).toContain('"expo-notifications": "~57.0.24"');
+    expect(mobilePackage).toContain('"expo-store-review": "~57.0.3"');
     expect(mobileConfig).toContain('"icon": "../../public/images/brand/alpha-traders-app-icon-1024.png"');
     expect(mobileConfig).toContain('"foregroundImage": "../../public/images/brand/alpha-traders-app-icon-maskable-1024.png"');
     expect(mobileConfig).toContain('"expo-notifications"');

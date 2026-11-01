@@ -1,3 +1,4 @@
+import { BrandedText as Text } from "../../src/components/branded-text";
 import { useEffect, useState } from "react";
 import {
   KeyboardAvoidingView,
@@ -5,7 +6,6 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
-  Text,
   TextInput,
   View,
 } from "react-native";
@@ -14,6 +14,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { colors, radius, spacing, typography } from "@alpha-traders/design-tokens";
 import { MobileApiError, resendVerificationMobile } from "../../src/api/mobile-api";
 import { useAuth } from "../../src/auth/auth-context";
+import { canUseSellerTools } from "../../src/auth/seller-access";
 import { GoldButton } from "../../src/components/gold-button";
 import { NativeSiteHeader } from "../../src/components/native-site-header";
 import { useLocale } from "../../src/i18n/locale-context";
@@ -82,7 +83,7 @@ export default function LoginScreen() {
       router.replace("/admin");
       return;
     }
-    if (user.roles.includes("approved_seller") || user.sellerStatus === "approved_seller") {
+    if (canUseSellerTools(user)) {
       router.replace("/(tabs)/seller");
       return;
     }

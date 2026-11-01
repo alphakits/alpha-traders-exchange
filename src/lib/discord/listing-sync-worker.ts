@@ -1,4 +1,6 @@
 import "server-only";
+import { storedSellerMetricEvidence } from "@/lib/public-seller-reputation";
+import { isUncertainPostgresConnection, rollbackFailedTransaction } from "@/lib/postgres-transaction";
 
 import type { Pool, PoolClient } from "pg";
 
@@ -7,7 +9,6 @@ import type { DiscordListingDiagnostics } from "@/lib/discord/diagnostics";
 import {
   DiscordRestListingPublisher,
   hashDiscordListingSnapshot,
-  isSafeDiscordImageUrl,
   resolveDiscordPublicSiteUrl,
   type DiscordListingPublisher,
   type DiscordListingSnapshot,
@@ -16,7 +17,8 @@ import { getRuntimePostgresPool } from "@/lib/postgres-runtime";
 import { deriveSellerPresence } from "@/lib/seller-presence";
 import { getSiteUrl } from "@/lib/site-url";
 import { logEvent } from "@/lib/structured-logging";
-import { normalizePublicProfileUsername } from "@/lib/public-profile-username";
+import { publicAccountId } from "@/lib/public-account-identity";
+import { publicAccountUsername } from "@/lib/public-account-username";
 
 const POLL_INTERVAL_MS = 5_000;
 const RECONCILIATION_INTERVAL_MS = 15 * 60 * 1000;
@@ -144,6 +146,20 @@ function reliabilityTier(score: number | null): string | null {
   return "Developing reliability";
 }
 
+function hasDiscordSellerAuthorization(
+  sellerStatus: string | null,
+  userPayload: Record<string, unknown> | null,
+) {
+  if (!userPayload) return false;
+  const role = stringValue(userPayload.role);
+  const roles = Array.isArray(userPayload.roles)
+    ? userPayload.roles.filter((entry): entry is string => typeof entry === "string")
+    : [];
+  const isPrivilegedOperator = role === "admin" || role === "owner"
+    || roles.includes("admin") || roles.includes("owner");
+  return isPrivilegedOperator || sellerStatus === "approved_seller";
+}
+
 export function buildAuthoritativeDiscordListingSnapshot(input: {
   listing: Record<string, unknown>;
   seller: Record<string, unknown>;
@@ -155,9 +171,6 @@ export function buildAuthoritativeDiscordListingSnapshot(input: {
   const trustSnapshot = input.trust?.snapshot && typeof input.trust.snapshot === "object"
     ? input.trust.snapshot as Record<string, unknown>
     : null;
-  const profilePhoto = input.seller.isProfileHidden === true
-    ? null
-    : input.seller.profilePhotoUrl;
   const websiteUrl = resolveDiscordPublicSiteUrl(input.siteUrl);
   const fallbackImage = `${websiteUrl}/images/brand/alpha-traders-logo.png`;
   const paymentMethods = stringArray(input.listing.paymentMethods);
@@ -170,8 +183,9 @@ export function buildAuthoritativeDiscordListingSnapshot(input: {
         lastActiveAt: stringValue(input.seller.lastActiveAt) || null,
       }, input.now)
     : null;
-  const publicTradingName = publicTextValue(input.seller.buyerDisplayName);
-  const profileIsPublic = Boolean(publicTradingName)
+  const sellerId = stringValue(input.seller.id) || stringValue(input.listing.sellerId);
+  const publicTradingName = sellerId ? publicAccountId({ id: sellerId, role: "approved_seller" }) : "Alpha Traders Seller";
+  const profileIsPublic = Boolean(sellerId)
     && input.seller.isProfileHidden !== true
     && input.seller.allowProfileSearch !== false;
   const showTradeStats = input.seller.showTradeStats !== false;
@@ -181,10 +195,12 @@ export function buildAuthoritativeDiscordListingSnapshot(input: {
 
   return {
     snapshotVersion: 2,
+    ...(showTradeStats ? storedSellerMetricEvidence(trustSnapshot) : {}),
     sellerDisplayName: publicTradingName || "Alpha Traders Seller",
     sellerLevel: stringValue(trustSnapshot?.level) || null,
     reliabilityTier: reliabilityTier(numberValue(trustSnapshot?.reliabilityScore)),
-    approvedSeller: input.sellerStatus === "approved_seller",
+    approvedSeller: input.sellerStatus === "approved_seller"
+      && hasDiscordSellerAuthorization(input.sellerStatus, input.seller),
     availableAmount: stringValue(input.listing.availableAmount, "0"),
     price: stringValue(input.listing.price, "0"),
     currency: stringValue(input.listing.currency, "ILS"),
@@ -194,15 +210,15 @@ export function buildAuthoritativeDiscordListingSnapshot(input: {
       : (primaryPayment ? [primaryPayment] : []),
     presenceLabel: presence?.label ?? null,
     responseTimeMinutes: showTradeStats
-      ? numberValue(trustSnapshot?.responseTimeMinutes)
+      ? trustSnapshot?.responseTimeMinutes === 0 ? 0 : numberValue(trustSnapshot?.responseTimeMinutes)
       : null,
     rating: completedTrades ? ratingValue(trustSnapshot?.rating) : null,
     completedTrades,
-    imageUrl: isSafeDiscordImageUrl(profilePhoto) ? profilePhoto : fallbackImage,
+    imageUrl: fallbackImage,
     brandImageUrl: fallbackImage,
     listingUrl: `${websiteUrl}/en/usdt-exchange`,
     sellerProfileUrl: profileIsPublic
-      ? `${websiteUrl}/en/exchange/seller/${encodeURIComponent(normalizePublicProfileUsername(publicTradingName))}`
+      ? `${websiteUrl}/en/exchange/seller/${encodeURIComponent(publicAccountUsername(sellerId))}`
       : null,
     websiteUrl,
   };
@@ -319,6 +335,7 @@ export function determineDiscordListingLifecycle(
     || !input.listingPayload
     || !input.userPayload
     || input.sellerStatus !== "approved_seller"
+    || !hasDiscordSellerAuthorization(input.sellerStatus, input.userPayload)
     || !input.identityLinked
     || input.userPayload.disabled === true
     || input.userPayload.isProfileHidden === true
@@ -540,8 +557,7 @@ async function reconcileJob(
     }
     const soldSnapshot = {
       ...row.snapshot,
-      sellerDisplayName: publicTextValue(row.user_payload?.buyerDisplayName)
-        || "Alpha Traders Seller",
+      sellerDisplayName: publicAccountId({ id: row.seller_id, role: "approved_seller" }),
     };
     await publisher.updateMessage({
       channelId: row.channel_id,
@@ -797,6 +813,7 @@ export class DiscordListingSyncWorker {
           await reconcileJob(client, this.publisher, job, this.siteUrl);
           await client.query("commit");
         } catch (error) {
+          if (isUncertainPostgresConnection(error)) throw error;
           const failureCode = safeFailureCode(error);
           await failJob(client, job, failureCode);
           await client.query("commit");
@@ -812,15 +829,7 @@ export class DiscordListingSyncWorker {
           });
         }
       } catch (error) {
-        try {
-          await client.query("rollback");
-        } catch (rollbackError) {
-          destroyClient = true;
-          throw new AggregateError(
-            [error, rollbackError],
-            "Discord listing synchronization rollback failed.",
-          );
-        }
+        destroyClient = await rollbackFailedTransaction(client, error);
         throw error;
       } finally {
         client.release(destroyClient);

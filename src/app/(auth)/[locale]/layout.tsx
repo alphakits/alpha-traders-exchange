@@ -7,6 +7,10 @@ import { Inter, IBM_Plex_Sans_Arabic } from "next/font/google";
 import { routing, localeDirection, type AppLocale } from "@/i18n/routing";
 import { Link } from "@/i18n/navigation";
 import { BRAND_DESCRIPTOR, BRAND_DESCRIPTOR_AR, BRAND_NAME } from "@/lib/brand";
+import { LocaleSwitcher } from "@/components/layout/locale-switcher";
+import { HtmlAttributesSetter } from "@/components/layout/html-attributes-setter";
+import appLoginStyles from "@/components/auth/app-login-network.module.css";
+import loginStyles from "@/components/auth/login-atmosphere.module.css";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -43,13 +47,14 @@ export default async function AuthLocaleLayout({
 
   return (
     <NextIntlClientProvider messages={messages}>
+      <HtmlAttributesSetter lang={appLocale} dir={localeDirection[appLocale]} />
       <div
         dir={localeDirection[appLocale]}
-        className={`${inter.variable} ${plexArabic.variable} flex min-h-screen flex-col bg-[#050505] text-white ${
-          appLocale === "ar" ? "font-[var(--font-plex-arabic)]" : "font-[var(--font-inter)]"
+        className={`${loginStyles.authShell} ${appLoginStyles.authShell} ${inter.variable} ${plexArabic.variable} alpha-interface flex min-h-screen flex-col bg-[#050505] text-white ${
+          appLocale === "ar" ? "alpha-interface--ar" : ""
         }`}
       >
-        <header className="relative z-10 flex justify-center px-4 pt-5 sm:pt-7">
+        <header className="relative z-10 flex flex-wrap items-center justify-center gap-3 px-4 pt-5 sm:pt-7">
           <Link href="/" locale={appLocale} className="inline-flex items-center gap-3 rounded-2xl border border-[#C9A227]/30 bg-black/45 px-3 py-2 shadow-[0_12px_36px_rgba(0,0,0,0.45)] backdrop-blur">
             <Image
               src="/images/brand/alpha-traders-logo.webp"
@@ -60,10 +65,11 @@ export default async function AuthLocaleLayout({
               className="h-14 w-14 rounded-xl border border-[#C9A227]/45 object-cover sm:h-16 sm:w-16"
             />
             <span className="text-start">
-              <span className="block text-base font-semibold tracking-wide text-[#E5C85C]">Alpha Traders</span>
+              <span className="brand-alpha-traders block text-base font-semibold tracking-wide text-[#E5C85C]">Alpha Traders</span>
               <span className="block text-[11px] font-medium uppercase tracking-[0.18em] text-[#D4AF37]">{appLocale === "ar" ? BRAND_DESCRIPTOR_AR : BRAND_DESCRIPTOR}</span>
             </span>
           </Link>
+          <LocaleSwitcher />
         </header>
         <main className="flex flex-1 items-center justify-center px-4 py-7 sm:px-6 sm:py-9 lg:px-8">{children}</main>
       </div>

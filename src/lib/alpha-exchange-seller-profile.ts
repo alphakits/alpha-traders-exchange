@@ -1,3 +1,4 @@
+import type { SellerMetricEvidence } from "@alpha-traders/contracts";
 import {
   derivePublicProfileUsername,
   getSellerProfileRouteData,
@@ -86,7 +87,7 @@ export type SellerProfilePageData = {
     sellerProfile?: { profilePhotoUrl?: string };
     sellerReputation?: { level?: SellerLevel; trustScore?: number; publicVolumeRange?: string };
   }>;
-  similarSellers: Array<{
+  similarSellers: Array<Pick<SellerMetricEvidence, "alphaScore"> & {
     sellerUsername: string;
     sellerName: string;
     sellerLevel: SellerLevel;

@@ -1,6 +1,21 @@
 import type { PurchaseRequest } from "@/types/alpha-exchange";
+import { hasIrreversibleRequestProgress, hasRevealedBankDetails } from "@/lib/trade-cancellation";
 
 export type TradeRoomMutationLock = { current: string | null };
+
+/** Consent belongs to the displayed trade terms, not to chat/read timestamps. */
+export function tradeActionConfirmationKey(request: PurchaseRequest) {
+  return JSON.stringify([
+    request.id, request.status, request.listingId, request.buyerId, request.sellerId,
+    request.usdtAmount, request.fiatAmount, request.pricePerUsdt, request.currency,
+    request.network, request.paymentMethod, request.feePolicyVersion,
+    request.buyerReceivingWalletAddress, request.bankName, request.sellerBankAccountId,
+    request.bankTransferProvider, request.sellerWiseAccountId, request.buyerWiseAccountId,
+    request.termsProposal ?? null,
+    request.buyerEvidence?.id, request.sellerEvidence?.id,
+    hasIrreversibleRequestProgress(request), hasRevealedBankDetails(request),
+  ]);
+}
 
 /**
  * React state disables the visible control after a render, but two different
@@ -19,11 +34,13 @@ export function releaseTradeRoomMutation(lock: TradeRoomMutationLock, mutationKe
 }
 
 export function canBuyerCancelTrade(request: PurchaseRequest, actorUserId: string) {
-  return request.buyerId === actorUserId
-    && (request.status === "pending"
-      || (request.status === "accepted" && !request.buyerEvidence && !request.paymentSentAt));
+  return request.buyerId === actorUserId && !hasRevealedBankDetails(request) && !hasIrreversibleRequestProgress(request);
+}
+
+export function canSellerCancelTrade(request: PurchaseRequest, actorUserId: string) {
+  return request.sellerId === actorUserId && !hasIrreversibleRequestProgress(request);
 }
 
 export function canSellerDeclineTrade(request: PurchaseRequest, actorUserId: string) {
-  return request.sellerId === actorUserId && request.status === "pending";
+  return request.status === "pending" && canSellerCancelTrade(request, actorUserId);
 }

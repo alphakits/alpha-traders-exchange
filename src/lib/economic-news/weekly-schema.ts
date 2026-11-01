@@ -1,0 +1,82 @@
+import { z } from "zod";
+import { newsEventId } from "./model";
+
+const officialHosts = {
+  bls: ["bls.gov", "www.bls.gov"],
+  bea: ["bea.gov", "www.bea.gov"],
+  dol: ["dol.gov", "www.dol.gov"],
+  fed: ["federalreserve.gov", "www.federalreserve.gov"],
+  census: ["census.gov", "www.census.gov"],
+};
+const utc = z.iso.datetime({ precision: 0 });
+const value = z.string().min(1).max(60).nullable();
+const eventSchema = z.object({
+  id: z.string().refine((id) => Boolean(newsEventId(id)) && id.startsWith("official-")),
+  agency: z.enum(["bls", "bea", "dol", "fed", "census"]),
+  title: z.string().trim().min(1).max(120),
+  titleAr: z.string().trim().min(1).max(160),
+  scheduledAt: utc,
+  timing: z.enum(["exact", "tentative"]),
+  kind: z.enum(["release", "speech"]),
+  actual: value,
+  previous: value,
+  revised: value,
+  reference: z.string().min(1).max(80).nullable(),
+  publishedAt: utc.nullable(),
+  outcome: z.object({ en: z.string().trim().min(1).max(600), ar: z.string().trim().min(1).max(900) }).strict().optional(),
+  sourceUrl: z.url(),
+}).strict();
+
+// Shared by the server and the build gate. Weekly updates change only the JSON;
+// no arbitrary URLs, consensus forecasts or future actuals can enter the feed.
+export const weeklyCalendarSchema = z.object({
+  version: z.literal(1),
+  verifiedAt: utc,
+  resultsVerifiedAt: utc.optional(),
+  coverageStart: utc,
+  coverageEnd: utc,
+  weekStart: z.iso.date(),
+  weekEnd: z.iso.date(),
+  events: z.array(eventSchema).min(1).max(150),
+}).strict().superRefine((calendar, ctx) => {
+  const start = Date.parse(calendar.coverageStart);
+  const end = Date.parse(calendar.coverageEnd);
+  const verified = Date.parse(calendar.verifiedAt);
+  const resultsVerified = calendar.resultsVerifiedAt ? Date.parse(calendar.resultsVerifiedAt) : verified;
+  const day = 86_400_000;
+  const weekStart = Date.parse(`${calendar.weekStart}T00:00:00Z`);
+  const weekEnd = Date.parse(`${calendar.weekEnd}T00:00:00Z`);
+  if (new Date(weekStart).getUTCDay() !== 1 || weekEnd - weekStart !== 7 * day
+    || calendar.weekStart < calendar.coverageStart.slice(0, 10) || calendar.weekEnd > calendar.coverageEnd.slice(0, 10)) {
+    ctx.addIssue({ code: "custom", message: "Week must cover Monday through Sunday within snapshot coverage" });
+  }
+  if (start > verified || end <= verified || end - start > 45 * day) {
+    ctx.addIssue({ code: "custom", message: "Invalid snapshot coverage" });
+  }
+  if (resultsVerified < verified || resultsVerified >= end) {
+    ctx.addIssue({ code: "custom", message: "Results verification must be within calendar coverage and after schedule verification" });
+  }
+  const ids = new Set<string>();
+  calendar.events.forEach((event, index) => {
+    const invalid = (message: string) => ctx.addIssue({ code: "custom", message, path: ["events", index] });
+    if (ids.has(event.id)) invalid("Duplicate event ID");
+    ids.add(event.id);
+    if (!event.id.startsWith(`official-${event.agency}-`)) invalid("Event agency mismatch");
+    try {
+      const url = new URL(event.sourceUrl);
+      if (url.protocol !== "https:" || url.username || url.password || url.port || !officialHosts[event.agency].includes(url.hostname)) {
+        invalid("Unapproved source URL");
+      }
+    } catch { invalid("Invalid source URL"); }
+    const scheduled = Date.parse(event.scheduledAt);
+    if (scheduled < start || scheduled >= end) invalid("Event outside snapshot coverage");
+    if ((event.actual !== null || event.outcome) && (!event.publishedAt || Date.parse(event.publishedAt) > resultsVerified
+      || Date.parse(event.publishedAt) < scheduled || event.timing !== "exact")) {
+      invalid("Actual needs a confirmed publication at or after release and before verification");
+    }
+    if (event.outcome && event.kind !== "speech") invalid("Text outcomes belong to speeches and statements");
+    if (event.actual === null && !event.outcome && event.publishedAt !== null) invalid("Publication time requires a confirmed result or statement summary");
+  });
+});
+
+export type WeeklyCalendar = z.infer<typeof weeklyCalendarSchema>;

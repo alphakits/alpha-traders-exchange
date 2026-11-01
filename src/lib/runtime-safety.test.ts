@@ -53,4 +53,11 @@ describe("runtime safety boundaries", () => {
     expect(isProductionSecurityRuntime()).toBe(true);
     expect(allowsTestOnlyRuntime()).toBe(false);
   });
+  it.each(["SUPABASE_DB_URL", "DATABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"])("never downgrades a persistent production process with %s configured", key => {
+    vi.stubEnv("NODE_ENV", "production"); vi.stubEnv("VERCEL", ""); vi.stubEnv("VERCEL_ENV", "");
+    vi.stubEnv("ALPHA_E2E_TEST_SUPPORT", "1"); vi.stubEnv("ALPHA_E2E_LOOPBACK_ONLY", "1");
+    vi.stubEnv(key, "private-configured-value");
+    expect(isProductionSecurityRuntime()).toBe(true);
+    expect(allowsLocalTestSupportRequest(new NextRequest("http://localhost/api/testing/alpha-exchange-state"))).toBe(false);
+  });
 });

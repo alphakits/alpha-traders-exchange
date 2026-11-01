@@ -1,14 +1,22 @@
+import { PrivateContactError } from "@/lib/buyer-contact";
+import { ProfileNameCooldownError } from "@/lib/profile-name-policy";
 import { NextRequest, NextResponse } from "next/server";
 import { requireApiUser } from "@/lib/api-auth";
 import { getAccountProfileData, updateAccountProfileData } from "@/lib/alpha-exchange-store";
 import { checkSharedRateLimit } from "@/lib/rate-limit";
 import { resolveSupportedRequestLocale } from "@/lib/request-locale";
+import { accountRoleIdentity } from "@/lib/account-role-identity";
 
 const PROFILE_RESPONSE_HEADERS = { "Cache-Control": "no-store, max-age=0" };
 
-type ProfileErrorCode = "PROFILE_RATE_LIMITED" | "FULL_NAME_REQUIRED" | "PROFILE_UPDATE_FAILED";
+type ProfileErrorCode = "PRIVATE_CONTACT_REQUIRED" | "PROFILE_NAME_COOLDOWN" | "PROFILE_RATE_LIMITED" | "FULL_NAME_REQUIRED" | "PROFILE_UPDATE_FAILED";
 
 const PROFILE_ERROR_COPY: Record<ProfileErrorCode, { ar: string; en: string }> = {
+  PRIVATE_CONTACT_REQUIRED: { ar: "أدخل رقم هاتف أو واتساب صالحًا مع رمز الدولة. الرقم خاص بك وبمالك المنصة فقط.", en: "Enter a valid phone or WhatsApp number with its country code. Only you and the owner can see it." },
+  PROFILE_NAME_COOLDOWN: {
+    ar: "يمكنك تغيير اسم ملفك الشخصي مرة واحدة كل 7 أيام.",
+    en: "You can change your profile name once every 7 days.",
+  },
   PROFILE_RATE_LIMITED: {
     ar: "تم إرسال طلبات تحديث كثيرة. انتظر قليلاً ثم حاول مرة أخرى.",
     en: "Too many profile update requests. Please wait and try again.",
@@ -36,18 +44,6 @@ function profileError(request: NextRequest, code: ProfileErrorCode, status: numb
 }
 
 type RoleBadgeVariant = "guest" | "student" | "buyer" | "pending_seller" | "approved_seller" | "administrator" | "owner";
-
-function toRoleBadgeVariant(user: { role: string; roles?: string[]; sellerStatus: string }): RoleBadgeVariant {
-  const roles = user.roles ?? [];
-  if (roles.includes("owner") || user.role === "owner") return "owner";
-  if (roles.includes("admin") || user.role === "admin") return "administrator";
-  if (roles.includes("approved_seller") || user.role === "approved_seller" || user.sellerStatus === "approved_seller") return "approved_seller";
-  if (roles.includes("pending_seller_approval") || user.sellerStatus === "pending_seller_approval") return "pending_seller";
-  if (roles.includes("buyer") || user.role === "buyer") return "buyer";
-  if (roles.includes("student") || user.role === "student") return "student";
-  if (roles.includes("guest") || user.role === "guest") return "guest";
-  return "buyer";
-}
 
 function accountStatuses(user: { sellerStatus: string }) {
   const statuses: string[] = [];
@@ -94,7 +90,7 @@ export async function GET() {
     endTime: profileLoadEndedAt,
     durationMs: Math.max(0, profileLoadEndedAt - profileLoadStartedAt),
   });
-  const roleBadge = toRoleBadgeVariant(user);
+  const roleBadge = accountRoleIdentity(user);
   const routeMs = Date.now() - routeStartedAt;
   return NextResponse.json({
     profile: {
@@ -109,6 +105,7 @@ export async function GET() {
     accountStatuses: accountStatuses(user),
   }, {
     headers: {
+      ...PROFILE_RESPONSE_HEADERS,
       "X-Auth-Profile-Route-Ms": String(routeMs),
       "X-Auth-Profile-Timeline": JSON.stringify(timeline),
       "Server-Timing": `route;dur=${routeMs}, auth;dur=${Math.max(0, authEndedAt - authStartedAt)}, profile;dur=${Math.max(0, profileLoadEndedAt - profileLoadStartedAt)}`,
@@ -120,7 +117,7 @@ export async function PATCH(request: NextRequest) {
   const routeStartedAt = Date.now();
   const { user, unauthorized } = await requireApiUser();
   if (!user) return unauthorized;
-  const rate = await checkSharedRateLimit({ headers: request.headers, key: "auth:profile-update", maxRequests: 20, windowMs: 60_000 });
+  const rate = await checkSharedRateLimit({ headers: request.headers, key: "auth:profile-update", identifier: user.id, maxRequests: 20, windowMs: 60_000 });
   if (!rate.allowed) {
     return profileError(request, "PROFILE_RATE_LIMITED", 429, { "Retry-After": String(rate.retryAfterSeconds) });
   }
@@ -168,7 +165,7 @@ export async function PATCH(request: NextRequest) {
     });
 
     const payload = await getAccountProfileData(user.id);
-    const roleBadge = toRoleBadgeVariant(user);
+    const roleBadge = accountRoleIdentity(user);
     const logicMs = Date.now() - logicStartedAt;
     const routeMs = Date.now() - routeStartedAt;
     return NextResponse.json({
@@ -184,13 +181,18 @@ export async function PATCH(request: NextRequest) {
       accountStatuses: accountStatuses(user),
     }, {
       headers: {
-        "X-Trade-Route-Ms": String(routeMs),
+        ...PROFILE_RESPONSE_HEADERS,
+      "X-Trade-Route-Ms": String(routeMs),
         "X-Trade-Validation-Ms": String(validationMs),
         "X-Trade-Logic-Ms": String(logicMs),
         "Server-Timing": `route;dur=${routeMs}, validate;dur=${validationMs}, logic;dur=${logicMs}`,
       },
     });
-  } catch {
+  } catch (error) {
+    if (error instanceof PrivateContactError) return profileError(request, "PRIVATE_CONTACT_REQUIRED", 400);
+    if (error instanceof ProfileNameCooldownError) {
+      return NextResponse.json({ code: "PROFILE_NAME_COOLDOWN", error: PROFILE_ERROR_COPY.PROFILE_NAME_COOLDOWN[profileLocale(request)], nextNameChangeAt: error.nextAllowedAt }, { status: 409, headers: PROFILE_RESPONSE_HEADERS });
+    }
     return profileError(request, "PROFILE_UPDATE_FAILED", 400);
   }
 }

@@ -4,14 +4,20 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "esbuild ../src/workers/discord-worker.ts --bundle --platform=node --format=esm --packages=external --conditions=react-server --alias:@=../src --outfile=dist/discord-worker.js"
+    "test:dependencies": "node --test verify-dependency-security.mjs",
+    "build": "esbuild ../src/workers/discord-worker.ts --bundle --platform=node --format=esm --packages=external --conditions=react-server --alias:@=../src --alias:@alpha-traders/contracts=../packages/contracts/src/index.ts --outfile=dist/discord-worker.js"
   },
   "dependencies": {
+    "@vercel/functions": "3.9.7",
     "discord.js": "14.27.0",
     "pg": "8.22.0",
     "server-only": "0.0.1"
   },
   "devDependencies": {
     "esbuild": "0.28.1"
+  },
+  "overrides": {
+    "undici@6": "6.29.1",
+    "zod": "4.6.6"
   }
 }

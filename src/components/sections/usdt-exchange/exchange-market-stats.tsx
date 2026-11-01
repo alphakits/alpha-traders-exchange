@@ -1,5 +1,6 @@
 "use client";
 
+import { currencyText } from "@/components/ui/currency-text";
 import { CircleDot, Clock3, LayoutGrid, Users } from "lucide-react";
 import { useLocale } from "next-intl";
 
@@ -44,16 +45,16 @@ function StatCard({ stat, isRtl }: { stat: StatDef; isRtl: boolean }) {
 
       {/* Value */}
       <p className="text-2xl font-bold tabular-nums tracking-tight text-white">
-        {stat.value}
+        {currencyText(stat.value)}
       </p>
 
       {/* Title + subtitle */}
       <div className="min-w-0">
         <p className="text-[13px] font-semibold leading-snug text-white/90">
-          {isRtl ? stat.titleAr : stat.titleEn}
+          {currencyText(isRtl ? stat.titleAr : stat.titleEn)}
         </p>
         <p className="mt-0.5 text-[11px] leading-relaxed text-[#9CA3AF]">
-          {isRtl ? stat.subtitleAr : stat.subtitleEn}
+          {currencyText(isRtl ? stat.subtitleAr : stat.subtitleEn)}
         </p>
       </div>
 

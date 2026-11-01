@@ -9,14 +9,16 @@ import {
 type SellerIdentity = Pick<AlphaExchangeUser, "id" | "fullName" | "email" | "sellerStatus" | "buyerDisplayName">;
 
 describe("seller profile route helpers", () => {
-  it("derives a route username from an explicit public trading name", () => {
+  it("derives a stable anonymous route that ignores personal trading names", () => {
     const slug = deriveSellerRouteUsername({
+      id: "seller-1",
       fullName: "Maya Chen",
       email: "MAYA.CHEN@AlphaTraders.com",
       publicTradingName: "Maya OTC",
     });
 
-    expect(slug).toBe("maya-otc");
+    expect(slug).toBe(deriveSellerRouteUsername({ id: "seller-1" }));
+    expect(slug).not.toContain("maya");
   });
 
   it("resolves a seller by a normalized username", () => {
@@ -24,13 +26,13 @@ describe("seller profile route helpers", () => {
       [
         { id: "seller-1", fullName: "Maya Chen", email: "maya.chen@example.com", sellerStatus: "approved_seller", buyerDisplayName: "Maya OTC" },
       ] satisfies SellerIdentity[],
-      "maya-otc",
+      deriveSellerRouteUsername({ id: "seller-1" }),
     );
 
     expect(seller?.id).toBe("seller-1");
   });
 
-  it("uses privacy-safe canonical slugs while preserving legacy route resolution", () => {
+  it("does not resolve historical personal-name or email slugs", () => {
     const identity: SellerIdentity = {
       id: "seller-2",
       fullName: "Mark",
@@ -40,8 +42,8 @@ describe("seller profile route helpers", () => {
 
     expect(deriveSellerRouteUsername(identity)).toBe("seller-c41022b2");
     expect(resolveSellerByUsername([identity], "seller-c41022b2")?.id).toBe(identity.id);
-    expect(resolveSellerByUsername([identity], "marksally11")?.id).toBe(identity.id);
-    expect(resolveSellerByUsername([identity], "mark")?.id).toBe(identity.id);
+    expect(resolveSellerByUsername([identity], "marksally11")).toBeUndefined();
+    expect(resolveSellerByUsername([identity], "mark")).toBeUndefined();
   });
 
   it("keeps every active-listing payment method visible on the public seller profile", () => {

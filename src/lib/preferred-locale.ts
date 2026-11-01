@@ -1,15 +1,14 @@
 import type { PreferredLocale } from "@/types/alpha-exchange";
 
-export const DEFAULT_PREFERRED_LOCALE: PreferredLocale = "ar";
+export const DEFAULT_PREFERRED_LOCALE: PreferredLocale = "en";
 
 export function isPreferredLocale(value: unknown): value is PreferredLocale {
   return value === "ar" || value === "en";
 }
 
 /**
- * Normalizes persisted UI locale values. Legacy records default to the site's
- * Arabic locale; their old `languages` field was hard-coded to English and is
- * therefore not trustworthy evidence of a user's interface choice.
+ * Keep supported explicit choices. Missing or invalid preferences follow the
+ * English site default; never infer a choice from the legacy `languages` field.
  */
 export function normalizePreferredLocale(value: unknown): PreferredLocale {
   if (isPreferredLocale(value)) return value;

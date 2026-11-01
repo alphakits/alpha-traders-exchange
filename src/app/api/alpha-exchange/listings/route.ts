@@ -1,6 +1,7 @@
+import { FxReferenceUnavailableError } from "@/lib/fx-reference-policy";
 import { NextRequest, NextResponse } from "next/server";
 import { canPublishListings, createMarketplaceListing, getMarketplaceListings } from "@/lib/alpha-exchange-store";
-import { requireApiUser, requireEmailVerificationForTrading } from "@/lib/api-auth";
+import { requireApiUser, requireMarketplaceVerificationForTrading, requirePhoneVerificationForTrading } from "@/lib/api-auth";
 import { MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS, parseIsraeliBankSelection, serializeIsraeliBankSelection } from "@/lib/israeli-banks";
 import { checkSharedRateLimit } from "@/lib/rate-limit";
 import { fetchUsdIlsMarketRate, getListingPriceValidationError } from "@/lib/listing-price-validation";
@@ -9,6 +10,8 @@ import type { SupportedNetwork } from "@/types/alpha-exchange";
 import { sellerListingWorkspaceDestination } from "@/lib/action-destinations";
 import { allowsRuntimeDiagnostics } from "@/lib/runtime-safety";
 import { getCurrentSessionUser } from "@/lib/auth";
+import { normalizeListingPrice } from "@/lib/price-offer";
+import { canonicalizeNonNegativeTradeAmount, canonicalizeTradeAmount } from "@/lib/trade-amount";
 
 function toNumber(value: unknown) {
   return Number(String(value ?? "").replace(/[^\d.]/g, ""));
@@ -20,6 +23,8 @@ function isValidNetwork(value: unknown): value is SupportedNetwork {
 
 export async function GET() {
   const viewer = await getCurrentSessionUser();
+  const phoneVerification = viewer && requirePhoneVerificationForTrading(viewer);
+  if (phoneVerification) return phoneVerification;
   const listings = await getMarketplaceListings(undefined, undefined, viewer?.id);
   return NextResponse.json(
     { listings },
@@ -48,12 +53,12 @@ export async function POST(request: NextRequest) {
   const { user, unauthorized } = await requireApiUser();
   if (!user) return unauthorized;
   logProfile("requireApiUser");
-  const emailVerificationRequired = requireEmailVerificationForTrading(user);
+  const emailVerificationRequired = requireMarketplaceVerificationForTrading(user);
   if (emailVerificationRequired) return emailVerificationRequired;
   if (!canPublishListings(user)) {
     return NextResponse.json({ error: "You must be approved by Alpha Traders before publishing listings." }, { status: 403 });
   }
-  const rate = await checkSharedRateLimit({ headers: request.headers, key: "exchange:create-listing", maxRequests: 10, windowMs: 60_000 });
+  const rate = await checkSharedRateLimit({ headers: request.headers, key: "exchange:create-listing", identifier: user.id, maxRequests: 10, windowMs: 60_000 });
   if (!rate.allowed) {
     return NextResponse.json({ error: "Too many listing requests. Please try again shortly." }, { status: 429, headers: { "Retry-After": String(rate.retryAfterSeconds) } });
   }
@@ -62,16 +67,23 @@ export async function POST(request: NextRequest) {
     const validationStartedAt = Date.now();
     const body = await request.json();
     logProfile("request.json");
-    const availableAmount = String(body.availableAmount ?? "").trim();
-    const price = String(body.price ?? "").trim();
+    const rawAvailableAmount = String(body.availableAmount ?? "").trim();
+    const availableAmount = canonicalizeTradeAmount(rawAvailableAmount) ?? "";
+    const rawPrice = String(body.price ?? "").trim();
+    const price = normalizeListingPrice(rawPrice) ?? "";
     const responseTime = String(body.responseTime ?? "").trim().slice(0, 100) || "5 min";
     const currency = String(body.currency ?? "ILS").trim().slice(0, 10) || "ILS";
     const resolvedPaymentMethods = resolveListingPaymentMethods(body.paymentMethods, body.paymentMethod);
     const paymentMethods = resolvedPaymentMethods.slice(0, MAX_LISTING_PAYMENT_METHODS);
     const bankAccountId = typeof body.bankAccountId === "string" ? body.bankAccountId.trim() : undefined;
+    const bankTransferProvider = body.bankTransferProvider;
+    if (bankTransferProvider !== undefined && bankTransferProvider !== "wise" && bankTransferProvider !== "israeli_bank") throw new Error("Invalid bank transfer provider.");
+    const wiseAccountId = typeof body.wiseAccountId === "string" ? body.wiseAccountId.trim() : undefined;
     const bankSelection = parseIsraeliBankSelection(String(body.bankName ?? ""));
-    const minimumTrade = String(body.minimumTrade ?? "0").trim();
-    const maximumTrade = String(body.maximumTrade ?? availableAmount).trim();
+    const rawMinimumTrade = String(body.minimumTrade ?? "0").trim();
+    const rawMaximumTrade = String(body.maximumTrade ?? rawAvailableAmount).trim();
+    const minimumTrade = canonicalizeNonNegativeTradeAmount(rawMinimumTrade) ?? "";
+    const maximumTrade = canonicalizeTradeAmount(rawMaximumTrade) ?? "";
     const expiresAt = String(body.expiresAt ?? "").trim();
     const expirationHours = body.expirationHours !== undefined ? Number(body.expirationHours) : undefined;
     const notes = String(body.notes ?? "").trim().slice(0, 2000);
@@ -80,13 +92,13 @@ export async function POST(request: NextRequest) {
     const acceptedCommissionPolicy = body.acceptedCommissionPolicy === true;
     const network = body.network;
 
-    if (!availableAmount || toNumber(availableAmount) <= 0) {
-      return NextResponse.json({ error: "Available amount must be greater than zero." }, { status: 400 });
+    if (!availableAmount) {
+      return NextResponse.json({ error: "Available amount must be a valid positive USDT amount with no more than six decimal places." }, { status: 400 });
     }
-    if (!price || toNumber(price) <= 0) {
+    if (!rawPrice || !price) {
       return NextResponse.json({ error: "Price must be greater than zero." }, { status: 400 });
     }
-    const marketRate = await fetchUsdIlsMarketRate();
+    const marketRate = currency.trim().toUpperCase() === "ILS" ? await fetchUsdIlsMarketRate() : undefined;
     logProfile("fetchUsdIlsMarketRate");
     const priceValidationError = getListingPriceValidationError({ price, currency, marketRate });
     if (priceValidationError) {
@@ -101,7 +113,7 @@ export async function POST(request: NextRequest) {
     if (resolvedPaymentMethods.length > MAX_LISTING_PAYMENT_METHODS) {
       return NextResponse.json({ error: `Select no more than ${MAX_LISTING_PAYMENT_METHODS} payment methods per listing.` }, { status: 400 });
     }
-    if (requiresIsraeliBankSelection(paymentMethods)) {
+    if (bankTransferProvider !== "wise" && requiresIsraeliBankSelection(paymentMethods)) {
       if (!bankSelection.length) {
         return NextResponse.json({ error: "Please choose one or two supported banks before publishing the listing." }, { status: 400 });
       }
@@ -110,12 +122,12 @@ export async function POST(request: NextRequest) {
       }
     }
     if (!acceptedCommissionPolicy) {
-      return NextResponse.json({ error: "You must confirm Alpha Traders 1% commission policy before publishing this listing." }, { status: 400 });
+      return NextResponse.json({ error: "You must confirm Alpha Traders commission policy (1% buyer + 1% seller = 2% total) before publishing this listing." }, { status: 400 });
     }
-    if (toNumber(minimumTrade) < 0) {
-      return NextResponse.json({ error: "Minimum trade cannot be negative." }, { status: 400 });
+    if (!minimumTrade) {
+      return NextResponse.json({ error: "Minimum trade must be a valid non-negative USDT amount with no more than six decimal places." }, { status: 400 });
     }
-    if (toNumber(maximumTrade) <= 0 || toNumber(maximumTrade) > toNumber(availableAmount)) {
+    if (!maximumTrade || toNumber(maximumTrade) > toNumber(availableAmount)) {
       return NextResponse.json({ error: "Maximum trade must be greater than zero and less than or equal to available amount." }, { status: 400 });
     }
     if (toNumber(maximumTrade) < toNumber(minimumTrade)) {
@@ -140,7 +152,9 @@ export async function POST(request: NextRequest) {
       network,
       paymentMethods,
       bankAccountId,
-      bankName: requiresIsraeliBankSelection(paymentMethods) ? (serializeIsraeliBankSelection(bankSelection) || undefined) : undefined,
+      bankTransferProvider,
+      wiseAccountId,
+      bankName: bankTransferProvider !== "wise" && requiresIsraeliBankSelection(paymentMethods) ? (serializeIsraeliBankSelection(bankSelection) || undefined) : undefined,
       minimumTrade,
       maximumTrade,
       expiresAt: expiresAt || undefined,
@@ -167,6 +181,7 @@ export async function POST(request: NextRequest) {
       },
     );
   } catch (error) {
+    if (error instanceof FxReferenceUnavailableError) return NextResponse.json({ error: error.message, code: "MARKET_REFERENCE_UNAVAILABLE" }, { status: 503, headers: { "Retry-After": "5" } });
     return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to create listing." }, { status: 400 });
   }
 }

@@ -7,7 +7,7 @@ const mocks = vi.hoisted(() => {
     getTradeRoomData: vi.fn(),
     getTradeRoomRevision: vi.fn(),
     requireApiUser: vi.fn(),
-    requireEmailVerificationForTrading: vi.fn(),
+    requireMarketplaceVerificationForTrading: vi.fn(),
     subscribeRealtimeEvents: vi.fn(() => unsubscribe),
     unsubscribe,
   };
@@ -15,7 +15,7 @@ const mocks = vi.hoisted(() => {
 
 vi.mock("@/lib/api-auth", () => ({
   requireApiUser: mocks.requireApiUser,
-  requireEmailVerificationForTrading: mocks.requireEmailVerificationForTrading,
+  requireMarketplaceVerificationForTrading: mocks.requireMarketplaceVerificationForTrading,
 }));
 vi.mock("@/lib/alpha-exchange-store", () => ({
   getTradeRoomData: mocks.getTradeRoomData,
@@ -30,7 +30,7 @@ describe("trade room SSE reconciliation", () => {
     vi.useFakeTimers();
     vi.clearAllMocks();
     mocks.requireApiUser.mockResolvedValue({ user: { id: "buyer-1", role: "buyer" }, unauthorized: null });
-    mocks.requireEmailVerificationForTrading.mockReturnValue(null);
+    mocks.requireMarketplaceVerificationForTrading.mockReturnValue(null);
     mocks.getTradeRoomData.mockResolvedValue({
       request: { id: "trade-1", status: "accepted", updatedAt: "2026-09-14T18:00:00.000Z" },
       messages: [],

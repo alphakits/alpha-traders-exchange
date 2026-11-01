@@ -1,5 +1,12 @@
 "use client";
 
+
+import { brandText, currencyText } from "@/components/ui/currency-text";
+import { WiseAccountSelect, type WiseAccountSummary } from "./wise-account-select";
+import { ActionFeedback } from "@/components/ui/action-feedback";
+import { listingMaximumForAvailableAmount, listingMaximumTracksAvailableAmount } from "@/lib/listing-trade-limits";
+import { isListingCommissionRequiredMessage } from "@/lib/listing-commission-policy";
+
 import type { Dispatch, FormEvent, SetStateAction } from "react";
 import { createPortal } from "react-dom";
 import { AlertTriangle, CheckCircle2, ChevronDown, Clock3, Copy, Edit3, PauseCircle, PlayCircle, Store, Trash2 } from "lucide-react";
@@ -10,21 +17,25 @@ import { Textarea } from "@/components/ui/textarea";
 import { DiscordShareAction, type DiscordListingSharingStatus } from "@/components/sections/usdt-exchange/discord-share-action";
 import { sellerListingWorkspaceAnchor } from "@/lib/action-destinations";
 import { getIsraeliBankDisplayName, MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS, parseIsraeliBankSelection, serializeIsraeliBankSelection } from "@/lib/israeli-banks";
-import { MARKETPLACE_PAYMENT_METHODS, MAX_LISTING_PAYMENT_METHODS, requiresSellerPayoutBankAccount, type MarketplacePaymentMethod } from "@/lib/marketplace-payment-methods";
+import { MARKETPLACE_PAYMENT_METHODS, MAX_LISTING_PAYMENT_METHODS, type MarketplacePaymentMethod } from "@/lib/marketplace-payment-methods";
 import { LISTING_CHANGE_REASONS } from "@/lib/listing-change-reasons";
-import { ensurePayoutBankIsSupported } from "@/lib/seller-listing-bank-selection";
+import { ensurePayoutBankIsSupported, syncListingBankSelection } from "@/lib/seller-listing-bank-selection";
+import { normalizeTradeAmountInput } from "@/lib/trade-amount";
 import { cn } from "@/lib/utils";
 import type { MarketplaceListing, PurchaseRequest, SupportedNetwork } from "@/types/alpha-exchange";
 import type { SellerBankAccount } from "@/components/sections/usdt-exchange/usdt-exchange-page";
 
-type ListingEditForm = {
+export type ListingEditForm = {
   availableAmount: string;
+  maximumTradeFollowsAmount?: boolean;
   price: string;
   currency: string;
   network: SupportedNetwork;
   paymentMethods: string[];
   bankAccountId: string;
   bankName: string;
+  bankTransferProvider?: "israeli_bank" | "wise";
+  wiseAccountId?: string;
   minimumTrade: string;
   maximumTrade: string;
   sellerDescription: string;
@@ -40,6 +51,9 @@ type ListingEditOriginal = {
 };
 
 export type SellerListingsWorkspacePortalProps = {
+  wiseEnabled?: boolean;
+  wiseAccounts?: WiseAccountSummary[];
+  wiseAccountsLoading?: boolean;
   discordShareActionKey: string | null;
   discordSharing: DiscordListingSharingStatus | null;
   editingListingId: string | null;
@@ -70,6 +84,7 @@ export type SellerListingsWorkspacePortalProps = {
   listingEditTradeRangeInvalid: boolean;
   locale: "ar" | "en";
   marketPricePerUsdt: number;
+  marketReferenceAvailable: boolean;
   maxAllowedListingPrice: number;
   myListings: MarketplaceListing[];
   scrollToCreateListingSection: () => boolean;
@@ -79,6 +94,8 @@ export type SellerListingsWorkspacePortalProps = {
   sellerExpandedListingId: string | null;
   sellerListingsExpanded: boolean;
   sellerRequests: PurchaseRequest[];
+  sellerWorkspaceMessage: string | null;
+  sellerWorkspaceMessageFeedbackKey?: number;
   setEditingListingId: Dispatch<SetStateAction<string | null>>;
   setListingEditForm: Dispatch<SetStateAction<ListingEditForm>>;
   setListingEditOriginal: Dispatch<SetStateAction<ListingEditOriginal | null>>;
@@ -88,7 +105,6 @@ export type SellerListingsWorkspacePortalProps = {
   sortedDashboardListings: MarketplaceListing[];
   ISRAELI_BANKS: typeof import("@/components/sections/usdt-exchange/usdt-exchange-page").ISRAELI_BANKS;
   formatIls: typeof import("@/components/sections/usdt-exchange/usdt-exchange-page").formatIls;
-  formatIntegerForInput: typeof import("@/components/sections/usdt-exchange/usdt-exchange-page").formatIntegerForInput;
   listingChangeReasonLabel: typeof import("@/components/sections/usdt-exchange/usdt-exchange-page").listingChangeReasonLabel;
   listingStatusLabel: typeof import("@/components/sections/usdt-exchange/usdt-exchange-page").listingStatusLabel;
   normalizeDecimalInput: typeof import("@/components/sections/usdt-exchange/usdt-exchange-page").normalizeDecimalInput;
@@ -133,6 +149,7 @@ export function SellerListingsWorkspacePortal(props: SellerListingsWorkspacePort
     listingEditTradeRangeInvalid,
     locale,
     marketPricePerUsdt,
+    marketReferenceAvailable,
     maxAllowedListingPrice,
     myListings,
     scrollToCreateListingSection,
@@ -142,6 +159,8 @@ export function SellerListingsWorkspacePortal(props: SellerListingsWorkspacePort
     sellerExpandedListingId,
     sellerListingsExpanded,
     sellerRequests,
+    sellerWorkspaceMessage,
+    sellerWorkspaceMessageFeedbackKey,
     setEditingListingId,
     setListingEditForm,
     setListingEditOriginal,
@@ -151,7 +170,6 @@ export function SellerListingsWorkspacePortal(props: SellerListingsWorkspacePort
     sortedDashboardListings,
     ISRAELI_BANKS,
     formatIls,
-    formatIntegerForInput,
     listingChangeReasonLabel,
     listingStatusLabel,
     normalizeDecimalInput,
@@ -172,10 +190,13 @@ export function SellerListingsWorkspacePortal(props: SellerListingsWorkspacePort
             className="scroll-mt-24 border-white/10 bg-[#0B0B0B]/90"
           >
             <CardHeader>
+              {sellerWorkspaceMessage ? (
+                <ActionFeedback revealKey={sellerWorkspaceMessageFeedbackKey} as="p" role="status" aria-live="polite" className={cn("rounded-xl border border-white/20 bg-white/5 p-3 text-sm text-white", isListingCommissionRequiredMessage(sellerWorkspaceMessage) && "commission-notice commission-surface")}>{currencyText(sellerWorkspaceMessage)}</ActionFeedback>
+              ) : null}
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <CardTitle>{isAr ? "قائمتي" : "My Listings"}</CardTitle>
-                  <CardDescription>{isAr ? "إدارة جميع عروضك كبائع معتمد." : "Manage all of your approved seller listings."}</CardDescription>
+                  <CardDescription>{isAr ? "عدّل عروضك أو أوقفها أو جدّدها." : "Edit, pause, or renew your listings."}</CardDescription>
                 </div>
                 {sortedDashboardListings.length ? (
                   <Button
@@ -212,7 +233,7 @@ export function SellerListingsWorkspacePortal(props: SellerListingsWorkspacePort
                 <div className="rounded-2xl border border-white/10 bg-black/20 p-5 text-center shadow-[0_8px_24px_rgba(2,6,23,0.35)]">
                   <Store className="mx-auto h-5 w-5 text-[#C9A227]" />
                   <p className="mt-2 text-sm font-medium text-white">{isAr ? "ليس لديك عروض نشطة حتى الآن" : "You don’t have any active listings yet."}</p>
-                  <p className="mt-1 text-xs text-[#9CA3AF]">{isAr ? "أنشئ أول عرضك الآن ليبدأ المشترون بطلب الشراء." : "Create your first listing now and start receiving buyer requests."}</p>
+                  <p className="mt-1 text-xs text-[#9CA3AF]">{isAr ? "أنشئ عرضًا لاستقبال الطلبات." : "Create a listing to receive requests."}</p>
                   <Button type="button" size="sm" className="mt-3 h-9" onClick={() => { void scrollToCreateListingSection(); }}>
                     {isAr ? "إنشاء عرض" : "Create Listing"}
                   </Button>
@@ -230,7 +251,7 @@ export function SellerListingsWorkspacePortal(props: SellerListingsWorkspacePort
                   || listing.status === "matched"
                   || listing.status === "in_trade";
                 const listingPaymentMethods = normalizePaymentMethodList(listing.paymentMethods, listing.paymentMethod)
-                  .map((method) => paymentMethodLabel(method, isAr))
+                  .map((method) => `${paymentMethodLabel(method, isAr)}${listing.bankTransferProvider === "wise" && method === "Bank Transfer" ? " · Wise · USD" : ""}`)
                   .join(isAr ? "، " : ", ") || (isAr ? "غير محدد" : "Not set");
                 const listingAttention = isAwaitingApproval
                   ? (isAr ? "بانتظار موافقة الإدارة" : "Awaiting admin approval")
@@ -267,14 +288,14 @@ export function SellerListingsWorkspacePortal(props: SellerListingsWorkspacePort
                       onClick={() => setSellerExpandedListingId((current) => current === listing.id ? null : listing.id)}
                     >
                       <div className="min-w-0">
-                        <p className="truncate text-sm font-semibold text-white">{isAr ? "العرض" : "Listing"} {shortListingRef(listing)}</p>
-                        <p className="mt-0.5 text-xs text-[#9CA3AF]">{listingAttention}</p>
+                        <p className="truncate text-sm font-semibold text-white">{isAr ? "العرض" : "Listing"} {currencyText(shortListingRef(listing))}</p>
+                        <p className="mt-0.5 text-xs text-[#9CA3AF]">{currencyText(listingAttention)}</p>
                       </div>
-                      <p className="text-xs text-[#D1D5DB]"><span className="text-[#9CA3AF]">{isAr ? "الكمية " : "Amount "}</span>{toNumber(listing.availableAmount).toLocaleString("en-IL")} USDT</p>
-                      <p className="text-xs text-[#D1D5DB]"><span className="text-[#9CA3AF]">{isAr ? "السعر " : "Price "}</span>{formatIls(toNumber(listing.price))}</p>
-                      <p className="min-w-0 truncate text-xs text-[#D1D5DB]" title={listingPaymentMethods}><span className="text-[#9CA3AF]">{isAr ? "الدفع " : "Payment "}</span>{listingPaymentMethods}</p>
-                      <p className={cn("text-xs font-medium", isAwaitingApproval || isLockedForActiveTrade ? "text-amber-200" : "text-[#BFDBFE]")}>{listingRequiredAction}</p>
-                      <ChevronDown className={cn("h-4 w-4 text-[#9CA3AF] transition-transform", isDashboardListingExpanded && "rotate-180")} />
+                      <p className="text-xs text-[#D1D5DB]"><span className="text-[#9CA3AF]">{isAr ? "الكمية " : "Amount "}</span>{currencyText(`${Math.trunc(toNumber(listing.availableAmount)).toLocaleString("en-US")} USDT`)}</p>
+                        <p className="text-xs text-[#D1D5DB]"><span className="text-[#9CA3AF]">{isAr ? "السعر " : "Price "}</span>{currencyText(listing.currency === "USD" ? `${toNumber(listing.price).toFixed(2)} USD` : formatIls(toNumber(listing.price)))}</p>
+                      <p className="min-w-0 truncate text-xs text-[#D1D5DB]" title={listingPaymentMethods}><span className="text-[#9CA3AF]">{isAr ? "الدفع " : "Payment "}</span>{currencyText(listingPaymentMethods)}</p>
+                      <p className={cn("text-xs font-medium", isAwaitingApproval || isLockedForActiveTrade ? "text-amber-200" : "text-[#BFDBFE]")}>{brandText(listingRequiredAction)}</p>
+                      <span className="inline-flex items-center gap-2 text-sm font-semibold text-[#F4D87A]">{isDashboardListingExpanded ? (isAr ? "إغلاق" : "Close") : (isAr ? "إدارة" : "Manage")}<ChevronDown className={cn("h-4 w-4 transition-transform", isDashboardListingExpanded && "rotate-180")} /></span>
                     </button>
                     <div
                       id={`seller-listing-details-${listing.id}`}
@@ -285,12 +306,12 @@ export function SellerListingsWorkspacePortal(props: SellerListingsWorkspacePort
                     >
                     {listing.status === "draft" && listing.approvalStatus === "pending" ? (
                       <p className="mb-3 rounded-lg border border-amber-400/35 bg-amber-500/10 px-3 py-2 text-sm font-medium text-amber-100">
-                        {isAr ? "بانتظار موافقة إدارة Alpha Traders — هذا العرض غير ظاهر للمشترين بعد." : "Awaiting Alpha Traders admin approval — this listing is not visible to buyers yet."}
+                        {brandText(isAr ? "بانتظار الموافقة. العرض غير ظاهر للمشترين بعد." : "Pending approval. Buyers cannot see this listing yet.")}
                       </p>
                     ) : null}
                     <div className="grid gap-2 rounded-xl border border-white/10 bg-black/20 p-3 text-xs sm:grid-cols-2 lg:grid-cols-4">
-                      <p>{isAr ? "الحالة" : "Status"}: <span className="text-white">{listingStatusLabel(listing.status, isAr)}</span></p>
-                      <p>{isAr ? "الإجراء المطلوب" : "Required action"}: <span className="text-white">{listingRequiredAction}</span></p>
+                      <p>{isAr ? "الحالة" : "Status"}: <span className="text-white">{currencyText(listingStatusLabel(listing.status, isAr))}</span></p>
+                      <p>{isAr ? "الإجراء المطلوب" : "Required action"}: <span className="text-white">{brandText(listingRequiredAction)}</span></p>
                       <p>{isAr ? "طلبات الشراء" : "Purchase requests"}: <span className="text-white">{requestsCount}</span></p>
                       <p>{isAr ? "آخر نشاط" : "Last activity"}: <span className="text-white">{new Date(listing.updatedAt || listing.createdAt).toLocaleString(isAr ? "ar-IL" : "en-IL")}</span></p>
                     </div>
@@ -310,29 +331,35 @@ export function SellerListingsWorkspacePortal(props: SellerListingsWorkspacePort
                         type="button"
                         size="sm"
                         variant="secondary"
-                        className="h-9"
+                        className="min-h-11"
                         disabled={listingBusy}
                         onClick={() => {
                           setEditingListingId(listing.id);
-                          setListingEditForm({
+                          const editForm: ListingEditForm = {
                             availableAmount: listing.availableAmount,
                             price: listing.price,
                             currency: listing.currency,
                             network: listing.network,
                             paymentMethods: normalizePaymentMethodList(listing.paymentMethods, listing.paymentMethod),
-                            bankAccountId: listing.bankAccountId ?? (sellerBankAccounts.find((account) => account.isDefault)?.id ?? sellerBankAccounts[0]?.id ?? ""),
+                            bankAccountId: listing.bankAccountId ?? "",
                             bankName: listing.bankName ?? "",
+                            bankTransferProvider: listing.bankTransferProvider ?? "israeli_bank",
+                            wiseAccountId: listing.wiseAccountId ?? "",
                             minimumTrade: listing.minimumTrade ?? "0",
-                            maximumTrade: listing.maximumTrade ?? listing.availableAmount,
+                            maximumTrade: listingMaximumForAvailableAmount(listing),
+                            maximumTradeFollowsAmount: listingMaximumTracksAvailableAmount({
+                              availableAmount: listing.availableAmount, maximumTrade: listingMaximumForAvailableAmount(listing),
+                            }),
                             sellerDescription: listing.sellerDescription ?? "",
                             changeReason: "",
                             changeExplanation: "",
-                          });
+                          };
+                          setListingEditForm(listing.bankTransferProvider === "wise" ? editForm : syncListingBankSelection(editForm, sellerBankAccounts));
                           setListingEditOriginal({
                             availableAmount: listing.availableAmount,
                             price: listing.price,
                             minimumTrade: listing.minimumTrade ?? "0",
-                            maximumTrade: listing.maximumTrade ?? listing.availableAmount,
+                            maximumTrade: listingMaximumForAvailableAmount(listing),
                           });
                         }}
                       >
@@ -340,66 +367,79 @@ export function SellerListingsWorkspacePortal(props: SellerListingsWorkspacePort
                         {isAr ? "تعديل" : "Edit"}
                       </Button>
                       {listing.status === "paused" ? (
-                        <Button type="button" size="sm" variant="secondary" className="h-9" disabled={listingBusy} onClick={() => void handleSellerListingStatus(listing, "active")}>
+                        <Button type="button" size="sm" variant="secondary" className="min-h-11" disabled={listingBusy} onClick={() => void handleSellerListingStatus(listing, "active")}>
                           <PlayCircle className="h-4 w-4" />
                           {listingActionKey === `${listing.id}:resume` ? (isAr ? "جارٍ الاستئناف..." : "Resuming...") : (isAr ? "استئناف" : "Resume")}
                         </Button>
                       ) : listing.status === "active" ? (
-                        <Button type="button" size="sm" variant="secondary" className="h-9" disabled={listingBusy} onClick={() => void handleSellerListingStatus(listing, "paused")}>
+                        <Button type="button" size="sm" variant="secondary" className="min-h-11" disabled={listingBusy} onClick={() => void handleSellerListingStatus(listing, "paused")}>
                           <PauseCircle className="h-4 w-4" />
                           {listingActionKey === `${listing.id}:pause` ? (isAr ? "جارٍ الإيقاف..." : "Pausing...") : (isAr ? "إيقاف مؤقت" : "Pause")}
                         </Button>
                       ) : null}
                       {listing.status !== "draft" ? (
-                        <Button type="button" size="sm" variant="secondary" className="h-9" disabled={listingBusy} onClick={() => void handleSellerListingRenew(listing)}>
+                        <Button type="button" size="sm" variant="secondary" className="min-h-11" disabled={listingBusy} onClick={() => void handleSellerListingRenew(listing)}>
                           <Clock3 className="h-4 w-4" />
                           {listingActionKey === `${listing.id}:renew` ? (isAr ? "جارٍ التجديد..." : "Renewing...") : (isAr ? "تجديد" : "Renew")}
                         </Button>
                       ) : null}
-                      <Button type="button" size="sm" variant="secondary" className="h-9" disabled={listingBusy} onClick={() => void handleSellerListingDelete(listing)}>
+                      <Button type="button" size="sm" variant="secondary" className="min-h-11" disabled={listingBusy} onClick={() => void handleSellerListingDelete(listing)}>
                         <Trash2 className="h-4 w-4" />
                         {listingActionKey === `${listing.id}:delete` ? (isAr ? "جارٍ الحذف..." : "Deleting...") : (isAr ? "حذف" : "Delete")}
                       </Button>
-                      <Button type="button" size="sm" variant="secondary" className="h-9" disabled={listingBusy} onClick={() => void handleSellerListingDuplicate(listing)}>
+                      <Button type="button" size="sm" variant="secondary" className="min-h-11" disabled={listingBusy} onClick={() => void handleSellerListingDuplicate(listing)}>
                         <Copy className="h-4 w-4" />
                         {listingActionKey === `${listing.id}:duplicate` ? (isAr ? "جارٍ النسخ..." : "Duplicating...") : (isAr ? "نسخ العرض" : "Duplicate Listing")}
                       </Button>
                     </div>
                     {editingListingId === listing.id ? (
                       <form className="mt-3 grid gap-2 md:grid-cols-4" onSubmit={handleSellerListingEditSubmit}>
-                        <Input value={listingEditForm.availableAmount} onChange={(event) => setListingEditForm((prev) => ({ ...prev, availableAmount: formatIntegerForInput(event.target.value) }))} placeholder={isAr ? "الكمية المتاحة" : "Available Amount"} />
+                        {props.wiseEnabled || listingEditForm.bankTransferProvider === "wise" ? <div className="space-y-2 md:col-span-4"><label htmlFor="edit-bank-provider" className="block text-sm">{isAr ? "مسار الدفع والعملة" : "Payment route and currency"}</label><select id="edit-bank-provider" value={listingEditForm.bankTransferProvider ?? "israeli_bank"} onChange={event => setListingEditForm(previous => ({ ...previous, bankTransferProvider: event.target.value as "israeli_bank" | "wise", currency: event.target.value === "wise" ? "USD" : "ILS", price: "", paymentMethods: ["Bank Transfer"], wiseAccountId: "", bankAccountId: "", bankName: "" }))} className="min-h-11 w-full rounded-lg border border-white/20 bg-[#111] px-3"><option value="israeli_bank">{isAr ? "الطرق المحلية · ILS" : "Local payment methods · ILS"}</option><option value="wise" disabled={!props.wiseEnabled}>{isAr ? "تحويل بنكي ← Wise · USD (مسودة)" : "Bank transfer → Wise · USD (draft)"}</option></select></div> : null}
+                        <Input className="currency-money" inputMode="decimal" value={listingEditForm.availableAmount} onChange={(event) => {
+                          const availableAmount = normalizeTradeAmountInput(event.target.value);
+                          setListingEditForm((prev) => {
+                            // Remember explicit intent through intermediate keystrokes such as 7 → 70 → 700 → 7000.
+                            const followsAmount = prev.maximumTradeFollowsAmount ?? listingMaximumTracksAvailableAmount(prev);
+                            return { ...prev, availableAmount, maximumTradeFollowsAmount: followsAmount,
+                              maximumTrade: followsAmount ? availableAmount : prev.maximumTrade };
+                          });
+                        }} placeholder={isAr ? "الكمية المتاحة" : "Available Amount"} />
                         <div className="space-y-2">
                           <Input
                             value={listingEditForm.price}
                             onChange={(event) => setListingEditForm((prev) => ({ ...prev, price: normalizeDecimalInput(event.target.value) }))}
                             placeholder={isAr ? "السعر" : "Price"}
-                            className={`transition-all duration-200 ${
+                            className={`currency-money ${`transition-all duration-200 ${
                               listingEditPriceInvalid
                                 ? "border-red-500/85 shadow-[0_0_0_3px_rgba(239,68,68,0.2)]"
                                 : listingEditPriceValid
                                   ? "border-emerald-500/80 shadow-[0_0_0_3px_rgba(16,185,129,0.16)]"
                                   : ""
-                            }`}
+                            }`}`}
                           />
                           <p className={`text-xs transition-colors duration-200 ${
                             listingEditPriceInvalid ? "text-red-300" : listingEditPriceValid ? "text-emerald-300" : "text-[#9CA3AF]"
                           }`}>
-                            {listingEditPriceInvalid
+                            {currencyText(listingEditForm.bankTransferProvider === "wise" ? (isAr ? "السعر بالدولار USD لكل USDT." : "Price in USD per USDT.") : !marketReferenceAvailable ? (isAr ? "بانتظار سعر USD/ILS محدّث" : "Waiting for a fresh USD/ILS quote") : listingEditPriceInvalid
                               ? (isAr ? `السعر يتجاوز الحد الأقصى المسموح (${formatIls(maxAllowedListingPrice)}).` : `Price exceeds maximum allowed (${formatIls(maxAllowedListingPrice)}).`)
                               : listingEditPriceValid
                                 ? (isAr ? `السعر صالح. الحد الأقصى المسموح هو ${formatIls(maxAllowedListingPrice)}.` : `Valid price. Maximum allowed is ${formatIls(maxAllowedListingPrice)}.`)
-                                : (isAr ? `أدخل سعراً لا يتجاوز ${formatIls(maxAllowedListingPrice)}.` : `Enter a price up to ${formatIls(maxAllowedListingPrice)}.`)}
+                                : (isAr ? `أدخل سعراً لا يتجاوز ${formatIls(maxAllowedListingPrice)}.` : `Enter a price up to ${formatIls(maxAllowedListingPrice)}.`))}
                           </p>
                         </div>
-                        <Input value={listingEditForm.currency} onChange={(event) => setListingEditForm((prev) => ({ ...prev, currency: event.target.value }))} placeholder={isAr ? "العملة" : "Currency"} />
+                        <Input aria-label={isAr ? "العملة" : "Currency"} readOnly={listingEditForm.bankTransferProvider === "wise"} value={listingEditForm.currency} onChange={(event) => setListingEditForm((prev) => ({ ...prev, currency: event.target.value }))} placeholder={isAr ? "العملة" : "Currency"} />
                         <select className="flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 py-2 text-sm text-white" value={listingEditForm.network} onChange={(event) => setListingEditForm((prev) => ({ ...prev, network: event.target.value as SupportedNetwork }))}>
                           <option value="TRC20">TRC20</option>
                           <option value="ERC20">ERC20</option>
                           <option value="BEP20">BEP20</option>
                           <option value="SOL">SOL</option>
                         </select>
-                        <Input value={listingEditForm.minimumTrade} onChange={(event) => setListingEditForm((prev) => ({ ...prev, minimumTrade: formatIntegerForInput(event.target.value) }))} placeholder={isAr ? "الحد الأدنى للصفقة" : "Minimum Trade"} />
-                        <Input value={listingEditForm.maximumTrade} onChange={(event) => setListingEditForm((prev) => ({ ...prev, maximumTrade: formatIntegerForInput(event.target.value) }))} placeholder={isAr ? "الحد الأقصى للصفقة" : "Maximum Trade"} />
+                        <Input className="currency-money" inputMode="decimal" value={listingEditForm.minimumTrade} onChange={(event) => setListingEditForm((prev) => ({ ...prev, minimumTrade: normalizeTradeAmountInput(event.target.value) }))} placeholder={isAr ? "الحد الأدنى للصفقة" : "Minimum Trade"} />
+                        <Input className="currency-money" inputMode="decimal" value={listingEditForm.maximumTrade} onChange={(event) => {
+                          const maximumTrade = normalizeTradeAmountInput(event.target.value);
+                          setListingEditForm((prev) => ({ ...prev, maximumTrade,
+                            maximumTradeFollowsAmount: listingMaximumTracksAvailableAmount({ availableAmount: prev.availableAmount, maximumTrade }) }));
+                        }} placeholder={isAr ? "الحد الأقصى للصفقة" : "Maximum Trade"} />
                         <div className="md:col-span-2 rounded-2xl border border-white/10 bg-black/20 p-3">
                           <p className="text-xs uppercase tracking-[0.12em] text-[#9CA3AF]">{isAr ? "طريقة الدفع" : "Payment Method"} *</p>
                           <div className="mt-2 grid gap-2 md:grid-cols-3">
@@ -409,21 +449,16 @@ export function SellerListingsWorkspacePortal(props: SellerListingsWorkspacePort
                                 <button
                                   key={`${listing.id}-method-${method}`}
                                   type="button"
+                                  disabled={listingEditForm.bankTransferProvider === "wise" && method !== "Bank Transfer"}
+                                  aria-pressed={selected}
                                   onClick={() => setListingEditForm((prev) => {
-                                    const nextMethods = toggleSelection(prev.paymentMethods, method, MAX_LISTING_PAYMENT_METHODS);
-                                    const selectedAccount = sellerBankAccounts.find((account) => account.id === prev.bankAccountId);
-                                    const nextBanks = requiresSellerPayoutBankAccount(nextMethods)
-                                      ? ensurePayoutBankIsSupported(
-                                          parseIsraeliBankSelection(prev.bankName),
-                                          selectedAccount?.bankName,
-                                          MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS,
-                                        )
-                                      : parseIsraeliBankSelection(prev.bankName);
-                                    return {
+                                    if (prev.bankTransferProvider === "wise") return { ...prev, paymentMethods: ["Bank Transfer"] };
+                                    const nextMethods = toggleSelection(prev.paymentMethods, method, MAX_LISTING_PAYMENT_METHODS, true);
+                                    return syncListingBankSelection({
                                       ...prev,
                                       paymentMethods: nextMethods,
-                                      bankName: requiresBankSelection(nextMethods) ? serializeIsraeliBankSelection(nextBanks) : "",
-                                    };
+                                      bankName: requiresBankSelection(nextMethods) ? prev.bankName : "",
+                                    }, sellerBankAccounts);
                                   })}
                                   className={`rounded-xl border p-2.5 text-start transition-all duration-200 ${
                                     selected
@@ -431,7 +466,7 @@ export function SellerListingsWorkspacePortal(props: SellerListingsWorkspacePort
                                       : "border-white/10 bg-black/25 hover:-translate-y-0.5 hover:border-[#6CAEFF]/45 hover:shadow-[0_10px_24px_rgba(15,23,42,0.35)]"
                                   }`}
                                 >
-                                  <p className="text-xs font-medium text-white">{paymentMethodEmoji(method)} {paymentMethodLabel(method, isAr)}</p>
+                                  <p className="text-xs font-medium text-white">{currencyText(paymentMethodEmoji(method))} {currencyText(paymentMethodLabel(method, isAr))}</p>
                                 </button>
                               );
                             })}
@@ -439,10 +474,13 @@ export function SellerListingsWorkspacePortal(props: SellerListingsWorkspacePort
                           <p className="mt-2 text-xs text-[#9CA3AF]">{isAr ? `اختر حتى ${MAX_LISTING_PAYMENT_METHODS} طرق.` : `Select up to ${MAX_LISTING_PAYMENT_METHODS} methods.`}</p>
                         </div>
                         <Textarea className="md:col-span-2" value={listingEditForm.sellerDescription} onChange={(event) => setListingEditForm((prev) => ({ ...prev, sellerDescription: event.target.value }))} aria-label={isAr ? "وصف البائع" : "Seller description"} placeholder={isAr ? "وصف البائع" : "Seller Description"} />
+                        {listingEditForm.bankTransferProvider === "wise" ? <div className="md:col-span-4"><WiseAccountSelect id="edit-wise-account" locale={locale} purpose="receiving" accounts={props.wiseAccounts ?? []} loading={props.wiseAccountsLoading} value={listingEditForm.wiseAccountId ?? ""} onChange={wiseAccountId => setListingEditForm(previous => ({ ...previous, wiseAccountId }))} /></div> : null}
                         {listingEditRequiresBank ? (
                         <div className="md:col-span-4 rounded-2xl border border-white/10 bg-black/20 p-3">
-                          <p className="text-xs uppercase tracking-[0.12em] text-[#9CA3AF]">{isAr ? "البنوك المدعومة" : "Supported banks"} *</p>
-                          <p className="mt-1 text-xs text-[#D1D5DB]">{isAr ? `اختر حتى ${MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS} بنوك للتحويل البنكي أو السحب بلا بطاقة.` : `Select up to ${MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS} banks for bank transfer or cardless ATM listings.`}</p>
+                          <p className="text-xs uppercase tracking-[0.12em] text-[#9CA3AF]">{listingEditRequiresBankAccount ? (isAr ? "البنوك المدعومة" : "Supported banks") : (isAr ? "بنوك السحب بلا بطاقة" : "Cardless withdrawal banks")} *</p>
+                          <p className="mt-1 text-xs text-[#D1D5DB]">{listingEditRequiresBankAccount
+                            ? (isAr ? `اختر حتى ${MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS} بنوك للتحويل البنكي أو السحب بلا بطاقة.` : `Select up to ${MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS} banks for bank transfer or cardless ATM listings.`)
+                            : (isAr ? `اختر حتى ${MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS} بنوك يمكنك استلام السحب بلا بطاقة منها. لا تحتاج إلى إدخال تفاصيل حسابك البنكي.` : `Choose up to ${MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS} banks where you can collect cardless withdrawals. No personal bank account details are needed.`)}</p>
                           <div className="mt-2 grid gap-2 md:grid-cols-2 xl:grid-cols-4">
                             {ISRAELI_BANKS.map((bank) => {
                               const selected = listingEditSelectedBanks.includes(bank.name);
@@ -465,7 +503,7 @@ export function SellerListingsWorkspacePortal(props: SellerListingsWorkspacePort
                                       {renderBankLogo(bank)}
                                     </span>
                                     <div>
-                                      <p className="text-xs font-medium text-white">{getIsraeliBankDisplayName(bank.name, locale)}</p>
+                                      <p className="text-xs font-medium text-white">{currencyText(getIsraeliBankDisplayName(bank.name, locale))}</p>
                                       <p className="text-[10px] text-[#9CA3AF]">{bank.code}</p>
                                     </div>
                                   </div>
@@ -474,7 +512,7 @@ export function SellerListingsWorkspacePortal(props: SellerListingsWorkspacePort
                               );
                             })}
                           </div>
-                          {listingEditSelectedBanks.length ? <p className="mt-2 text-xs text-[#93C5FD]">{isAr ? "المحدد" : "Selected"}: {listingEditSelectedBanks.map((bankName) => getIsraeliBankDisplayName(bankName, locale)).join(isAr ? "، " : ", ")}</p> : null}
+                          {listingEditSelectedBanks.length ? <p className="mt-2 text-xs text-[#93C5FD]">{isAr ? "المحدد" : "Selected"}: {currencyText(listingEditSelectedBanks.map((bankName) => getIsraeliBankDisplayName(bankName, locale)).join(isAr ? "، " : ", "))}</p> : null}
                         </div>
                         ) : null}
                         {listingEditRequiresBankAccount ? (
@@ -550,23 +588,23 @@ export function SellerListingsWorkspacePortal(props: SellerListingsWorkspacePort
                             ) : null}
                           </div>
                         ) : null}
-                        <div className={`md:col-span-4 rounded-2xl border p-3 text-xs transition-all duration-200 ${listingEditGuardTone}`}>
+                        {listingEditForm.bankTransferProvider !== "wise" ? <div className={`md:col-span-4 rounded-2xl border p-3 text-xs transition-all duration-200 ${listingEditGuardTone}`}>
                           <div className="flex items-start gap-2">
                             {listingEditPriceInvalid ? <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /> : <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />}
                             <div className="space-y-1">
                               <p className="font-medium">
-                                {listingEditPriceInvalid ? (isAr ? `السعر يتجاوز الحد الأقصى المسموح (${formatIls(maxAllowedListingPrice)})` : `Price exceeds maximum allowed (${formatIls(maxAllowedListingPrice)})`) : (isAr ? "حماية سعر السوق مفعلة" : "Market guard active")}
+                                {currencyText(!marketReferenceAvailable ? (isAr ? "بانتظار سعر USD/ILS محدّث" : "Waiting for a fresh USD/ILS quote") : listingEditPriceInvalid ? (isAr ? `السعر يتجاوز الحد الأقصى المسموح (${formatIls(maxAllowedListingPrice)})` : `Price exceeds maximum allowed (${formatIls(maxAllowedListingPrice)})`) : (isAr ? "حماية سعر السوق مفعلة" : "Market guard active"))}
                               </p>
-                              <p>{isAr ? "سعر السوق الحالي" : "Current market"}: {formatIls(marketPricePerUsdt)} {isAr ? "لكل 1 USDT" : "per 1 USDT"}</p>
-                              <p>{isAr ? "الحد الأقصى المسموح" : "Maximum allowed"}: {formatIls(maxAllowedListingPrice)}</p>
-                              {listingEditTradeRangeInvalid ? <p className="text-amber-200">{isAr ? "يجب أن يكون الحد الأقصى للصفقة أكبر من الحد الأدنى وألا يتجاوز كمية USDT المتاحة." : "Maximum trade must be greater than minimum trade and less than or equal to available USDT."}</p> : null}
+                              <p>{isAr ? "سعر السوق الحالي" : "Current market"}: {currencyText(marketPricePerUsdt > 0 ? `₪${marketPricePerUsdt.toFixed(5)}` : "—")} {currencyText(isAr ? "لكل 1 USDT" : "per 1 USDT")}</p>
+                              <p>{isAr ? "الحد الأقصى المسموح" : "Maximum allowed"}: {currencyText(marketReferenceAvailable ? formatIls(maxAllowedListingPrice) : "—")}</p>
+                              {listingEditTradeRangeInvalid ? <p className="text-amber-200">{currencyText(isAr ? "يجب أن يكون الحد الأقصى للصفقة أكبر من الحد الأدنى وألا يتجاوز كمية USDT المتاحة." : "Maximum trade must be greater than minimum trade and less than or equal to available USDT.")}</p> : null}
                               {listingEditRequiresBank && !listingEditSelectedBanks.length ? <p className="text-amber-200">{isAr ? "اختر بنكاً واحداً أو بنكين مدعومين قبل الحفظ." : "Select one or two supported banks before saving."}</p> : null}
                               {listingEditRequiresBankAccount && !listingEditForm.bankAccountId ? <p className="text-amber-200">{isAr ? "اختر حساباً بنكياً واحداً لاستلام الدفعات قبل الحفظ." : "Select one payout bank account before saving."}</p> : null}
                               {listingEditBankAccountMismatch ? <p className="text-amber-200">{isAr ? "يجب أن تشمل البنوك المدعومة بنك استلام الدفعات المحدد." : "Supported banks must include the selected payout bank."}</p> : null}
-                              {listingEditAmount > 0 ? <p>{listingEditAmount.toLocaleString("en-IL")} USDT ≈ {formatIls(listingEditAmount * marketPricePerUsdt)}</p> : null}
+                              {listingEditAmount > 0 ? <p>{currencyText(`${Math.trunc(listingEditAmount).toLocaleString("en-US")} USDT`)} ≈ {currencyText(formatIls(listingEditAmount * marketPricePerUsdt))}</p> : null}
                             </div>
                           </div>
-                        </div>
+                        </div> : <p className="md:col-span-4 text-sm text-[#D1D5DB]">{isAr ? "تحقق من السعر بالدولار وحساب الاستلام قبل الحفظ." : "Review the USD price and receiving account before saving."}</p>}
                         <div className="md:col-span-4 flex gap-2">
                           <Button type="submit" size="sm" disabled={isListingEditSubmitDisabled || !listingEditReasonValid || listingActionKey === `${listing.id}:save`}>
                             {listingActionKey === `${listing.id}:save` ? (isAr ? "جارٍ الحفظ..." : "Saving...") : (isAr ? "حفظ" : "Save")}
@@ -587,9 +625,9 @@ export function SellerListingsWorkspacePortal(props: SellerListingsWorkspacePort
                     variant="secondary"
                     onClick={() => setSellerListingsExpanded((current) => !current)}
                   >
-                    {sellerListingsExpanded
+                    {currencyText(sellerListingsExpanded
                       ? (isAr ? "عرض عدد أقل من العروض" : "Show fewer listings")
-                      : (isAr ? `عرض جميع العروض (${sortedDashboardListings.length - (isMobileViewport ? 1 : 2)})` : `View All Listings (${sortedDashboardListings.length - (isMobileViewport ? 1 : 2)})`)}
+                      : (isAr ? `عرض جميع العروض (${sortedDashboardListings.length - (isMobileViewport ? 1 : 2)})` : `View All Listings (${sortedDashboardListings.length - (isMobileViewport ? 1 : 2)})`))}
                   </Button>
                 </div>
               ) : null}

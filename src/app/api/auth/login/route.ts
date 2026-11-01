@@ -4,6 +4,7 @@ import { createEmailVerificationTokenForUser, upsertUserProfileForAuth } from "@
 import { AUTH_COOKIE_NAME, AUTH_PHONE_VERIFIED_COOKIE_NAME, AUTH_VERIFIED_COOKIE_NAME, authenticateLocalUser, createUserSession } from "@/lib/auth";
 import { shouldUseSecureAuthCookie } from "@/lib/auth-cookie";
 import { checkRateLimit, checkSharedRateLimit, resolveClientIp } from "@/lib/rate-limit";
+import { withAuthProviderDeadline } from "@/lib/auth-request-deadline";
 import { createSupabaseAuthClient, inferLocaleFromRequest } from "@/lib/supabase-auth-provider";
 import { isMarketplacePhoneVerificationDisabled } from "@/lib/phone-verification";
 import { isVerified } from "@/lib/verification-bypass";
@@ -11,6 +12,8 @@ import { allowsRuntimeDiagnostics } from "@/lib/runtime-safety";
 import { logEvent } from "@/lib/structured-logging";
 import { getSiteUrl } from "@/lib/site-url";
 import { buildAuthEmail, sendAuthEmailViaResend } from "@/lib/auth-email-delivery";
+import { authProviderLogMetadata, isAuthProviderRateLimitError, isAuthProviderUnavailableError } from "@/lib/auth-provider-errors";
+import { readLimitedRequestText, RequestBodyTooLargeError } from "@/lib/request-body";
 
 const AUTH_RESPONSE_HEADERS = { "Cache-Control": "no-store, max-age=0" };
 type LoginTimelineStep = {
@@ -109,11 +112,12 @@ export async function POST(request: NextRequest) {
     let body: Record<string, unknown> = {};
     let rawBody = "";
     try {
-      rawBody = await request.text();
+      rawBody = await readLimitedRequestText(request, 16 * 1024);
       const contentType = request.headers.get("content-type") ?? "";
       if (authDebug) {
-        const sanitizedBodyPreview = rawBody.replace(/"password":"([^"]*)"/g, '"password":"[REDACTED]"');
-        console.error("[auth/login] body preview", { contentType, length: rawBody.length, preview: sanitizedBodyPreview.slice(0, 400) });
+        // Credentials can arrive as spaced/escaped JSON or form data. Never
+        // attempt to redact a raw body with a format-specific expression.
+        console.error("[auth/login] body received", { length: rawBody.length });
       }
       if (!rawBody.trim()) {
         body = {};
@@ -121,23 +125,34 @@ export async function POST(request: NextRequest) {
         const params = new URLSearchParams(rawBody);
         body = Object.fromEntries(params.entries());
       } else {
-        body = JSON.parse(rawBody) as Record<string, unknown>;
+        const parsed: unknown = JSON.parse(rawBody);
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+          return NextResponse.json({ error: "Invalid JSON body." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
+        }
+        body = parsed as Record<string, unknown>;
       }
     } catch (error) {
+      if (error instanceof RequestBodyTooLargeError) {
+        return NextResponse.json({ error: "Request body is too large." }, { status: 413, headers: AUTH_RESPONSE_HEADERS });
+      }
       if (error instanceof SyntaxError) {
         if (authDebug) {
-          console.error("[auth/login] parse failure", { error: error.message, bodyLength: rawBody.length });
+          // SyntaxError messages may quote the malformed credential body.
+          console.error("[auth/login] parse failure", { errorName: error.name, bodyLength: rawBody.length });
         }
         return NextResponse.json({ error: "Invalid JSON body." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
       }
       throw error;
     }
-    const email = String(body.email ?? "").trim().toLowerCase();
-    const password = String(body.password ?? "");
+    const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
+    const password = typeof body.password === "string" ? body.password : "";
     const rememberMe = body.rememberMe !== false;
 
     if (!email || !password) {
       return NextResponse.json({ error: "Email and password are required." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
+    }
+    if (email.length > 254 || password.length > 256) {
+      return NextResponse.json({ error: "Invalid credentials format." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
     }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       return NextResponse.json({ error: "Invalid email format." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
@@ -297,14 +312,31 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    const supabase = createSupabaseAuthClient({ requestHeaders: request.headers });
     const supabaseAuthStartedAt = Date.now();
-    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    const { data, error } = await withAuthProviderDeadline(request.signal, (signal) => {
+      const supabase = createSupabaseAuthClient({ requestHeaders: request.headers, signal });
+      return supabase.auth.signInWithPassword({ email, password });
+    });
     const supabaseAuthEndedAt = Date.now();
     const supabaseAuthMs = supabaseAuthEndedAt - supabaseAuthStartedAt;
     pushTimelineStep(timeline, "Password hashing / verification", supabaseAuthStartedAt, supabaseAuthEndedAt, { provider: "supabase" });
     if (error) {
       clearAuthCookies(cookieStore, secureCookies);
+      if (isAuthProviderRateLimitError(error) || isAuthProviderUnavailableError(error)) {
+        const rateLimited = isAuthProviderRateLimitError(error);
+        logEvent("warn", {
+          event: "auth_login",
+          outcome: "failed",
+          reason: rateLimited ? "provider_rate_limit" : "provider_unavailable",
+          metadata: authProviderLogMetadata(error),
+        });
+        return NextResponse.json({ error: rateLimited
+          ? "Too many login attempts. Please try again shortly."
+          : "Unable to sign in. Please try again." }, {
+          status: rateLimited ? 429 : 503,
+          headers: { ...AUTH_RESPONSE_HEADERS, ...(rateLimited ? { "Retry-After": "60" } : {}) },
+        });
+      }
       if (error.message.toLowerCase().includes("email not confirmed")) {
         return NextResponse.json(
           {
@@ -401,6 +433,13 @@ export async function POST(request: NextRequest) {
       reason: "unexpected_error",
       metadata: { errorType: error instanceof Error ? error.name : typeof error },
     });
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Login failed." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
+    // Never expose provider configuration, database, or other internal error
+    // details through a public authentication response. The structured server
+    // log above retains the diagnostic category for operators while callers
+    // receive a stable, non-enumerating failure message.
+    return NextResponse.json(
+      { error: "Unable to sign in. Please try again." },
+      { status: 503, headers: AUTH_RESPONSE_HEADERS },
+    );
   }
 }

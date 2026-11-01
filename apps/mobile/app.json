@@ -25,6 +25,7 @@
     },
     "android": {
       "package": "com.alphakits.alphatraders",
+      "googleServicesFile": "./google-services.json",
       "allowBackup": false,
       "blockedPermissions": [
         "android.permission.SYSTEM_ALERT_WINDOW",
@@ -52,14 +53,17 @@
           "backgroundColor": "#050505",
           "image": "../../public/images/brand/alpha-traders-app-icon-1024.png",
           "imageWidth": 220,
-          "resizeMode": "contain"
+          "resizeMode": "contain",
+          "ios": {
+            "imageWidth": 340
+          }
         }
       ],
       [
         "expo-image-picker",
         {
-          "photosPermission": "Allow Alpha Traders to select a payment or USDT transfer receipt for your active trade.",
-          "cameraPermission": "Allow Alpha Traders to use your camera to photograph payment or USDT transfer evidence for an active trade.",
+          "photosPermission": "Allow Alpha Traders to select trading journal charts and payment or USDT transfer receipts for your active trade.",
+          "cameraPermission": "Allow Alpha Traders to photograph trading journal charts or payment and USDT transfer evidence for an active trade.",
           "microphonePermission": false
         }
       ],

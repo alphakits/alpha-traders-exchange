@@ -1,6 +1,11 @@
+// Synthetic quote for lifecycle tests; feed failures and price boundaries have separate coverage.
+vi.mock("@/lib/market-service", () => ({ DEFAULT_USD_ILS_RATE: 3.05, getUsdtIlsReferenceRate: async () => 4 }));
+
+import { publicAccountId } from "@/lib/public-account-identity";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createHash, randomBytes, randomInt, randomUUID } from "node:crypto";
 import type { AlphaExchangeDb, UserRole } from "@/types/alpha-exchange";
+import { createTestSellerApprovalVerification } from "@/test-utils/seller-verification";
 
 const identityFixture = vi.hoisted(() => ({
   ownerEmail: `owner-${globalThis.crypto.randomUUID()}@example.test`,
@@ -32,15 +37,22 @@ import {
   createMarketplaceListing,
   createPurchaseRequest,
   createSellerApplication,
+  deleteMarketplaceListingForSeller,
   findUserById,
   getNotificationsForUser,
   invalidateAlphaExchangeStoreCache,
   markAllNotificationsRead,
   reviewMarketplaceListingByOwner,
+  updateMarketplaceListingForSeller,
   updatePurchaseRequestStatus,
+  updateMarketplacePriceAlert,
 } from "@/lib/alpha-exchange-store";
-import { adminMarketplaceListingsDestination, listingDestination, sellerApplicationReviewDestination } from "@/lib/action-destinations";
+import { adminMarketplaceListingsDestination, listingDestination, sellerApplicationReviewDestination, sellerListingWorkspaceDestination } from "@/lib/action-destinations";
+import { toMobileNotification } from "@/lib/mobile-notifications";
 import { prepareListingReviewEmails } from "@/lib/marketplace-email-events";
+import { COMPLETE_SELLER_APPROVAL_CHECKLIST } from "@/lib/seller-approval-verification";
+import { AlphaExchangeRepository } from "@/lib/alpha-exchange-repository";
+import { subscribeRealtimeEvents, type RealtimeEvent } from "@/lib/realtime";
 
 const OWNER_ID = "owner-1";
 const LISTING_CREATOR_ID = "seller-creator";
@@ -90,13 +102,18 @@ function createUser(input: {
 }) {
   const now = new Date().toISOString();
   const roles = input.roles ?? [input.role];
+  const sellerStatus = input.sellerStatus ?? (roles.includes("approved_seller") ? "approved_seller" : "buyer");
   return {
     id: input.id,
     fullName: input.id,
+    whatsappNumber: TEST_PHONE,
     email: input.email,
     role: input.role,
     roles,
-    sellerStatus: input.sellerStatus ?? (roles.includes("approved_seller") ? "approved_seller" : "buyer"),
+    sellerStatus,
+    sellerApprovalVerification: sellerStatus === "approved_seller"
+      ? createTestSellerApprovalVerification(now, OWNER_ID)
+      : undefined,
     availabilityStatus: "available",
     onlineStatus: "online",
     createdAt: now,
@@ -127,6 +144,18 @@ function createUser(input: {
     sellerRankOverride: undefined,
     sellerPromotionHistory: [],
     sellerAchievements: [],
+    sellerBankAccounts: roles.includes("approved_seller") ? [{
+      id: `bank-${input.id}-hapoalim`,
+      sellerId: input.id,
+      accountHolderName: input.id,
+      bankName: "Bank Hapoalim",
+      branchNumber: "123",
+      accountNumber: "1234567890",
+      accountLast4: "7890",
+      isDefault: true,
+      createdAt: now,
+      updatedAt: now,
+    }] : undefined,
     disabled: input.disabled ?? false,
   };
 }
@@ -176,8 +205,60 @@ describe("marketplace listing publication broadcasts", () => {
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     vi.unstubAllEnvs();
     vi.unstubAllGlobals();
+  });
+
+  it("publishes no listing or trust notification when the listing transaction fails", async () => {
+    const events: RealtimeEvent[] = [];
+    const unsubscribe = subscribeRealtimeEvents(event => events.push(event));
+    vi.spyOn(AlphaExchangeRepository.prototype, "saveListingCreationSnapshotTargeted").mockRejectedValue(new Error("listing transaction rejected"));
+    try {
+      await expect(createMarketplaceListing({ sellerId: LISTING_CREATOR_ID, sellerDisplayName: "Listing Creator", availableAmount: "700", price: "3.20", currency: "ILS", network: "TRC20", paymentMethods: ["Bank Transfer"], bankName: "Bank Hapoalim", minimumTrade: "50", maximumTrade: "700", responseTime: "5 min", acceptedCommissionPolicy: true, actorUserId: LISTING_CREATOR_ID })).rejects.toThrow("listing transaction rejected");
+      expect(events.filter(event => ["notification.created", "notification.updated", "listing.created", "reputation.updated"].includes(event.type))).toEqual([]);
+      expect(sendMarketplaceEmailMock).not.toHaveBeenCalled();
+      const persisted = globalThis.__alphaExchangeMemorySnapshot as unknown as AlphaExchangeDb;
+      expect(persisted.marketplaceListings).toHaveLength(0);
+      expect(persisted.notifications).toHaveLength(0);
+    } finally { unsubscribe(); }
+  });
+
+  it("retains distinct seller and owner submission notices for two listings created within the deduplication window", async () => {
+    const input = { sellerId: LISTING_CREATOR_ID, sellerDisplayName: "Listing Creator", availableAmount: "700", price: "3.20", currency: "ILS", network: "TRC20" as const, paymentMethods: ["Bank Transfer"], bankName: "Bank Hapoalim", minimumTrade: "50", maximumTrade: "700", responseTime: "5 min", acceptedCommissionPolicy: true, actorUserId: LISTING_CREATOR_ID };
+    const first = await createMarketplaceListing(input);
+    const second = await createMarketplaceListing({ ...input, price: "3.21" });
+    const persisted = globalThis.__alphaExchangeMemorySnapshot as unknown as AlphaExchangeDb;
+    for (const userId of [OWNER_ID, LISTING_CREATOR_ID]) {
+      const submitted = persisted.notifications.filter(notification => notification.userId === userId && ["New Listing Pending Review", "Listing submitted"].includes(notification.title));
+      expect(submitted.map(notification => notification.relatedListingId).sort()).toEqual([first.id, second.id].sort());
+      expect(new Set(submitted.map(notification => notification.id)).size).toBe(2);
+    }
+  });
+
+  it("filters opted-in publication alerts without changing generic alerts or creating purchases", async () => {
+    await updateMarketplacePriceAlert(BUYER_ID, { enabled: true, maxPrice: "3.10", minUsdt: "200", paymentMethod: "Bank Transfer" });
+    const listing = await createMarketplaceListing({ sellerId: LISTING_CREATOR_ID, sellerDisplayName: "Listing Creator", availableAmount: "700", price: "3.20", currency: "ILS", network: "TRC20", paymentMethods: ["Bank Transfer"], bankName: "Bank Hapoalim", minimumTrade: "50", maximumTrade: "700", responseTime: "5 min", acceptedCommissionPolicy: true, actorUserId: LISTING_CREATOR_ID });
+    await reviewMarketplaceListingByOwner({ listingId: listing.id, ownerUserId: OWNER_ID, decision: "approve" });
+    const persisted = globalThis.__alphaExchangeMemorySnapshot as unknown as AlphaExchangeDb;
+    expect(persisted.notifications.filter(item => item.userId === BUYER_ID && item.relatedListingId === listing.id)).toHaveLength(0);
+    expect(persisted.notifications.some(item => item.userId === DUAL_ROLE_BUYER_ID && item.title === "🟢 New USDT Listing Available")).toBe(true);
+    expect(persisted.purchaseRequests).toHaveLength(0);
+    expect(persisted.commissionRecords).toHaveLength(0);
+  });
+
+  it("only publishes a matching price alert after approval and keeps the account preference private", async () => {
+    await updateMarketplacePriceAlert(BUYER_ID, { enabled: true, maxPrice: "3.50", minUsdt: "200", paymentMethod: "Bank Transfer" });
+    const listing = await createMarketplaceListing({ sellerId: LISTING_CREATOR_ID, sellerDisplayName: "Listing Creator", availableAmount: "700", price: "3.20", currency: "ILS", network: "TRC20", paymentMethods: ["Bank Transfer"], bankName: "Bank Hapoalim", minimumTrade: "50", maximumTrade: "700", responseTime: "5 min", acceptedCommissionPolicy: true, actorUserId: LISTING_CREATOR_ID });
+    expect((globalThis.__alphaExchangeMemorySnapshot as unknown as AlphaExchangeDb).notifications.some(item => item.id.startsWith("price-alert-"))).toBe(false);
+    await reviewMarketplaceListingByOwner({ listingId: listing.id, ownerUserId: OWNER_ID, decision: "approve" });
+    const result = await getNotificationsForUser({ userId: BUYER_ID });
+    const alert = result.notifications.find(item => item.id.startsWith("price-alert-"));
+    expect(alert?.relatedListingId).toBe(listing.id);
+    expect(alert?.actionHref).toBe(listingDestination(listing));
+    expect(JSON.stringify(alert)).not.toContain(SELLER_EMAIL);
+    expect(JSON.stringify(alert)).not.toContain("maxPrice");
+    expect((await findUserById(DUAL_ROLE_BUYER_ID))?.marketplacePriceAlert).toBeUndefined();
   });
 
   it("does not create or send an SMS delivery when Twilio credentials exist but sending is off", async () => {
@@ -262,7 +343,12 @@ describe("marketplace listing publication broadcasts", () => {
       actionPath: sellerApplicationReviewDestination(application.id),
     }));
 
-    await approveSellerApplicationByAdmin(application.id, OWNER_ID, "Verified from owner notification");
+    await approveSellerApplicationByAdmin(
+      application.id,
+      OWNER_ID,
+      "Verified from owner notification",
+      COMPLETE_SELLER_APPROVAL_CHECKLIST,
+    );
     expect((await findUserById(BUYER_ID))?.preferredPaymentMethods).toContain("Cardless ATM Withdrawal");
 
     const activeNotifications = await getNotificationsForUser({ userId: OWNER_ID });
@@ -463,7 +549,7 @@ describe("marketplace listing publication broadcasts", () => {
     expect(transitionAlerts).toEqual([
       expect.objectContaining({
         category: "trust",
-        title: `Flagged seller: ${LISTING_CREATOR_ID}`,
+        title: `Flagged seller: ${publicAccountId({ id: LISTING_CREATOR_ID })} (${LISTING_CREATOR_ID})`,
         state: "unread",
       }),
     ]);
@@ -587,8 +673,44 @@ describe("marketplace listing publication broadcasts", () => {
     expect(suspendedHits).toHaveLength(0);
     expect(disabledHits).toHaveLength(0);
     expect(creatorHits).toHaveLength(0);
-    expect(buyerHits[0]).toMatchObject({ relatedHref: listingDestination(listing) });
-    expect(dualRoleHits[0]).toMatchObject({ relatedHref: listingDestination(listing) });
+    for (const notice of [buyerHits[0], dualRoleHits[0]]) {
+      expect(notice).toMatchObject({
+        relatedHref: listingDestination(listing),
+        actionHref: listingDestination(listing),
+        actionLabel: "View listing",
+        reason: "new_listing_published",
+      });
+      expect(toMobileNotification(notice, "en").destination).toEqual({ screen: "marketplace" });
+    }
+    expect(creatorNotifications.notifications).toContainEqual(expect.objectContaining({
+      title: "Listing Approved",
+      relatedListingId: listing.id,
+      actionLabel: "Manage Listing",
+      actionHref: sellerListingWorkspaceDestination(listing),
+    }));
+
+    // Old records must be repaired when read, without a database migration.
+    const snapshot = globalThis.__alphaExchangeMemorySnapshot as unknown as AlphaExchangeDb;
+    for (const notice of snapshot.notifications.filter((item) => item.title === "🟢 New USDT Listing Available")) {
+      notice.reason = undefined;
+      notice.actionLabel = "Manage Listing";
+      notice.actionHref = "/dashboard/seller#my-listings";
+      notice.relatedHref = sellerListingWorkspaceDestination(listing);
+      notice.relatedRequestId = "old-trade-context";
+    }
+    invalidateAlphaExchangeStoreCache();
+    for (const userId of [BUYER_ID, DUAL_ROLE_BUYER_ID]) {
+      const legacy = (await getNotificationsForUser({ userId })).notifications.find((item) => item.title === "🟢 New USDT Listing Available");
+      expect(legacy).toMatchObject({ actionLabel: "View listing", actionHref: listingDestination(listing), relatedHref: listingDestination(listing) });
+      expect(legacy?.relatedRequestId).toBeUndefined();
+      expect(legacy?.tradeSnapshot).toBeUndefined();
+      await expect(updateMarketplaceListingForSeller({
+        listingId: listing.id, sellerId: userId, actorUserId: userId, status: "paused",
+      })).rejects.toThrow("You can edit only your own listings.");
+      await expect(deleteMarketplaceListingForSeller({
+        listingId: listing.id, sellerId: userId, actorUserId: userId,
+      })).rejects.toThrow("You can remove only your own listings.");
+    }
   });
 
   it("uses the same eligible buyers for email fan-out and does not depend on generic email opt-in", async () => {

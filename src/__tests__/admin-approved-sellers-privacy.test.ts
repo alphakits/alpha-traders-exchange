@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { getApprovedSellersForAdmin } from "@/lib/alpha-exchange-store";
+import { getApprovedSellersForAdmin, getAllSellerApplicationsForAdmin } from "@/lib/alpha-exchange-store";
 import type { AlphaExchangeDb, AlphaExchangeUser } from "@/types/alpha-exchange";
+import { createTestSellerApprovalVerification } from "@/test-utils/seller-verification";
+import { publicAccountId } from "@/lib/public-account-identity";
 
 function sensitiveSeller(): AlphaExchangeUser {
   return {
@@ -18,6 +20,7 @@ function sensitiveSeller(): AlphaExchangeUser {
     role: "approved_seller",
     roles: ["buyer", "approved_seller"],
     sellerStatus: "approved_seller",
+    sellerApprovalVerification: createTestSellerApprovalVerification(),
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-02T00:00:00.000Z",
     phoneOtpHash: "secret-otp-hash",
@@ -40,14 +43,25 @@ function sensitiveSeller(): AlphaExchangeUser {
 }
 
 describe("getApprovedSellersForAdmin privacy boundary", () => {
+  it("projects current application names beside AT IDs only for a server-resolved owner", async () => {
+    const db = { users: [sensitiveSeller(), { id: "owner", role: "owner" }, { id: "admin", role: "admin" }],
+      sellerApplications: [{ id: "application", userId: "seller-1", fullName: "Old Private Name" }] } as unknown as AlphaExchangeDb;
+    expect((await getAllSellerApplicationsForAdmin(db, "owner"))[0].fullName).toBe(`${publicAccountId({ id: "seller-1" })} (Seller User)`);
+    for (const viewer of [undefined, "admin", "seller-1", "missing"]) {
+      expect((await getAllSellerApplicationsForAdmin(db, viewer))[0].fullName).toBe(publicAccountId({ id: "seller-1" }));
+    }
+    expect(db.sellerApplications[0].fullName).toBe("Old Private Name");
+  });
   it("returns allowlisted seller summaries rather than raw persisted users", async () => {
-    const sellers = await getApprovedSellersForAdmin({ users: [sensitiveSeller()] } as unknown as AlphaExchangeDb);
+    const db = { users: [sensitiveSeller(), { id: "owner", role: "owner", fullName: "Owner" }] } as unknown as AlphaExchangeDb;
+    const sellers = await getApprovedSellersForAdmin(db, "owner");
+    expect((await getApprovedSellersForAdmin(db))[0]).toMatchObject({ email: "", whatsappNumber: "" });
     const seller = sellers[0] as Record<string, unknown>;
     const serialized = JSON.stringify(seller);
 
     expect(seller).toMatchObject({
       id: "seller-1",
-      fullName: "Seller User",
+      fullName: `${publicAccountId({ id: "seller-1" })} (Seller User)`,
       role: "approved_seller",
       sellerStatus: "approved_seller",
       sellerPrestigeRank: undefined,

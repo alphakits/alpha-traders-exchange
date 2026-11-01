@@ -1,55 +1,96 @@
 "use client";
 
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { buildTradeRoomDestination } from "@/lib/trade-room-destination";
+import { useWiseAccounts } from "./wise-account-select";
+import type { ListingCreateForm } from "./seller-workspace-section";
+import type { ListingEditForm } from "./seller-listings-workspace-portal";
+
+import { PAGE_SECTION_NAVIGATION_EVENT, navigateToPageSection, pageSectionFromEvent, revealPageSection } from "@/lib/page-section-navigation";
+import { LiveMarketCards } from "@/components/market/live-market-cards";
+import { AccountVerificationBadges } from "@/components/profile/account-verification-badges";
+import { workspaceTradeNextStep } from "@/lib/workspace-next-step";
+import { isListingCommissionRequiredMessage, listingCommissionRequiredMessage } from "@/lib/listing-commission-policy";
+import { MarketplacePriceAlertPanel } from "@/components/sections/usdt-exchange/marketplace-price-alert-panel";
+import { MarketplaceToolPanel } from "@/components/sections/usdt-exchange/marketplace-tool-panel";
+import { getInterfaceAccess, marketplaceFeeTerms, sellerFeeResponsibilityNotice, formatCommissionAmount } from "@alpha-traders/contracts";
+import { calculateFiatAmount, calculateTradeBuyerFiatFee, calculateTradePaymentTotal } from "@alpha-traders/contracts";
+
+
+import { brandText, currencyText, moneyText } from "@/components/ui/currency-text";
+import { ActionFeedback, useActionFeedbackState } from "@/components/ui/action-feedback";
+import { useActionDialog } from "@/components/ui/use-action-dialog";
+import { isCardlessWithdrawalBank, parseCardlessWithdrawalDetails, validateCardlessIlsAmount, calculateCardlessUsdtAmount, getPurchaseMinimumTrade, cardlessPaymentAmountNotice, type CardlessVerificationKind } from "@alpha-traders/contracts";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { createPortal } from "react-dom";
 import dynamic from "next/dynamic";
 import { useSearchParams } from "next/navigation";
-import { AlertTriangle, ArrowRight, BadgePercent, BellRing, CheckCircle2, ChevronDown, Clock3, Copy, Edit3, HandCoins, Loader2, LockKeyhole, MessageCircle, Network, ShieldCheck, Sparkles, Star, Store, TrendingUp, Trophy, Upload, Users, Wallet, WalletCards, X, Zap } from "lucide-react";
+import { AlertTriangle, ArrowRight, BadgePercent, BellRing, CheckCircle2, ChevronDown, ClipboardList, Clock3, Copy, Crown, Edit3, HandCoins, Loader2, LockKeyhole, MessageCircle, Network, ShieldCheck, Sparkles, Star, Store, TrendingUp, Trophy, Upload, Users, Wallet, WalletCards, X, Zap } from "lucide-react";
 import { Link, useRouter } from "@/i18n/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { AccountWelcome } from "@/components/ui/account-welcome";
+import { ExchangeWorkspaceNavigation, type ExchangeWorkspaceAction } from "@/components/sections/usdt-exchange/exchange-workspace-navigation";
+import { requestPrimary, requestSecondary } from "@/components/sections/usdt-exchange/usdt-request-details";
+import { buyRequestsDestination } from "@/lib/usdt-demand-navigation";
+import { useWorkspaceViewport } from "@/components/sections/usdt-exchange/use-desktop-workspace";
+import { BuyerRankCard } from "@/components/ui/buyer-rank-card";
+import { SellerRankCard } from "@/components/ui/seller-rank-card";
+import { useSellerRankSummary } from "@/components/sections/usdt-exchange/use-seller-rank-summary";
+import { useBuyerRankSummary } from "@/components/sections/usdt-exchange/use-buyer-rank-summary";
+import { RankBadge, RankEmblem } from "@/components/ui/rank-badge";
+import { accountRoleIdentity } from "@/lib/account-role-identity";
+import { rankSurfaceTone } from "@/lib/rank-identity";
+import { AccountIdentityLabel } from "@/components/ui/account-identity-label";
+import { publicAccountId } from "@/lib/public-account-identity";
 import { RoleBadge } from "@/components/ui/role-badge";
-import { AlphaMarketCenterView } from "@/components/market/alpha-market-center";
+import { isFxReferenceUsable, maximumIlsListingPrice } from "@/lib/fx-reference-policy";
 import { useMarketFeed } from "@/components/market/use-market-feed";
 import type { DiscordListingSharingStatus } from "@/components/sections/usdt-exchange/discord-share-action";
-import { isAlphaExchangeOwnerEmail } from "@/lib/alpha-exchange-identity";
+import { canViewOwnerExchangeIdentity } from "@/lib/owner-exchange-access";
 import { hasRole } from "@/lib/roles";
 import { getSellerApplicationEligibility } from "@/lib/seller-application-eligibility";
 import { useOptionalCanonicalSession } from "@/components/auth/canonical-session-provider";
 import { useAuthenticatedNotificationStream } from "@/components/notifications/use-authenticated-notification-stream";
 import type { ClientSessionUser } from "@/lib/client-session-user";
-import { MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS, parseIsraeliBankSelection, serializeIsraeliBankSelection } from "@/lib/israeli-banks";
-import { getDefaultListingPaymentMethods, isCashTradePaymentMethod, MAX_LISTING_PAYMENT_METHODS, normalizeMarketplacePaymentMethod, requiresIsraeliBankSelection, requiresSellerPayoutBankAccount, resolveListingPaymentMethods } from "@/lib/marketplace-payment-methods";
+import { parseIsraeliBankSelection, serializeIsraeliBankSelection } from "@/lib/israeli-banks";
+import { getDefaultListingPaymentMethods, isCardlessAtmPaymentMethod, isCashTradePaymentMethod, MAX_LISTING_PAYMENT_METHODS, normalizeMarketplacePaymentMethod, requiresIsraeliBankSelection, requiresSellerPayoutBankAccount, resolveListingPaymentMethods } from "@/lib/marketplace-payment-methods";
 import { CLIENT_COMMISSION_WALLETS, type CommissionNetworkId, type CommissionWalletConfiguration } from "@/lib/commission-config";
 import { appendLoginJourneyServerTimeline, appendLoginJourneyStep, finalizeLoginJourneyRedirectEnd, incrementLoginJourneyApiCall, isLoginJourneyTraceEnabled } from "@/lib/login-journey-trace";
-import { formatBuyerId, formatListingId, formatSellerId, formatTradeId } from "@/lib/format-id";
+import { formatListingId, formatTradeId } from "@/lib/format-id";
 import { replaceExchangeEntityIdsWithHints } from "@/lib/alpha-exchange-display";
 import { prefetchTradeRoom } from "@/lib/trade-room-client";
-import { canBuyerCancelTrade } from "@/lib/trade-room-actions";
+import { canBuyerCancelTrade, tradeActionConfirmationKey } from "@/lib/trade-room-actions";
 import { getTradeRoomConversationDestination } from "@/lib/trade-room-notification-destination";
 import { commissionPaymentDestination, getCommissionPaymentNotificationDestination } from "@/lib/commission-payment-destination";
+import { groupOwnTrades } from "@/lib/trades-workspace";
+import { adminActiveTradesDestination } from "@/lib/action-destinations";
+import { runClientRequest } from "@/lib/client-request-deadline";
 import { getCommissionWorkspaceAction, sortDashboardActivityNewestFirst } from "@/lib/dashboard-workspace";
 import {
   getExplicitNonTradeRoomNotificationDestination,
   getSafeInternalNotificationDestination,
 } from "@/lib/notification-action-destination";
 import { getWalletAddressValidationError, normalizeWalletAddress } from "@/lib/wallet-address";
+import { useLiveUserPresence, useLivePresenceMap } from "@/lib/user-presence-client";
+import { compareSellerResponseTimes, formatMeasuredResponseTime, measuredSellerResponseMinutes, sellerRatingDisplay, sellerScoreDisplay } from "@alpha-traders/contracts";
 import { deriveListingCountdown, deriveSellerPresence } from "@/lib/seller-presence";
 import { LISTING_CHANGE_REASONS, listingEditRequiresReason, validateListingChangeReason } from "@/lib/listing-change-reasons";
-import { normalizePublicProfileUsername } from "@/lib/public-profile-username";
+import { publicAccountName } from "@/lib/public-account-identity";
 import { sortNotificationsNewestFirst } from "@/lib/notification-sort";
 import { formatNotificationRelativeTime } from "@/lib/notification-time";
 import { containsArabicText, localizeActivityCopy, localizeNotificationActionLabel, localizeNotificationCopy } from "@/lib/notification-localization";
 import { calculateSellerMarketplaceInsights } from "@/lib/marketplace-insights";
+import { isRequestableMarketplaceListing } from "@/lib/requestable-listing";
+import { compareMarketplaceSellers } from "@/lib/marketplace-seller-order";
 import { cn } from "@/lib/utils";
-import { SELLER_PRESTIGE_TIERS } from "@/lib/seller-prestige";
 import { getOfficialOwnerWhatsAppUrl } from "@/lib/official-contact";
-import { deriveBuyerRankSummary, type BuyerRankSummary } from "@/lib/buyer-rank";
-import { navigateAfterSuccess, navigateOrRevealResult } from "@/lib/client-success-navigation";
-import { ensurePayoutBankIsSupported, isPayoutBankSupported } from "@/lib/seller-listing-bank-selection";
+import { purchaseBlockDestination, readPurchaseResponse } from "@/lib/purchase-response";
+import { navigateAfterSuccess } from "@/lib/client-success-navigation";
+import { isPayoutBankSupported, syncListingBankSelection } from "@/lib/seller-listing-bank-selection";
 import { getPriceOfferBounds, normalizePriceOfferInput, validatePriceOffer } from "@/lib/price-offer";
+import { normalizeLocalizedDecimalInput, normalizeTradeAmountInput } from "@/lib/trade-amount";
 import { ISRAEL_TIME_ZONE } from "@/lib/israel-calendar";
 import type { AlphaExchangeActivityLogEntry, AlphaExchangeNotification, AuditAction, ListingStatus, MarketplaceListing, NotificationCategory, PremiumSellerProfileData, PurchaseRequest, SellerApplication, SellerBadge, SellerLevel, SellerStatus, SupportedNetwork, TradeTimelineEntry } from "@/types/alpha-exchange";
 import type { SellerApplicationForm, SellerApplicationMethod } from "@/components/sections/usdt-exchange/seller-application-section";
@@ -107,10 +148,14 @@ const MOBILE_VIEWPORT_QUERY = "(max-width: 768px)";
 const MOBILE_MARKETPLACE_BATCH_SIZE = 6;
 const MAX_ACTIVITY_ITEMS = 60;
 const MAX_NOTIFICATION_ITEMS = 60;
-const MAX_PRICE_MARKUP_ILS = 0.35;
-const DEFAULT_MARKET_PRICE_PER_USDT = 3.05;
 const DEFAULT_RESPONSE_TIME = "5 min";
 export const BUYER_TRADE_HISTORY_SECTION_ID = "my-trade-requests-section";
+
+function focusWorkspaceSection(sectionId: string) {
+  if (typeof document === "undefined") return false;
+  revealPageSection(sectionId);
+  return true;
+}
 
 export const ISRAELI_BANKS = [
   { id: "hapoalim", name: "Bank Hapoalim", code: "בנק הפועלים", brandPrimary: "#E31C23", brandSecondary: "#B01016", accent: "#FCA5A5" },
@@ -174,13 +219,18 @@ export type SellerCommissionStatus = {
   source?: string;
   issueReason?: string;
   payableRecords?: Array<{
+    feePolicyVersion?: "buyer_seller_1pct_v1";
+    sellerFeeAmount?: number;
+    buyerFeeCollectedAmount?: number;
     commissionId: string;
     amountDue: number;
     paymentAmountDue?: number;
     paymentVerificationStatus?: "pending_verification" | "verified" | "failed";
     paymentVerificationNotes?: string;
+    paymentLastCheckedAt?: string;
     paymentSignature?: string;
     paymentSubmittedAt?: string;
+    paymentNetwork?: string;
     paymentExpectedAmountMode?: "unique_v1" | "legacy_base";
     dueAt?: string;
     relatedRequestId?: string;
@@ -201,11 +251,7 @@ type FeatureCard = {
   icon: typeof ShieldCheck;
   title: string;
   body: string;
-};
-
-type TimelineStep = {
-  title: string;
-  body: string;
+  commissionNotice?: boolean;
 };
 
 export type SellerBankAccount = {
@@ -231,13 +277,6 @@ function availableAmountScaleClass(value: string | number | null | undefined) {
   if (digits >= 6) return "seller-asset-usdt-value--tight";
   if (digits >= 4) return "seller-asset-usdt-value--balanced";
   return "seller-asset-usdt-value--hero";
-}
-
-function parseMinutes(value: string | number | null | undefined) {
-  const normalized = String(value ?? "");
-  const number = Number(normalized.replace(/[^\d.]/g, ""));
-  if (Number.isNaN(number) || number <= 0) return 0;
-  return number;
 }
 
 export function safeText(value: unknown, fallback = "—") {
@@ -272,6 +311,7 @@ export function localizedTimelineMessage(event: TradeTimelineEntry, isAr: boolea
     request_accepted: "وافق البائع على طلب الصفقة.",
     price_offer_accepted: "وافق البائع على عرض السعر.",
     payment_sent: "أكد المشتري إرسال الدفعة.",
+    buyer_confirmed_funds: "أكد المشتري استلام البائع للنقد.",
     seller_confirmed_funds: "أكد البائع استلام الدفعة.",
     usdt_release_started: "بدأت مرحلة إرسال USDT.",
     usdt_sent: "أكد البائع إرسال USDT.",
@@ -280,6 +320,7 @@ export function localizedTimelineMessage(event: TradeTimelineEntry, isAr: boolea
     trade_locked: "تم قفل الصفقة للمراجعة.",
     review_unlocked: "أصبح تقييم الصفقة متاحاً.",
     dispute_opened: "تم فتح نزاع على الصفقة.",
+    dispute_resolved: "تم حل النزاع ويمكن متابعة الصفقة.",
     commission_recorded: "تم تسجيل عمولة الصفقة.",
     commission_paid: "تم تأكيد دفع العمولة.",
     buyer_evidence_uploaded: "رفع المشتري إثبات الدفع.",
@@ -408,7 +449,7 @@ export function CompactTradeTimeline({ events, isAr }: { events: TradeTimelineEn
         <span className="me-1 text-xs text-[#9CA3AF]">
           {new Date(event.createdAt).toLocaleTimeString(isAr ? "ar-IL-u-nu-latn" : "en-IL", { hour: "2-digit", minute: "2-digit", timeZone: ISRAEL_TIME_ZONE })}
         </span>
-        {message}
+        {currencyText(message)}
         {count > 1 ? <span className="ms-1 text-xs text-[#9CA3AF]">×{count}</span> : null}
       </span>
     </div>
@@ -421,7 +462,7 @@ export function CompactTradeTimeline({ events, isAr }: { events: TradeTimelineEn
       {olderEvents.length ? (
         <details className="group rounded-lg border border-white/10 bg-black/20 px-3 py-2">
           <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-2 text-sm font-medium text-[#D1D5DB]">
-            <span>{isAr ? `عرض ${olderEvents.length.toLocaleString("ar-IL-u-nu-latn")} تحديثات سابقة` : `Show ${olderEvents.length} earlier update${olderEvents.length === 1 ? "" : "s"}`}</span>
+            <span>{currencyText(isAr ? `عرض ${olderEvents.length.toLocaleString("ar-IL-u-nu-latn")} تحديثات سابقة` : `Show ${olderEvents.length} earlier update${olderEvents.length === 1 ? "" : "s"}`)}</span>
             <ChevronDown className="h-4 w-4 shrink-0 transition-transform group-open:rotate-180" aria-hidden="true" />
           </summary>
           <div className="mt-2 space-y-2 border-t border-white/10 pt-2">{olderEvents.map(renderEvent)}</div>
@@ -463,7 +504,7 @@ export function LocalizedEvidenceFileInput({
         <span>{isAr ? "اختيار ملف" : "Choose file"}</span>
       </label>
       <span id={fileNameId} className="min-w-0 break-all text-sm leading-5 text-[#D1D5DB]" aria-live="polite">
-        {selectedFile?.name ?? (isAr ? "لم يتم اختيار ملف" : "No file selected")}
+        {currencyText(selectedFile?.name ?? (isAr ? "لم يتم اختيار ملف" : "No file selected"))}
       </span>
     </div>
   );
@@ -477,10 +518,11 @@ export function formatIls(value: number) {
 }
 
 export function formatUsdt(value: number) {
-  return `${value.toLocaleString("en-US", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })} USDT`;
+  return `${Math.trunc(value).toLocaleString("en-US")} USDT`;
+}
+
+function formatCommissionUsdt(value: number) {
+  return `${formatCommissionAmount(value)} USDT`;
 }
 
 export function formatExactCommissionUsdt(value: number) {
@@ -530,20 +572,35 @@ export function formatIntegerForInput(value: string | number | null | undefined)
 }
 
 export function normalizeDecimalInput(value: string | number | null | undefined) {
-  const raw = String(value ?? "").replace(/[^\d.]/g, "");
-  const firstDot = raw.indexOf(".");
-  if (firstDot === -1) return raw;
-  return `${raw.slice(0, firstDot + 1)}${raw.slice(firstDot + 1).replace(/\./g, "")}`;
+  return normalizeLocalizedDecimalInput(value, {
+    maximumFractionDigits: 2,
+    maximumWholeDigits: 7,
+  });
 }
 
 export function renderBankLogo(bank: (typeof ISRAELI_BANKS)[number]) {
+  if (bank.id === "hapoalim") {
+    return (
+      <svg viewBox="0 0 56 56" className="h-8 w-8 shrink-0" aria-hidden="true">
+        <rect x="2" y="2" width="52" height="52" rx="14" fill="#F8FAFC" />
+        <rect x="12" y="12" width="32" height="32" rx="6" transform="rotate(45 28 28)" fill="#ED1C24" />
+      </svg>
+    );
+  }
+  if (bank.id === "mercantile") {
+    return (
+      <svg viewBox="0 0 56 56" className="h-8 w-8 shrink-0" aria-hidden="true">
+        <rect x="2" y="2" width="52" height="52" rx="14" fill="#20B96C" />
+        <text x="28" y="29" textAnchor="middle" fill="white" fontSize="10" fontWeight="900" fontFamily="Arial, sans-serif">מרכנתיל</text>
+        <path d="M12 35 Q28 42 44 35" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" />
+      </svg>
+    );
+  }
   const wordmark = (() => {
-    if (bank.id === "hapoalim") return { top: "POALIM", bottom: "BANK" };
     if (bank.id === "leumi") return { top: "LEUMI", bottom: "BANK" };
     if (bank.id === "mizrahi-tefahot") return { top: "MIZRAHI", bottom: "TEFAHOT" };
     if (bank.id === "discount") return { top: "DISCOUNT", bottom: "BANK" };
     if (bank.id === "fibi") return { top: "FIBI", bottom: "FIRST INTL" };
-    if (bank.id === "mercantile") return { top: "MERC", bottom: "BANK" };
     if (bank.id === "yahav") return { top: "YAHAV", bottom: "BANK" };
     return { top: "JERUSALEM", bottom: "BANK" };
   })();
@@ -559,10 +616,10 @@ export function renderBankLogo(bank: (typeof ISRAELI_BANKS)[number]) {
       <rect x="2" y="2" width="52" height="52" rx="14" fill={`url(#bank-grad-${bank.id})`} />
       <rect x="7" y="8" width="4" height="40" rx="2" fill={bank.accent} opacity="0.95" />
       <text x="16" y="24" fill="white" fontSize="9" fontWeight="700" fontFamily="Arial, sans-serif" letterSpacing="0.4">
-        {wordmark.top}
+        {currencyText(wordmark.top)}
       </text>
       <text x="16" y="36" fill={bank.accent} fontSize="7" fontWeight="700" fontFamily="Arial, sans-serif" letterSpacing="0.3">
-        {wordmark.bottom}
+        {currencyText(wordmark.bottom)}
       </text>
     </svg>
   );
@@ -605,47 +662,6 @@ export function greetingByTime(isAr: boolean, value: string | number | Date = Da
   return isAr ? "مساء النور" : "Good evening";
 }
 
-function toWorkspaceDisplayId(user: SessionUser | null, isApprovedSeller: boolean) {
-  if (!user) return "#AT-000000";
-  if (isApprovedSeller) return formatSellerId(undefined, user.id);
-  if (user.role === "admin" || user.role === "owner") return formatSellerId(undefined, user.id);
-  return formatBuyerId(undefined, user.id);
-}
-
-function formatMarketCardPrice(pairKey: "usdtIls" | "btcUsdt" | "ethUsdt", value: number) {
-  if (pairKey === "usdtIls") {
-    return `₪${value.toLocaleString("en-IL", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-  }
-  return `$${value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-}
-
-function formatMarketCardChange(changePercent: number | null) {
-  if (changePercent === null || Number.isNaN(changePercent)) return "--";
-  const sign = changePercent > 0 ? "+" : "";
-  return `${sign}${changePercent.toFixed(2)}%`;
-}
-
-function buildSparklinePath(changePercent: number | null, seed: number) {
-  const pointCount = 20;
-  const pointRange = pointCount - 1;
-  const trend = (changePercent ?? 0) / 36;
-  const values: number[] = [];
-
-  for (let index = 0; index < pointCount; index += 1) {
-    const progress = index / pointRange;
-    const wave = Math.sin((index + seed) * 0.85) * 0.08 + Math.cos((index + seed) * 0.42) * 0.04;
-    const raw = 0.5 + trend * (progress - 0.5) + wave;
-    values.push(Math.min(0.88, Math.max(0.12, raw)));
-  }
-
-  return values
-    .map((value, index) => {
-      const x = (index / pointRange) * 100;
-      const y = (1 - value) * 32;
-      return `${index === 0 ? "M" : "L"}${x.toFixed(2)} ${y.toFixed(2)}`;
-    })
-    .join(" ");
-}
 
 function safeErrorMessage(context: "application" | "purchase" | "listing" | "request" | "settings" | "password" | "workspace" | "review" | "evidence", isAr = false) {
   const map = isAr ? {
@@ -672,8 +688,13 @@ function safeErrorMessage(context: "application" | "purchase" | "listing" | "req
   return map[context];
 }
 
-function purchaseRequestErrorMessage(code: string, isAr: boolean, englishMessage: string) {
+function purchaseRequestErrorMessage(code: string, isAr: boolean, englishMessage: string, details?: Record<string, unknown>) {
+  if (code === "CARDLESS_PAYMENT_AMOUNT_MISMATCH" && typeof details?.requiredTotal === "string") return cardlessPaymentAmountNotice(details.enteredAmount, details.requiredTotal, isAr ? "ar" : "en") ?? englishMessage;
+  if (code === "CARDLESS_DETAILS_REQUIRED") return isAr ? "اختر بنك السحب وأكمل رمز السحب والهوية أو تاريخ الميلاد ومبلغ السحب المطابق لإجمالي الصفقة بالشيكل." : englishMessage;
   if (!isAr) return englishMessage;
+  if (code === "PENDING_BUYER_FEEDBACK") return "أكمل تقييم صفقتك السابقة قبل بدء طلب جديد. افتح صفقاتك لإضافة التقييم.";
+  if (code === "SESSION_EXPIRED") return "انتهت جلسة الدخول. سجّل الدخول مجدداً ثم افتح صفقاتك قبل إعادة إرسال الطلب.";
+  if (code === "SERVICE_UNAVAILABLE") return "الخدمة غير متاحة مؤقتاً. تحقق من صفقاتك قبل إعادة إرسال الطلب.";
   if (code === "EMAIL_VERIFICATION_REQUIRED") return "يجب تأكيد البريد الإلكتروني قبل بدء صفقة.";
   if (code === "BUYER_ROLE_REQUIRED") return "يلزم تفعيل دور المشتري لبدء صفقة.";
   if (code === "RATE_LIMITED") return "أرسلت طلبات كثيرة خلال وقت قصير. حاول مرة أخرى بعد قليل.";
@@ -685,10 +706,14 @@ function purchaseRequestErrorMessage(code: string, isAr: boolean, englishMessage
   if (code === "PRICE_MODE_INVALID") return "نوع السعر المحدد غير صالح.";
   if (code === "PRICE_OFFERS_ILS_ONLY") return "عروض الأسعار متاحة فقط للعروض المسعّرة بالشيكل.";
   if (code === "PRICE_OFFER_INVALID_FORMAT") return "أدخل سعرًا صالحًا بالشيكل، بحد أقصى منزلتين عشريتين.";
-  if (code === "PRICE_OFFER_NOT_LOWER") return "يجب أن يكون عرض السعر أقل من سعر البائع الحالي.";
+  if (code === "PRICE_OFFER_ABOVE_MAXIMUM") return "لا يمكن أن يزيد عرضك بأكثر من ₪0.35 عن سعر البائع.";
   if (code === "PRICE_OFFER_BELOW_MINIMUM") return "لا يمكن أن يقل عرضك بأكثر من ₪0.35 عن سعر البائع.";
   if (code === "SELLER_COMMISSION_DUE") return "يجب دفع عمولة البائع المستحقة قبل بدء عملية شراء جديدة.";
   if (code === "LISTING_SELLER_LOCKED") return "هذا العرض غير متاح مؤقتاً لطلبات شراء جديدة. اختر بائعاً آخر.";
+  if (code === "LISTING_CHANGED") return "تغيّرت تفاصيل العرض أثناء إرسال طلبك. أعد فتح العرض وراجع الشروط الجديدة.";
+  if (code === "LISTING_UNAVAILABLE") return "لم يعد هذا العرض متاحاً لطلب شراء جديد.";
+  if (code === "LISTING_AMOUNT_CHANGED") return "تغيّرت الكمية المتاحة أو حدود الصفقة. أعد فتح العرض واختر مبلغاً ضمن الحدود الجديدة.";
+  if (code === "LISTING_BANK_ACCOUNT_UNAVAILABLE") return "لم يعد حساب التحويل البنكي المرتبط بهذا العرض متاحاً. اختر عرضاً آخر أو اطلب من البائع تحديثه.";
   return safeErrorMessage("purchase", true);
 }
 
@@ -700,9 +725,11 @@ export function localizeWalletValidationError(error: string | null, network: Sup
   return "تتطلب شبكة SOL عنوان Solana صالحاً بترميز base58.";
 }
 
-async function readApiErrorMessage(response: Response, fallback: string) {
+export async function readApiErrorMessage(response: Response, fallback: string) {
   const fallbackText = fallback.trim();
-  const localizeCandidate = (value: string) => containsArabicText(fallbackText) && !containsArabicText(value) ? fallbackText : value;
+  const localizeCandidate = (value: string) => isListingCommissionRequiredMessage(value)
+    ? listingCommissionRequiredMessage(containsArabicText(fallbackText))
+    : containsArabicText(fallbackText) && !containsArabicText(value) ? fallbackText : value;
   let rawBody = "";
   try {
     rawBody = (await response.text()).trim();
@@ -851,28 +878,7 @@ export function sellerLevelLabel(level?: SellerLevel, isAr = false) {
 }
 
 function sellerLevelToneKey(level?: SellerLevel) {
-  const rank = String(level ?? "bronze");
-  if (rank === "legendary") return "legendary";
-  if (rank === "diamond") return "diamond";
-  if (rank === "platinum") return "platinum";
-  if (rank === "gold") return "gold";
-  if (rank === "silver") return "silver";
-  return "bronze";
-}
-
-function sellerMarketplaceRankPriority(listing: MarketplaceListing) {
-  if (listing.sellerProfile?.isOwner) return 0;
-  const rank = String(listing.sellerReputation?.level ?? "bronze");
-  if (rank === "legendary") return 1;
-  if (rank === "diamond") return 2;
-  if (rank === "platinum") return 3;
-  if (rank === "gold") return 4;
-  if (rank === "silver") return 5;
-  return 6;
-}
-
-function formatWholeNumber(value: number) {
-  return Math.round(Math.max(0, value)).toLocaleString("en-IL");
+  return rankSurfaceTone(level);
 }
 
 export function sellerBadgeLabel(badge: SellerBadge, isAr = false) {
@@ -946,10 +952,7 @@ function keepLatestItems<T>(items: T[], limit: number) {
 }
 
 export function roleBadgeVariantFromSession(user: SessionUser) {
-  if (user.role === "admin" && isAlphaExchangeOwnerEmail(user.email)) return "owner" as const;
-  if (user.role === "admin") return "administrator" as const;
-  if (hasRole(user, "approved_seller")) return "approved_seller" as const;
-  return "buyer" as const;
+  return accountRoleIdentity(user);
 }
 
 function listingRequiresFaceToFaceSafetyNotice(method: string | null | undefined) {
@@ -964,10 +967,10 @@ export function requiresBankSelection(methods: string[] | undefined, fallback?: 
   return requiresIsraeliBankSelection(methods, fallback);
 }
 
-export function toggleSelection(values: string[], nextValue: string, maxSelections: number) {
+export function toggleSelection(values: string[], nextValue: string, maxSelections: number, allowEmpty = false) {
   const nextSet = new Set(values);
   if (nextSet.has(nextValue)) {
-    if (nextSet.size === 1) return values;
+    if (nextSet.size === 1 && !allowEmpty) return values;
     nextSet.delete(nextValue);
     return Array.from(nextSet);
   }
@@ -1026,35 +1029,38 @@ type ListingCardProps = {
   isAr: boolean;
   marketPricePerUsdt: number;
   isOwnerListing: boolean;
+  canViewPrivateIdentity?: boolean;
+  requiresBuyerSetup?: boolean;
   isOwnListing: boolean;
   isBuying: boolean;
   onOpen: (listing: MarketplaceListing, priceMode: "listing_price" | "buyer_offer") => void;
   onManageListing: (listing: MarketplaceListing) => void;
 };
 
-const ListingCard = memo(function ListingCard({ listing, isAr, marketPricePerUsdt, isOwnerListing, isOwnListing, isBuying, onOpen, onManageListing }: ListingCardProps) {
+export const ListingCard = memo(function ListingCard({ listing, isAr, marketPricePerUsdt, isOwnerListing, canViewPrivateIdentity = false, requiresBuyerSetup = false, isOwnListing, isBuying, onOpen, onManageListing }: ListingCardProps) {
+  const rating = sellerRatingDisplay(listing.sellerReputation, isAr);
+  const score = sellerScoreDisplay(listing.sellerReputation, isAr);
+  // Older cached responses may still carry the retired commission request lock.
+  const requestBlockReason = listing.newRequestBlockReason === "commission_due" ? undefined : listing.newRequestBlockReason;
   const sellerLevel = listing.sellerReputation?.level;
   const sellerRankKey = sellerLevelToneKey(sellerLevel);
-  const formattedAvailableAmount = toNumber(listing.availableAmount).toLocaleString("en-IL");
+  const formattedAvailableAmount = Math.trunc(toNumber(listing.availableAmount)).toLocaleString("en-US");
   const availableAmountClassName = availableAmountScaleClass(listing.availableAmount);
-  const presence = deriveSellerPresence({
-    onlineStatus: listing.sellerProfile?.onlineStatus,
-    lastActiveAt: listing.sellerProfile?.lastActiveAt,
-  });
-  const sellerEmailVerified = listing.sellerProfile?.emailVerified === true;
+  const presence = useLiveUserPresence(listing.sellerId, listing.sellerProfile);
+  const sellerEmailVerified = listing.sellerProfile?.emailVerified === true || listing.sellerProfile?.isEmailVerified === true;
   const sellerRankBorderColor: Record<string, string> = {
-    bronze: "rgba(201,122,69,0.62)",
-    silver: "rgba(194,205,220,0.68)",
-    gold: "rgba(212,175,55,0.7)",
+    bronze: "rgba(var(--rank-bronze-rgb),0.62)",
+    silver: "rgba(var(--rank-silver-rgb),0.68)",
+    gold: "rgba(var(--rank-gold-rgb),0.7)",
     platinum: "rgba(203,219,243,0.72)",
-    diamond: "rgba(138,197,255,0.74)",
+    diamond: "rgba(var(--rank-diamond-rgb),0.74)",
     legendary: "rgba(212,175,55,0.78)",
   };
   return (
     <Card
       id={`listing-${listing.id}`}
       className={cn(
-        "group seller-listing-shell border-white/10 bg-[#0B0B0B]/90 transition duration-300",
+        "group seller-listing-shell compact-listing border-white/10 bg-[#0B0B0B]/90 transition duration-300",
         !isOwnerListing && `seller-rank-surface seller-rank-surface--${sellerRankKey} seller-rank-card seller-rank-card--${sellerRankKey}`,
         isOwnerListing && "owner-legendary-surface",
         isOwnerListing
@@ -1069,15 +1075,15 @@ const ListingCard = memo(function ListingCard({ listing, isAr, marketPricePerUsd
       }}
     >
       {isOwnerListing ? (
-        <div className="flex items-center gap-2 rounded-t-xl border-b border-red-500/20 bg-gradient-to-r from-red-950/60 via-red-900/30 to-transparent px-4 py-2">
+        <div className="flex flex-wrap items-center gap-2 rounded-t-xl border-b border-red-500/20 bg-gradient-to-r from-red-950/60 via-red-900/30 to-transparent px-4 py-2">
           <Sparkles className="h-3.5 w-3.5 text-red-300" />
           <span className="text-[11px] font-bold uppercase tracking-[0.18em] text-red-300">{isAr ? "عرض رسمي من Alpha Exchange" : "Official Alpha Exchange Listing"}</span>
           <span className="ms-auto text-[11px] text-red-400/70">{isAr ? "يُباع مباشرةً من مالك المنصة" : "Sold directly by the platform owner"}</span>
         </div>
       ) : null}
-      <CardHeader className="pb-3">
-        <div className={`flex items-center justify-between ${isAr ? "flex-row-reverse" : ""}`}>
-          <div className={`flex items-center gap-3 ${isAr ? "flex-row-reverse" : ""}`}>
+      <CardHeader className="compact-listing__header">
+        <div className={`compact-listing__identity-row flex items-start justify-between gap-2 ${isAr ? "flex-row-reverse" : ""}`}>
+          <div className={`flex min-w-0 items-start gap-2 ${isAr ? "flex-row-reverse" : ""}`}>
             <div className={cn("relative seller-avatar-ring", `seller-avatar-ring--${isOwnerListing ? "legendary" : sellerRankKey}`, isOwnerListing && "after:absolute after:-inset-0.5 after:rounded-full after:border after:border-red-500/60 after:shadow-[0_0_14px_rgba(220,38,38,0.55)]")}>
               {listing.sellerProfile?.profilePhotoUrl ? (
                 // eslint-disable-next-line @next/next/no-img-element
@@ -1088,17 +1094,13 @@ const ListingCard = memo(function ListingCard({ listing, isAr, marketPricePerUsd
                 />
               ) : (
                 <div className={cn("inline-flex h-11 w-11 items-center justify-center rounded-full border border-transparent text-sm font-semibold", isOwnerListing ? "bg-red-950/60 text-red-200" : "bg-white/[0.04] text-[#D1D5DB]")}>
-                  {safeText(listing.sellerDisplayName, isAr ? "بائع" : "Seller")
-                    .split(" ")
-                    .map((part) => part[0])
-                    .join("")
-                    .slice(0, 2)}
+                  {isOwnerListing ? <Crown className="h-6 w-6" aria-hidden="true" /> : <RankEmblem rank={sellerLevel} className="!h-11 !w-11 [&>svg]:!h-6 [&>svg]:!w-6" />}
                 </div>
               )}
             </div>
-            <div>
+            <div className="min-w-0">
               <div className={`flex flex-wrap items-center gap-2 ${isAr ? "flex-row-reverse" : ""}`}>
-                <CardTitle className={cn("text-lg seller-listing-seller-name", isOwnerListing ? "profile-identity-name--owner" : `seller-rank-name seller-rank-name--${sellerRankKey}`)}>{safeText(listing.sellerDisplayName, isAr ? "بائع" : "Seller")}</CardTitle>
+                <CardTitle className={cn("text-lg seller-listing-seller-name", isOwnerListing ? "profile-identity-name--owner" : `seller-rank-name seller-rank-name--${sellerRankKey}`)}>{isOwnerListing ? currencyText(safeText(listing.sellerDisplayName, isAr ? "بائع" : "Seller")) : <AccountIdentityLabel publicId={publicAccountId({ id: listing.sellerId })} label={listing.sellerDisplayName} canViewPrivateIdentity={canViewPrivateIdentity} audience="seller" rank={sellerLevel} />}</CardTitle>
                 {isOwnerListing ? <RoleBadge variant="owner" locale={isAr ? "ar" : "en"} /> : null}
               </div>
               {isOwnerListing ? (
@@ -1106,98 +1108,83 @@ const ListingCard = memo(function ListingCard({ listing, isAr, marketPricePerUsd
               ) : null}
               <p className="seller-listing-seller-subtitle mt-1 text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF]">
                 <span className={cn("seller-listing-rank-label", `seller-listing-rank-label--${isOwnerListing ? "legendary" : sellerRankKey}`)}>
-                  {isOwnerListing ? (isAr ? "المالك" : "Owner") : (isAr ? `بائع ${sellerLevelLabel(listing.sellerReputation?.level, true)}` : `${sellerLevelLabel(listing.sellerReputation?.level)} Seller`)}
+                  {currencyText(isOwnerListing ? (isAr ? "المالك" : "Owner") : (isAr ? `بائع ${sellerLevelLabel(listing.sellerReputation?.level, true)}` : `${sellerLevelLabel(listing.sellerReputation?.level)} Seller`))}
                 </span>
                 <span className="seller-listing-status-separator"> • </span>
                 <span className={cn("seller-listing-presence inline-flex items-center gap-1.5", `seller-presence--${presence.tone}`)}>
                   <span className={cn("seller-presence-dot", `seller-presence-dot--${presence.tone}`)} aria-hidden="true" />
-                  {isAr ? presence.labelAr : presence.label}
+                  {currencyText(isAr ? presence.labelAr : presence.label)}
                 </span>
               </p>
-              <p className="mt-1 text-[11px] uppercase tracking-[0.12em] text-[#93C5FD]">{isAr ? "العرض" : "Listing"} {shortListingRef(listing)}</p>
-              <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                <RoleBadge variant="approved_seller" locale={isAr ? "ar" : "en"} className={cn("seller-rank-badge", `seller-rank-badge--${sellerRankKey}`)} />
-                <span className={cn("seller-rank-pill", `seller-rank-pill--${isOwnerListing ? "legendary" : sellerRankKey}`)}>
-                  {isOwnerListing ? (isAr ? "بائع أسطوري" : "Legendary Seller") : (isAr ? `بائع ${sellerLevelLabel(sellerLevel, true)}` : `${sellerLevelLabel(sellerLevel)} Seller`)}
-                </span>
-                {isOwnerListing ? (
-                  <>
-                    <span className="rounded-full border border-emerald-500/35 bg-emerald-500/10 px-2 py-0.5 text-[11px] text-emerald-300">✓ {isAr ? "البريد موثّق" : "Email Verified"}</span>
-                    <span className="rounded-full border border-emerald-500/35 bg-emerald-500/10 px-2 py-0.5 text-[11px] text-emerald-300">✓ {isAr ? "الهاتف موثّق" : "Phone Verified"}</span>
-                    <span className="rounded-full border border-amber-500/35 bg-amber-500/10 px-2 py-0.5 text-[11px] font-semibold text-amber-300">✓ {isAr ? "حساب المنصة الرسمي" : "Official Platform Account"}</span>
-                  </>
-                ) : sellerEmailVerified ? (
-                  <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/35 bg-emerald-500/10 px-2 py-0.5 text-[11px] text-emerald-300">
-                    <CheckCircle2 className="h-3 w-3" aria-hidden="true" /> {isAr ? "بريد موثّق" : "Verified Email"}
-                  </span>
-                ) : null}
-              </div>
+              <p className="mt-1 text-[11px] uppercase tracking-[0.12em] text-[#93C5FD]">{isAr ? "العرض" : "Listing"} {currencyText(shortListingRef(listing))}</p>
+
             </div>
           </div>
-          <span className="flex flex-col items-end gap-1.5">
+          <span className="compact-listing__availability flex shrink-0 flex-col items-end gap-1.5">
             <span className={cn("seller-listing-availability", `seller-listing-availability--${isOwnerListing ? "legendary" : sellerRankKey}`)}>{isAr ? "متاح" : "Available"}</span>
             <ListingCountdownBadge expiresAt={listing.expiresAt} isAr={isAr} />
           </span>
         </div>
+              <div className="compact-listing__badges flex flex-wrap items-center gap-1.5">
+                <RoleBadge variant="approved_seller" locale={isAr ? "ar" : "en"} className={cn("seller-rank-badge", `seller-rank-badge--${sellerRankKey}`)} />
+                <RankBadge rank={sellerLevel} locale={isAr ? "ar" : "en"} audience="seller" />
+                <AccountVerificationBadges emailVerified={sellerEmailVerified} phoneVerified={listing.sellerProfile?.isPhoneVerified} isAr={isAr} />
+                {isOwnerListing ? <span className="rounded-full border border-amber-500/35 bg-amber-500/10 px-2 py-0.5 text-[11px] font-semibold text-amber-300">✓ {isAr ? "حساب المنصة الرسمي" : "Official Platform Account"}</span> : null}
+              </div>
       </CardHeader>
-      <CardContent className="space-y-5">
+      <CardContent className="compact-listing__content">
         <div className={cn(
-          "rounded-2xl border p-4 shadow-[0_14px_36px_rgba(0,0,0,0.35)] transition duration-300",
+          "compact-listing__metrics rounded-2xl border shadow-[0_14px_36px_rgba(0,0,0,0.35)] transition duration-300",
           isOwnerListing
             ? "border-emerald-500/35 bg-[linear-gradient(135deg,rgba(16,185,129,0.18),rgba(5,5,5,0.88))] group-hover:border-emerald-400/55 group-hover:shadow-[0_18px_42px_rgba(16,185,129,0.25)]"
             : `seller-rank-accent seller-rank-accent--${sellerRankKey}`,
         )}>
-          <div className="grid gap-4 md:grid-cols-[minmax(0,1.18fr)_auto_minmax(0,1fr)] md:items-stretch">
+          <div className="compact-listing__metrics-grid">
             <div className="seller-asset-usdt-card seller-card-keymetric min-w-0 rounded-xl border p-4">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-300">
-                {isAr ? "USDT المتاح" : "Available USDT"}
-              </p>
-              <div className="seller-asset-usdt-amount-row">
-                <div className="seller-asset-usdt-amount-content">
+              <p className="compact-listing__amount-label text-[11px] font-semibold uppercase tracking-[0.08em] text-emerald-300">
                   <span className="seller-asset-usdt-amount-icon inline-flex h-8 w-8 items-center justify-center rounded-full border border-emerald-400/40 bg-emerald-500/20 text-emerald-200">
                     ₮
                   </span>
+                <span className="min-w-0">{currencyText(isAr ? "USDT المتاح" : "Available USDT")}</span>
+              </p>
+              <div className="seller-asset-usdt-amount-row">
+                <div className="seller-asset-usdt-amount-content">
+
                   <p className={cn("seller-asset-usdt-value text-[#D6FFE7]", availableAmountClassName)}>
-                    {formattedAvailableAmount}
+                    {moneyText(formattedAvailableAmount)}
                   </p>
+                  <span className="compact-listing__amount-unit currency-usdt">USDT</span>
                 </div>
               </div>
-              <p className="mt-2 text-sm font-medium text-emerald-100">USDT</p>
+
               <span className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-emerald-400/45 bg-emerald-500/15 px-2.5 py-1 text-[11px] font-semibold text-emerald-200">
                 <span className="h-1.5 w-1.5 rounded-full bg-emerald-300" />
                 {isAr ? "جاهز للتداول" : "Ready to trade"}
               </span>
             </div>
-            <div className={cn("mx-auto hidden w-px md:block", `seller-rank-separator seller-rank-separator--${isOwnerListing ? "legendary" : sellerRankKey}`)} />
-            <div className={cn("mx-auto h-px w-full md:hidden", `seller-rank-separator seller-rank-separator--${isOwnerListing ? "legendary" : sellerRankKey}`)} />
             <div className={cn("rounded-xl border p-3 seller-rank-price seller-card-keymetric min-w-0", `seller-rank-price--${isOwnerListing ? "legendary" : sellerRankKey}`)}>
               <p className="text-[11px] uppercase tracking-[0.16em] text-[#D4AF37]">
                 {isAr ? "سعر العرض" : "Listing Price"}
               </p>
               <p className="seller-price-value mt-2 text-4xl font-semibold leading-none text-[#6EE7B7] md:text-5xl">
-                {toNumber(listing.price).toLocaleString("en-IL", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                {moneyText(toNumber(listing.price).toLocaleString("en-IL", { minimumFractionDigits: 2, maximumFractionDigits: 2 }))}
               </p>
-              <p className="mt-1 text-[11px] uppercase tracking-[0.12em] text-[#E5E7EB]">ILS / USDT</p>
-              <div className="seller-live-market-panel mt-2 rounded-lg border p-2 text-[11px] text-[#CFCFCF]">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="uppercase tracking-[0.12em] text-[#9CA3AF]">{isAr ? "السوق الحالي" : "Current Market"}</p>
-                    <p className="mt-0.5 text-[10px] uppercase tracking-[0.14em] text-[#D1D5DB]">USDT / ILS</p>
-                  </div>
-                  <span className="seller-live-market-badge">{isAr ? "مباشر" : "Live"}</span>
-                </div>
-                <p className="mt-2 text-base font-semibold text-white">
-                  {marketPricePerUsdt.toLocaleString("en-IL", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </p>
-              </div>
+              <p className="mt-1 text-[11px] uppercase tracking-[0.12em] text-[#E5E7EB]">{currencyText(`${listing.currency} / USDT`)}</p>
+
             </div>
           </div>
+          {listing.currency === "ILS" ? <div className="seller-live-market-panel compact-listing__market rounded-lg border text-[11px] text-[#CFCFCF]">
+            <span className="text-[#9CA3AF]">{isAr ? "السوق الحالي" : "Current Market"}</span>
+            <span>{currencyText("USDT / ILS")}</span>
+            <span className="seller-live-market-badge">{isAr ? "مباشر" : "Live"}</span>
+            <span className="compact-listing__market-price font-semibold">{marketPricePerUsdt > 0 ? moneyText(marketPricePerUsdt.toFixed(5)) : "—"}</span>
+          </div> : <p className="p-2 text-xs text-[#D1D5DB]">{isAr ? "السعر والإجمالي بالدولار USD. لا يوجد تحويل تلقائي للعملة." : "Price and total are in USD. No automatic currency conversion."}</p>}
         </div>
-        <div className="grid grid-cols-2 gap-2 text-center text-xs">
+        <div className="compact-listing__stats grid grid-cols-4 gap-1.5 text-center text-xs">
           <div className={cn("rounded-xl border border-white/10 bg-black/25 p-3 text-[#D1D5DB] transition duration-300 hover:bg-black/35", `seller-rank-microcard seller-rank-microcard--${isOwnerListing ? "legendary" : sellerRankKey}`)}>
             <Star className="h-4 w-4 mx-auto text-[#F4D87A]" />
-            <p className="mt-1 break-words font-semibold leading-snug text-white">{(listing.sellerReputation?.rating ?? 0).toFixed(2)}</p>
-            <p className="text-[11px] text-[#9CA3AF]">{isAr ? "التقييم" : "Rating"}</p>
+            <p className="mt-1 break-words font-semibold leading-snug text-white">{rating.value}</p>
+            <p className="text-[11px] text-[#9CA3AF]">{rating.label}</p>
           </div>
           <div className={cn("rounded-xl border border-white/10 bg-black/25 p-3 text-[#D1D5DB] transition duration-300 hover:bg-black/35", `seller-rank-microcard seller-rank-microcard--${isOwnerListing ? "legendary" : sellerRankKey}`)}>
             <HandCoins className="h-4 w-4 mx-auto text-[#D1D5DB]" />
@@ -1206,45 +1193,47 @@ const ListingCard = memo(function ListingCard({ listing, isAr, marketPricePerUsd
           </div>
           <div className={cn("rounded-xl border border-white/10 bg-black/25 p-3 text-[#D1D5DB] transition duration-300 hover:bg-black/35", `seller-rank-microcard seller-rank-microcard--${isOwnerListing ? "legendary" : sellerRankKey}`)}>
             <Zap className="h-4 w-4 mx-auto text-[#F4D87A]" />
-            <p className="mt-1 break-words font-semibold leading-snug text-white">{isAr ? `${parseMinutes(listing.responseTime) || 5} دقائق` : safeText(listing.responseTime, "5 min")}</p>
+            <p className="mt-1 break-words font-semibold leading-snug text-white">{currencyText(formatMeasuredResponseTime(listing.sellerReputation?.responseTimeMinutes, isAr, listing.sellerReputation?.responseSampleCount))}</p>
             <p className="text-[11px] text-[#9CA3AF]">{isAr ? "الاستجابة" : "Response Time"}</p>
           </div>
           <div className={cn("rounded-xl border border-white/10 bg-black/25 p-3 text-[#D1D5DB] transition duration-300 hover:bg-black/35", `seller-rank-microcard seller-rank-microcard--${isOwnerListing ? "legendary" : sellerRankKey}`)}>
             <ShieldCheck className="h-4 w-4 mx-auto text-[#93C5FD]" />
-            <p className="mt-1 break-words font-semibold leading-snug text-white">{(listing.sellerReputation?.trustScore ?? 0).toFixed(1)}</p>
-            <p className="text-[11px] text-[#9CA3AF]">{isAr ? "درجة الثقة" : "Trust Score"}</p>
+            <p className="mt-1 break-words font-semibold leading-snug text-white">{score.value}</p>
+            <p className="text-[11px] text-[#9CA3AF]">{score.label}</p>
           </div>
         </div>
-        <div className="grid gap-3 text-xs text-[#9CA3AF] md:grid-cols-2">
+        <div className="compact-listing__details grid gap-2 text-xs text-[#9CA3AF]">
           <div className="seller-card-info-panel min-w-0 space-y-1.5 rounded-xl border border-white/10 bg-black/25 p-3">
-            <p>{isAr ? "آخر نشاط" : "Last active"}: <span className={cn("text-white", presence.tone === "online" && "text-emerald-300")}>{presence.online ? (isAr ? presence.labelAr : presence.label) : formatRelativeMinutesLabel(listing.sellerProfile?.lastActiveAt, isAr)}</span></p>
-            <p>{isAr ? "الشبكة" : "Network"}: <span className="text-white">{safeText(listing.network)}</span></p>
+            <p>{isAr ? "آخر نشاط" : "Last active"}: <span className={cn("text-white", presence.tone === "online" && "text-emerald-300")}>{currencyText(isAr ? presence.labelAr : presence.label)}</span></p>
+            <p>{isAr ? "الشبكة" : "Network"}: <span className="text-white">{currencyText(safeText(listing.network))}</span></p>
             <div>
               <p>{isAr ? "الدفع" : "Payment"}:</p>
               <div className="mt-1 flex flex-wrap gap-1.5">
                 {normalizePaymentMethodList(listing.paymentMethods, listing.paymentMethod).map((method) => (
                   <span key={`${listing.id}-${method}`} className="max-w-full break-words rounded-full border border-white/15 bg-white/[0.03] px-2 py-0.5 text-[11px] text-[#D1D5DB]">
-                    {paymentMethodLabel(method, isAr)}
+                    {currencyText(paymentMethodLabel(method, isAr))}{listing.bankTransferProvider === "wise" && method === "Bank Transfer" ? " · Wise · USD" : ""}
                   </span>
                 ))}
               </div>
             </div>
           </div>
           <div className="seller-card-info-panel min-w-0 space-y-1.5 rounded-xl border border-white/10 bg-black/25 p-3">
-            <p>{isAr ? "حدود الصفقة" : "Trade limits"}: <span className="text-white">{toNumber(listing.minimumTrade).toLocaleString("en-IL")} – {toNumber(listing.maximumTrade).toLocaleString("en-IL")} USDT</span></p>
+            {normalizePaymentMethodList(listing.paymentMethods, listing.paymentMethod).some(isCardlessAtmPaymentMethod)
+              ? <p>{isAr ? "الحد الأقصى؛ كمية ATM تُحسب من الرمز" : "Maximum; ATM quantity follows the code"}: <span className="text-white">{currencyText(`${Math.min(toNumber(listing.maximumTrade) || toNumber(listing.availableAmount), toNumber(listing.availableAmount)).toLocaleString("en-US", { maximumFractionDigits: 6 })} USDT`)}</span></p>
+              : <p>{isAr ? "حدود الصفقة" : "Trade limits"}: <span className="text-white">{currencyText(`${Math.trunc(toNumber(listing.minimumTrade)).toLocaleString("en-US")} – ${Math.trunc(toNumber(listing.maximumTrade)).toLocaleString("en-US")} USDT`)}</span></p>}
             <p>
               {isAr ? "مسار الصفقة" : "Trade flow"}:{" "}
               <span className="seller-escrow-emphasis">
                 {isAr ? "منظّم ومسجّل عبر " : "Structured and recorded by "}
-                <span className="seller-escrow-brand">Alpha Traders</span>
+                <span className="seller-escrow-brand">{brandText("Alpha Traders")}</span>
               </span>
             </p>
-            <p>{isAr ? "المنطقة" : "Region"}: <span className="text-white">{safeText(listing.sellerProfile?.country, isAr ? "إسرائيل" : "Israel")}</span></p>
+            <p>{isAr ? "المنطقة" : "Region"}: <span className="text-white">{currencyText(safeText(listing.sellerProfile?.country, isAr ? "إسرائيل" : "Israel"))}</span></p>
           </div>
         </div>
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="compact-listing__actions grid grid-cols-2 gap-2">
           <Link
-            href={`/exchange/seller/${normalizePublicProfileUsername(listing.sellerProfile?.publicTradingName || listing.sellerDisplayName)}`}
+            href={listing.sellerProfile?.username ? `/exchange/seller/${listing.sellerProfile.username}` : `/usdt-exchange?seller=${encodeURIComponent(listing.sellerId)}`}
             className={cn(
               "seller-marketplace-action seller-marketplace-action--profile focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C9A227] focus-visible:ring-offset-2 focus-visible:ring-offset-[#050505]",
               isOwnerListing
@@ -1258,6 +1247,8 @@ const ListingCard = memo(function ListingCard({ listing, isAr, marketPricePerUsd
             </span>
             <ArrowRight className="h-4 w-4" />
           </Link>
+          {(listing.sellerActiveTradeCount ?? 0) > 0 ? <p className="col-span-2 text-sm text-amber-200">{isAr ? `البائع في ${listing.sellerActiveTradeCount} من 3 صفقات نشطة` : `Seller in ${listing.sellerActiveTradeCount} of 3 active trades`}</p> : null}
+          {requestBlockReason ? <p role="status" className="col-span-2 rounded-xl border border-amber-500/30 p-3 text-sm text-amber-200">{requestBlockReason === "trade_limit" ? (isAr ? "البائع في 3 صفقات نشطة. انتظر انتهاء صفقة." : "Seller has 3 active trades. Wait for a trade to finish.") : (isAr ? "الرصيد محجوز للصفقات الحالية." : "Balance reserved for current trades.")}</p> : null}
           {isOwnListing ? (
             <Button
               className={cn(
@@ -1283,23 +1274,23 @@ const ListingCard = memo(function ListingCard({ listing, isAr, marketPricePerUsd
                   ? "owner-cta-premium"
                   : `seller-rank-cta seller-rank-cta--${sellerRankKey}`,
               )}
-              disabled={isBuying}
+              disabled={isBuying || Boolean(requestBlockReason)}
               onClick={() => onOpen(listing, "listing_price")}
-              aria-label={isAr ? `شراء USDT من ${safeText(listing.sellerDisplayName, "البائع")}` : `Buy USDT from ${safeText(listing.sellerDisplayName, "seller")}`}
+              aria-label={requiresBuyerSetup ? (isAr ? "إعداد حساب المشتري" : "Set Up Buyer Access") : isAr ? `شراء USDT من ${safeText(listing.sellerDisplayName, "البائع")}` : `Buy USDT from ${safeText(listing.sellerDisplayName, "seller")}`}
             >
               <span className="inline-flex items-center gap-2">
                 {isBuying ? <Loader2 className="h-4 w-4 animate-spin" /> : <LockKeyhole className="h-4 w-4" />}
-                {isBuying ? (isAr ? "جارٍ بدء الصفقة..." : "Starting trade...") : (isAr ? "اشترِ الآن" : "Buy Now")}
+                {requiresBuyerSetup ? (isAr ? "إعداد حساب المشتري" : "Set Up Buyer Access") : isBuying ? (isAr ? "جارٍ بدء الصفقة..." : "Starting trade...") : (isAr ? "اشترِ الآن" : "Buy Now")}
               </span>
               <ArrowRight className="h-4 w-4" />
             </Button>
           )}
-          {!isOwnListing && listing.currency.trim().toUpperCase() === "ILS" ? (
+          {!requiresBuyerSetup && !isOwnListing && listing.currency.trim().toUpperCase() === "ILS" ? (
             <Button
               type="button"
               variant="secondary"
-              className="seller-marketplace-action seller-marketplace-action--offer w-full justify-between rounded-2xl border-[#C9A227]/45 bg-[#C9A227]/10 px-5 text-sm font-semibold text-[#F4D87A] transition duration-300 hover:border-[#F4D87A]/70 hover:bg-[#C9A227]/15 sm:col-span-2"
-              disabled={isBuying}
+              className="seller-marketplace-action seller-marketplace-action--offer w-full justify-between rounded-2xl border-[#C9A227]/45 bg-[#C9A227]/10 px-5 text-sm font-semibold text-[#F4D87A] transition duration-300 hover:border-[#F4D87A]/70 hover:bg-[#C9A227]/15 col-span-2"
+              disabled={isBuying || Boolean(requestBlockReason)}
               onClick={() => onOpen(listing, "buyer_offer")}
               aria-label={isAr ? `تقديم عرض سعر إلى ${safeText(listing.sellerDisplayName, "البائع")}` : `Make a price offer to ${safeText(listing.sellerDisplayName, "seller")}`}
             >
@@ -1308,7 +1299,7 @@ const ListingCard = memo(function ListingCard({ listing, isAr, marketPricePerUsd
                 {isAr ? "قدّم عرض سعر" : "Make an Offer"}
               </span>
               <span className="text-[11px] font-medium text-[#D1D5DB]">
-                {isAr ? "خصم حتى ₪0.35" : "Up to ₪0.35 lower"}
+                {currencyText(isAr ? "±₪0.35 من سعر الإعلان" : "Within ±₪0.35 of listing price")}
               </span>
             </Button>
           ) : null}
@@ -1339,7 +1330,7 @@ const ListingCountdownBadge = memo(function ListingCountdownBadge({ expiresAt, i
       aria-label={isAr ? `صلاحية العرض: ${countdown.labelAr}` : `Listing eligibility: ${countdown.label}`}
     >
       {urgent ? <AlertTriangle className="h-3.5 w-3.5" aria-hidden="true" /> : <Clock3 className="h-3.5 w-3.5" aria-hidden="true" />}
-      {isAr ? countdown.labelAr : countdown.label}
+      {currencyText(isAr ? countdown.labelAr : countdown.label)}
     </span>
   );
 });
@@ -1360,16 +1351,22 @@ export function UsdtExchangePage({
   locale,
   initialSessionUser,
   workspaceMode,
+  usdtRequestsEnabled = false,
 }: {
   locale: Locale;
   initialSessionUser?: SessionUser | null;
   workspaceMode?: WorkspaceMode;
+  usdtRequestsEnabled?: boolean;
 }) {
   const isAr = locale === "ar";
   const isDashboardWorkspace = workspaceMode !== undefined;
   const isSellerDashboardWorkspace = workspaceMode === "seller";
+  const workspaceViewport = useWorkspaceViewport();
+  const isDesktopWorkspace = workspaceViewport === true;
   const router = useRouter();
   const searchParams = useSearchParams();
+  const demandListingIntent = usdtRequestsEnabled ? searchParams?.get("demand") : null;
+  const demandPrefilled = useRef<string | null>(null);
   const commissionPaymentIntent = searchParams?.get("commission") ?? null;
   const commissionPaymentIntentId = searchParams?.get("commissionId")?.trim() ?? "";
   const canonicalSession = useOptionalCanonicalSession();
@@ -1378,16 +1375,20 @@ export function UsdtExchangePage({
     if (typeof window === "undefined") return false;
     return window.matchMedia(MOBILE_VIEWPORT_QUERY).matches;
   });
-  const marketFeed = useMarketFeed({ refreshMs: 45_000 });
+  const marketFeed = useMarketFeed();
   const marketSnapshot = marketFeed.snapshot;
 
-  const [sessionUser, setSessionUser] = useState<SessionUser | null>(initialSessionUser ?? null);
-  const [buyerProfileSummary, setBuyerProfileSummary] = useState<BuyerRankSummary | null>(null);
+  // Read the same principal as the header in this render. Mirroring it through
+  // an effect can briefly retain a previous account after sign-out.
+  const sessionUser = canonicalSession ? canonicalSession.user : initialSessionUser ?? null;
+  const { confirmAction, actionDialog } = useActionDialog(isAr, `${sessionUser?.id ?? "signed-out"}:${canonicalSession?.isResolving ?? false}`);
+  const interfaceAccess = getInterfaceAccess(sessionUser);
+  const buyRequestsHref = buyRequestsDestination(sessionUser, usdtRequestsEnabled);
   const [listings, setListings] = useState<MarketplaceListing[]>([]);
   // The server-backed session is authoritative for seller-application eligibility.
   // The initial value is only a bootstrap snapshot and can have stale roles.
-  const [isSessionResolving, setIsSessionResolving] = useState(Boolean(canonicalSession));
-  const [sessionResolutionError, setSessionResolutionError] = useState(false);
+  const isSessionResolving = canonicalSession?.isResolving ?? false;
+  const sessionResolutionError = canonicalSession?.error ?? false;
   const [isLoadingListings, setIsLoadingListings] = useState(true);
   const [isWorkspaceWidgetsLoading, setIsWorkspaceWidgetsLoading] = useState(true);
   const [isSellerApplicationLoading, setIsSellerApplicationLoading] = useState(true);
@@ -1398,30 +1399,48 @@ export function UsdtExchangePage({
   const [purchaseSubmitted, setPurchaseSubmitted] = useState(false);
   const [isSubmittingPurchase, setIsSubmittingPurchase] = useState(false);
   const purchaseRequestInFlightRef = useRef(false);
-  const [selectedListing, setSelectedListing] = useState<MarketplaceListing | null>(null);
+  const [selectedListingSnapshot, setSelectedListing] = useState<MarketplaceListing | null>(null);
+  // Keep an already-open purchase dialog on the same live terms as the market card.
+  const selectedListing = selectedListingSnapshot
+    ? listings.find((listing) => listing.id === selectedListingSnapshot.id) ?? selectedListingSnapshot
+    : null;
+  // URL updates happen synchronously, before React necessarily commits the
+  // dialog state. A pending restoration effect must not overwrite a user's
+  // freshly selected price-offer mode with the default listing-price mode.
+  const selectedListingIntentRef = useRef<string | null>(null);
   const [purchasePriceMode, setPurchasePriceMode] = useState<"listing_price" | "buyer_offer">("listing_price");
   const [buyerOfferedPrice, setBuyerOfferedPrice] = useState("");
   const [sellerProfileData, setSellerProfileData] = useState<PremiumSellerProfileData | null>(null);
   const [isSellerProfileLoading, setIsSellerProfileLoading] = useState(false);
   const sellerProfileRequestIdRef = useRef(0);
   const sellerProfileAbortControllerRef = useRef<AbortController | null>(null);
-  const [isOwnerProfileActionLoading, setIsOwnerProfileActionLoading] = useState(false);
   const [sellerApplication, setSellerApplication] = useState<SellerApplication | null>(null);
   const [myRequests, setMyRequests] = useState<PurchaseRequest[]>([]);
+  const sellerActionContextRef = useRef({ userId: sessionUser?.id, requests: myRequests });
+  useLayoutEffect(() => {
+    sellerActionContextRef.current = { userId: sessionUser?.id, requests: myRequests };
+  }, [myRequests, sessionUser?.id]);
+  const [purchaseRequestsState, setPurchaseRequestsState] = useState<"loading" | "ready" | "error">("loading");
+  const purchaseRequestsReadRef = useRef<{ userId: string; controller: AbortController; promise: Promise<PurchaseRequest[] | null> } | null>(null);
+  const purchaseRequestsSnapshotRef = useRef<{ userId: string; loadedAt: number; requests: PurchaseRequest[] } | null>(null);
+  const purchaseRequestsEpochRef = useRef(0);
+  const activeTradeNavigationRef = useRef(false);
   const [myListings, setMyListings] = useState<MarketplaceListing[]>([]);
   const [discordSharing, setDiscordSharing] = useState<DiscordListingSharingStatus | null>(null);
   const [discordShareActionKey, setDiscordShareActionKey] = useState<string | null>(null);
   const discordSharePollTimersRef = useRef<number[]>([]);
-  const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [statusMessage, setStatusMessage, statusMessageFeedbackKey] = useActionFeedbackState<string | null>(null);
   const [showVerificationCta, setShowVerificationCta] = useState(false);
   const [isRedirectingToVerification, setIsRedirectingToVerification] = useState(false);
-  const [sellerWorkspaceMessage, setSellerWorkspaceMessage] = useState<string | null>(null);
+  const [sellerWorkspaceMessage, setSellerWorkspaceMessage, sellerWorkspaceMessageFeedbackKey] = useActionFeedbackState<string | null>(null);
   const [workspaceError, setWorkspaceError] = useState<string | null>(null);
   const [editingListingId, setEditingListingId] = useState<string | null>(null);
   const [listingActionKey, setListingActionKey] = useState<string | null>(null);
+  const listingMutationInFlightRef = useRef(false);
+  const sellerWorkspaceRevisionRef = useRef(0);
   const listingCreateRequestInFlightRef = useRef(false);
   const [listingCreateResult, setListingCreateResult] = useState<ListingCreateResult | null>(null);
-  const [listingEditForm, setListingEditForm] = useState({
+  const [listingEditForm, setListingEditForm] = useState<ListingEditForm>({
     availableAmount: "",
     price: "",
     currency: "ILS",
@@ -1443,6 +1462,7 @@ export function UsdtExchangePage({
   } | null>(null);
   const [removalListing, setRemovalListing] = useState<MarketplaceListing | null>(null);
   const [removalReason, setRemovalReason] = useState("");
+  const [removalError, setRemovalError, removalErrorFeedbackKey] = useActionFeedbackState<string | null>(null);
   const [removalExplanation, setRemovalExplanation] = useState("");
   const [listingCommissionAgreement, setListingCommissionAgreement] = useState(false);
   const [faceToFaceSafetyAcknowledged, setFaceToFaceSafetyAcknowledged] = useState(false);
@@ -1463,10 +1483,14 @@ export function UsdtExchangePage({
   const [qaCommissionModeEnabled, setQaCommissionModeEnabled] = useState(false);
   const [qaCommissionResetEnabled, setQaCommissionResetEnabled] = useState(false);
   const [commissionPayOpen, setCommissionPayOpen] = useState(false);
+  const openCommissionIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    openCommissionIdRef.current = commissionPayOpen ? sellerCommissionStatus?.commissionId ?? null : null;
+  }, [commissionPayOpen, sellerCommissionStatus?.commissionId]);
   const [commissionNetwork, setCommissionNetwork] = useState<CommissionNetworkId>("TRC20");
   const [commissionTxSignature, setCommissionTxSignature] = useState("");
   const [commissionPayBusy, setCommissionPayBusy] = useState(false);
-  const [commissionPayMessage, setCommissionPayMessage] = useState<string | null>(null);
+  const [commissionPayMessage, setCommissionPayMessage, commissionPayMessageFeedbackKey] = useActionFeedbackState<string | null>(null);
   const [commissionCopied, setCommissionCopied] = useState(false);
   const [commissionQrDataUrl, setCommissionQrDataUrl] = useState<string | null>(null);
   const [commissionPayerType, setCommissionPayerType] = useState<"personal" | "exchange" | null>(null);
@@ -1484,11 +1508,12 @@ export function UsdtExchangePage({
   const commissionPayableAmountDue = sellerCommissionStatus?.payableAmountDue
     ?? (sellerCommissionStatus?.pendingCount === 1 ? sellerCommissionStatus.amountDue : 0);
   const [requestActionKey, setRequestActionKey] = useState<string | null>(null);
+  const requestActionInFlightRef = useRef<string | null>(null);
   const qaCommissionResetAttemptedRef = useRef(false);
-  const [listingCreateForm, setListingCreateForm] = useState({
+  const [listingCreateForm, setListingCreateForm] = useState<ListingCreateForm>({
     availableAmount: "",
     price: "",
-    currency: "",
+    currency: "ILS",
     network: "TRC20" as SupportedNetwork,
     paymentMethods: [...getDefaultListingPaymentMethods(initialSessionUser?.preferredPaymentMethods)] as string[],
     bankAccountId: "",
@@ -1497,9 +1522,24 @@ export function UsdtExchangePage({
     maximumTrade: "",
     sellerDescription: "",
   });
+  const demandPrefillActorId = sessionUser?.id;
+  useEffect(() => {
+    if (!demandListingIntent || !demandPrefillActorId || demandPrefilled.current === `${demandPrefillActorId}:${demandListingIntent}`) return;
+    const controller = new AbortController();
+    void fetch(`/api/alpha-exchange/usdt-requests/${encodeURIComponent(demandListingIntent)}`, { cache: "no-store", signal: controller.signal })
+      .then(async response => { if (!response.ok) return; const payload = await response.json();
+        const request = payload.requests?.[0];
+        if (!request || request.isMine || payload.actorId !== demandPrefillActorId || request.state !== "open" || !payload.canRespond || controller.signal.aborted) return;
+        demandPrefilled.current = `${demandPrefillActorId}:${demandListingIntent}`;
+        setListingCreateForm(previous => ({ ...previous, availableAmount: request.amount, maximumTrade: request.amount,
+          minimumTrade: "0", price: request.price, currency: request.currency ?? "ILS", bankTransferProvider: request.bankTransferProvider ?? "israeli_bank", wiseAccountId: "", bankAccountId: "", bankName: "", network: request.network, paymentMethods: [request.paymentMethod] }));
+        revealPageSection("create-listing");
+      }).catch(() => undefined);
+    return () => controller.abort();
+  }, [demandListingIntent, demandPrefillActorId]);
   const [sellerBankAccounts, setSellerBankAccounts] = useState<SellerBankAccount[]>([]);
+  const wise = useWiseAccounts(sessionUser?.id);
   const [sellerBankAccountsLoading, setSellerBankAccountsLoading] = useState(false);
-  const [listingCreateCurrencyManualOverride, setListingCreateCurrencyManualOverride] = useState(false);
   const [selectedPurchasePaymentMethod, setSelectedPurchasePaymentMethod] = useState<string>("Bank Transfer");
 
   useEffect(() => {
@@ -1508,7 +1548,11 @@ export function UsdtExchangePage({
       setSellerBankAccountsLoading(false);
       return;
     }
-    const canLoadBankAccounts = Boolean(sessionUser && (sessionUser.sellerStatus === "approved_seller" || sessionUser.role === "admin"));
+    const canLoadBankAccounts = Boolean(sessionUser && (
+      (sessionUser.sellerStatus === "approved_seller" && sessionUser.sellerApprovalVerified === true)
+      || sessionUser.role === "admin"
+      || sessionUser.role === "owner"
+    ));
     if (!canLoadBankAccounts) {
       setSellerBankAccounts([]);
       return;
@@ -1540,22 +1584,8 @@ export function UsdtExchangePage({
   }, [isSessionResolving, refreshCanonicalSession, sessionUser]);
 
   useEffect(() => {
-    if (!sellerBankAccounts.length) return;
-    const preferredBankAccount = sellerBankAccounts.find((account) => account.isDefault) ?? sellerBankAccounts[0];
-    if (!preferredBankAccount) return;
-    setListingCreateForm((prev) => {
-      const selectedAccount = sellerBankAccounts.find((account) => account.id === prev.bankAccountId) ?? preferredBankAccount;
-      const nextBanks = ensurePayoutBankIsSupported(
-        parseIsraeliBankSelection(prev.bankName),
-        selectedAccount.bankName,
-        MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS,
-      );
-      const nextBankName = serializeIsraeliBankSelection(nextBanks);
-      if (prev.bankAccountId === selectedAccount.id && prev.bankName === nextBankName) return prev;
-      return { ...prev, bankAccountId: selectedAccount.id, bankName: nextBankName };
-    });
-    const preferredBankAccountId = preferredBankAccount.id;
-    setListingEditForm((prev) => (prev.bankAccountId ? prev : { ...prev, bankAccountId: preferredBankAccountId }));
+    setListingCreateForm((prev) => prev.bankTransferProvider === "wise" ? prev : syncListingBankSelection(prev, sellerBankAccounts));
+    setListingEditForm((prev) => prev.bankTransferProvider === "wise" ? prev : syncListingBankSelection(prev, sellerBankAccounts));
   }, [sellerBankAccounts]);
 
   const tradeReturnPath = selectedListing
@@ -1574,6 +1604,7 @@ export function UsdtExchangePage({
   }, []);
 
   const closeListingModal = useCallback(() => {
+    selectedListingIntentRef.current = null;
     sellerProfileAbortControllerRef.current?.abort();
     setSelectedListing(null);
     setSellerProfileData(null);
@@ -1584,7 +1615,7 @@ export function UsdtExchangePage({
     setPurchasePriceMode("listing_price");
     setBuyerOfferedPrice("");
     updateListingSelectionQuery(null);
-  }, [updateListingSelectionQuery]);
+  }, [setStatusMessage, updateListingSelectionQuery]);
 
   // Escape closes the open Buy or removal dialog (keyboard accessibility).
   useEffect(() => {
@@ -1607,7 +1638,7 @@ export function UsdtExchangePage({
     setIsRedirectingToVerification(true);
     setStatusMessage(isAr ? "جارٍ الانتقال إلى التحقق..." : "Redirecting to verification...");
     router.push(`/verify-account?redirectTo=${encodeURIComponent(tradeReturnPath)}`);
-  }, [isAr, router, tradeReturnPath]);
+  }, [isAr, router, setStatusMessage, tradeReturnPath]);
   const [currencyFilter, setCurrencyFilter] = useState("all");
   const [paymentMethodFilter, setPaymentMethodFilter] = useState("all");
   const [networkFilter, setNetworkFilter] = useState<"all" | SupportedNetwork>("all");
@@ -1621,9 +1652,9 @@ export function UsdtExchangePage({
   const [onlineOnlyFilter, setOnlineOnlyFilter] = useState(false);
   const [sortBy, setSortBy] = useState<"trust-desc" | "price-asc" | "amount-desc" | "trades-desc" | "rating-desc" | "response-fast" | "newest">("trust-desc");
   const [buyerTradeQuery, setBuyerTradeQuery] = useState("");
-  const [buyerTradeStatus, setBuyerTradeStatus] = useState<"all" | PurchaseRequest["status"]>("all");
+  const [buyerTradeStatus, setBuyerTradeStatus] = useState<"all" | "active" | PurchaseRequest["status"]>("all");
   const [sellerTradeQuery, setSellerTradeQuery] = useState("");
-  const [sellerTradeStatus, setSellerTradeStatus] = useState<"all" | PurchaseRequest["status"]>("all");
+  const [sellerTradeStatus, setSellerTradeStatus] = useState<"all" | "active" | PurchaseRequest["status"]>("all");
   const [buyerExpandedTradeId, setBuyerExpandedTradeId] = useState<string | null>(null);
   const [sellerExpandedTradeId, setSellerExpandedTradeId] = useState<string | null>(null);
   const [sellerExpandedListingId, setSellerExpandedListingId] = useState<string | null>(null);
@@ -1646,7 +1677,6 @@ export function UsdtExchangePage({
   const [notificationQuery, setNotificationQuery] = useState("");
   const [notificationCategory, setNotificationCategory] = useState<"all" | NotificationCategory>("all");
   const [notificationUnreadOnly, setNotificationUnreadOnly] = useState(false);
-  const [notificationPreferences, setNotificationPreferences] = useState<{ inApp: boolean; email: boolean; sms: boolean }>({ inApp: true, email: false, sms: false });
   const [mobileVisibleListingsCount, setMobileVisibleListingsCount] = useState(MOBILE_MARKETPLACE_BATCH_SIZE);
   const notificationsRequestIdRef = useRef(0);
   const deepLinkAppliedRef = useRef(false);
@@ -1654,8 +1684,8 @@ export function UsdtExchangePage({
   const commissionPayIntentHandledRef = useRef<string | null>(null);
   const commissionNotificationSignatureRef = useRef<string | null>(null);
   const sellerWorkspaceResumeRefreshInFlightRef = useRef(false);
-  const sellerActiveTradeRedirectedRef = useRef<string | null>(null);
-  const sellerDeferredPanelsSentinelRef = useRef<HTMLDivElement | null>(null);
+  // Callback-ref state also catches the workspace mounting after its dynamic import.
+  const [sellerDeferredPanelsTarget, setSellerDeferredPanelsTarget] = useState<HTMLDivElement | null>(null);
   const bootstrapCompletedAtRef = useRef<number | null>(null);
   const renderCompleteRecordedRef = useRef(false);
   const interactivePaintRecordedRef = useRef(false);
@@ -1671,7 +1701,7 @@ export function UsdtExchangePage({
     return () => media.removeEventListener("change", update);
   }, []);
 
-  const [buyerInfo, setBuyerInfo] = useState({ usdtAmount: "", receivingWalletAddress: "" });
+  const [buyerInfo, setBuyerInfo] = useState({ usdtAmount: "", receivingWalletAddress: "", receivingNetwork: "TRC20" as SupportedNetwork, buyerWiseAccountId: "", cardlessBankName: "", cardlessWithdrawalCode: "", cardlessVerificationKind: "id_number" as CardlessVerificationKind, cardlessVerificationValue: "", cardlessIlsAmount: "" });
   const [sellerForm, setSellerForm] = useState<SellerApplicationForm>(() => ({
     firstName: initialSessionUser?.fullName?.split(" ")[0] ?? "",
     lastName: initialSessionUser?.fullName?.split(" ").slice(1).join(" ") ?? "",
@@ -1683,9 +1713,13 @@ export function UsdtExchangePage({
   const sellerFormTouchedRef = useRef(false);
   const [sellerApplicationMethods, setSellerApplicationMethods] = useState<SellerApplicationMethod[]>(["USDT (ERC20 / Ethereum)"]);
   const sellerStatusForLanding = sessionUser?.sellerStatus ?? "buyer";
-  const isApprovedSellerSession = sellerStatusForLanding === "approved_seller";
+  const isApprovedSellerSession = sellerStatusForLanding === "approved_seller"
+    && sessionUser?.sellerApprovalVerified === true;
   const hasSellerWorkspaceAccess = isApprovedSellerSession || sellerStatusForLanding === "suspended";
-  const isAdminSession = Boolean(sessionUser && hasRole(sessionUser, "admin"));
+  const desktopSellerNavigation = isDesktopWorkspace && hasSellerWorkspaceAccess;
+  const desktopBuyerNavigation = isDesktopWorkspace && !hasSellerWorkspaceAccess && Boolean(sessionUser && accountRoleIdentity(sessionUser) === "buyer");
+  const desktopWorkspaceNavigation = desktopSellerNavigation || desktopBuyerNavigation;
+  const isAdminSession = Boolean(sessionUser && (hasRole(sessionUser, "admin") || hasRole(sessionUser, "owner")));
 
   const tracedFetch = useCallback(async (label: string, input: string, init?: RequestInit) => {
     const startedAt = Date.now();
@@ -1724,66 +1758,79 @@ export function UsdtExchangePage({
     throw lastError instanceof Error ? lastError : new Error("Read request failed.");
   }, [tracedFetch]);
 
-  const refreshBuyerProfileSummary = useCallback(async () => {
-    if (!sessionUser || hasSellerWorkspaceAccess) {
-      setBuyerProfileSummary(null);
-      return;
-    }
+  const { summary: sellerRankSummary, error: sellerRankError } = useSellerRankSummary({
+    sellerId: sellerStatusForLanding === "approved_seller" && !isSessionResolving ? sessionUser?.id : undefined,
+    requests: myRequests,
+    fetchProfile: tracedReadFetch,
+  });
 
-    try {
-      const response = await tracedReadFetch("Buyer profile summary loading", "/api/auth/profile", { cache: "no-store" });
-      if (!response.ok) {
-        setWorkspaceError(safeErrorMessage("workspace", isAr));
-        return;
-      }
-      const payload = (await response.json()) as {
-        stats?: {
-          kind?: string;
-          activeTrades?: number;
-          completedTrades?: number;
-          reviewsGiven?: number;
-          lifetimeCompletedVolumeUsdt?: number;
-        };
-      };
-      if (payload.stats?.kind !== "buyer") return;
-      setBuyerProfileSummary(deriveBuyerRankSummary({
-        activeTrades: Number(payload.stats.activeTrades ?? 0),
-        completedTrades: Number(payload.stats.completedTrades ?? 0),
-        reviewsGiven: Number(payload.stats.reviewsGiven ?? 0),
-        lifetimeCompletedVolumeUsdt: Number(payload.stats.lifetimeCompletedVolumeUsdt ?? 0),
-      }));
-    } catch {
-      // Preserve current state and disclose that the live summary is not ready.
-      setWorkspaceError(safeErrorMessage("workspace", isAr));
-    }
-  }, [hasSellerWorkspaceAccess, isAr, sessionUser, tracedReadFetch]);
+  const { summary: buyerProfileSummary, error: buyerRankError } = useBuyerRankSummary({
+    buyerId: !hasSellerWorkspaceAccess && !isSessionResolving && sessionUser && accountRoleIdentity(sessionUser) === "buyer" ? sessionUser.id : undefined,
+    requests: myRequests,
+    fetchProfile: tracedReadFetch,
+  });
 
   useEffect(() => () => {
     for (const timer of discordSharePollTimersRef.current) window.clearTimeout(timer);
     discordSharePollTimersRef.current = [];
   }, []);
 
-  const refreshMyPurchaseRequests = useCallback(async () => {
-    try {
-      const response = await tracedReadFetch(
-        "Workspace data loading: purchase requests",
-        "/api/alpha-exchange/purchase-requests",
-        { cache: "no-store" },
-      );
-      if (!response.ok) {
-        setWorkspaceError(safeErrorMessage("workspace", isAr));
-        return false;
-      }
-      const payload = (await response.json()) as { requests?: PurchaseRequest[] };
-      setMyRequests(payload.requests ?? []);
-      return true;
+  useEffect(() => {
+    purchaseRequestsEpochRef.current += 1;
+    purchaseRequestsSnapshotRef.current = null;
+    setMyRequests([]);
+    setPurchaseRequestsState("loading");
+    return () => {
+      purchaseRequestsEpochRef.current += 1;
+      activeTradeNavigationRef.current = false;
+      purchaseRequestsSnapshotRef.current = null;
+      purchaseRequestsReadRef.current?.controller.abort();
+      purchaseRequestsReadRef.current = null;
+    };
+  }, [sessionUser?.id]);
+
+  const refreshMyPurchaseRequests = useCallback((): Promise<PurchaseRequest[] | null> => {
+    const userId = sessionUser?.id;
+    if (!userId) return Promise.resolve(null);
+    // Focus, polling, notifications and a button click share the same read.
+    // They must not queue duplicate queries or overwrite newer account data.
+    const current = purchaseRequestsReadRef.current;
+    if (current?.userId === userId) return current.promise;
+    current?.controller.abort();
+    const controller = new AbortController();
+    const pending = { userId, controller, promise: Promise.resolve(null) as Promise<PurchaseRequest[] | null> };
+    purchaseRequestsReadRef.current = pending;
+    pending.promise = (async () => { try {
+      const payload = await runClientRequest(controller, 15_000, async (signal) => {
+        const response = await tracedReadFetch(
+          "Workspace data loading: purchase requests",
+          "/api/alpha-exchange/purchase-requests",
+          { cache: "no-store", signal },
+        );
+        if (!response.ok) throw new Error("Purchase requests unavailable");
+        return await response.json() as { requests?: PurchaseRequest[] };
+      });
+      if (!Array.isArray(payload.requests)) throw new Error("Invalid purchase requests response");
+      if (purchaseRequestsReadRef.current !== pending || controller.signal.aborted) return null;
+      purchaseRequestsSnapshotRef.current = { userId, loadedAt: Date.now(), requests: payload.requests };
+      // Identical polls must not rerender every trade card and reload rank totals.
+      const requests = payload.requests;
+      setMyRequests(previous => JSON.stringify(previous) === JSON.stringify(requests) ? previous : requests);
+      setPurchaseRequestsState("ready");
+      return payload.requests;
     } catch {
-      setWorkspaceError(safeErrorMessage("workspace", isAr));
-      return false;
-    }
-  }, [isAr, tracedReadFetch]);
+      if (purchaseRequestsReadRef.current !== pending) return null;
+      setPurchaseRequestsState("error");
+      if (!desktopWorkspaceNavigation) setWorkspaceError(safeErrorMessage("workspace", isAr));
+      return null;
+    } finally {
+      if (purchaseRequestsReadRef.current === pending) purchaseRequestsReadRef.current = null;
+    } })();
+    return pending.promise;
+  }, [desktopWorkspaceNavigation, isAr, sessionUser?.id, tracedReadFetch]);
 
   const refreshSellerWorkspace = useCallback(async (options?: { commissionId?: string }) => {
+    const revisionAtStart = sellerWorkspaceRevisionRef.current;
     try {
       const commissionQuery = options?.commissionId?.trim()
         ? `?commissionId=${encodeURIComponent(options.commissionId.trim())}`
@@ -1815,10 +1862,60 @@ export function UsdtExchangePage({
           qaCommissionModeEnabled?: boolean;
           qaCommissionResetEnabled?: boolean;
         };
-        setMyListings((myListingsJson.listings ?? []).filter((listing) => listing.status !== "closed" && listing.status !== "cancelled"));
+        // A read started before a successful mutation cannot restore old data.
+        if (revisionAtStart === sellerWorkspaceRevisionRef.current) {
+          setMyListings((myListingsJson.listings ?? []).filter((listing) => listing.status !== "closed" && listing.status !== "cancelled"));
+        }
         setSellerWorkspaceSummary(myListingsJson.summary ?? null);
-        setSellerCommissionStatus(myListingsJson.commissionStatus ?? null);
-        refreshedCommissionStatus = myListingsJson.commissionStatus ?? null;
+        let incomingCommissionStatus = myListingsJson.commissionStatus ?? null;
+        const openCommissionId = openCommissionIdRef.current;
+        if (incomingCommissionStatus && openCommissionId && Array.isArray(incomingCommissionStatus.payableRecords)
+          && !incomingCommissionStatus.payableRecords.some((record) => record.commissionId === openCommissionId)) {
+          // Every refresh path (poll, focus, notification or manual action) must
+          // retire a settled payment panel before showing another record. A
+          // no-TxID deposit can settle without ever entering pending_verification.
+          openCommissionIdRef.current = null;
+          setCommissionPayOpen(false);
+          setCommissionPayMessage(null);
+          setCommissionTxSignature("");
+          setCommissionPayerType(null);
+          setCommissionAdvancedOpen(false);
+          const nextRecord = incomingCommissionStatus.payableRecords[0];
+          incomingCommissionStatus = {
+            ...incomingCommissionStatus,
+            commissionId: nextRecord?.commissionId,
+            payableAmountDue: nextRecord?.paymentAmountDue ?? nextRecord?.amountDue ?? 0,
+            dueAt: nextRecord?.dueAt,
+            source: nextRecord?.source,
+            issueReason: nextRecord?.issueReason,
+            relatedRequestId: nextRecord?.relatedRequestId,
+            relatedTradeId: nextRecord?.relatedTradeId,
+            relatedTradeDisplayNumber: nextRecord?.relatedTradeDisplayNumber,
+            selectionError: undefined,
+          };
+          setSellerWorkspaceMessage(incomingCommissionStatus.pendingCount
+            ? (isAr ? "تم تحديث حالة الدفع. اختر العمولة التالية المستحقة عندما تكون مستعدًا." : "Payment status updated. Select the next outstanding commission when you are ready.")
+            : (isAr ? "تم التحقق من الدفع وتسوية جميع العمولات المستحقة." : "Payment verified. All commission dues are settled."));
+        }
+        setSellerCommissionStatus((current) => {
+          const incoming = incomingCommissionStatus;
+          const selectedIdToPreserve = openCommissionIdRef.current ?? (!options?.commissionId ? current?.commissionId : undefined);
+          const selected = selectedIdToPreserve
+            ? incoming?.payableRecords?.find((record) => record.commissionId === selectedIdToPreserve)
+            : undefined;
+          // A slower general workspace response must not switch a payment
+          // panel from the requested trade to the oldest outstanding fee.
+          return incoming && selected ? { ...incoming,
+            commissionId: selected.commissionId,
+            payableAmountDue: selected.paymentAmountDue ?? selected.amountDue,
+            dueAt: selected.dueAt,
+            relatedRequestId: selected.relatedRequestId,
+            relatedTradeId: selected.relatedTradeId,
+            relatedTradeDisplayNumber: selected.relatedTradeDisplayNumber,
+            selectionError: undefined,
+          } : incoming;
+        });
+        refreshedCommissionStatus = incomingCommissionStatus;
         setCommissionWalletConfiguration(myListingsJson.commissionWalletConfiguration ?? null);
         setQaCommissionModeEnabled(Boolean(myListingsJson.qaCommissionModeEnabled));
         setQaCommissionResetEnabled(Boolean(myListingsJson.qaCommissionResetEnabled));
@@ -1844,12 +1941,40 @@ export function UsdtExchangePage({
       setWorkspaceError(safeErrorMessage("workspace", isAr));
       return null;
     }
-  }, [isAr, refreshMyPurchaseRequests, tracedReadFetch]);
+  }, [isAr, refreshMyPurchaseRequests, setCommissionPayMessage, setSellerWorkspaceMessage, tracedReadFetch]);
+
+  // Purchase requests are financial state, so the workspace must converge even
+  // when a user disabled in-app notifications or an SSE connection was lost.
+  useEffect(() => {
+    if (!sessionUser || isSessionResolving) return;
+    let disposed = false;
+    let inFlight = false;
+    const refreshVisibleRequests = async () => {
+      if (disposed || inFlight || document.visibilityState !== "visible") return;
+      inFlight = true;
+      try {
+        await refreshMyPurchaseRequests();
+      } finally {
+        inFlight = false;
+      }
+    };
+    const resume = () => { void refreshVisibleRequests(); };
+    const interval = window.setInterval(() => { void refreshVisibleRequests(); }, 12_000);
+    window.addEventListener("focus", resume);
+    document.addEventListener("visibilitychange", resume);
+    return () => {
+      disposed = true;
+      window.clearInterval(interval);
+      window.removeEventListener("focus", resume);
+      document.removeEventListener("visibilitychange", resume);
+    };
+  }, [isSessionResolving, refreshMyPurchaseRequests, sessionUser]);
 
   const syncListingState = useCallback((listing: MarketplaceListing | null, options?: { remove?: boolean }) => {
     if (!listing) return;
+    sellerWorkspaceRevisionRef.current += 1;
     const shouldRemove = options?.remove === true || listing.status === "closed" || listing.status === "cancelled";
-    const isPubliclyVisible = listing.status === "active" && listing.approvalStatus !== "pending" && listing.approvalStatus !== "rejected";
+    const isPubliclyVisible = ["active", "matched", "in_trade"].includes(listing.status) && listing.approvalStatus !== "pending" && listing.approvalStatus !== "rejected";
     setMyListings((prev) => {
       const next = shouldRemove ? prev.filter((item) => item.id !== listing.id) : [listing, ...prev.filter((item) => item.id !== listing.id)];
       return next.filter((item) => item.status !== "closed" && item.status !== "cancelled");
@@ -1866,19 +1991,17 @@ export function UsdtExchangePage({
     void refreshSellerWorkspace();
   }, [refreshSellerWorkspace]);
 
-  const hasPendingCommissionVerification = sellerCommissionStatus?.payableRecords?.some(
-    (record) => record.paymentVerificationStatus === "pending_verification",
-  ) === true;
+  const hasUnpaidCommissions = (sellerCommissionStatus?.pendingCount ?? 0) > 0;
   const selectedCommissionIdForRefresh = sellerCommissionStatus?.commissionId?.trim() || undefined;
 
   // A seller can keep this dashboard open while an administrator issues a
   // commission. Reconcile when the page regains focus even when there was no
   // existing debt to activate the payment-verification poller below.
   useEffect(() => {
-    // Pending verification has its own interval and resume listeners below.
+    // Unpaid commissions have their own interval and resume listeners below.
     // Let that effect preserve the selected record without issuing a second
     // focus/visibility refresh at the same time.
-    if (!hasSellerWorkspaceAccess || isSessionResolving || hasPendingCommissionVerification) return;
+    if (!hasSellerWorkspaceAccess || isSessionResolving || hasUnpaidCommissions) return;
     const refreshAfterResume = () => {
       if (document.visibilityState !== "visible" || commissionPayOpen || sellerWorkspaceResumeRefreshInFlightRef.current) return;
       sellerWorkspaceResumeRefreshInFlightRef.current = true;
@@ -1892,10 +2015,10 @@ export function UsdtExchangePage({
       window.removeEventListener("focus", refreshAfterResume);
       document.removeEventListener("visibilitychange", refreshAfterResume);
     };
-  }, [commissionPayOpen, hasPendingCommissionVerification, hasSellerWorkspaceAccess, isSessionResolving, refreshSellerWorkspace]);
+  }, [commissionPayOpen, hasUnpaidCommissions, hasSellerWorkspaceAccess, isSessionResolving, refreshSellerWorkspace]);
 
   useEffect(() => {
-    if (!hasSellerWorkspaceAccess || !hasPendingCommissionVerification) return;
+    if (!hasSellerWorkspaceAccess || isSessionResolving || !hasUnpaidCommissions) return;
 
     let disposed = false;
     let refreshInFlight = false;
@@ -1903,27 +2026,12 @@ export function UsdtExchangePage({
       if (disposed || refreshInFlight) return;
       refreshInFlight = true;
       try {
-        const refreshed = await refreshSellerWorkspace(
-          selectedCommissionIdForRefresh
-            ? { commissionId: selectedCommissionIdForRefresh }
+        const selectedCommissionId = openCommissionIdRef.current;
+        await refreshSellerWorkspace(
+          selectedCommissionId
+            ? { commissionId: selectedCommissionId }
             : undefined,
         );
-        const selectedRecordStillPayable = !selectedCommissionIdForRefresh
-          || refreshed?.payableRecords?.some((record) => record.commissionId === selectedCommissionIdForRefresh) === true;
-        // The cron may have settled the selected record between polls. Close
-        // its panel before restoring the ordinary selection so pending copy or
-        // a 0.000000 amount cannot silently move to another commission.
-        if (!disposed && refreshed && !selectedRecordStillPayable) {
-          const fallbackStatus = await refreshSellerWorkspace();
-          if (disposed) return;
-          setCommissionPayMessage(null);
-          setCommissionPayOpen(false);
-          setCommissionPayerType(null);
-          setCommissionAdvancedOpen(false);
-          setSellerWorkspaceMessage(fallbackStatus?.pendingCount
-            ? (isAr ? "تم تحديث حالة الدفع. اختر العمولة التالية المستحقة عندما تكون مستعدًا." : "Payment status updated. Select the next outstanding commission when you are ready.")
-            : (isAr ? "تم التحقق من الدفع وتسوية جميع العمولات المستحقة." : "Payment verified. All commission dues are settled."));
-        }
       } finally {
         refreshInFlight = false;
       }
@@ -1942,13 +2050,7 @@ export function UsdtExchangePage({
       window.removeEventListener("focus", refreshAfterResume);
       document.removeEventListener("visibilitychange", refreshAfterResume);
     };
-  }, [
-    hasPendingCommissionVerification,
-    hasSellerWorkspaceAccess,
-    isAr,
-    refreshSellerWorkspace,
-    selectedCommissionIdForRefresh,
-  ]);
+  }, [hasUnpaidCommissions, hasSellerWorkspaceAccess, isSessionResolving, refreshSellerWorkspace]);
 
   const refreshDiscordSharingStatus = useCallback(async () => {
     const response = await tracedReadFetch(
@@ -1974,7 +2076,7 @@ export function UsdtExchangePage({
     setCommissionTxSignature("");
     setCommissionPayerType(null);
     setCommissionAdvancedOpen(false);
-  }, []);
+  }, [setCommissionPayMessage]);
 
   const revealCommissionPaymentPanel = useCallback(() => {
     if (typeof window === "undefined") return;
@@ -2012,6 +2114,7 @@ export function UsdtExchangePage({
       && (sellerCommissionStatus.payableAmountDue ?? 0) > 0;
     if (payableRecord || isCurrentPayableRecord) {
       if (payableRecord) {
+        if (payableRecord.paymentNetwork === "TRC20" || payableRecord.paymentNetwork === "BEP20") setCommissionNetwork(payableRecord.paymentNetwork);
         setSellerCommissionStatus((current) => current ? {
           ...current,
           commissionId: payableRecord.commissionId,
@@ -2033,7 +2136,7 @@ export function UsdtExchangePage({
     // Keep a secure deep-link fallback for a stale workspace snapshot. The
     // reactive query handler below fetches and authorizes this exact record.
     router.push(commissionPaymentDestination(normalizedCommissionId));
-  }, [isAr, openCommissionPaymentPanel, revealCommissionPaymentPanel, router, sellerCommissionStatus]);
+  }, [isAr, openCommissionPaymentPanel, revealCommissionPaymentPanel, router, sellerCommissionStatus?.commissionId, sellerCommissionStatus?.payableAmountDue, sellerCommissionStatus?.payableRecords, setSellerWorkspaceMessage]);
 
   const reviewPayableCommissions = useCallback(() => {
     if (typeof document !== "undefined") {
@@ -2044,7 +2147,7 @@ export function UsdtExchangePage({
         return;
       }
     }
-    router.push("/usdt-exchange?commission=review#commission-status");
+    navigateToPageSection(router, "/usdt-exchange?commission=review#commission-status");
   }, [router]);
 
   const openMarketplaceCompliancePayment = useCallback(() => {
@@ -2066,11 +2169,11 @@ export function UsdtExchangePage({
       return;
     }
 
-    // Do not decide commission eligibility from a bootstrap role or before the
-    // canonical seller workspace response has supplied the payable record.
-    if (isSessionResolving || isWorkspaceWidgetsLoading) return;
+    // Resolve the canonical actor, then load the exact payment independently
+    // of unrelated workspace widgets.
+    if (isSessionResolving) return;
 
-    const intentKey = commissionPaymentIntentId || "missing-record";
+    const intentKey = `${sessionUser?.id ?? "anonymous"}:${commissionPaymentIntentId || "missing-record"}`;
     if (commissionPayIntentHandledRef.current === intentKey) return;
     commissionPayIntentHandledRef.current = intentKey;
     commissionPayDeepLinkHandledRef.current = true;
@@ -2090,13 +2193,24 @@ export function UsdtExchangePage({
       setSellerWorkspaceMessage(isAr ? "رابط الدفع هذا لا يحتوي على سجل العمولة. افتح تذكير عمولة حاليًا." : "This payment link is missing its commission record. Please open a current commission reminder.");
       return;
     }
-    let cancelled = false;
+    const existingRecord = sellerCommissionStatus?.payableRecords?.find((record) => record.commissionId === requestedCommissionId);
+    if (existingRecord) { openCommissionPayment(requestedCommissionId); clearCommissionPayDeepLink(); return; }
     void (async () => {
       // The normal workspace response selects the oldest due record. A
       // commission deep link must instead revalidate its exact record on the
       // server and must never silently pay a different one.
-      const commissionStatus = await refreshSellerWorkspace({ commissionId: requestedCommissionId });
-      if (cancelled) return;
+      let commissionStatus: SellerCommissionStatus | null = null;
+      try {
+        const response = await fetch(`/api/alpha-exchange/my-listings?commissionId=${encodeURIComponent(requestedCommissionId)}`, { cache: "no-store", signal: AbortSignal.timeout(15_000) });
+        if (response.ok) {
+          const payload = await response.json();
+          commissionStatus = payload.commissionStatus ?? null;
+          if (commissionPayIntentHandledRef.current !== intentKey) return;
+          setSellerCommissionStatus(commissionStatus);
+          setCommissionWalletConfiguration(payload.commissionWalletConfiguration ?? null);
+        }
+      } catch { /* Show the retryable loading error below. */ }
+      if (commissionPayIntentHandledRef.current !== intentKey) return;
       clearCommissionPayDeepLink();
       if (!commissionStatus) {
         setSellerWorkspaceMessage(isAr ? "تعذر تحميل حالة العمولة. حاول مرة أخرى." : "Unable to load commission status. Please retry.");
@@ -2118,22 +2232,7 @@ export function UsdtExchangePage({
       openCommissionPaymentPanel();
       revealCommissionPaymentPanel();
     })();
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    clearCommissionPayDeepLink,
-    commissionPaymentIntent,
-    commissionPaymentIntentId,
-    isAr,
-    hasSellerWorkspaceAccess,
-    isSessionResolving,
-    isWorkspaceWidgetsLoading,
-    openCommissionPaymentPanel,
-    revealCommissionPaymentPanel,
-    refreshSellerWorkspace,
-    sessionUser,
-  ]);
+  }, [clearCommissionPayDeepLink, commissionPaymentIntent, commissionPaymentIntentId, isAr, hasSellerWorkspaceAccess, isSessionResolving, openCommissionPaymentPanel, revealCommissionPaymentPanel, refreshSellerWorkspace, sessionUser, sellerCommissionStatus, openCommissionPayment, setSellerWorkspaceMessage]);
 
   const refreshNotifications = useCallback(async (options?: { category?: "all" | NotificationCategory; query?: string; unreadOnly?: boolean }) => {
     if (!sessionUser) return;
@@ -2180,22 +2279,11 @@ export function UsdtExchangePage({
         appendLoginJourneyStep("Notifications loading (first dashboard load)", notificationsStartedAt, Date.now(), { firstLoad: true });
       }
     } catch {
-      setStatusMessage(safeErrorMessage("workspace", isAr));
+      setWorkspaceError(safeErrorMessage("workspace", isAr));
     } finally {
       setNotificationsLoading(false);
     }
   }, [isAr, notificationCategory, notificationQuery, notificationUnreadOnly, sessionUser, tracedReadFetch]);
-
-  const refreshNotificationPreferences = useCallback(async () => {
-    try {
-      const response = await tracedReadFetch("Workspace data loading: notification preferences", "/api/alpha-exchange/notification-preferences", { cache: "no-store" });
-      if (!response.ok) return;
-      const payload = (await response.json()) as { preferences: { inApp: boolean; email: boolean; sms: boolean } };
-      if (payload.preferences) setNotificationPreferences(payload.preferences);
-    } catch {
-      // Keep silent to preserve UX messaging style.
-    }
-  }, [tracedReadFetch]);
 
   const handleMarkAllNotificationsRead = useCallback(async () => {
     try {
@@ -2212,7 +2300,7 @@ export function UsdtExchangePage({
     } catch {
       setStatusMessage(safeErrorMessage("workspace", isAr));
     }
-  }, [isAr, refreshNotifications]);
+  }, [isAr, refreshNotifications, setStatusMessage]);
 
   const handleNotificationReadState = useCallback(async (notificationId: string, isRead: boolean) => {
     try {
@@ -2229,7 +2317,7 @@ export function UsdtExchangePage({
     } catch {
       setStatusMessage(safeErrorMessage("workspace", isAr));
     }
-  }, [isAr, refreshNotifications]);
+  }, [isAr, refreshNotifications, setStatusMessage]);
 
   const handleDeleteNotification = useCallback(async (notificationId: string) => {
     try {
@@ -2242,34 +2330,7 @@ export function UsdtExchangePage({
     } catch {
       setStatusMessage(safeErrorMessage("workspace", isAr));
     }
-  }, [isAr, refreshNotifications]);
-
-  async function handleNotificationPreferencesSave(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    try {
-      const response = await fetch("/api/alpha-exchange/notification-preferences", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(notificationPreferences),
-      });
-      if (!response.ok) {
-        setSellerWorkspaceMessage(await readApiErrorMessage(response, safeErrorMessage("settings", isAr)));
-        return;
-      }
-      setSellerWorkspaceMessage(isAr ? "تم تحديث تفضيلات الإشعارات." : "Notification preferences updated.");
-    } catch {
-      setSellerWorkspaceMessage(safeErrorMessage("settings", isAr));
-    }
-  }
-
-  useEffect(() => {
-    if (!canonicalSession) return;
-    setIsSessionResolving(canonicalSession.isResolving);
-    setSessionResolutionError(canonicalSession.error);
-    if (!canonicalSession.isResolving) {
-      setSessionUser(canonicalSession.user);
-    }
-  }, [canonicalSession]);
+  }, [isAr, refreshNotifications, setStatusMessage]);
 
   useEffect(() => {
     if (isLoginJourneyTraceEnabled()) {
@@ -2324,6 +2385,52 @@ export function UsdtExchangePage({
     };
   }, [isAr, tracedReadFetch]);
 
+  const hasSelectedListing = selectedListingSnapshot !== null;
+  useEffect(() => {
+    if (isLoadingListings || (isDashboardWorkspace && !hasSelectedListing)) return;
+    let disposed = false;
+    let controller: AbortController | null = null;
+    const refreshListings = async () => {
+      if (disposed || controller || document.visibilityState !== "visible") return;
+      controller = new AbortController();
+      const revision = sellerWorkspaceRevisionRef.current;
+      try {
+        const response = await tracedReadFetch("Marketplace terms refresh", "/api/alpha-exchange/listings", {
+          cache: "no-store", signal: controller.signal,
+        });
+        if (!response.ok) return;
+        const payload = await response.json() as { listings?: MarketplaceListing[] };
+        if (!disposed && revision === sellerWorkspaceRevisionRef.current && Array.isArray(payload.listings)) {
+          setListings(payload.listings);
+          listingsLoadedAtRef.current = Date.now();
+          // A confirmed removal must not revive the dialog's old terms through
+          // its snapshot fallback. Failed or malformed reads never reach here.
+          // Read the latest intent so a late response cannot close a newer choice.
+          const selectedId = selectedListingIntentRef.current;
+          if (selectedId && !purchaseRequestInFlightRef.current
+            && !payload.listings.some((listing) => listing.id === selectedId)) {
+            closeListingModal();
+            setStatusMessage(isAr ? "هذا العرض لم يعد متاحًا." : "This listing is no longer available.");
+          }
+        }
+      } catch {
+        // Retain the last usable market on transient read failures. Mutations still validate durable state.
+      } finally { controller = null; }
+    };
+    const resume = () => { void refreshListings(); };
+    if (hasSelectedListing) resume();
+    const interval = window.setInterval(resume, 15_000);
+    window.addEventListener("focus", resume);
+    document.addEventListener("visibilitychange", resume);
+    return () => {
+      disposed = true;
+      controller?.abort();
+      window.clearInterval(interval);
+      window.removeEventListener("focus", resume);
+      document.removeEventListener("visibilitychange", resume);
+    };
+  }, [closeListingModal, hasSelectedListing, isAr, isDashboardWorkspace, isLoadingListings, setStatusMessage, tracedReadFetch]);
+
   useEffect(() => {
     if (!sessionUser) return;
     if (!sellerFormTouchedRef.current) {
@@ -2353,7 +2460,6 @@ export function UsdtExchangePage({
           const [applicationRes] = await Promise.all([
             tracedReadFetch("Workspace data loading: seller application", "/api/alpha-exchange/seller-application", { cache: "no-store" }),
             hasSellerWorkspaceAccess ? refreshSellerWorkspace() : refreshMyPurchaseRequests(),
-            refreshNotificationPreferences(),
           ]);
           if (cancelled) return;
           if (applicationRes.ok) {
@@ -2375,12 +2481,11 @@ export function UsdtExchangePage({
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [hasSellerWorkspaceAccess, isAr, isSessionResolving, refreshMyPurchaseRequests, refreshNotificationPreferences, refreshSellerWorkspace, sessionUser, tracedReadFetch]);
+  }, [hasSellerWorkspaceAccess, isAr, isSessionResolving, refreshMyPurchaseRequests, refreshSellerWorkspace, sessionUser, tracedReadFetch]);
 
   useEffect(() => {
     if (!hasSellerWorkspaceAccess || isSessionResolving || deferredSellerPanelsReady) return;
-    const sentinel = sellerDeferredPanelsSentinelRef.current;
-    if (!sentinel) return;
+    if (!sellerDeferredPanelsTarget) return;
     if (typeof IntersectionObserver === "undefined") {
       setDeferredSellerPanelsReady(true);
       return;
@@ -2394,9 +2499,9 @@ export function UsdtExchangePage({
       },
       { rootMargin: "220px 0px" },
     );
-    observer.observe(sentinel);
+    observer.observe(sellerDeferredPanelsTarget);
     return () => observer.disconnect();
-  }, [deferredSellerPanelsReady, hasSellerWorkspaceAccess, isSessionResolving]);
+  }, [deferredSellerPanelsReady, hasSellerWorkspaceAccess, isSessionResolving, sellerDeferredPanelsTarget]);
 
   useEffect(() => {
     if (!hasSellerWorkspaceAccess) {
@@ -2409,11 +2514,6 @@ export function UsdtExchangePage({
     if (isSessionResolving) return;
     setNotificationsInitialized(true);
   }, [isSessionResolving, notificationsInitialized, sessionUser]);
-
-  useEffect(() => {
-    if (!sessionUser || hasSellerWorkspaceAccess) return;
-    void refreshBuyerProfileSummary();
-  }, [hasSellerWorkspaceAccess, myRequests, refreshBuyerProfileSummary, sessionUser]);
 
   useEffect(() => {
     if (!sessionUser || !notificationsInitialized) return;
@@ -2430,11 +2530,11 @@ export function UsdtExchangePage({
         setNotificationUnreadCount(Math.max(0, payload.unreadCount));
       }
 
-      // A commission notification is also the cross-instance signal that the
-      // server persisted a new payable record. Previously the bell updated but
-      // an already-open seller workspace remained incorrectly "all clear".
+      // Due and verified notifications both change the seller's payable state.
+      // Include final settlement even when no next commission link is present.
       const commissionSignature = payload.notifications
-        .filter((notification) => Boolean(getCommissionPaymentNotificationDestination(notification)))
+        .filter((notification) => notification.reason === "commission_payment_verified"
+          || Boolean(getCommissionPaymentNotificationDestination(notification)))
         .map((notification) => `${notification.id}:${notification.updatedAt ?? notification.createdAt}`)
         .sort()
         .join("|");
@@ -2476,34 +2576,15 @@ export function UsdtExchangePage({
   }, [isSessionResolving]);
 
   const scrollToCreateListingSection = useCallback(() => {
-    if (typeof document === "undefined") return false;
-    const target = document.getElementById("create-listing") ?? document.getElementById("create-listing-form");
-    if (!target) return false;
-    target.scrollIntoView({ behavior: "smooth", block: "start" });
-    return true;
+    return focusWorkspaceSection("create-listing");
   }, []);
 
   const scrollToMyListingsSection = useCallback(() => {
-    if (typeof document === "undefined") return false;
-    const target = document.getElementById("my-listings-section");
-    if (!target) return false;
-    target.focus({ preventScroll: true });
-    target.scrollIntoView({ behavior: "smooth", block: "start" });
-    window.requestAnimationFrame(() => {
-      window.requestAnimationFrame(() => {
-        document.getElementById("my-listings-section")?.focus({ preventScroll: true });
-      });
-    });
-    return true;
+    return focusWorkspaceSection("my-listings-section");
   }, []);
 
   const scrollToBuyerTradeHistorySection = useCallback(() => {
-    if (typeof document === "undefined") return false;
-    const target = document.getElementById(BUYER_TRADE_HISTORY_SECTION_ID);
-    if (!target) return false;
-    target.scrollIntoView({ behavior: "smooth", block: "start" });
-    window.requestAnimationFrame(() => target.focus({ preventScroll: true }));
-    return true;
+    return focusWorkspaceSection(BUYER_TRADE_HISTORY_SECTION_ID);
   }, []);
 
   const fetchSellerProfileData = useCallback(async (sellerId: string) => {
@@ -2514,15 +2595,15 @@ export function UsdtExchangePage({
     sellerProfileAbortControllerRef.current = controller;
     setIsSellerProfileLoading(true);
     try {
-      const response = await fetch(`/api/alpha-exchange/sellers/${sellerId}/profile`, {
-        cache: "no-store",
-        signal: controller.signal,
+      const { response, payload } = await runClientRequest(controller, 15_000, async (signal) => {
+        const response = await fetch(`/api/alpha-exchange/sellers/${sellerId}/profile`, { cache: "no-store", signal });
+        const payload = await response.json() as { profile?: PremiumSellerProfileData; error?: string };
+        return { response, payload };
       });
-      const payload = (await response.json()) as { profile?: PremiumSellerProfileData; error?: string };
       if (requestId !== sellerProfileRequestIdRef.current || controller.signal.aborted) return;
       if (!response.ok || !payload.profile) {
         setSellerProfileData(null);
-        setStatusMessage(isAr ? safeErrorMessage("workspace", true) : (payload.error ?? safeErrorMessage("workspace", false)));
+        setStatusMessage((current) => current ?? (isAr ? safeErrorMessage("workspace", true) : (payload.error ?? safeErrorMessage("workspace", false))));
         return;
       }
       setSellerProfileData(payload.profile);
@@ -2530,67 +2611,52 @@ export function UsdtExchangePage({
       if (error instanceof Error && error.name === "AbortError") return;
       if (requestId !== sellerProfileRequestIdRef.current) return;
       setSellerProfileData(null);
-      setStatusMessage(safeErrorMessage("workspace", isAr));
+      setStatusMessage((current) => current ?? safeErrorMessage("workspace", isAr));
     } finally {
       if (requestId === sellerProfileRequestIdRef.current) {
         sellerProfileAbortControllerRef.current = null;
         setIsSellerProfileLoading(false);
       }
     }
-  }, [isAr]);
+  }, [isAr, setStatusMessage]);
 
+  const selectedSellerId = selectedListing?.sellerId;
   useEffect(() => {
-    if (!selectedListing) return;
+    if (!selectedSellerId) return;
     const timerId = window.setTimeout(() => {
-      void fetchSellerProfileData(selectedListing.sellerId);
+      void fetchSellerProfileData(selectedSellerId);
     }, 250);
     return () => {
       window.clearTimeout(timerId);
       sellerProfileAbortControllerRef.current?.abort();
     };
-  }, [fetchSellerProfileData, selectedListing]);
+  }, [fetchSellerProfileData, selectedSellerId]);
 
-  // Scroll to create-listing when navigated with hash, retrying briefly while deferred UI mounts.
+  // Reveal the selected listing before the shared navigation helper focuses it.
+  // Data refreshes must never replay an old scroll over the user's latest click.
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    const hash = window.location.hash.replace("#", "").trim();
-    if (hash !== "create-listing" && hash !== "create-listing-form") return;
-    if (scrollToCreateListingSection()) return;
-    const startedAt = Date.now();
-    let frame = 0;
-    const tryScroll = () => {
-      if (scrollToCreateListingSection()) return;
-      if (Date.now() - startedAt > 10000) return;
-      frame = window.requestAnimationFrame(tryScroll);
-    };
-    frame = window.requestAnimationFrame(tryScroll);
-    return () => window.cancelAnimationFrame(frame);
-  }, [isApprovedSellerSession, isLoadingListings, scrollToCreateListingSection]);
-
-  // Notification actions target one seller-owned listing. Retry only while the
-  // deferred seller workspace finishes mounting, then focus the exact status.
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const anchor = window.location.hash.replace("#", "").trim();
-    if (!anchor.startsWith("seller-listing-")) return;
-    let frame = 0;
-    let attempts = 0;
-    const reveal = () => {
-      const target = document.getElementById(anchor);
-      if (target) {
-        target.scrollIntoView({ behavior: "smooth", block: "center" });
-        target.focus({ preventScroll: true });
-        return;
+    if (!hasSellerWorkspaceAccess) return;
+    const revealSellerWorkspace = (event?: Event) => {
+      const anchor = pageSectionFromEvent(event);
+      if (anchor === "my-listings-section") setSellerListingsExpanded(true);
+      if (!anchor.startsWith("seller-listing-")) return;
+      const selected = myListings.find((listing) => `seller-listing-${encodeURIComponent(listing.id)}` === anchor);
+      if (selected) {
+        setSellerListingsExpanded(true);
+        setSellerExpandedListingId(selected.id);
       }
-      attempts += 1;
-      if (attempts < 24) frame = window.requestAnimationFrame(reveal);
     };
-    reveal();
-    return () => window.cancelAnimationFrame(frame);
-  }, [isWorkspaceWidgetsLoading, myListings]);
+    revealSellerWorkspace();
+    window.addEventListener("hashchange", revealSellerWorkspace);
+    window.addEventListener(PAGE_SECTION_NAVIGATION_EVENT, revealSellerWorkspace);
+    return () => {
+      window.removeEventListener("hashchange", revealSellerWorkspace);
+      window.removeEventListener(PAGE_SECTION_NAVIGATION_EVENT, revealSellerWorkspace);
+    };
+  }, [hasSellerWorkspaceAccess, myListings]);
 
   useEffect(() => {
-    if (isLoadingListings || selectedListing || !sessionUser) return;
+    if (isLoadingListings || selectedListing || selectedListingIntentRef.current || !sessionUser) return;
     if (typeof window === "undefined") return;
     const listingId = new URLSearchParams(window.location.search).get("listing");
     if (!listingId) return;
@@ -2600,6 +2666,7 @@ export function UsdtExchangePage({
       setStatusMessage(isAr ? "هذا العرض لم يعد متاحًا." : "This listing is no longer available.");
       return;
     }
+    selectedListingIntentRef.current = listing.id;
     setSelectedListing(listing);
     setPurchasePriceMode("listing_price");
     setBuyerOfferedPrice("");
@@ -2611,10 +2678,10 @@ export function UsdtExchangePage({
     setFaceToFaceSafetyAcknowledged(false);
     setBuyerInfo((prev) => ({
       ...prev,
-      usdtAmount: formatIntegerForInput(listing.minimumTrade || listing.availableAmount),
-      receivingWalletAddress: "",
+      usdtAmount: normalizeTradeAmountInput(listing.minimumTrade || listing.availableAmount),
+      receivingWalletAddress: "", receivingNetwork: listing.network, cardlessBankName: "", cardlessWithdrawalCode: "", cardlessVerificationKind: "id_number", cardlessVerificationValue: "", cardlessIlsAmount: "",
     }));
-  }, [isAr, isLoadingListings, listings, selectedListing, sessionUser, updateListingSelectionQuery]);
+  }, [isAr, isLoadingListings, listings, selectedListing, sessionUser, setStatusMessage, updateListingSelectionQuery]);
 
   useEffect(() => {
     if (deepLinkAppliedRef.current) return;
@@ -2665,7 +2732,7 @@ export function UsdtExchangePage({
         // Keep normal commission flow available if QA cleanup fails.
       }
     })();
-  }, [isAr, qaCommissionModeEnabled, qaCommissionResetEnabled, refreshSellerWorkspace, sellerCommissionStatus]);
+  }, [isAr, qaCommissionModeEnabled, qaCommissionResetEnabled, refreshSellerWorkspace, sellerCommissionStatus, setCommissionPayMessage]);
 
   // Generate QR code when commission modal opens or network changes
   useEffect(() => {
@@ -2689,8 +2756,9 @@ export function UsdtExchangePage({
     },
     {
       icon: BadgePercent,
-      title: isAr ? "رسوم خدمة شفافة 1%" : "Transparent 1% Service Fee",
-      body: isAr ? "رسوم ثابتة وواضحة على كل عملية تتم عبر Alpha Exchange." : "A simple, transparent 1% fee for each facilitated marketplace transaction.",
+      commissionNotice: true,
+      title: isAr ? "1% على المشتري + 1% على البائع" : "1% Buyer + 1% Seller Fees",
+      body: isAr ? "عمولة الصفقات الجديدة 2% إجمالاً. البائع يدفع الحصتين إلى Alpha بعملة USDT ويغطي أي نقص في حصة المشتري." : "New trades carry a 2% total fee. The seller remits both shares to Alpha in USDT and covers any uncollected buyer share.",
     },
     {
       icon: HandCoins,
@@ -2714,29 +2782,6 @@ export function UsdtExchangePage({
     },
   ], [isAr]);
 
-  const timelineSteps = useMemo<TimelineStep[]>(() => [
-    {
-      title: isAr ? "المشتري يرسل طلب الصفقة" : "Buyer submits trade request",
-      body: isAr ? "يتم تسجيل طلب الصفقة فور الإرسال ضمن سجل زمني دائم." : "The request is recorded as a permanent timeline event immediately.",
-    },
-    {
-      title: isAr ? "البائع يقبل الطلب" : "Seller accepts request and creates trade",
-      body: isAr ? "يبقى Trade ID ثابتًا من لحظة الطلب وحتى إكمال الصفقة." : "The Trade ID stays fixed from the moment the request is created through trade completion.",
-    },
-    {
-      title: isAr ? "المشتري يحدد Payment Sent" : "Buyer marks Payment Sent",
-      body: isAr ? "يتم تحديث الحالة زمنيًا لبدء مرحلة التسليم." : "Timeline updates to payment-sent stage for delivery handoff.",
-    },
-    {
-      title: isAr ? "البائع يحدد USDT Sent" : "Seller marks USDT Sent",
-      body: isAr ? "يتم تسجيل إرسال USDT وتنتظر الصفقة تأكيد المشتري." : "USDT-sent step is logged and waits for buyer confirmation.",
-    },
-    {
-      title: isAr ? "المشتري يؤكد الإتمام" : "Buyer confirms completion",
-      body: isAr ? "تُقفل الصفقة تلقائيًا ثم تُفتح نافذة المراجعة." : "Trade auto-locks and review window opens after completion.",
-    },
-  ], [isAr]);
-
   const faqs = useMemo(() => [
     {
       q: isAr ? "كيف يعمل Alpha Exchange؟" : "How does Alpha Exchange work?",
@@ -2745,10 +2790,9 @@ export function UsdtExchangePage({
         : "Alpha Exchange is a structured marketplace where Alpha Traders coordinates and verifies transactions between buyers and sellers.",
     },
     {
-      q: isAr ? "كيف يتم احتساب رسوم الخدمة 1%؟" : "How is the 1% service fee calculated?",
-      a: isAr
-        ? "يتم احتساب نسبة 1% بشكل واضح على العملية المنسقة عبر Alpha Exchange ويتم توضيحها قبل الإتمام."
-        : "A transparent 1% service fee is calculated on each facilitated exchange and confirmed before finalization.",
+      q: isAr ? "كيف يتم احتساب عمولة المشتري والبائع؟" : "How are buyer and seller fees calculated?",
+      a: marketplaceFeeTerms(isAr ? "ar" : "en"),
+      commissionNotice: true,
     },
     {
       q: isAr ? "ما الشبكات المدعومة لـ USDT؟" : "Which USDT networks are supported?",
@@ -2764,6 +2808,8 @@ export function UsdtExchangePage({
     },
   ], [isAr]);
 
+  const livePresence = useLivePresenceMap(listings.map(listing => listing.sellerId));
+  const mixedPriceCurrencies = currencyFilter === "all" && new Set(listings.map(listing => listing.currency)).size > 1;
   const filteredListings = useMemo(() => {
     const filtered = listings.filter((listing) => {
       const price = toNumber(listing.price);
@@ -2779,39 +2825,28 @@ export function UsdtExchangePage({
       const paymentMethodPass = paymentMethodFilter === "all" || methods.some((method) => method.toLowerCase() === paymentMethodFilter.toLowerCase());
       const minAmountPass = !minAmount || amount >= minAmount;
       const maxAmountPass = !maxAmount || amount <= maxAmount;
-      const minPricePass = !minPrice || price >= minPrice;
-      const maxPricePass = !maxPrice || price <= maxPrice;
-      const trustPass = !trustScoreThreshold || (listing.sellerReputation?.trustScore ?? 0) >= trustScoreThreshold;
-      const onlinePass = !onlineOnlyFilter || listing.sellerProfile?.onlineStatus === "online";
+      const minPricePass = mixedPriceCurrencies || !minPrice || price >= minPrice;
+      const maxPricePass = mixedPriceCurrencies || !maxPrice || price <= maxPrice;
+      const trustPass = !trustScoreThreshold || (listing.sellerReputation?.alphaScore?.value ?? listing.sellerReputation?.trustScore ?? 0) >= trustScoreThreshold;
+      const onlinePass = !onlineOnlyFilter || deriveSellerPresence(livePresence[listing.sellerId] ?? listing.sellerProfile ?? {}).online;
       return networkPass && currencyPass && paymentMethodPass && minAmountPass && maxAmountPass && minPricePass && maxPricePass && trustPass && onlinePass;
     });
 
     const sorted = [...filtered];
     sorted.sort((a, b) => {
       if (sortBy === "trust-desc") {
-        const rankPriority = sellerMarketplaceRankPriority(a) - sellerMarketplaceRankPriority(b);
-        if (rankPriority !== 0) return rankPriority;
-        const featuredPriority = Number(Boolean(b.sellerProfile?.isFeaturedSeller)) - Number(Boolean(a.sellerProfile?.isFeaturedSeller));
-        if (featuredPriority !== 0) return featuredPriority;
-        const trustPriority = (b.sellerReputation?.trustScore ?? 0) - (a.sellerReputation?.trustScore ?? 0);
-        if (trustPriority !== 0) return trustPriority;
-        const ratingPriority = (b.sellerReputation?.rating ?? 0) - (a.sellerReputation?.rating ?? 0);
-        if (ratingPriority !== 0) return ratingPriority;
-        const responsePriority = (a.sellerReputation?.responseTimeMinutes ?? parseMinutes(a.responseTime)) - (b.sellerReputation?.responseTimeMinutes ?? parseMinutes(b.responseTime));
-        if (responsePriority !== 0) return responsePriority;
-        return (b.sellerReputation?.completedTrades ?? 0) - (a.sellerReputation?.completedTrades ?? 0);
+        return compareMarketplaceSellers(a.sellerReputation, b.sellerReputation)
+          || a.id.localeCompare(b.id);
       }
-      if (sortBy === "price-asc") return toNumber(a.price) - toNumber(b.price);
+      if (sortBy === "price-asc") return a.currency.localeCompare(b.currency) || toNumber(a.price) - toNumber(b.price);
       if (sortBy === "amount-desc") return toNumber(b.availableAmount) - toNumber(a.availableAmount);
       if (sortBy === "trades-desc") return (b.sellerReputation?.completedTrades ?? 0) - (a.sellerReputation?.completedTrades ?? 0);
       if (sortBy === "rating-desc") return (b.sellerReputation?.rating ?? 0) - (a.sellerReputation?.rating ?? 0);
-      return toNumber(a.responseTime) - toNumber(b.responseTime);
+      if (sortBy === "response-fast") return compareSellerResponseTimes(a.sellerReputation, b.sellerReputation);
+      return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
     });
-    if (sortBy === "newest") {
-      sorted.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
-    }
     return sorted;
-  }, [listings, networkFilter, currencyFilter, paymentMethodFilter, minAmountFilter, maxAmountFilter, minPriceFilter, maxPriceFilter, trustScoreFilter, onlineOnlyFilter, sortBy]);
+  }, [livePresence, listings, networkFilter, currencyFilter, paymentMethodFilter, minAmountFilter, maxAmountFilter, minPriceFilter, maxPriceFilter, trustScoreFilter, onlineOnlyFilter, sortBy, mixedPriceCurrencies]);
 
   useEffect(() => {
     if (!isMobileViewport) return;
@@ -2844,59 +2879,31 @@ export function UsdtExchangePage({
     [listings]
   );
   const requireAuth = useCallback(() => {
+    if (isSessionResolving || sessionResolutionError) {
+      setStatusMessage(isAr ? "نعيد الاتصال بحسابك. يُرجى المحاولة بعد لحظات." : "Reconnecting to your account. Please try again in a moment.");
+      return false;
+    }
     if (!sessionUser) {
       router.push(`/login?redirectTo=${encodeURIComponent(tradeReturnPath)}`);
       return false;
     }
     return true;
-  }, [sessionUser, router, tradeReturnPath]);
-
-  async function handleOwnerSellerProfileState(sellerId: string, state: { feature?: boolean; hidden?: boolean }, successMessage: string) {
-    setIsOwnerProfileActionLoading(true);
-    try {
-      const response = await fetch(`/api/alpha-exchange/admin/sellers/${sellerId}/profile-state`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(state),
-      });
-      const payload = (await response.json()) as { error?: string };
-      if (!response.ok) {
-        setStatusMessage(isAr ? safeErrorMessage("request", true) : (payload.error ?? safeErrorMessage("request", false)));
-        return;
-      }
-      setStatusMessage(successMessage);
-      await Promise.all([refreshSellerWorkspace(), fetchSellerProfileData(sellerId)]);
-    } catch {
-      setStatusMessage(safeErrorMessage("request", isAr));
-    } finally {
-      setIsOwnerProfileActionLoading(false);
-    }
-  }
-
-  async function handleOwnerSuspendSeller(sellerId: string) {
-    setIsOwnerProfileActionLoading(true);
-    try {
-      const response = await fetch(`/api/alpha-exchange/admin/sellers/${sellerId}/suspend`, { method: "POST" });
-      const payload = (await response.json()) as { error?: string };
-      if (!response.ok) {
-        setStatusMessage(isAr ? safeErrorMessage("request", true) : (payload.error ?? safeErrorMessage("request", false)));
-        return;
-      }
-      setStatusMessage(isAr ? "تم إيقاف البائع." : "Seller suspended.");
-      await Promise.all([refreshSellerWorkspace(), fetchSellerProfileData(sellerId)]);
-    } catch {
-      setStatusMessage(safeErrorMessage("request", isAr));
-    } finally {
-      setIsOwnerProfileActionLoading(false);
-    }
-  }
+  }, [isSessionResolving, sessionResolutionError, sessionUser, setStatusMessage, isAr, router, tradeReturnPath]);
 
   const openListingModal = useCallback((listing: MarketplaceListing, priceMode: "listing_price" | "buyer_offer" = "listing_price") => {
     if (!requireAuth()) return;
+    if (!interfaceAccess.trading) {
+      router.push("/onboarding");
+      return;
+    }
     const supportedMethods = normalizePaymentMethodList(listing.paymentMethods, listing.paymentMethod);
+    const offerBounds = getPriceOfferBounds(listing.price);
+    selectedListingIntentRef.current = listing.id;
     setSelectedListing(listing);
     setPurchasePriceMode(priceMode);
-    setBuyerOfferedPrice("");
+    setBuyerOfferedPrice(priceMode === "buyer_offer" && offerBounds && toNumber(offerBounds.listingPrice) > 0.01
+      ? (toNumber(offerBounds.listingPrice) - 0.01).toFixed(2)
+      : "");
     setSelectedPurchasePaymentMethod(supportedMethods[0] ?? "Bank Transfer");
     setSellerProfileData(null);
     setPurchaseSubmitted(false);
@@ -2907,13 +2914,16 @@ export function UsdtExchangePage({
     updateListingSelectionQuery(listing.id);
     setBuyerInfo((prev) => ({
       ...prev,
-      usdtAmount: formatIntegerForInput(listing.minimumTrade || listing.availableAmount),
-      receivingWalletAddress: "",
+      usdtAmount: normalizeTradeAmountInput(listing.minimumTrade || listing.availableAmount),
+      receivingWalletAddress: "", receivingNetwork: listing.network, cardlessBankName: "", cardlessWithdrawalCode: "", cardlessVerificationKind: "id_number", cardlessVerificationValue: "", cardlessIlsAmount: "",
     }));
-  }, [requireAuth, updateListingSelectionQuery]);
+  }, [requireAuth, interfaceAccess.trading, router, setStatusMessage, updateListingSelectionQuery]);
 
   const handleManageOwnedListing = useCallback((listing: MarketplaceListing) => {
     if (!requireAuth()) return;
+    setSellerListingsExpanded(true);
+    setSellerExpandedListingId(listing.id);
+    setSellerWorkspaceMessage(null);
     if (scrollToMyListingsSection()) {
       return;
     }
@@ -2925,9 +2935,9 @@ export function UsdtExchangePage({
       });
       return;
     }
-    router.push("/dashboard/seller#my-listings-section");
+    navigateToPageSection(router, `/usdt-exchange#seller-listing-${encodeURIComponent(listing.id)}`);
     setStatusMessage(isAr ? `أدر عرضك من لوحة البائع (${shortListingRef(listing)}).` : `Manage your listing in Seller Dashboard (${shortListingRef(listing)}).`);
-  }, [isAr, isSellerDashboardWorkspace, requireAuth, router, scrollToMyListingsSection]);
+  }, [isAr, isSellerDashboardWorkspace, requireAuth, router, scrollToMyListingsSection, setSellerWorkspaceMessage, setStatusMessage]);
 
   async function handleSellerApplicationSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -2955,6 +2965,7 @@ export function UsdtExchangePage({
       if (data.application) {
         setSellerApplication(data.application);
         setApplicationSubmitted(true);
+        setStatusMessage(isAr ? "تم إرسال طلب البائع للمراجعة." : "Seller application submitted for review.");
         window.dispatchEvent(new Event("alpha-auth-changed"));
       }
     } catch {
@@ -2964,6 +2975,10 @@ export function UsdtExchangePage({
 
   async function submitPurchaseRequest() {
     if (!selectedListing) return;
+    if (selectedListing.bankTransferProvider === "wise" && (!wise.enabled || !wise.reviewedAccounts.some(account => account.id === buyerInfo.buyerWiseAccountId))) {
+      setStatusMessage(isAr ? "اختر حساب Wise الشخصي الذي تمت مراجعة ملكيته لإرسال USD." : "Select your ownership-reviewed personal Wise account for sending USD.");
+      return;
+    }
     // React state updates after the current event. This synchronous ref closes
     // the double-tap window on phones before a second handler can submit.
     if (purchaseRequestInFlightRef.current || isSubmittingPurchase) return;
@@ -2977,12 +2992,14 @@ export function UsdtExchangePage({
       return;
     }
     const requestedAmount = toNumber(tradeAmount);
-    const minTrade = Math.max(0, toNumber(selectedListing.minimumTrade));
-    const maxTrade = toNumber(selectedListing.maximumTrade || selectedListing.availableAmount);
+    const minTrade = getPurchaseMinimumTrade(selectedListing.minimumTrade, isCardlessAtmPaymentMethod(selectedListingPaymentMethod));
+    const availableTrade = toNumber(selectedListing.availableAmount);
+    const configuredMaxTrade = toNumber(selectedListing.maximumTrade) || availableTrade;
+    const maxTrade = Math.min(configuredMaxTrade, availableTrade);
     if (requestedAmount < minTrade || requestedAmount > maxTrade) {
       setStatusMessage(isAr
-        ? `يجب أن يكون مبلغ الصفقة بين ${minTrade.toLocaleString("en-IL")} و${maxTrade.toLocaleString("en-IL")} USDT.`
-        : `Trade amount must be between ${minTrade.toLocaleString("en-IL")} and ${maxTrade.toLocaleString("en-IL")} USDT.`);
+        ? `يجب أن يكون مبلغ الصفقة بين ${Math.trunc(minTrade).toLocaleString("en-US")} و${Math.trunc(maxTrade).toLocaleString("en-US")} USDT.`
+        : `Trade amount must be between ${Math.trunc(minTrade).toLocaleString("en-US")} and ${Math.trunc(maxTrade).toLocaleString("en-US")} USDT.`);
       return;
     }
     if (purchasePriceMode === "buyer_offer") {
@@ -2992,9 +3009,17 @@ export function UsdtExchangePage({
         return;
       }
     }
-    const walletValidationError = getWalletAddressValidationError(selectedListing.network, buyerInfo.receivingWalletAddress);
+    const walletValidationError = getWalletAddressValidationError(buyerInfo.receivingNetwork, buyerInfo.receivingWalletAddress);
     if (walletValidationError) {
-      setStatusMessage(localizeWalletValidationError(walletValidationError, selectedListing.network, isAr));
+      setStatusMessage(localizeWalletValidationError(walletValidationError, buyerInfo.receivingNetwork, isAr));
+      return;
+    }
+    if (isCardlessAtmPaymentMethod(selectedListingPaymentMethod) && (
+      !isCardlessWithdrawalBank(buyerInfo.cardlessBankName)
+      || !parseCardlessWithdrawalDetails({ withdrawalCode: buyerInfo.cardlessWithdrawalCode, verificationKind: buyerInfo.cardlessVerificationKind, verificationValue: buyerInfo.cardlessVerificationValue }).ok
+      || !validateCardlessIlsAmount(buyerInfo.cardlessIlsAmount, calculateTradePaymentTotal(String(requestedAmount), (purchasePriceMode === "buyer_offer" ? toNumber(buyerOfferedPrice) : toNumber(selectedListing.price)).toFixed(2), true) ?? "")
+    )) {
+      setStatusMessage(isAr ? "اختر بنك السحب وأكمل رمز السحب والهوية أو تاريخ الميلاد ومبلغ السحب المطابق لإجمالي الصفقة بالشيكل." : "Choose the withdrawal bank and complete the withdrawal code, ID or birth date, and ILS amount matching the trade total.");
       return;
     }
     const fallbackMessage = isAr
@@ -3003,37 +3028,50 @@ export function UsdtExchangePage({
     purchaseRequestInFlightRef.current = true;
     setIsSubmittingPurchase(true);
     try {
-      const response = await fetch("/api/alpha-exchange/purchase-requests", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          listingId: selectedListing.id,
-          usdtAmount: tradeAmount,
-          buyerReceivingWalletAddress: normalizeWalletAddress(buyerInfo.receivingWalletAddress),
-          paymentMethod: selectedListingPaymentMethod ?? undefined,
-          safetyAcknowledged: faceToFaceSafetyAcknowledged,
-          priceMode: purchasePriceMode,
-          offeredPrice: purchasePriceMode === "buyer_offer" ? buyerOfferedPrice : undefined,
-        }),
+      const { response, payload } = await runClientRequest(new AbortController(), 20_000, async (signal) => {
+        const response = await fetch("/api/alpha-exchange/purchase-requests", {
+          method: "POST",
+          signal,
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            feePolicyVersion: "buyer_seller_1pct_v1",
+            listingId: selectedListing.id,
+            usdtAmount: tradeAmount,
+            buyerReceivingWalletAddress: normalizeWalletAddress(buyerInfo.receivingWalletAddress),
+            receivingNetwork: buyerInfo.receivingNetwork,
+            ...(selectedListing.bankTransferProvider === "wise" ? { currency: "USD", bankTransferProvider: "wise", buyerWiseAccountId: buyerInfo.buyerWiseAccountId } : {}),
+            ...(isCardlessAtmPaymentMethod(selectedListingPaymentMethod) ? {
+              bankName: buyerInfo.cardlessBankName,
+              cardlessWithdrawalCode: buyerInfo.cardlessWithdrawalCode,
+              cardlessVerificationKind: buyerInfo.cardlessVerificationKind,
+              cardlessVerificationValue: buyerInfo.cardlessVerificationValue,
+              cardlessIlsAmount: buyerInfo.cardlessIlsAmount,
+            } : {}),
+            paymentMethod: selectedListingPaymentMethod ?? undefined,
+            safetyAcknowledged: faceToFaceSafetyAcknowledged,
+            priceMode: purchasePriceMode,
+            offeredPrice: purchasePriceMode === "buyer_offer" ? buyerOfferedPrice : undefined,
+          }),
+        });
+        const payload = await readPurchaseResponse(response);
+        return { response, payload };
       });
       if (!response.ok) {
         const requestId = response.headers.get("x-request-id");
         if (requestId) {
           console.warn("[alpha-exchange] purchase request rejected", { requestId, listingId: selectedListing.id });
         }
-        let errorMessage = fallbackMessage;
-        let errorCode = "";
-        let errorDetails: Record<string, unknown> = {};
-        try {
-          const payload = (await response.json()) as { error?: unknown; message?: unknown; code?: unknown; details?: unknown };
-          if (typeof payload.error === "string" && payload.error.trim()) errorMessage = payload.error;
-          else if (typeof payload.message === "string" && payload.message.trim()) errorMessage = payload.message;
-          if (typeof payload.code === "string" && payload.code.trim()) errorCode = payload.code;
-          if (payload.details && typeof payload.details === "object") errorDetails = payload.details as Record<string, unknown>;
-        } catch {
-          const fallbackText = (await response.text()).trim();
-          if (fallbackText && !/^<!doctype html>/i.test(fallbackText)) errorMessage = fallbackText;
-        }
+        let errorMessage = response.status === 401
+          ? "Your session expired. Sign in again and check your trades before resubmitting."
+          : response.status >= 500
+            ? "The service is temporarily unavailable. Check your trades before resubmitting."
+            : fallbackMessage;
+        let errorCode = response.status === 401 ? "SESSION_EXPIRED" : response.status === 429 ? "RATE_LIMITED" : response.status >= 500 ? "SERVICE_UNAVAILABLE" : "";
+        if (typeof payload.error === "string" && payload.error.trim()) errorMessage = payload.error;
+        else if (typeof payload.message === "string" && payload.message.trim()) errorMessage = payload.message;
+        if (typeof payload.code === "string" && payload.code.trim()) errorCode = payload.code;
+        const errorDetails = payload.details && typeof payload.details === "object" && !Array.isArray(payload.details)
+          ? payload.details as Record<string, unknown> : {};
         const requiresVerification = response.status === 403
           && sessionUser?.emailVerified !== true
           && (
@@ -3047,17 +3085,10 @@ export function UsdtExchangePage({
             prev.map((r) => r.id === blockingId ? { ...r, buyerConfirmationArchivedAt: new Date().toISOString() } : r),
           );
         }
-        if (
-          blockingId
-          && (
-            errorCode === "ACTIVE_TRADE_EXISTS"
-            || errorCode === "PURCHASE_REQUEST_ALREADY_SUBMITTED"
-            || errorCode === "AWAITING_BUYER_CONFIRMATION"
-            || errorCode === "PENDING_BUYER_FEEDBACK"
-          )
-        ) {
+        const blockingDestination = purchaseBlockDestination(errorCode, errorDetails);
+        if (blockingDestination) {
           closeListingModal();
-          router.push(`/trade-room/${blockingId}`);
+          navigateAfterSuccess(router, blockingDestination, purchaseRequestErrorMessage(errorCode, isAr, errorMessage, errorDetails));
           return;
         }
         const commissionActionHref = typeof errorDetails.actionHref === "string" && errorDetails.actionHref.startsWith("/")
@@ -3068,10 +3099,10 @@ export function UsdtExchangePage({
           router.push(commissionActionHref);
           return;
         }
-        setStatusMessage(purchaseRequestErrorMessage(errorCode, isAr, errorMessage));
+        setStatusMessage(purchaseRequestErrorMessage(errorCode, isAr, errorMessage, errorDetails));
         return;
       }
-      const data = (await response.json()) as { purchase?: PurchaseRequest; destination?: string };
+      const data = payload as { purchase?: PurchaseRequest; destination?: string };
       if (data.purchase) {
         setMyRequests((prev) => [data.purchase as PurchaseRequest, ...prev]);
         setPurchaseSubmitted(true);
@@ -3079,15 +3110,19 @@ export function UsdtExchangePage({
         setIsRedirectingToVerification(false);
         setStatusMessage(null);
         closeListingModal();
-        navigateAfterSuccess(router, data.destination);
+        navigateAfterSuccess(router, data.destination, isAr ? "تم إرسال طلب الشراء بنجاح." : "Purchase request submitted successfully.");
+      } else {
+        setStatusMessage(isAr
+          ? "لم يصل تأكيد الطلب. افتح صفقاتك للتحقق قبل إعادة الإرسال."
+          : "The request confirmation was not received. Check your trades before resubmitting.");
       }
     } catch (error) {
-      const message = isAr
-        ? "تعذر الاتصال بالخادم الآن. تحقق من اتصالك وحاول مرة أخرى."
-        : (error instanceof Error && error.message.trim()
-          ? error.message
-          : "Unable to reach the server right now. Check your connection and try again.");
-      setStatusMessage(message);
+      console.warn("[alpha-exchange] purchase confirmation unavailable", {
+        errorType: error instanceof Error ? error.name : "UnknownError",
+      });
+      setStatusMessage(isAr
+        ? "لم نتمكن من تأكيد حالة الطلب. افتح صفقاتك للتحقق قبل إعادة الإرسال."
+        : "We could not confirm the request status. Check your trades before resubmitting.");
     } finally {
       purchaseRequestInFlightRef.current = false;
       setIsSubmittingPurchase(false);
@@ -3099,9 +3134,13 @@ export function UsdtExchangePage({
     await submitPurchaseRequest();
   }
 
-  const selectedAmount = selectedListing ? toNumber(selectedListing.availableAmount) : 0;
-  const selectedPrice = selectedListing ? toNumber(selectedListing.price) : 0;
   const selectedOfferBounds = selectedListing ? getPriceOfferBounds(selectedListing.price) : null;
+  const selectedAmount = selectedListing ? toNumber(selectedListing.availableAmount) : 0;
+  const selectedPrice = selectedOfferBounds
+    ? toNumber(selectedOfferBounds.listingPrice)
+    : selectedListing
+      ? toNumber(selectedListing.price)
+      : 0;
   const selectedOfferValidation = selectedListing && purchasePriceMode === "buyer_offer"
     ? validatePriceOffer(selectedListing.price, buyerOfferedPrice)
     : null;
@@ -3109,15 +3148,17 @@ export function UsdtExchangePage({
     ? (selectedOfferValidation?.ok ? toNumber(selectedOfferValidation.offeredPrice) : 0)
     : selectedPrice;
   const selectedTradeAmount = toNumber(buyerInfo.usdtAmount);
-  const commission = selectedTradeAmount * selectedTradePrice * 0.01;
-  const estimatedTotal = selectedTradeAmount * selectedTradePrice + commission;
+  const estimatedTradeValue = Number(calculateFiatAmount(String(selectedTradeAmount), selectedTradePrice.toFixed(2)) ?? 0);
+  const estimatedBuyerFee = Number(calculateTradeBuyerFiatFee(String(selectedTradeAmount), selectedTradePrice.toFixed(2)) ?? 0);
+  const estimatedTotal = Number(calculateTradePaymentTotal(String(selectedTradeAmount), selectedTradePrice.toFixed(2), true) ?? 0);
 
   const isApprovedSeller = isApprovedSellerSession;
   const isSellerWorkspaceUser = hasSellerWorkspaceAccess;
-  const hasBuyerRole = Boolean(sessionUser && hasRole(sessionUser, "buyer"));
+  const hasBuyerRole = interfaceAccess.buyer;
+  const canViewBuyerWorkspace = !isSellerWorkspaceUser && (hasBuyerRole || interfaceAccess.pendingSeller);
   const sellerApplicationEligibility = getSellerApplicationEligibility({ isCanonicalUserLoading: isSessionResolving, canonicalUserError: sessionResolutionError, canonicalUser: sessionUser, application: sellerApplication, applicationSubmitted });
   const canAccessListingCreation = isApprovedSeller || isAdminSession;
-  const isOwnerViewer = sessionUser?.role === "admin" && isAlphaExchangeOwnerEmail(sessionUser.email);
+  const isOwnerViewer = canViewOwnerExchangeIdentity(sessionUser);
   const showBuyerSellerApplicationUpFront = Boolean(
     sessionUser
     && hasBuyerRole
@@ -3139,19 +3180,21 @@ export function UsdtExchangePage({
     }
   }, [isSellerWorkspaceUser, router, sessionUser]);
 
-  const marketPricePerUsdt = marketSnapshot?.pairs.usdtIls.price ?? DEFAULT_MARKET_PRICE_PER_USDT;
-  const maxAllowedListingPrice = marketPricePerUsdt + MAX_PRICE_MARKUP_ILS;
+  const marketReferenceAvailable = !marketFeed.error && isFxReferenceUsable(marketSnapshot);
+  const marketPricePerUsdt = marketSnapshot?.pairs.usdtIls.price ?? 0;
+  const maxAllowedListingPrice = marketReferenceAvailable ? maximumIlsListingPrice(marketPricePerUsdt) : 0;
   const listingCreatePrice = toNumber(listingCreateForm.price);
   const listingCreateAmount = toNumber(listingCreateForm.availableAmount);
   const listingCreateMinTrade = toNumber(listingCreateForm.minimumTrade);
   const listingCreateMaxTrade = toNumber(listingCreateForm.maximumTrade || listingCreateForm.availableAmount);
-  const listingCreatePriceInvalid = listingCreatePrice > maxAllowedListingPrice;
-  const listingCreatePriceValid = listingCreatePrice > 0 && !listingCreatePriceInvalid;
+  const listingCreateIsWise = listingCreateForm.bankTransferProvider === "wise";
+  const listingCreatePriceInvalid = !listingCreateIsWise && marketReferenceAvailable && listingCreatePrice > maxAllowedListingPrice;
+  const listingCreatePriceValid = (listingCreateIsWise || marketReferenceAvailable) && listingCreatePrice > 0 && !listingCreatePriceInvalid;
   const listingCreateTradeRangeInvalid = listingCreateMaxTrade <= 0 || listingCreateMaxTrade > listingCreateAmount || listingCreateMaxTrade < listingCreateMinTrade;
   const listingCreateSelectedMethods = normalizePaymentMethodList(listingCreateForm.paymentMethods, undefined);
   const listingCreateSelectedBanks = parseIsraeliBankSelection(listingCreateForm.bankName);
-  const listingCreateRequiresBank = requiresBankSelection(listingCreateSelectedMethods);
-  const listingCreateRequiresBankAccount = requiresSellerPayoutBankAccount(listingCreateSelectedMethods);
+  const listingCreateRequiresBank = !listingCreateIsWise && requiresBankSelection(listingCreateSelectedMethods);
+  const listingCreateRequiresBankAccount = !listingCreateIsWise && requiresSellerPayoutBankAccount(listingCreateSelectedMethods);
   const listingCreateSelectedBankAccount = sellerBankAccounts.find((account) => account.id === listingCreateForm.bankAccountId);
   const listingCreateBankAccountMismatch = Boolean(
     listingCreateRequiresBankAccount
@@ -3164,16 +3207,14 @@ export function UsdtExchangePage({
     || (listingCreateRequiresBank && !listingCreateSelectedBanks.length)
     || (listingCreateRequiresBankAccount && !listingCreateForm.bankAccountId)
     || listingCreateBankAccountMismatch
+    || (listingCreateIsWise && (!wise.enabled || listingCreateForm.currency !== "USD" || !wise.reviewedAccounts.some(account => account.id === listingCreateForm.wiseAccountId)))
     || !listingCommissionAgreement;
   const listingCreateTotalIls = listingCreateAmount * listingCreatePrice;
-  const listingCreateCurrencyValue = Number.isFinite(listingCreateTotalIls) ? Math.round(listingCreateTotalIls) : 0;
-  const listingCreationBlocked = !canAccessListingCreation || Boolean(sellerWorkspaceSummary && !sellerWorkspaceSummary.canCreateListing);
-  const listingCreationBlockedReason = !canAccessListingCreation
-    ? (isAr ? "حساب البائع معلّق. يمكنك دفع العمولة المستحقة، لكن لا يمكنك إنشاء عروض جديدة حتى إعادة تفعيل الحساب." : "Your seller account is suspended. You can pay outstanding commissions, but cannot create new listings until the account is reactivated.")
-    : (sellerWorkspaceSummary?.blockedReason
-      ?? (isAr ? "إنشاء العروض متوقف حالياً. راجع العروض النشطة أو العمولة أو حالة الامتثال." : "Listing creation is currently blocked."));
   const listingBlockedByMarketplaceEnforcement = Boolean(sellerWorkspaceSummary?.enforcement?.restricted);
-  const listingBlockedByCommission = !listingBlockedByMarketplaceEnforcement && (sellerWorkspaceSummary?.pendingCommissionCount ?? 0) > 0;
+  const listingBlockedByCommission = !listingBlockedByMarketplaceEnforcement && Math.max(
+    sellerWorkspaceSummary?.pendingCommissionCount ?? 0, sellerCommissionStatus?.pendingCount ?? 0,
+  ) > 0;
+  const listingCreationBlocked = !canAccessListingCreation || listingBlockedByCommission || Boolean(sellerWorkspaceSummary && !sellerWorkspaceSummary.canCreateListing);
   const listingBlockedByActiveLimit = Boolean(
     sellerWorkspaceSummary &&
     !sellerWorkspaceSummary.canCreateListing &&
@@ -3181,7 +3222,16 @@ export function UsdtExchangePage({
     !listingBlockedByCommission &&
     !listingBlockedByMarketplaceEnforcement,
   );
-  const isListingCreateSubmitDisabled = listingCreateMissingRequired || listingCreatePriceInvalid || listingCreateTradeRangeInvalid || listingCreationBlocked;
+  const listingCreationBlockedReason = !canAccessListingCreation
+    ? (isAr ? "حساب البائع معلّق. يمكنك دفع العمولة المستحقة، لكن لا يمكنك إنشاء عروض جديدة حتى إعادة تفعيل الحساب." : "Your seller account is suspended. You can pay outstanding commissions, but cannot create new listings until the account is reactivated.")
+    : listingBlockedByCommission ? listingCommissionRequiredMessage(isAr)
+    : listingBlockedByActiveLimit && sellerWorkspaceSummary
+      ? (isAr
+        ? `عدد العروض المفتوحة: ${sellerWorkspaceSummary.openListingCount}. الحد الأقصى: ${sellerWorkspaceSummary.activeListingLimit}. يشمل ذلك العروض بانتظار المراجعة. أغلق أحدها قبل إنشاء عرض جديد. يمكنك متابعة عروضك وصفقاتك الحالية.`
+        : `You already have ${sellerWorkspaceSummary.openListingCount} open listings, including listings awaiting review. Close one before creating another.`)
+      : (sellerWorkspaceSummary?.blockedReason
+        ?? (isAr ? "إنشاء العروض متوقف حالياً. راجع العروض النشطة أو العمولة أو حالة الامتثال." : "Listing creation is currently blocked."));
+  const isListingCreateSubmitDisabled = (!listingCreateIsWise && !marketReferenceAvailable) || listingCreateMissingRequired || listingCreatePriceInvalid || listingCreateTradeRangeInvalid || listingCreationBlocked;
   const listingCreateGuardCardTone = listingCreatePriceInvalid
     ? "border-red-500/60 bg-red-500/10 shadow-[0_0_0_3px_rgba(239,68,68,0.16)]"
     : listingCreatePriceValid
@@ -3192,29 +3242,19 @@ export function UsdtExchangePage({
     : listingCreatePriceValid
       ? "border-emerald-500/60 bg-emerald-500/10 text-emerald-200"
       : "border-white/10 bg-black/20 text-[#D1D5DB]";
-  useEffect(() => {
-    const canAutoPopulate = listingCreateAmount > 0 && listingCreatePrice > 0 && !listingCreatePriceInvalid;
-    if (!canAutoPopulate) {
-      setListingCreateForm((prev) => (prev.currency === "" ? prev : { ...prev, currency: "" }));
-      setListingCreateCurrencyManualOverride(false);
-      return;
-    }
-    if (listingCreateCurrencyManualOverride) return;
-    const nextValue = formatWholeNumber(listingCreateCurrencyValue);
-    setListingCreateForm((prev) => (prev.currency === nextValue ? prev : { ...prev, currency: nextValue }));
-  }, [listingCreateAmount, listingCreateCurrencyManualOverride, listingCreateCurrencyValue, listingCreatePrice, listingCreatePriceInvalid]);
   const listingEditPrice = toNumber(listingEditForm.price);
   const listingEditAmount = toNumber(listingEditForm.availableAmount);
   const listingEditMinTrade = toNumber(listingEditForm.minimumTrade);
   const listingEditMaxTrade = toNumber(listingEditForm.maximumTrade || listingEditForm.availableAmount);
   const listingEditCurrency = listingEditForm.currency.trim().toUpperCase();
-  const listingEditPriceInvalid = listingEditCurrency === "ILS" && listingEditPrice > maxAllowedListingPrice;
-  const listingEditPriceValid = listingEditPrice > 0 && !listingEditPriceInvalid;
+  const listingEditPriceInvalid = marketReferenceAvailable && listingEditCurrency === "ILS" && listingEditPrice > maxAllowedListingPrice;
+  const listingEditPriceValid = (listingEditCurrency !== "ILS" || marketReferenceAvailable) && listingEditPrice > 0 && !listingEditPriceInvalid;
   const listingEditTradeRangeInvalid = listingEditMaxTrade <= 0 || listingEditMaxTrade > listingEditAmount || listingEditMaxTrade < listingEditMinTrade;
   const listingEditSelectedMethods = normalizePaymentMethodList(listingEditForm.paymentMethods, undefined);
   const listingEditSelectedBanks = parseIsraeliBankSelection(listingEditForm.bankName);
-  const listingEditRequiresBank = requiresBankSelection(listingEditSelectedMethods);
-  const listingEditRequiresBankAccount = requiresSellerPayoutBankAccount(listingEditSelectedMethods);
+  const listingEditIsWise = listingEditForm.bankTransferProvider === "wise";
+  const listingEditRequiresBank = !listingEditIsWise && requiresBankSelection(listingEditSelectedMethods);
+  const listingEditRequiresBankAccount = !listingEditIsWise && requiresSellerPayoutBankAccount(listingEditSelectedMethods);
   const listingEditSelectedBankAccount = sellerBankAccounts.find((account) => account.id === listingEditForm.bankAccountId);
   const listingEditBankAccountMismatch = Boolean(
     listingEditRequiresBankAccount
@@ -3226,8 +3266,9 @@ export function UsdtExchangePage({
     || !listingEditSelectedMethods.length
     || (listingEditRequiresBank && !listingEditSelectedBanks.length)
     || (listingEditRequiresBankAccount && !listingEditForm.bankAccountId)
-    || listingEditBankAccountMismatch;
-  const isListingEditSubmitDisabled = listingEditMissingRequired || listingEditPriceInvalid || listingEditTradeRangeInvalid;
+    || listingEditBankAccountMismatch
+    || (listingEditIsWise && (!wise.enabled || listingEditForm.currency !== "USD" || !wise.reviewedAccounts.some(account => account.id === listingEditForm.wiseAccountId)));
+  const isListingEditSubmitDisabled = (listingEditCurrency === "ILS" && !marketReferenceAvailable) || listingEditMissingRequired || listingEditPriceInvalid || listingEditTradeRangeInvalid;
   const listingEditNeedsReason = listingEditOriginal
     ? listingEditRequiresReason(listingEditOriginal, {
         availableAmount: listingEditForm.availableAmount,
@@ -3243,39 +3284,57 @@ export function UsdtExchangePage({
     : listingEditPriceValid
       ? "border-emerald-500/60 bg-emerald-500/10 text-emerald-200"
       : "border-white/10 bg-black/20 text-[#D1D5DB]";
-  const buyerTradeAmount = toNumber(buyerInfo.usdtAmount);
-  const selectedMinTrade = selectedListing ? Math.max(0, toNumber(selectedListing.minimumTrade)) : 0;
-  const selectedMaxTrade = selectedListing ? toNumber(selectedListing.maximumTrade || selectedListing.availableAmount) : 0;
-  const buyerTradeAmountInvalid = !!selectedListing && (buyerTradeAmount < selectedMinTrade || buyerTradeAmount > selectedMaxTrade);
-  const buyerWalletValidationError = selectedListing
-    ? localizeWalletValidationError(getWalletAddressValidationError(selectedListing.network, buyerInfo.receivingWalletAddress), selectedListing.network, isAr)
-    : null;
-  const buyerWalletInvalid = buyerWalletValidationError !== null;
   const selectedListingPaymentMethods = selectedListing ? normalizePaymentMethodList(selectedListing.paymentMethods, selectedListing.paymentMethod) : [];
   const selectedListingPaymentMethod = normalizeMarketplacePaymentMethod(selectedPurchasePaymentMethod) ?? selectedListingPaymentMethods[0] ?? null;
+  const buyerTradeAmount = toNumber(buyerInfo.usdtAmount);
+  const selectedMinTrade = selectedListing ? getPurchaseMinimumTrade(selectedListing.minimumTrade, isCardlessAtmPaymentMethod(selectedListingPaymentMethod)) : 0;
+  const selectedMaxTrade = selectedListing
+    ? Math.min(
+        toNumber(selectedListing.maximumTrade) || toNumber(selectedListing.availableAmount),
+        toNumber(selectedListing.availableAmount),
+      )
+    : 0;
+  const buyerTradeAmountInvalid = !!selectedListing && (buyerTradeAmount < selectedMinTrade || buyerTradeAmount > selectedMaxTrade);
+  const buyerWalletValidationError = selectedListing
+    ? localizeWalletValidationError(getWalletAddressValidationError(buyerInfo.receivingNetwork, buyerInfo.receivingWalletAddress), buyerInfo.receivingNetwork, isAr)
+    : null;
+  const buyerWalletInvalid = buyerWalletValidationError !== null;
   const selectedListingRequiresSafetyNotice = listingRequiresFaceToFaceSafetyNotice(selectedListingPaymentMethod);
   const todayDateKey = useMemo(() => formatIsraelDateKey(new Date()), []);
 
   const sellerRequests = useMemo(() => myRequests.filter((request) => request.sellerId === sessionUser?.id), [myRequests, sessionUser?.id]);
   const showSellerWorkspace = !isMobileViewport || showDeepDeferredSections;
+  const activeBuyerRequests = useMemo(
+    () => groupOwnTrades(buyerRequests, sessionUser?.id ?? "", "buyer").active,
+    [buyerRequests, sessionUser?.id],
+  );
+  const visibleBuyerTradeStatus = !desktopBuyerNavigation && buyerTradeStatus === "active" ? "all" : buyerTradeStatus;
   const filteredBuyerRequests = useMemo(() => {
-    return buyerRequests.filter((request) => {
-      if (buyerTradeStatus !== "all" && request.status !== buyerTradeStatus) return false;
+    const requests = visibleBuyerTradeStatus === "active" ? activeBuyerRequests : buyerRequests;
+    return requests.filter((request) => {
+      if (visibleBuyerTradeStatus !== "all" && visibleBuyerTradeStatus !== "active" && request.status !== visibleBuyerTradeStatus) return false;
       const query = buyerTradeQuery.trim().toLowerCase();
       if (!query) return true;
       const haystack = `${request.tradeId ?? request.id} ${request.listingId} ${request.buyerName} ${request.sellerId}`.toLowerCase();
       return haystack.includes(query);
     });
-  }, [buyerRequests, buyerTradeQuery, buyerTradeStatus]);
+  }, [activeBuyerRequests, buyerRequests, buyerTradeQuery, visibleBuyerTradeStatus]);
+  const activeSellerRequests = useMemo(
+    () => groupOwnTrades(sellerRequests, sessionUser?.id ?? "", "seller").active,
+    [sellerRequests, sessionUser?.id],
+  );
+  // A resized desktop window must not leave the phone view on a desktop-only filter.
+  const visibleSellerTradeStatus = !desktopSellerNavigation && sellerTradeStatus === "active" ? "all" : sellerTradeStatus;
   const filteredSellerRequests = useMemo(() => {
-    return sellerRequests.filter((request) => {
-      if (sellerTradeStatus !== "all" && request.status !== sellerTradeStatus) return false;
+    const requests = visibleSellerTradeStatus === "active" ? activeSellerRequests : sellerRequests;
+    return requests.filter((request) => {
+      if (visibleSellerTradeStatus !== "all" && visibleSellerTradeStatus !== "active" && request.status !== visibleSellerTradeStatus) return false;
       const query = sellerTradeQuery.trim().toLowerCase();
       if (!query) return true;
       const haystack = `${request.tradeId ?? request.id} ${request.buyerName} ${request.listingId}`.toLowerCase();
       return haystack.includes(query);
     });
-  }, [sellerRequests, sellerTradeQuery, sellerTradeStatus]);
+  }, [activeSellerRequests, sellerRequests, sellerTradeQuery, visibleSellerTradeStatus]);
   const sellerRequestSections = useMemo(() => groupTradeRequests(filteredSellerRequests, "seller", isAr), [filteredSellerRequests, isAr]);
   const sortedSellerRequests = useMemo(
     () => sortDashboardActivityNewestFirst(filteredSellerRequests),
@@ -3289,8 +3348,6 @@ export function UsdtExchangePage({
     () => sortDashboardActivityNewestFirst(myListings),
     [myListings],
   );
-  const recentSellerRequests = useMemo(() => sortDashboardActivityNewestFirst(sellerRequests), [sellerRequests]);
-  const recentBuyerRequests = useMemo(() => sortDashboardActivityNewestFirst(buyerRequests), [buyerRequests]);
 
   useEffect(() => {
     setBuyerExpandedTradeId((current) => {
@@ -3331,48 +3388,29 @@ export function UsdtExchangePage({
       return acc;
     }, {});
     const repeatBuyersCount = Object.values(repeatBuyers).filter((count) => count > 1).length;
-    const estimatedCommissionPaid = insightMetrics.revenueGenerated * 0.01;
     const selfReputation = myListings.find((listing) => Boolean(listing.sellerReputation))?.sellerReputation ?? null;
+    const metrics = sellerRankSummary ?? selfReputation;
     return {
-      activeListings: myListings.filter((listing) => listing.status === "active").length,
+      activeListings: myListings.filter((listing) => isRequestableMarketplaceListing(listing)).length,
       pendingRequests: pendingSellerRequests.length,
       completedTrades: insightMetrics.completedTrades,
       totalUsdtSold: insightMetrics.totalUsdtSold,
       estimatedEarnings: insightMetrics.estimatedEarnings,
-      averageResponseTime: insightMetrics.averageResponseTimeMinutes
-        ? (isAr ? `${Math.round(insightMetrics.averageResponseTimeMinutes)} دقائق` : `${Math.round(insightMetrics.averageResponseTimeMinutes)} min`)
-        : (isAr ? "لا توجد بيانات كافية" : "Not enough data"),
+      rating: sellerRatingDisplay(metrics, isAr),
+      score: sellerScoreDisplay(metrics, isAr),
+      averageResponseTime: formatMeasuredResponseTime(
+        metrics?.responseTimeMinutes ?? insightMetrics.averageResponseTimeMinutes, isAr,
+        metrics?.responseSampleCount ?? insightMetrics.responseSampleCount,
+      ),
       tradeRequests: sellerRequests.length,
       successRate: insightMetrics.successRate,
       completionRate: insightMetrics.completionRate,
-      estimatedCommissionPaid,
       revenueGenerated: insightMetrics.revenueGenerated,
       repeatBuyers: repeatBuyersCount,
       averageTradeSize: insightMetrics.averageTradeSize,
       reputation: selfReputation,
     };
-  }, [isAr, myListings, pendingSellerRequests.length, sellerRequests]);
-  const sellerCurrentRank = sellerOverviewStats.reputation?.level ?? "bronze";
-  const sellerCurrentTier = SELLER_PRESTIGE_TIERS.find((tier) => tier.rank === sellerCurrentRank) ?? SELLER_PRESTIGE_TIERS[0];
-  const sellerNextTier = SELLER_PRESTIGE_TIERS.find((tier) => tier.minVolumeUsdt > sellerCurrentTier.minVolumeUsdt);
-  const sellerCompletedVolumeUsdt = Math.max(
-    0,
-    sellerOverviewStats.reputation?.lifetimeCompletedVolumeUsdt
-      ?? sellerOverviewStats.reputation?.prestigeVolumeUsdt
-      ?? sellerOverviewStats.reputation?.totalUsdtVolume
-      ?? sellerOverviewStats.totalUsdtSold,
-  );
-  const sellerRequiredVolumeUsdt = sellerNextTier?.minVolumeUsdt ?? sellerCompletedVolumeUsdt;
-  const sellerRemainingVolumeUsdt = sellerNextTier ? Math.max(0, sellerRequiredVolumeUsdt - sellerCompletedVolumeUsdt) : 0;
-  const sellerLevelProgressPercent = sellerNextTier
-    ? Math.min(
-      100,
-      Math.max(
-        0,
-        ((sellerCompletedVolumeUsdt - sellerCurrentTier.minVolumeUsdt) / Math.max(1, sellerNextTier.minVolumeUsdt - sellerCurrentTier.minVolumeUsdt)) * 100,
-      ),
-    )
-    : 100;
+  }, [isAr, myListings, pendingSellerRequests.length, sellerRequests, sellerRankSummary]);
 
   const recentCompletedTrades = useMemo(
     () =>
@@ -3428,8 +3466,16 @@ export function UsdtExchangePage({
     const completed = buyerRequests.filter((request) => request.status === "completed" || request.status === "review_open" || Boolean(request.completedAt));
     const pending = buyerRequests.filter((request) => !["completed", "review_open", "declined", "cancelled"].includes(request.status));
     const totalUsdtBought = completed.reduce((sum, request) => sum + toNumber(request.usdtAmount), 0);
-    const totalFiatSpent = completed.reduce((sum, request) => sum + toNumber(request.fiatAmount), 0);
-    const averagePurchasePrice = totalUsdtBought > 0 ? totalFiatSpent / totalUsdtBought : marketPricePerUsdt;
+    const currencyTotals = completed.reduce<Record<string, { fiat: number; usdt: number }>>((totals, request) => {
+      const currency = request.currency || "ILS";
+      const previous = totals[currency] ?? { fiat: 0, usdt: 0 };
+      totals[currency] = { fiat: previous.fiat + toNumber(request.fiatAmount), usdt: previous.usdt + toNumber(request.usdtAmount) };
+      return totals;
+    }, {});
+    const averagePurchasePrices = Object.entries(currencyTotals)
+      .filter(([, totals]) => totals.usdt > 0)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([currency, totals]) => ({ currency, price: totals.fiat / totals.usdt }));
     const paymentCounts = buyerRequests.reduce<Record<string, number>>((acc, request) => {
       const method = normalizeMarketplacePaymentMethod(request.paymentMethod);
       if (!method) return acc;
@@ -3450,7 +3496,7 @@ export function UsdtExchangePage({
       total: buyerRequests.length,
       completed: completed.length,
       pending: pending.length,
-      averagePurchasePrice,
+      averagePurchasePrices,
       favoritePaymentMethods: favoritePaymentMethods || "—",
       recentTrades: sortedBuyerRequests.slice(0, 3),
       recentPurchases: sortedBuyerRequests.slice(0, 3).length,
@@ -3458,12 +3504,12 @@ export function UsdtExchangePage({
       totalUsdtBought,
       activeDays: new Set(buyerRequests.map((request) => formatIsraelDateKey(request.completedAt ?? request.updatedAt ?? request.createdAt)).filter(Boolean)).size,
     };
-  }, [buyerRequests, isAr, listingsById, marketPricePerUsdt, sortedBuyerRequests]);
+  }, [buyerRequests, isAr, listingsById, sortedBuyerRequests]);
 
   useEffect(() => {
     setBuyerTradeVisibleCount(isMobileViewport ? 1 : 2);
     setBuyerExpandedTradeId(null);
-  }, [buyerTradeQuery, buyerTradeStatus, isMobileViewport, sessionUser?.id]);
+  }, [buyerTradeQuery, visibleBuyerTradeStatus, isMobileViewport, sessionUser?.id]);
 
   useEffect(() => {
     setSellerPrimaryRequestsExpanded(false);
@@ -3478,16 +3524,16 @@ export function UsdtExchangePage({
     const uniqueSellers = new Set(sourceListings.map((listing) => listing.sellerId));
     const onlineSellers = new Set(
       sourceListings
-        .filter((listing) => listing.sellerProfile?.onlineStatus === "online")
+        .filter((listing) => deriveSellerPresence(livePresence[listing.sellerId] ?? listing.sellerProfile ?? {}).online)
         .map((listing) => listing.sellerId),
     );
     const totalUsdtAvailable = sourceListings.reduce((sum, listing) => sum + toNumber(listing.availableAmount), 0);
-    const responseMinutes = sourceListings
-      .map((listing) => parseMinutes(listing.responseTime))
-      .filter((value) => value > 0);
+    const sellers = new Map(sourceListings.map(listing => [listing.sellerId, listing.sellerReputation]));
+    const responseMinutes = Array.from(sellers.values(), measuredSellerResponseMinutes)
+      .filter((value): value is number => value !== null);
     const averageResponseMinutes = responseMinutes.length
-      ? Math.max(1, Math.round(responseMinutes.reduce((sum, value) => sum + value, 0) / responseMinutes.length))
-      : 5;
+      ? responseMinutes.reduce((sum, value) => sum + value, 0) / responseMinutes.length
+      : null;
     const networkCounts = sourceListings.reduce<Record<string, number>>((acc, listing) => {
       const key = safeText(listing.network, "TRC20");
       acc[key] = (acc[key] ?? 0) + 1;
@@ -3521,7 +3567,7 @@ export function UsdtExchangePage({
       topPaymentMethod,
       newestSellers,
     };
-  }, [filteredListings, isAr, listings]);
+  }, [filteredListings, isAr, listings, livePresence]);
 
   const [greetingLabel, setGreetingLabel] = useState(isAr ? "مرحباً" : "Welcome");
   useEffect(() => {
@@ -3530,48 +3576,31 @@ export function UsdtExchangePage({
     const interval = window.setInterval(updateGreeting, 15 * 60 * 1000);
     return () => window.clearInterval(interval);
   }, [isAr]);
-  const sellerApprovalDate = sellerApplication?.updatedAt ?? sessionUser?.createdAt;
-  const workspaceDisplayId = toWorkspaceDisplayId(sessionUser, isSellerWorkspaceUser);
-  const workspacePrimaryName = safeText(sessionUser?.fullName, isAr ? "المتداول" : "Trader").split(" ")[0] || (isAr ? "المتداول" : "Trader");
-  const workspacePositiveMessage = isSellerWorkspaceUser
+  const welcomeRole = sessionUser ? accountRoleIdentity(sessionUser) : "guest";
+  const workspaceDisplayId = sessionUser ? publicAccountName(sessionUser) : "";
+  // This greeting belongs to the authenticated account. Public trade identity stays AT ID.
+  const workspacePrimaryName = sessionUser?.fullName?.trim() || (isAr ? "المتداول" : "Trader");
+  const workspacePositiveMessage = welcomeRole === "owner"
+    ? (isAr ? "نظرة شاملة على Alpha Traders جاهزة لك." : "Your Alpha Traders overview is ready.")
+    : isSellerWorkspaceUser
     ? sellerStatusForLanding === "suspended"
       ? (isAr ? "حساب البائع معلّق، لكن يمكنك دفع العمولات المستحقة ومتابعة التحقق منها هنا." : "Your seller account is suspended, but you can pay outstanding commissions and track verification here.")
-      : (isAr ? "كل شيء تحت سيطرتك. عروضك وصفقاتك وتنبيهاتك جاهزة." : "You are in control. Your listings, trades, and alerts are ready.")
+      : (isAr ? "كل شيء تحت سيطرتك. عروضك وصفقاتك وتنبيهاتك جاهزة." : "Your listings, trades, and alerts are ready.")
     : (isAr ? "مساحة عملك جاهزة. راقب نشاطك أولاً، ثم انتقل إلى السوق." : "Your workspace is ready. Track activity first, then jump into the marketplace.");
 
   const openTradeCount = isSellerWorkspaceUser
-    ? sellerRequests.filter((request) => !["completed", "review_open", "declined", "cancelled"].includes(request.status)).length
-    : buyerRequests.filter((request) => !["completed", "review_open", "declined", "cancelled"].includes(request.status)).length;
+    ? activeSellerRequests.length
+    : activeBuyerRequests.length;
   const totalBuyerRequests = buyerRequests.length;
   const unreadNotificationsTotal = notificationUnreadCount ?? notifications.filter((item) => !item.isRead).length;
-  const latestOpenBuyerTrade = recentBuyerRequests.find((request) => !["completed", "review_open", "declined", "cancelled"].includes(request.status));
-  const latestOpenSellerTrade = recentSellerRequests.find((request) => !["completed", "review_open", "declined", "cancelled"].includes(request.status));
-  const latestSellerInProgressTrade = recentSellerRequests.find((request) => ["accepted", "payment_sent", "funds_received", "usdt_release_pending"].includes(request.status));
-  useEffect(() => {
-    if (!sessionUser || !isApprovedSeller) return;
-    if (typeof window === "undefined") return;
-    if (!window.location.pathname.endsWith("/usdt-exchange")) return;
-    // An explicit commission deep link must win over the convenience redirect
-    // to an unrelated active trade. The commission flow clears its query only
-    // after canonical seller status reaches a terminal state, then retains the
-    // handled ref for this page instance.
-    if (
-      new URLSearchParams(window.location.search).get("commission") === "pay"
-      || commissionPayDeepLinkHandledRef.current
-    ) return;
-    const tradeId = latestSellerInProgressTrade?.id;
-    if (!tradeId) {
-      sellerActiveTradeRedirectedRef.current = null;
-      return;
-    }
-    if (sellerActiveTradeRedirectedRef.current === tradeId) return;
-    sellerActiveTradeRedirectedRef.current = tradeId;
-    handleOpenTradeRoom(tradeId);
-  }, [handleOpenTradeRoom, isApprovedSeller, latestSellerInProgressTrade?.id, sessionUser]);
+  const latestOpenBuyerTrade = activeBuyerRequests[0];
+  const latestOpenSellerTrade = activeSellerRequests[0];
+  // Existing trades remain available through the workspace's Continue Trade
+  // action. Background refreshes must never replace an intentional marketplace
+  // visit or interrupt a notification click with a generic Trade Room redirect.
   const commissionWorkspaceAction = getCommissionWorkspaceAction(sellerCommissionStatus);
   const standardCommissionDueActive = isSellerWorkspaceUser && commissionWorkspaceAction.kind !== "none";
   const marketplaceComplianceActive = Boolean(sellerWorkspaceSummary?.enforcement?.restricted);
-  const workspaceIdentityName = isAr ? `السيد/السيدة ${workspacePrimaryName}` : `Mr./Mrs. ${workspacePrimaryName}`;
   type AttentionItem = {
     title: string;
     body: string;
@@ -3612,7 +3641,7 @@ export function UsdtExchangePage({
                 : (isAr ? "عمولة مستحقة" : "Commission due"),
               body: sellerCommissionStatus?.status === "overdue"
                 ? (isAr ? "أكمل الدفع لاستعادة جميع صلاحيات البائع." : "Complete the payment to restore full seller access.")
-                : (isAr ? "ادفع العمولة الحالية لإظهار عروضك مجدداً وفتح البيع والشراء والصفقات الجديدة." : "Pay the current commission to make your listings visible again and unlock selling, buying, and new trades."),
+                : (isAr ? "سدّد العمولة المستحقة لقبول طلبات جديدة. عروضك تبقى ظاهرة ويمكنك إكمال صفقاتك الحالية." : "Pay outstanding commission to accept new requests. Your listings stay visible and existing trades can finish."),
               action: commissionWorkspaceAction.kind === "pay-one"
                 ? (isAr ? "ادفع الآن" : "Pay now")
                 : (isAr ? "مراجعة غير المدفوع" : "Review unpaid"),
@@ -3624,9 +3653,7 @@ export function UsdtExchangePage({
         latestOpenSellerTrade
           ? {
               title: isAr ? "صفقة بانتظارك" : "Trade waiting",
-              body: isAr
-                ? `الصفقة ${formatTradeId(latestOpenSellerTrade.displayNumber, latestOpenSellerTrade.tradeId ?? latestOpenSellerTrade.id)} تحتاج إلى انتباهك.`
-                : `Trade ${formatTradeId(latestOpenSellerTrade.displayNumber, latestOpenSellerTrade.tradeId ?? latestOpenSellerTrade.id)} needs your attention.`,
+              body: workspaceTradeNextStep(latestOpenSellerTrade, "seller", isAr),
               action: isAr ? "فتح الصفقة" : "Open trade",
               onClick: () => handleOpenTradeRoom(latestOpenSellerTrade.id),
             }
@@ -3678,9 +3705,7 @@ export function UsdtExchangePage({
         latestOpenBuyerTrade
           ? {
               title: isAr ? "صفقة نشطة" : "Active trade",
-              body: isAr
-                ? `الصفقة ${formatTradeId(latestOpenBuyerTrade.displayNumber, latestOpenBuyerTrade.tradeId ?? latestOpenBuyerTrade.id)} قيد التنفيذ.`
-                : `Trade ${formatTradeId(latestOpenBuyerTrade.displayNumber, latestOpenBuyerTrade.tradeId ?? latestOpenBuyerTrade.id)} is in progress.`,
+              body: workspaceTradeNextStep(latestOpenBuyerTrade, "buyer", isAr),
               action: isAr ? "فتح الصفقة" : "Open trade",
               onClick: () => handleOpenTradeRoom(latestOpenBuyerTrade.id),
             }
@@ -3704,15 +3729,62 @@ export function UsdtExchangePage({
     && !applicationSubmitted,
   );
 
-  const workspaceCards: Array<{
-    key: string;
-    title: string;
-    subtitle: string;
-    stat: string;
-    onClick: () => void;
-    icon: typeof Trophy;
-    tone?: "gold" | "blue" | "green" | "amber";
-  }> = isSellerWorkspaceUser
+  const openSellerRequests = (activeOnly: boolean) => {
+    setSellerTradeQuery("");
+    setSellerTradeStatus(activeOnly ? "active" : "all");
+    focusWorkspaceSection("purchase-requests-section");
+  };
+  const integrateSellerWorkspace = desktopSellerNavigation && welcomeRole !== "owner";
+  const integrateWorkspace = integrateSellerWorkspace || desktopBuyerNavigation;
+  const openBuyerRequests = (activeOnly: boolean) => {
+    setBuyerTradeQuery("");
+    setBuyerTradeStatus(activeOnly ? "active" : "all");
+    scrollToBuyerTradeHistorySection();
+  };
+  const openActiveTrades = async () => {
+    if (!sessionUser || activeTradeNavigationRef.current) return;
+    activeTradeNavigationRef.current = true;
+    const userId = sessionUser.id;
+    const epoch = purchaseRequestsEpochRef.current;
+    try {
+      if (desktopWorkspaceNavigation) {
+        if (isSellerWorkspaceUser) openSellerRequests(true);
+        else openBuyerRequests(true);
+      }
+      const snapshot = purchaseRequestsSnapshotRef.current;
+      const hasFreshSnapshot = purchaseRequestsState === "ready" && snapshot?.userId === userId
+        && Date.now() - snapshot.loadedAt < 12_000;
+      if (!hasFreshSnapshot && !desktopWorkspaceNavigation) setStatusMessage(isAr ? "جارٍ تحميل صفقاتك النشطة…" : "Loading your active trades…");
+      const requests = hasFreshSnapshot ? snapshot.requests : await refreshMyPurchaseRequests();
+      // An account change or unmount must never navigate using the old account.
+      if (epoch !== purchaseRequestsEpochRef.current) return;
+      if (requests === null) {
+        if (!desktopWorkspaceNavigation) setStatusMessage(isAr ? "تعذر تحميل صفقاتك. اضغط على الصفقات النشطة للمحاولة مجددًا." : "We couldn't load your trades. Tap Active Trades to try again.");
+        return;
+      }
+      const active = groupOwnTrades(requests, userId, isSellerWorkspaceUser ? "seller" : "buyer").active;
+      if (active.length === 0) {
+        if (!desktopWorkspaceNavigation) setStatusMessage(isAr ? "ليس لديك أي صفقات نشطة الآن." : "You have no active trades right now.");
+        return;
+      }
+      setStatusMessage(null);
+      if (active.length > 1 && desktopWorkspaceNavigation) {
+        return;
+      }
+      handleOpenTradeRoom(active[0].id);
+    } finally {
+      if (epoch === purchaseRequestsEpochRef.current) activeTradeNavigationRef.current = false;
+    }
+  };
+  const openBuyerMarketplace = () => {
+    if (!isDashboardWorkspace) {
+      focusWorkspaceSection("buyer-marketplace-listings");
+      return;
+    }
+    navigateToPageSection(router, "/usdt-exchange#buyer-marketplace-listings");
+  };
+
+  const workspaceCards: ExchangeWorkspaceAction[] = isSellerWorkspaceUser
     ? [
       {
         key: "create-listing",
@@ -3743,18 +3815,16 @@ export function UsdtExchangePage({
       {
         key: "trades",
         title: isAr ? "طلبات الشراء" : "Purchase Requests",
-        subtitle: isAr
-          ? `${openTradeCount.toLocaleString("en-IL")} من الصفقات النشطة`
-          : `${openTradeCount.toLocaleString("en-IL")} active trade${openTradeCount === 1 ? "" : "s"}`,
-        stat: `${sellerRequests.length.toLocaleString("en-IL")}`,
+        subtitle: !desktopSellerNavigation || purchaseRequestsState === "ready"
+          ? (isAr ? `${openTradeCount.toLocaleString("en-IL")} من الصفقات النشطة` : `${openTradeCount.toLocaleString("en-IL")} active trade${openTradeCount === 1 ? "" : "s"}`)
+          : purchaseRequestsState === "error"
+            ? (isAr ? "افتح الطلبات لإعادة المحاولة" : "Open requests to retry")
+            : (isAr ? "جارٍ تحميل الصفقات..." : "Loading current trades…"),
+        stat: !desktopSellerNavigation || purchaseRequestsState === "ready" ? sellerRequests.length.toLocaleString("en-IL") : "—",
         onClick: () => {
-          const target = document.getElementById("purchase-requests-section");
-          if (target) {
-            target.scrollIntoView({ behavior: "smooth", block: "start" });
-            window.requestAnimationFrame(() => target.focus({ preventScroll: true }));
-            return;
-          }
-          router.push("/dashboard/seller#purchase-requests-section");
+          if (desktopSellerNavigation) return openSellerRequests(false);
+          if (focusWorkspaceSection("purchase-requests-section")) return;
+          navigateToPageSection(router, "/usdt-exchange#purchase-requests-section");
         },
         icon: HandCoins,
         tone: "blue",
@@ -3767,7 +3837,8 @@ export function UsdtExchangePage({
         onClick: () => {
           const target = document.getElementById("notification-center-section");
           if (target) {
-            target.scrollIntoView({ behavior: "smooth", block: "start" });
+            if (desktopSellerNavigation) focusWorkspaceSection(target.id);
+            else target.scrollIntoView({ behavior: "smooth", block: "start" });
             return;
           }
           router.push("/notifications");
@@ -3779,14 +3850,16 @@ export function UsdtExchangePage({
         key: "market",
         title: isAr ? "سوق اليوم" : "Today's Market",
         subtitle: isAr ? "تفاصيل السوق" : "Market Details",
-        stat: formatIls(marketPricePerUsdt),
+        stat: marketPricePerUsdt > 0 ? `₪${marketPricePerUsdt.toFixed(5)}` : "—",
           onClick: () => {
             const target = document.getElementById("market-overview");
             if (!isDashboardWorkspace && target) {
-              target.scrollIntoView({ behavior: "smooth", block: "start" });
+              if (target instanceof HTMLDetailsElement) target.open = true;
+              if (desktopSellerNavigation) focusWorkspaceSection(target.id);
+              else target.scrollIntoView({ behavior: "smooth", block: "start" });
               return;
             }
-            router.push("/usdt-exchange#market-overview");
+            navigateToPageSection(router, "/usdt-exchange#market-overview");
         },
         icon: TrendingUp,
         tone: "amber",
@@ -3817,12 +3890,13 @@ export function UsdtExchangePage({
         subtitle: isAr ? "العروض المباشرة" : "Live Offers",
         stat: `${marketplacePulse.liveListings.toLocaleString("en-IL")}`,
           onClick: () => {
+            if (desktopBuyerNavigation) return openBuyerMarketplace();
             const target = document.getElementById("marketplace");
             if (!isDashboardWorkspace && target) {
               target.scrollIntoView({ behavior: "smooth", block: "start" });
               return;
           }
-          router.push("/usdt-exchange#marketplace");
+          navigateToPageSection(router, "/usdt-exchange#marketplace");
         },
         icon: Store,
         tone: "gold",
@@ -3833,8 +3907,9 @@ export function UsdtExchangePage({
         subtitle: isAr ? "قائمة الطلبات" : "Request Queue",
         stat: `${totalBuyerRequests.toLocaleString("en-IL")}`,
         onClick: () => {
+          if (desktopBuyerNavigation) return openBuyerRequests(false);
           if (scrollToBuyerTradeHistorySection()) return;
-          router.push(`/usdt-exchange#${BUYER_TRADE_HISTORY_SECTION_ID}`);
+          navigateToPageSection(router, `/usdt-exchange?section=trade-history#${BUYER_TRADE_HISTORY_SECTION_ID}`);
         },
         icon: HandCoins,
         tone: "blue",
@@ -3842,15 +3917,15 @@ export function UsdtExchangePage({
       {
         key: "active-trades",
         title: isAr ? "الصفقات النشطة" : "Active Trades",
-        subtitle: isAr ? "متابعة الصفقة" : "Continue Trade",
-        stat: `${openTradeCount.toLocaleString("en-IL")}`,
-        onClick: () => {
-          if (latestOpenBuyerTrade) {
-            handleOpenTradeRoom(latestOpenBuyerTrade.id);
-            return;
-          }
-          router.push("/trade-room");
-        },
+        subtitle: !desktopBuyerNavigation
+          ? (isAr ? "متابعة الصفقة" : "Continue Trade")
+          : purchaseRequestsState === "ready"
+            ? (isAr ? "عرض صفقاتك الحالية" : "View your current trades")
+            : purchaseRequestsState === "error"
+              ? (isAr ? "افتح الصفقات لإعادة المحاولة" : "Open trades to retry")
+              : (isAr ? "جارٍ تحميل الصفقات..." : "Loading current trades…"),
+        stat: purchaseRequestsState === "ready" ? openTradeCount.toLocaleString("en-IL") : "—",
+        onClick: () => { void openActiveTrades(); },
         icon: Wallet,
         tone: "blue",
       },
@@ -3860,6 +3935,10 @@ export function UsdtExchangePage({
         subtitle: isAr ? "مركز الإشعارات" : "Notification Center",
         stat: `${unreadNotificationsTotal.toLocaleString("en-IL")}`,
         onClick: () => {
+          if (desktopBuyerNavigation) {
+            focusWorkspaceSection("notification-center-section");
+            return;
+          }
           const target = document.getElementById("notification-center-section");
           if (target) {
             target.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -3874,14 +3953,19 @@ export function UsdtExchangePage({
         key: "market",
         title: isAr ? "نظرة عامة على السوق" : "Market Overview",
         subtitle: isAr ? "سوق اليوم" : "Today’s Market",
-        stat: formatIls(marketPricePerUsdt),
+        stat: marketPricePerUsdt > 0 ? `₪${marketPricePerUsdt.toFixed(5)}` : "—",
           onClick: () => {
+            if (desktopBuyerNavigation && !isDashboardWorkspace) {
+              focusWorkspaceSection("market-overview");
+              return;
+            }
             const target = document.getElementById("market-overview");
             if (!isDashboardWorkspace && target) {
+              if (target instanceof HTMLDetailsElement) target.open = true;
               target.scrollIntoView({ behavior: "smooth", block: "start" });
               return;
             }
-            router.push("/usdt-exchange#market-overview");
+            navigateToPageSection(router, "/usdt-exchange#market-overview");
         },
         icon: TrendingUp,
         tone: "amber",
@@ -3896,10 +3980,21 @@ export function UsdtExchangePage({
         tone: "blue",
       },
     ];
+  if (desktopBuyerNavigation) {
+    workspaceCards.push({
+      key: "account-settings",
+      title: isAr ? "إعدادات الحساب" : "Account Settings",
+      subtitle: isAr ? "الملف الشخصي والأمان" : "Profile and security",
+      stat: isAr ? "إدارة الحساب" : "Manage account",
+      onClick: () => router.push("/settings"),
+      icon: ShieldCheck,
+      tone: "green",
+    });
+  }
   if (standardCommissionDueActive) {
     workspaceCards.push({
       key: "commission",
-      title: isAr ? "عمولة مستحقة" : "Commission Due",
+      title: isAr ? "🚨 عمولة مستحقة" : "🚨 Commission Due",
       subtitle: commissionWorkspaceAction.kind === "pay-one"
         ? (isAr ? "ادفع مبلغ العمولة المحدد" : "Pay the exact commission")
         : (isAr
@@ -3927,7 +4022,29 @@ export function UsdtExchangePage({
     });
   }
 
-  const heroPrimaryActions = isSellerWorkspaceUser
+  const compactBuyerWorkspace = isDashboardWorkspace && !isSellerWorkspaceUser && !desktopBuyerNavigation;
+  const roleWorkspaceCards = workspaceCards.filter((card) => (card.key !== "create-listing" || canAccessListingCreation)
+    && ((interfaceAccess.trading && (!isAdminSession || hasBuyerRole))
+      || ["browse-marketplace", "notifications", "market", "buyer-profile"].includes(card.key)))
+    .map((card) => card.key === "buyer-profile" && (!hasBuyerRole || isAdminSession)
+      ? { ...card, title: isAr ? "ملفي الشخصي" : "My Profile", subtitle: isAr ? "تفاصيل الحساب" : "Account details", icon: ShieldCheck }
+      : card);
+  const visibleWorkspaceCards = desktopBuyerNavigation
+    ? roleWorkspaceCards.filter((card) => card.key !== "orders").map((card) => card.key === "browse-marketplace"
+      ? { ...card, title: isAr ? "العروض المباشرة" : "Live Listings", subtitle: isAr ? "تصفح البائعين" : "Browse Sellers" }
+      : card)
+    : compactBuyerWorkspace
+    ? roleWorkspaceCards.filter((card) => card.key === "browse-marketplace" || card.key === "active-trades").map((card) => card.key === "browse-marketplace"
+      ? { ...card, title: isAr ? "العروض المباشرة" : "Live Listings", subtitle: isAr ? "تصفح البائعين" : "Browse Sellers" }
+      : card)
+    : roleWorkspaceCards;
+
+  const heroPrimaryActions = (isAdminSession
+    ? [
+      { key: "hero-owner-dashboard", label: welcomeRole === "owner" ? (isAr ? "لوحة المالك" : "Owner Dashboard") : (isAr ? "لوحة الإدارة" : "Admin Dashboard"), onClick: () => router.push("/admin/alpha-exchange") },
+      { key: "hero-owner-trades", label: isAr ? "الصفقات النشطة" : "Active Trades", onClick: () => router.push(adminActiveTradesDestination()) },
+    ]
+    : isSellerWorkspaceUser
     ? [
       {
         key: "hero-create-listing",
@@ -3939,37 +4056,34 @@ export function UsdtExchangePage({
       {
         key: "hero-active-trades",
         label: isAr ? "الصفقات النشطة" : "Active Trades",
-        onClick: () => {
-          if (latestOpenSellerTrade) {
-            handleOpenTradeRoom(latestOpenSellerTrade.id);
-            return;
-          }
-          router.push("/trade-room");
-        },
+        onClick: () => { void openActiveTrades(); },
       },
     ]
     : [
       {
         key: "hero-browse-marketplace",
-        label: isAr ? "تصفّح السوق" : "Browse Marketplace",
+        label: desktopBuyerNavigation ? (isAr ? "تصفح البائعين" : "Browse Sellers") : (isAr ? "تصفّح السوق" : "Browse Marketplace"),
         onClick: () => {
+          if (desktopBuyerNavigation) return openBuyerMarketplace();
           const target = document.getElementById("marketplace");
           if (target) {
             target.scrollIntoView({ behavior: "smooth", block: "start" });
             return;
           }
-          router.push("/usdt-exchange#marketplace");
+          navigateToPageSection(router, "/usdt-exchange#marketplace");
         },
       },
       {
         key: "hero-my-trades",
         label: isAr ? "طلبات صفقاتي" : "My Trade Requests",
         onClick: () => {
+          if (desktopBuyerNavigation) return openBuyerRequests(false);
           if (scrollToBuyerTradeHistorySection()) return;
-          router.push(`/usdt-exchange#${BUYER_TRADE_HISTORY_SECTION_ID}`);
+          navigateToPageSection(router, `/usdt-exchange?section=trade-history#${BUYER_TRADE_HISTORY_SECTION_ID}`);
         },
       },
-    ];
+    ]).filter((action) => action.key === "hero-create-listing" ? canAccessListingCreation
+      : action.key === "hero-my-trades" ? canViewBuyerWorkspace : true);
 
   const extractTradeRoomHrefFromRelatedHref = useCallback((relatedHref?: string) => {
     const href = relatedHref?.trim();
@@ -3985,47 +4099,13 @@ export function UsdtExchangePage({
   const resolveTradeRoomDestinationFromSnapshot = useCallback((notification: AlphaExchangeNotification) => {
     const snapshot = notification.tradeSnapshot;
     if (!snapshot?.requestId || !snapshot.currentStage || !sessionUser) return null;
-    const isSellerActor = snapshot.sellerId === sessionUser.id;
-    const isBuyerActor = snapshot.buyerId === sessionUser.id;
-    const cashTrade = isCashTradePaymentMethod(snapshot.paymentMethod);
-    let action: "accept-trade" | "confirm-cash-payment" | "upload-payment-receipt" | "confirm-money-received" | "release-usdt" | "confirm-usdt-sent" | "complete-cash-trade" | "upload-seller-evidence" | "confirm-usdt-received" | "review-trade" | "open-trade" = "open-trade";
-    if (snapshot.currentStage === "pending" && isSellerActor) action = "accept-trade";
-    else if (snapshot.currentStage === "accepted" && isBuyerActor) action = cashTrade ? "confirm-cash-payment" : "upload-payment-receipt";
-    else if (snapshot.currentStage === "payment_sent" && isSellerActor) action = "confirm-money-received";
-    else if (snapshot.currentStage === "funds_received" && isSellerActor) action = cashTrade ? "confirm-usdt-sent" : "release-usdt";
-    else if (snapshot.currentStage === "usdt_release_pending" && isSellerActor) action = cashTrade ? "confirm-usdt-sent" : "upload-seller-evidence";
-    else if (snapshot.currentStage === "usdt_sent" && cashTrade && isSellerActor) action = "complete-cash-trade";
-    else if (snapshot.currentStage === "usdt_sent" && !cashTrade && isBuyerActor) action = "confirm-usdt-received";
-    else if ((snapshot.currentStage === "review_open" || snapshot.currentStage === "completed" || snapshot.currentStage === "locked") && isBuyerActor) action = "review-trade";
-    if (action === "open-trade") return null;
-    const hash = action === "upload-payment-receipt" || action === "upload-seller-evidence"
-      ? "evidence"
-      : action === "review-trade"
-        ? "status-banner"
-        : "action-required";
-    return `/trade-room/${snapshot.requestId}?action=${encodeURIComponent(action)}#${hash}`;
+    return buildTradeRoomDestination({ id: snapshot.requestId, status: snapshot.currentStage,
+      sellerId: snapshot.sellerId, buyerId: snapshot.buyerId, paymentMethod: snapshot.paymentMethod }, sessionUser.id);
   }, [sessionUser]);
 
   const buildTradeRoomDestinationFromRequest = useCallback((request: PurchaseRequest) => {
     if (!sessionUser) return `/trade-room/${request.id}`;
-    const isSellerActor = request.sellerId === sessionUser.id;
-    const isBuyerActor = request.buyerId === sessionUser.id;
-    const cashTrade = isCashTradePaymentMethod(request.paymentMethod);
-    let action: "accept-trade" | "confirm-cash-payment" | "upload-payment-receipt" | "confirm-money-received" | "release-usdt" | "confirm-usdt-sent" | "complete-cash-trade" | "upload-seller-evidence" | "confirm-usdt-received" | "review-trade" | "open-trade" = "open-trade";
-    if (request.status === "pending" && isSellerActor) action = "accept-trade";
-    else if (request.status === "accepted" && isBuyerActor) action = cashTrade ? "confirm-cash-payment" : "upload-payment-receipt";
-    else if (request.status === "payment_sent" && isSellerActor) action = "confirm-money-received";
-    else if (request.status === "funds_received" && isSellerActor) action = cashTrade ? "confirm-usdt-sent" : "release-usdt";
-    else if (request.status === "usdt_release_pending" && isSellerActor) action = cashTrade ? "confirm-usdt-sent" : "upload-seller-evidence";
-    else if (request.status === "usdt_sent" && cashTrade && isSellerActor) action = "complete-cash-trade";
-    else if (request.status === "usdt_sent" && !cashTrade && isBuyerActor) action = "confirm-usdt-received";
-    else if ((request.status === "review_open" || request.status === "completed" || request.status === "locked") && isBuyerActor) action = "review-trade";
-    const hash = action === "upload-payment-receipt" || action === "upload-seller-evidence"
-      ? "evidence"
-      : action === "review-trade" || action === "open-trade"
-        ? "status-banner"
-        : "action-required";
-    return `/trade-room/${request.id}?action=${encodeURIComponent(action)}#${hash}`;
+    return buildTradeRoomDestination(request, sessionUser.id);
   }, [sessionUser]);
 
   const resolveTradeRoomDestinationFromRequests = useCallback((notification: AlphaExchangeNotification) => {
@@ -4140,9 +4220,9 @@ export function UsdtExchangePage({
     const isTradeIntent = isTradeIntentNotification(notification);
     if (isTradeIntent) {
       const routerDestination = destination.replace(/^\/(en|ar)(?=\/)/i, "") || destination;
-      router.push(routerDestination);
+      navigateToPageSection(router, routerDestination);
     } else {
-      router.push(destination);
+      navigateToPageSection(router, destination);
     }
     if (!notification.isRead) {
       void handleNotificationReadState(notification.id, true);
@@ -4163,18 +4243,20 @@ export function UsdtExchangePage({
   }, [isTradeIntentNotification]);
 
   const isListingActionBusy = useCallback(
-    (listingId: string) => Boolean(listingActionKey && listingActionKey.startsWith(`${listingId}:`)),
+    () => Boolean(listingActionKey),
     [listingActionKey],
   );
 
   async function handleSellerListingStatus(listing: MarketplaceListing, nextStatus: "active" | "paused") {
+    if (nextStatus === "active" && listingBlockedByCommission) {
+      setSellerWorkspaceMessage(listingCommissionRequiredMessage(isAr));
+      backgroundRefreshSellerWorkspace();
+      return;
+    }
     const actionLabel = nextStatus === "paused" ? "pause" : "resume";
-    const confirmed = window.confirm(
-      nextStatus === "paused"
-        ? (isAr ? "هل تريد إيقاف هذا الإعلان مؤقتاً؟ لن يراه المشترون حتى تستأنفه." : "Pause this listing? Buyers will not see it until you resume.")
-        : (isAr ? "هل تريد استئناف هذا الإعلان وإظهاره للمشترين؟" : "Resume this listing and make it visible to buyers?"),
-    );
-    if (!confirmed) return;
+    if (listingMutationInFlightRef.current) return;
+    listingMutationInFlightRef.current = true;
+    setSellerWorkspaceMessage(null);
     setListingActionKey(`${listing.id}:${actionLabel}`);
     try {
       const response = await fetch(`/api/alpha-exchange/listings/${listing.id}`, {
@@ -4192,13 +4274,16 @@ export function UsdtExchangePage({
         return;
       }
 
+      const payload = await response.json() as { listing?: MarketplaceListing };
+      syncListingState(payload.listing ?? null);
       setSellerWorkspaceMessage(nextStatus === "paused"
         ? (isAr ? "⏸ تم إيقاف العرض مؤقتًا. لن يظهر للمشترين حتى تستأنفه." : "⏸ Listing paused. It is no longer visible to buyers until you resume it.")
         : (isAr ? "▶ تم استئناف العرض وهو ظاهر الآن في السوق." : "▶ Listing resumed. Your listing is now live in the marketplace."));
-      await refreshSellerWorkspace();
+      backgroundRefreshSellerWorkspace();
     } catch {
       setSellerWorkspaceMessage(safeErrorMessage("listing", isAr));
     } finally {
+      listingMutationInFlightRef.current = false;
       setListingActionKey(null);
     }
   }
@@ -4239,19 +4324,28 @@ export function UsdtExchangePage({
   }
 
   async function handleSellerListingDelete(listing: MarketplaceListing) {
+    if (listingMutationInFlightRef.current) return;
+    setRemovalError(null);
+    setSellerWorkspaceMessage(null);
     setRemovalListing(listing);
     setRemovalReason("");
     setRemovalExplanation("");
   }
 
   async function confirmSellerListingRemoval() {
-    if (!removalListing) return;
+    if (!removalListing || listingMutationInFlightRef.current) return;
+    const reportRemovalError = (message: string) => {
+      setRemovalError(message);
+      setSellerWorkspaceMessage(message);
+    };
     const reasonResult = validateListingChangeReason({ reason: removalReason, explanation: removalExplanation });
     if (!reasonResult.ok) {
-      setSellerWorkspaceMessage(reasonResult.error);
+      reportRemovalError(reasonResult.error);
       return;
     }
     const listing = removalListing;
+    listingMutationInFlightRef.current = true;
+    setRemovalError(null);
     setListingActionKey(`${listing.id}:delete`);
     try {
       const response = await fetch(`/api/alpha-exchange/listings/${listing.id}`, {
@@ -4262,10 +4356,10 @@ export function UsdtExchangePage({
       if (!response.ok) {
         if (response.status === 401) {
           void refreshCanonicalSession?.({ force: true });
-          setSellerWorkspaceMessage(isAr ? "انتهت جلستك. سجّل الدخول مرة أخرى." : "Your session has expired. Please sign in again.");
+          reportRemovalError(isAr ? "انتهت جلستك. سجّل الدخول مرة أخرى." : "Your session has expired. Please sign in again.");
           return;
         }
-        setSellerWorkspaceMessage(await readApiErrorMessage(response, safeErrorMessage("listing", isAr)));
+        reportRemovalError(await readApiErrorMessage(response, safeErrorMessage("listing", isAr)));
         return;
       }
       syncListingState(listing, { remove: true });
@@ -4273,13 +4367,19 @@ export function UsdtExchangePage({
       setRemovalListing(null);
       backgroundRefreshSellerWorkspace();
     } catch {
-      setSellerWorkspaceMessage(safeErrorMessage("listing", isAr));
+      reportRemovalError(safeErrorMessage("listing", isAr));
     } finally {
+      listingMutationInFlightRef.current = false;
       setListingActionKey(null);
     }
   }
 
   async function handleSellerListingDuplicate(listing: MarketplaceListing) {
+    if (listingBlockedByCommission) {
+      setSellerWorkspaceMessage(listingCommissionRequiredMessage(isAr));
+      backgroundRefreshSellerWorkspace();
+      return;
+    }
     setListingActionKey(`${listing.id}:duplicate`);
     try {
       const response = await fetch("/api/alpha-exchange/listings", {
@@ -4292,6 +4392,8 @@ export function UsdtExchangePage({
           currency: listing.currency ?? "ILS",
           network: listing.network,
           paymentMethods: listing.paymentMethods ?? [listing.paymentMethod ?? ""],
+          bankAccountId: listing.bankAccountId,
+          ...(listing.bankTransferProvider === "wise" ? { bankTransferProvider: "wise", wiseAccountId: listing.wiseAccountId } : {}),
           bankName: listing.bankName ?? "",
           minimumTrade: listing.minimumTrade ?? "0",
           maximumTrade: listing.maximumTrade ?? listing.availableAmount,
@@ -4311,7 +4413,6 @@ export function UsdtExchangePage({
       const payload = await response.json() as { listing?: MarketplaceListing; destination?: string };
       syncListingState(payload.listing ?? null);
       setSellerWorkspaceMessage(isAr ? "📋 تم نسخ العرض بنجاح. راجعه وانشره عندما يصبح جاهزًا." : "📋 Listing duplicated successfully. Review and publish it when ready.");
-      navigateOrRevealResult(router, payload.destination, "listing-publish-result");
       setEditingListingId(null);
       backgroundRefreshSellerWorkspace();
     } catch {
@@ -4322,6 +4423,11 @@ export function UsdtExchangePage({
   }
 
   async function handleSellerListingRenew(listing: MarketplaceListing) {
+    if (listingBlockedByCommission) {
+      setSellerWorkspaceMessage(listingCommissionRequiredMessage(isAr));
+      backgroundRefreshSellerWorkspace();
+      return;
+    }
     setListingActionKey(`${listing.id}:renew`);
     try {
       const response = await fetch(`/api/alpha-exchange/listings/${listing.id}`, {
@@ -4354,7 +4460,6 @@ export function UsdtExchangePage({
     if (listingCreateRequestInFlightRef.current) return;
     if (listingCreationBlocked) {
       setListingCreateResult({ tone: "error", message: listingCreationBlockedReason });
-      navigateOrRevealResult(router, "/usdt-exchange#listing-publish-result", "listing-publish-result");
       return;
     }
     listingCreateRequestInFlightRef.current = true;
@@ -4368,11 +4473,12 @@ export function UsdtExchangePage({
         body: JSON.stringify({
           availableAmount: listingCreateForm.availableAmount,
           price: listingCreateForm.price,
-          currency: "ILS",
+          currency: listingCreateIsWise ? "USD" : "ILS",
           network: listingCreateForm.network,
+          ...(listingCreateIsWise ? { bankTransferProvider: "wise", wiseAccountId: listingCreateForm.wiseAccountId } : {}),
           paymentMethods: listingCreateSelectedMethods,
-          bankAccountId: listingCreateForm.bankAccountId || undefined,
-          bankName: serializeIsraeliBankSelection(listingCreateSelectedBanks),
+          bankAccountId: listingCreateRequiresBankAccount ? listingCreateForm.bankAccountId || undefined : undefined,
+          bankName: listingCreateRequiresBank ? serializeIsraeliBankSelection(listingCreateSelectedBanks) : undefined,
           minimumTrade: listingCreateForm.minimumTrade,
           maximumTrade: listingCreateForm.maximumTrade || listingCreateForm.availableAmount,
           sellerDescription: listingCreateForm.sellerDescription,
@@ -4389,7 +4495,6 @@ export function UsdtExchangePage({
           failureMessage = await readApiErrorMessage(response, safeErrorMessage("listing", isAr));
         }
         setListingCreateResult({ tone: "error", message: failureMessage });
-        navigateOrRevealResult(router, "/usdt-exchange#listing-publish-result", "listing-publish-result");
         return;
       }
       const payload = await response.json() as { listing?: MarketplaceListing; destination?: string };
@@ -4398,7 +4503,9 @@ export function UsdtExchangePage({
         ...prev,
         availableAmount: "",
         price: "",
-        currency: "",
+        currency: "ILS",
+        bankTransferProvider: "israeli_bank",
+        wiseAccountId: "",
         paymentMethods: getDefaultListingPaymentMethods(sessionUser?.preferredPaymentMethods),
         bankAccountId: "",
         bankName: "",
@@ -4406,17 +4513,14 @@ export function UsdtExchangePage({
         maximumTrade: "",
         sellerDescription: "",
       }));
-      setListingCreateCurrencyManualOverride(false);
       setListingCommissionAgreement(false);
       setListingCreateResult({
         tone: "success",
-        message: "Listing submitted. It is awaiting Alpha Traders admin approval and is not visible to buyers yet.",
+        message: isAr ? "تم إرسال العرض للمراجعة. سيظهر للمشترين بعد الموافقة." : "Listing submitted for review. Buyers will see it after approval.",
       });
-      navigateOrRevealResult(router, "/usdt-exchange#listing-publish-result", "listing-publish-result");
       backgroundRefreshSellerWorkspace();
     } catch {
       setListingCreateResult({ tone: "error", message: safeErrorMessage("listing", isAr) });
-      navigateOrRevealResult(router, "/usdt-exchange#listing-publish-result", "listing-publish-result");
     } finally {
       listingCreateRequestInFlightRef.current = false;
       setListingActionKey(null);
@@ -4425,7 +4529,7 @@ export function UsdtExchangePage({
 
   async function handleSellerListingEditSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!editingListingId) return;
+    if (!editingListingId || listingMutationInFlightRef.current) return;
     const requiresReason = listingEditOriginal
       ? listingEditRequiresReason(listingEditOriginal, {
           availableAmount: listingEditForm.availableAmount,
@@ -4441,6 +4545,8 @@ export function UsdtExchangePage({
         return;
       }
     }
+    listingMutationInFlightRef.current = true;
+    setSellerWorkspaceMessage(null);
     setListingActionKey(`${editingListingId}:save`);
     try {
       const response = await fetch(`/api/alpha-exchange/listings/${editingListingId}`, {
@@ -4450,10 +4556,12 @@ export function UsdtExchangePage({
           availableAmount: listingEditForm.availableAmount,
           price: listingEditForm.price,
           currency: listingEditForm.currency,
+          bankTransferProvider: listingEditForm.bankTransferProvider ?? "israeli_bank",
+          wiseAccountId: listingEditIsWise ? listingEditForm.wiseAccountId : undefined,
           network: listingEditForm.network,
           paymentMethods: listingEditSelectedMethods,
-          bankAccountId: listingEditForm.bankAccountId || undefined,
-          bankName: serializeIsraeliBankSelection(listingEditSelectedBanks),
+          bankAccountId: listingEditRequiresBankAccount ? listingEditForm.bankAccountId || undefined : undefined,
+          bankName: listingEditRequiresBank ? serializeIsraeliBankSelection(listingEditSelectedBanks) : undefined,
           minimumTrade: listingEditForm.minimumTrade,
           maximumTrade: listingEditForm.maximumTrade || listingEditForm.availableAmount,
           sellerDescription: listingEditForm.sellerDescription,
@@ -4475,11 +4583,11 @@ export function UsdtExchangePage({
       setEditingListingId(null);
       setListingEditOriginal(null);
       setSellerWorkspaceMessage(isAr ? "✅ تم تحديث العرض بنجاح وأصبحت التغييرات ظاهرة للمشترين." : "✅ Listing updated successfully. Changes are now visible to buyers.");
-      navigateAfterSuccess(router, payload.destination);
       backgroundRefreshSellerWorkspace();
     } catch {
       setSellerWorkspaceMessage(safeErrorMessage("listing", isAr));
     } finally {
+      listingMutationInFlightRef.current = false;
       setListingActionKey(null);
     }
   }
@@ -4556,20 +4664,32 @@ export function UsdtExchangePage({
     options?: { safetyAcknowledged?: boolean },
   ) {
     const actionKey = `${requestId}:${nextStatus}`;
-    if (requestActionKey) return;
+    if (requestActionInFlightRef.current || requestActionKey) return;
     const targetRequest = myRequests.find((request) => request.id === requestId);
-    const isPriceOffer = targetRequest?.priceMode === "buyer_offer";
-    setRequestActionKey(actionKey);
-    const safetyAcknowledged = nextStatus === "accepted"
-      ? true
-      : options?.safetyAcknowledged === true;
+    if (!targetRequest || !sessionUser) return;
+    const confirmingUserId = sessionUser.id;
+    const isPriceOffer = targetRequest.priceMode === "buyer_offer";
+    const safetyAcknowledged = options?.safetyAcknowledged === true;
+    requestActionInFlightRef.current = actionKey;
     try {
+      if (targetRequest.feePolicyVersion === "buyer_seller_1pct_v1" && ["accepted", "funds_received"].includes(nextStatus)
+        && !await confirmAction(`${sellerFeeResponsibilityNotice(isAr ? "ar" : "en")}\n${targetRequest.currency} ${targetRequest.fiatAmount}`)) return;
+      const currentContext = sellerActionContextRef.current;
+      const currentRequest = currentContext.requests.find((request) => request.id === requestId);
+      if (currentContext.userId !== confirmingUserId || !currentRequest
+        || tradeActionConfirmationKey(currentRequest) !== tradeActionConfirmationKey(targetRequest)) {
+        setSellerWorkspaceMessage(isAr
+          ? "تغيّرت الصفقة أثناء التأكيد. راجع تفاصيلها الحالية وحاول مجددًا."
+          : "The trade changed while you were confirming. Review its current details and try again.");
+        return;
+      }
+      setRequestActionKey(actionKey);
       const response = await fetch(`/api/alpha-exchange/purchase-requests/${requestId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status: nextStatus, safetyAcknowledged }),
       });
-      const payload = (await response.json()) as { error?: string };
+      const payload = (await response.json()) as { error?: string; request?: PurchaseRequest; destination?: string };
       if (!response.ok) {
         setSellerWorkspaceMessage(isAr ? safeErrorMessage("request", true) : (payload.error ?? safeErrorMessage("request", false)));
         return;
@@ -4581,8 +4701,18 @@ export function UsdtExchangePage({
       else if (nextStatus === "usdt_release_pending") setSellerWorkspaceMessage(isAr ? "بدأ إرسال USDT." : "USDT release started.");
       else if (nextStatus === "usdt_sent") setSellerWorkspaceMessage(isAr ? "تم تحديد USDT كمُرسل." : "USDT sent marked.");
       else setSellerWorkspaceMessage(isPriceOffer ? (isAr ? "تم رفض عرض السعر." : "Price offer declined.") : (isAr ? "تم رفض الطلب." : "Request declined."));
+      if (payload.request) {
+        setMyRequests((current) => current.map((request) => request.id === payload.request?.id ? payload.request : request));
+      }
+      if (nextStatus === "accepted" && navigateAfterSuccess(router, payload.destination, isAr ? "تم قبول الطلب بنجاح." : "Request accepted successfully.")) {
+        void refreshSellerWorkspace();
+        return;
+      }
       await refreshSellerWorkspace();
+    } catch {
+      setSellerWorkspaceMessage(isAr ? "تعذر الاتصال بالخادم الآن. حاول مرة أخرى." : "Unable to reach the server right now. Please try again.");
     } finally {
+      if (requestActionInFlightRef.current === actionKey) requestActionInFlightRef.current = null;
       setRequestActionKey(null);
     }
   }
@@ -4597,8 +4727,8 @@ export function UsdtExchangePage({
       setCommissionPayMessage(isAr ? "مبلغ العمولة المحدد غير متاح. أعد فتح طلب الدفع." : "The exact commission amount is unavailable. Please reopen the payment request.");
       return;
     }
-    if (!/^(?:0x)?[a-fA-F0-9]{64}$/.test(commissionTxSignature.trim())) {
-      setCommissionPayMessage(isAr ? "ألصق معرّف معاملة TRON الكامل المكوّن من 64 رمزًا." : "Paste the full 64-character TRON TxID before confirming.");
+    if (!(commissionNetwork === "BEP20" ? /^0x[a-fA-F0-9]{64}$/ : /^(?:0x)?[a-fA-F0-9]{64}$/).test(commissionTxSignature.trim())) {
+      setCommissionPayMessage(isAr ? "ألصق معرّف المعاملة الكامل للشبكة المختارة." : "Paste the full transaction ID for the selected network.");
       return;
     }
     if (!selectedCommissionWalletAvailable) {
@@ -4641,7 +4771,7 @@ export function UsdtExchangePage({
       }
 
       setCommissionPayMessage(payload.verification?.pending
-        ? (isAr ? "⏳ تم إرسال الدفعة. ستتحقق Alpha Traders منها تلقائيًا بعد التأكيد النهائي على شبكة TRON." : "⏳ Payment submitted. Alpha Traders will verify it automatically after TRON final confirmation.")
+        ? (isAr ? "⏳ تم إرسال الدفعة. ستتحقق Alpha Traders منها تلقائيًا بعد التأكيد النهائي على الشبكة المختارة." : "⏳ Payment submitted. Alpha Traders will verify it automatically after blockchain final confirmation.")
         : (isAr ? "فشل التحقق من الدفع." : (payload.verification?.notes ?? "Verification failed.")));
       // Keep the panel bound to the exact record whose TxID was submitted.
       // A generic refresh would select the oldest unpaid commission and could
@@ -4736,12 +4866,12 @@ export function UsdtExchangePage({
     const visibleCount = notificationCenterExpanded ? sortedNotifications.length : defaultVisibleCount;
     const hasHiddenNotifications = sortedNotifications.length > defaultVisibleCount;
     return (
-      <Card id={sectionId} className={cn("border-white/10 bg-[#0B0B0B]/90", className)}>
+      <Card id={sectionId} tabIndex={desktopWorkspaceNavigation ? -1 : undefined} className={cn("border-white/10 bg-[#0B0B0B]/90", desktopWorkspaceNavigation && "scroll-mt-24", className)}>
       <CardHeader>
         <CardTitle className="inline-flex items-center gap-2">
           <BellRing className="h-4 w-4 text-[#C9A227]" />
           {isAr ? "مركز الإشعارات" : "Notification Center"}
-          <span className="rounded-full border border-[#C9A227]/35 bg-[#C9A227]/10 px-2 py-0.5 text-[11px] text-[#C9A227]">{isAr ? `${unreadNotificationsCount} غير مقروء` : `${unreadNotificationsCount} unread`}</span>
+          <span className="rounded-full border border-[#C9A227]/35 bg-[#C9A227]/10 px-2 py-0.5 text-[11px] text-[#C9A227]">{currencyText(isAr ? `${unreadNotificationsCount} غير مقروء` : `${unreadNotificationsCount} unread`)}</span>
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -4794,17 +4924,17 @@ export function UsdtExchangePage({
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                     <div className="min-w-0 space-y-2">
                       <div>
-                        <p className="text-sm font-semibold text-white">{replaceExchangeEntityIdsWithHints(copy.title, notification)}</p>
+                        <p className={`text-sm font-semibold text-white ${notification.reason?.startsWith("commission_") ? "commission-notice" : ""}`}>{currencyText(replaceExchangeEntityIdsWithHints(copy.title, notification))}</p>
                         <p className="mt-1 text-[11px] text-[#93C5FD]">
-                          {notification.relatedListingDisplayNumber ? `${isAr ? "العرض" : "Listing"} ${formatListingId(notification.relatedListingDisplayNumber, notification.relatedListingId)}` : null}
-                          {notification.relatedTradeDisplayNumber ? `${notification.relatedListingDisplayNumber ? " • " : ""}${isAr ? "الصفقة" : "Trade"} ${formatTradeId(notification.relatedTradeDisplayNumber, notification.relatedTradeId)}` : null}
-                          {notification.relatedRequestDisplayNumber && !notification.relatedTradeDisplayNumber ? `${notification.relatedListingDisplayNumber ? " • " : ""}${isAr ? "الصفقة" : "Trade"} ${formatTradeId(notification.relatedRequestDisplayNumber, notification.relatedRequestId)}` : null}
+                          {currencyText(notification.relatedListingDisplayNumber ? `${isAr ? "العرض" : "Listing"} ${formatListingId(notification.relatedListingDisplayNumber, notification.relatedListingId)}` : null)}
+                          {currencyText(notification.relatedTradeDisplayNumber ? `${notification.relatedListingDisplayNumber ? " • " : ""}${isAr ? "الصفقة" : "Trade"} ${formatTradeId(notification.relatedTradeDisplayNumber, notification.relatedTradeId)}` : null)}
+                          {currencyText(notification.relatedRequestDisplayNumber && !notification.relatedTradeDisplayNumber ? `${notification.relatedListingDisplayNumber ? " • " : ""}${isAr ? "الصفقة" : "Trade"} ${formatTradeId(notification.relatedRequestDisplayNumber, notification.relatedRequestId)}` : null)}
                         </p>
                       </div>
-                      <p className="max-w-3xl text-sm leading-6 text-white/90">{replaceExchangeEntityIdsWithHints(copy.message, notification)}</p>
+                      <p className={`max-w-3xl text-sm leading-6 text-white/90 ${notification.reason?.startsWith("commission_") ? "commission-notice" : ""}`}>{currencyText(replaceExchangeEntityIdsWithHints(copy.message, notification))}</p>
                       <div className="flex flex-wrap items-center gap-2 text-[11px] text-[#9CA3AF]">
-                        <span>{formatNotificationRelativeTime(notification.createdAt, locale)}</span>
-                        <span className="rounded-full border border-white/10 bg-black/20 px-2 py-0.5 capitalize text-[#D1D5DB]">{notificationCategoryLabel(notification.category, isAr)}</span>
+                        <span>{currencyText(formatNotificationRelativeTime(notification.createdAt, locale))}</span>
+                        <span className="rounded-full border border-white/10 bg-black/20 px-2 py-0.5 capitalize text-[#D1D5DB]">{currencyText(notificationCategoryLabel(notification.category, isAr))}</span>
                       </div>
                       {hasAction ? (
                         <button
@@ -4812,7 +4942,7 @@ export function UsdtExchangePage({
                           onClick={() => void handleNotificationActionClick(notification)}
                           className="inline-flex items-center rounded-full border border-[#6CAEFF]/40 bg-[#6CAEFF]/10 px-3 py-1.5 text-[11px] font-medium text-[#93C5FD] transition hover:border-[#6CAEFF]/70"
                         >
-                          {actionLabel}
+                          {currencyText(actionLabel)}
                         </button>
                       ) : null}
                     </div>
@@ -4837,7 +4967,7 @@ export function UsdtExchangePage({
                 variant="secondary"
                 onClick={() => setNotificationCenterExpanded((prev) => !prev)}
               >
-                {notificationCenterExpanded ? (isAr ? "عرض أقل" : "Show less") : (isAr ? `عرض المزيد (${sortedNotifications.length - defaultVisibleCount})` : `View more (${sortedNotifications.length - defaultVisibleCount})`)}
+                {currencyText(notificationCenterExpanded ? (isAr ? "عرض أقل" : "Show less") : (isAr ? `عرض المزيد (${sortedNotifications.length - defaultVisibleCount})` : `View more (${sortedNotifications.length - defaultVisibleCount})`))}
               </Button>
             </div>
           ) : null}
@@ -4878,51 +5008,20 @@ export function UsdtExchangePage({
             {!marketplaceUpdates.length ? <p className="text-xs text-[#9CA3AF]">{isAr ? "لا توجد تحديثات بعد. سيظهر نشاطك هنا عند بدء التداول." : "No updates yet. Your activity appears here as soon as you trade."}</p> : null}
             {marketplaceUpdates.map((update) => (
               <div key={update.id} className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-[#D1D5DB]">
-                <p className="font-medium text-white">{update.title}</p>
-                <p className="mt-1">{update.details}</p>
-                <p className="mt-1 text-[#9CA3AF]">{formatNotificationRelativeTime(update.createdAt, locale)}</p>
+                <p className="font-medium text-white">{currencyText(update.title)}</p>
+                <p className="mt-1">{currencyText(update.details)}</p>
+                <p className="mt-1 text-[#9CA3AF]">{currencyText(formatNotificationRelativeTime(update.createdAt, locale))}</p>
               </div>
             ))}
           </div>
         </div>
         <div className="space-y-3">
-          <div className="rounded-2xl border border-[#C9A227]/25 bg-[#C9A227]/10 p-4 text-sm text-[#E5E7EB]">
-            <p className="text-xs uppercase tracking-[0.14em] text-[#D4AF37]">{isAr ? "تقدم مستوى البائع" : "Seller Level Progress"}</p>
-            <div className="mt-2 grid gap-2 sm:grid-cols-2">
-              <p className="text-white">
-                {isAr ? "الرتبة الحالية" : "Current Rank"}: <span className="font-semibold text-[#F3D979]">{sellerLevelLabel(sellerCurrentRank, isAr)}</span>
-              </p>
-              <p className="text-white">
-                {isAr ? "الرتبة التالية" : "Next Rank"}: <span className="font-semibold text-[#F3D979]">{sellerNextTier ? (<span className="inline-flex items-center gap-1"><Trophy className="h-3.5 w-3.5 text-[#F4D87A]" />{sellerLevelLabel(sellerNextTier.rank, isAr)}</span>) : (isAr ? "وصلت إلى أعلى رتبة" : "Top Tier Reached")}</span>
-              </p>
-              <p>{isAr ? "الحجم المكتمل" : "Completed Volume"}: <span className="font-semibold text-white">{formatWholeNumber(sellerCompletedVolumeUsdt)} USDT</span></p>
-              <p>{isAr ? "المطلوب" : "Required"}: <span className="font-semibold text-white">{formatWholeNumber(sellerRequiredVolumeUsdt)} USDT</span></p>
-              <p>{isAr ? "المتبقي" : "Remaining"}: <span className="font-semibold text-white">{formatWholeNumber(sellerRemainingVolumeUsdt)} USDT</span></p>
-              <p>{isAr ? "التقدم" : "Progress"}: <span className="font-semibold text-white">{Math.round(sellerLevelProgressPercent)}%</span></p>
-            </div>
-            <div className="mt-3">
-              <div className="h-2.5 overflow-hidden rounded-full bg-black/35 ring-1 ring-white/10">
-                <div
-                  className="relative h-full rounded-full bg-gradient-to-r from-[#B8860B] via-[#D4AF37] to-[#F7E7A6] shadow-[0_0_22px_rgba(212,175,55,0.6)] transition-[width] duration-700 ease-out"
-                  style={{ width: `${sellerLevelProgressPercent}%` }}
-                >
-                  <span className="pointer-events-none absolute inset-y-0 right-0 w-8 bg-gradient-to-r from-transparent to-white/30" />
-                </div>
-              </div>
-              <p className="mt-2 text-base font-semibold text-[#FDE68A]">
-                {sellerNextTier
-                  ? (isAr ? `متبقي ${formatWholeNumber(sellerRemainingVolumeUsdt)} USDT فقط للوصول إلى رتبة ${sellerLevelLabel(sellerNextTier.rank, true)}` : `Only ${formatWholeNumber(sellerRemainingVolumeUsdt)} USDT remaining to reach ${sellerLevelLabel(sellerNextTier.rank)}`)
-                  : (isAr ? "لقد وصلت بالفعل إلى أعلى رتبة للبائعين." : "You are already at the highest seller tier.")}
-              </p>
-              {sellerNextTier ? <p className="mt-1 text-xs text-[#F4D87A]">{isAr ? `واصل التداول لفتح مزايا رتبة ${sellerLevelLabel(sellerNextTier.rank, true)}.` : <>Keep trading to unlock {sellerLevelLabel(sellerNextTier.rank)} benefits.</>}</p> : null}
-              <p className="mt-1 text-xs text-[#F3F4F6]">{formatWholeNumber(sellerCompletedVolumeUsdt)} / {formatWholeNumber(sellerRequiredVolumeUsdt)} USDT {isAr ? "مكتمل" : "completed"}</p>
-            </div>
-          </div>
+          {sellerStatusForLanding === "approved_seller" ? <SellerRankCard summary={sellerRankSummary} error={sellerRankError} locale={isAr ? "ar" : "en"} /> : null}
         </div>
       </CardContent>
     </Card>
   ) : null;
-  const buyerOverviewCard = sessionUser && !isSellerWorkspaceUser ? (
+  const buyerOverviewCard = sessionUser && canViewBuyerWorkspace && !isAdminSession ? (
     <Card className="border-white/10 bg-[#0B0B0B]/90 md:col-span-2">
       <CardHeader className="pb-4">
         <CardTitle>{isAr ? "لوحة المشتري" : "Buyer Dashboard"}</CardTitle>
@@ -4939,8 +5038,8 @@ export function UsdtExchangePage({
             { label: isAr ? "البائعون الموثوقون" : "Trusted Sellers", value: buyerOverviewStats.uniqueTrustedSellers.toLocaleString("en-IL") },
           ].map((item) => (
             <div key={item.label} className="rounded-2xl border border-white/10 bg-black/20 p-4">
-              <p className="text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF]">{item.label}</p>
-              <p className="mt-2 text-lg font-semibold text-white">{item.value}</p>
+              <p className="text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF]">{currencyText(item.label)}</p>
+              <p className="mt-2 text-lg font-semibold text-white">{currencyText(item.value)}</p>
             </div>
           ))}
         </div>
@@ -4952,18 +5051,18 @@ export function UsdtExchangePage({
               {buyerOverviewStats.recentTrades.map((request) => (
                 <div key={`buyer-overview-${request.id}`} className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-black/25 px-3 py-2 text-xs text-[#D1D5DB]">
                   <div>
-                    <p className="font-medium text-white">{shortTradeRef(request, isAr)}</p>
-                    <p className="mt-0.5">{toNumber(request.usdtAmount).toLocaleString("en-IL")} USDT • {paymentMethodLabel(request.paymentMethod, isAr)}</p>
+                    <p className="font-medium text-white">{currencyText(shortTradeRef(request, isAr))}</p>
+                    <p className="mt-0.5">{currencyText(`${Math.trunc(toNumber(request.usdtAmount)).toLocaleString("en-US")} USDT`)} • {currencyText(paymentMethodLabel(request.paymentMethod, isAr))}</p>
                   </div>
-                  <span className="rounded-full border border-white/10 px-2.5 py-1 text-[10px] uppercase tracking-[0.12em] text-[#C9A227]">{tradeStatusLabel(request.status, isAr)}</span>
+                  <span className="rounded-full border border-white/10 px-2.5 py-1 text-[10px] uppercase tracking-[0.12em] text-[#C9A227]">{currencyText(tradeStatusLabel(request.status, isAr))}</span>
                 </div>
               ))}
             </div>
           </div>
           <div className="rounded-2xl border border-[#C9A227]/20 bg-[#C9A227]/10 p-4">
             <p className="text-[11px] uppercase tracking-[0.14em] text-[#D4AF37]">{isAr ? "ملخص التداول" : "Trading Summary"}</p>
-            <p className="mt-3 text-3xl font-semibold text-white">{buyerOverviewStats.totalUsdtBought.toLocaleString("en-IL")} USDT</p>
-            <p className="mt-1 text-sm text-[#E5E7EB]">{isAr ? "إجمالي USDT الذي اشتريته عبر المنصة." : "Total USDT purchased through Alpha Exchange."}</p>
+            <p className="mt-3 text-3xl font-semibold text-white">{currencyText(`${Math.trunc(buyerOverviewStats.totalUsdtBought).toLocaleString("en-US")} USDT`)}</p>
+            <p className="mt-1 text-sm text-[#E5E7EB]">{currencyText(isAr ? "إجمالي USDT الذي اشتريته عبر المنصة." : "Total USDT purchased through Alpha Exchange.")}</p>
             <div className="mt-4 space-y-2 text-xs text-[#E5E7EB]">
               <div className="flex items-center justify-between rounded-xl border border-white/10 bg-black/20 px-3 py-2">
                 <span>{isAr ? "أيام نشطة" : "Active Trading Days"}</span>
@@ -4975,7 +5074,7 @@ export function UsdtExchangePage({
               </div>
               <div className="flex items-center justify-between rounded-xl border border-white/10 bg-black/20 px-3 py-2">
                 <span>{isAr ? "متوسط سعر الشراء" : "Average Purchase Price"}</span>
-                <span className="font-semibold text-white">{formatIls(buyerOverviewStats.averagePurchasePrice)}</span>
+                <span className="space-y-1 text-end font-semibold text-white">{buyerOverviewStats.averagePurchasePrices.length ? buyerOverviewStats.averagePurchasePrices.map(({ currency, price }) => <bdi key={currency} dir="ltr" className="block">{currencyText(`${price.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`)}</bdi>) : "—"}</span>
               </div>
             </div>
           </div>
@@ -4983,10 +5082,11 @@ export function UsdtExchangePage({
       </CardContent>
     </Card>
   ) : null;
-  const sellerApplicationPanel = showDeferredSections && !isSellerWorkspaceUser && !isAdminSession ? (
+  const sellerApplicationPanel = showDeferredSections && (interfaceAccess.canApplyToSell || interfaceAccess.pendingSeller) ? (
     <SellerApplicationSection
       isAr={isAr}
       prominent={showBuyerSellerApplicationUpFront}
+      compact={isDashboardWorkspace}
       isLoading={isSellerApplicationLoading}
       isApprovedSellerSession={isApprovedSellerSession}
       shouldCondense={shouldCondenseSellerApplication}
@@ -4994,6 +5094,7 @@ export function UsdtExchangePage({
       eligibility={sellerApplicationEligibility}
       application={sellerApplication}
       statusMessage={statusMessage}
+      statusMessageFeedbackKey={statusMessageFeedbackKey}
       form={sellerForm}
       sessionEmail={sessionUser?.email ?? ""}
       methods={sellerApplicationMethods}
@@ -5012,122 +5113,94 @@ export function UsdtExchangePage({
     />
   ) : null;
 
+  const workspaceNavigation = (
+    <ExchangeWorkspaceNavigation cards={visibleWorkspaceCards} isAr={isAr} integrated={integrateWorkspace} compact={compactBuyerWorkspace} ready={workspaceViewport !== null} />
+  );
+  const buyRequestsShortcut = buyRequestsHref ? (
+    <Link data-testid="welcome-buy-requests" href={buyRequestsHref} className={`${requestPrimary} w-full sm:w-auto`}>
+      <ClipboardList className="h-4 w-4 shrink-0" aria-hidden="true" />
+      {isAr ? "طلبات الشراء" : "Buy Requests"}
+    </Link>
+  ) : null;
+  const welcomeActions = !isDashboardWorkspace || integrateWorkspace ? (
+    <div className="account-welcome__actions">
+      {heroPrimaryActions.map((action, index) => (
+        <Button
+          key={action.key}
+          type="button"
+          variant="ghost"
+          className={index === 0 ? requestPrimary : requestSecondary}
+          onClick={action.onClick}
+        >
+          {currencyText(action.label)}
+        </Button>
+      ))}
+      {buyRequestsShortcut}
+    </div>
+  ) : (
+    <div className="account-welcome__actions">
+      {welcomeRole === "owner" ? (
+        <Link href="/admin/alpha-exchange" className="gold-gradient inline-flex min-h-11 items-center justify-center rounded-full px-6 py-3 text-sm font-semibold text-black">{isAr ? "لوحة المالك" : "Owner Dashboard"}</Link>
+      ) : (
+        <Link href="/usdt-exchange#marketplace" className={`${requestSecondary} w-full sm:w-auto`}>
+          <Store className="h-4 w-4" aria-hidden="true" />
+          {isAr ? "تصفح البائعين" : "Browse Sellers"}
+          <ArrowRight className={cn("h-4 w-4", isAr && "rotate-180")} aria-hidden="true" />
+        </Link>
+      )}
+      {buyRequestsShortcut}
+    </div>
+  );
+
+  if (!sessionUser) return null;
+
   return (
     <section className="section-container page-shell exchange-marketplace-shell overflow-x-clip">
+      {actionDialog}
+      {statusMessage && !selectedListing ? (
+        <ActionFeedback revealKey={statusMessageFeedbackKey} className="mb-4 rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-[#FDE68A]">
+          {currencyText(statusMessage)}
+        </ActionFeedback>
+      ) : null}
       {sessionUser ? (
         <>
-          <div className="relative overflow-hidden rounded-3xl border border-white/10 bg-[#0A0A0A]/90 p-5 shadow-[0_24px_80px_rgba(0,0,0,0.4)] md:p-7">
-            <div className="pointer-events-none absolute inset-0 opacity-40">
-              <div className="absolute inset-0 bg-[radial-gradient(circle_at_16%_18%,rgba(201,162,39,0.18),transparent_42%),radial-gradient(circle_at_85%_25%,rgba(59,130,246,0.16),transparent_40%),linear-gradient(120deg,rgba(201,162,39,0.08),transparent_40%)]" />
-            </div>
-            <div className="relative z-10">
-              {isSellerWorkspaceUser ? (
-                <div className="inline-flex flex-wrap items-center gap-2 rounded-full border border-[#C9A227]/35 bg-[#C9A227]/10 px-3 py-1.5 text-xs text-[#F4D87A]">
-                  <span className="font-semibold uppercase tracking-[0.12em]">{isAr ? "حالة البائع" : "Seller Status"}</span>
-                  {isApprovedSeller ? <RoleBadge variant="approved_seller" locale={isAr ? "ar" : "en"} /> : <AlertTriangle className="h-3.5 w-3.5 text-amber-300" />}
-                  <span className="text-[#E5E7EB]">{isApprovedSeller ? (isAr ? "بائع معتمد" : "Approved Seller") : (isAr ? "حساب البائع معلّق" : "Seller account suspended")}</span>
+          <AccountWelcome
+            role={welcomeRole}
+            locale={isAr ? "ar" : "en"}
+            name={workspacePrimaryName}
+            description={workspacePositiveMessage}
+            greeting={greetingLabel}
+            suspended={sellerStatusForLanding === "suspended"}
+            actions={welcomeActions}
+            workspace={integrateWorkspace ? workspaceNavigation : undefined}
+          >
+              {welcomeRole === "buyer" ? (
+                <BuyerRankCard summary={buyerProfileSummary} error={buyerRankError} locale={isAr ? "ar" : "en"} />
+              ) : null}
+              {welcomeRole === "approved_seller" ? (
+                <SellerRankCard summary={sellerRankSummary} error={sellerRankError} locale={isAr ? "ar" : "en"} />
+              ) : null}
+              {isDashboardWorkspace ? (
+                <div className="mt-4">
+                  {isSellerWorkspaceUser ? (
+                    <div className="mb-3">{welcomeRole !== "owner" ? <RankBadge rank={sellerRankSummary?.sellerLevel ?? sellerOverviewStats.reputation?.level} locale={isAr ? "ar" : "en"} audience="seller" /> : null}</div>
+                  ) : null}
+
                 </div>
               ) : (
-                <p className="text-xs uppercase tracking-[0.18em] text-[#D4AF37]">{greetingLabel}</p>
-              )}
-              <h1 className="mt-2 text-2xl font-semibold text-white md:text-4xl">
-                {isAr ? `مرحباً بعودتك، ${workspacePrimaryName}` : `Welcome back, ${workspacePrimaryName}`}
-              </h1>
-              <p className="mt-1 text-sm text-[#D1D5DB]">{workspacePositiveMessage}</p>
-              {!isSellerWorkspaceUser ? (
-                <div className="buyer-rank-hero-card mt-5">
-                  <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-                    <div className="flex items-start gap-3">
-                      <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-[#6CAEFF]/30 bg-[#0F172A]/80 shadow-[0_0_32px_rgba(108,174,255,0.16)]">
-                        <ShieldCheck className="h-6 w-6 text-[#BFDBFE]" />
-                      </div>
-                      <div>
-                        <p className="text-[11px] uppercase tracking-[0.18em] text-[#93C5FD]">{isAr ? "هوية المشتري" : "Buyer identity"}</p>
-                        <div className="mt-1 flex flex-wrap items-center gap-2">
-                          <h2 className={cn("text-[1.35rem] font-semibold text-white md:text-[1.6rem]", "profile-identity-name--buyer")}>{isAr ? (buyerProfileSummary?.labelAr ?? "مشتري برونزي") : (buyerProfileSummary?.label ?? "Bronze Buyer")}</h2>
-                          <span className={cn("buyer-rank-pill", `buyer-rank-pill--${buyerProfileSummary?.key ?? "bronze"}`)}>
-                            {isAr ? "رتبة المشتري" : "Buyer rank"}
-                          </span>
-                        </div>
-                        <p className="mt-2 max-w-2xl text-sm text-[#D1D5DB]">
-                          {isAr ? (buyerProfileSummary?.descriptionAr ?? "تُحتسب رتبتك من إجمالي مشتريات USDT المكتملة.") : (buyerProfileSummary?.description ?? "Your rank is calculated from your lifetime completed USDT purchases.")}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="min-w-[min(18rem,100%)] rounded-2xl border border-white/10 bg-black/35 p-4 backdrop-blur">
-                      <div className="flex items-center justify-between text-[11px] uppercase tracking-[0.14em] text-[#94A3B8]">
-                        <span>{isAr ? "التقدم نحو الرتبة التالية" : "Progress to next rank"}</span>
-                        <span>{Math.round(buyerProfileSummary?.progressPercent ?? 0)}%</span>
-                      </div>
-                      <div className="mt-3 h-2.5 overflow-hidden rounded-full bg-white/10">
-                        <div
-                          className={cn("relative h-full rounded-full transition-[width] duration-700 ease-out", `buyer-rank-progress buyer-rank-progress--${buyerProfileSummary?.key ?? "bronze"}`)}
-                          style={{ width: `${buyerProfileSummary?.progressPercent ?? 0}%` }}
-                        />
-                      </div>
-                      <div className="mt-3 grid gap-2 sm:grid-cols-3">
-                        <div className="rounded-xl border border-white/10 bg-black/25 px-3 py-2 text-center">
-                          <p className="text-[10px] uppercase tracking-[0.14em] text-[#94A3B8]">{isAr ? "تم شراؤه" : "Purchased"}</p>
-                          <p className="mt-1 text-sm font-semibold text-white"><bdi dir="ltr">{formatWholeNumber(buyerProfileSummary?.lifetimeCompletedVolumeUsdt ?? 0)} USDT</bdi></p>
-                        </div>
-                        <div className="rounded-xl border border-white/10 bg-black/25 px-3 py-2 text-center">
-                          <p className="text-[10px] uppercase tracking-[0.14em] text-[#94A3B8]">{isAr ? "الرتبة التالية" : "Next rank"}</p>
-                          <p className="mt-1 text-sm font-semibold text-white">{buyerProfileSummary?.nextRank ? (isAr ? buyerProfileSummary.nextRankLabelAr : buyerProfileSummary.nextRankLabel) : (isAr ? "أعلى رتبة" : "Top tier")}</p>
-                        </div>
-                        <div className="rounded-xl border border-white/10 bg-black/25 px-3 py-2 text-center">
-                          <p className="text-[10px] uppercase tracking-[0.14em] text-[#94A3B8]">{isAr ? "المتبقي" : "Remaining"}</p>
-                          <p className="mt-1 text-sm font-semibold text-white"><bdi dir="ltr">{formatWholeNumber(buyerProfileSummary?.remainingVolumeUsdt ?? 15_000)} USDT</bdi></p>
-                        </div>
-                      </div>
-                      <p className="mt-3 text-center text-xs font-medium text-[#BFDBFE]">
-                        {buyerProfileSummary?.nextRank
-                          ? (isAr
-                            ? `${formatWholeNumber(buyerProfileSummary.lifetimeCompletedVolumeUsdt)} / ${formatWholeNumber(buyerProfileSummary.requiredVolumeUsdt)} USDT مكتمل`
-                            : `${formatWholeNumber(buyerProfileSummary.lifetimeCompletedVolumeUsdt)} / ${formatWholeNumber(buyerProfileSummary.requiredVolumeUsdt)} USDT completed`)
-                          : (isAr ? "لقد وصلت إلى أعلى رتبة للمشترين." : "You reached the highest buyer rank.")}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              ) : null}
-              {isApprovedSeller ? (
-                <>
-                  <p className="mt-2 text-xs text-[#9CA3AF]">
-                    {isAr ? "تاريخ الموافقة" : "Approval Date"}: {sellerApprovalDate
-                      ? new Date(sellerApprovalDate).toLocaleDateString(isAr ? "ar-IL" : "en-IL", { timeZone: ISRAEL_TIME_ZONE })
-                      : "—"}
-                  </p>
-                  <p className="mt-1 text-[11px] uppercase tracking-[0.16em] text-[#D4AF37]">{greetingLabel}</p>
-                </>
-              ) : null}
-              {!isDashboardWorkspace ? (
-                <div className="mt-4 flex flex-wrap gap-2">
-                  {heroPrimaryActions.map((action, index) => (
-                    <Button
-                      key={action.key}
-                      type="button"
-                      variant={index === 0 ? "default" : "secondary"}
-                      className="min-h-11"
-                      onClick={action.onClick}
-                    >
-                      {action.label}
-                    </Button>
-                  ))}
-                </div>
-              ) : null}
               <div className="mt-4 grid grid-cols-2 gap-2 xl:grid-cols-4">
                 <div className="rounded-2xl border border-white/10 bg-black/25 p-3">
                   <p className="text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "اسم التداول" : "Trading Name"}</p>
-                  <p className="mt-1 text-sm font-semibold text-white">{safeText(sessionUser.fullName, isAr ? "المتداول" : "Trader")}</p>
+                  <p className="mt-1 text-sm font-semibold text-white">{currencyText(publicAccountName(sessionUser))}</p>
                 </div>
                 <div className="rounded-2xl border border-white/10 bg-black/25 p-3">
-                  <p className="text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF]">{isSellerWorkspaceUser ? (isAr ? "مستوى البائع" : "Seller Level") : (isAr ? "رتبة المشتري" : "Buyer Rank")}</p>
-                  <p className="mt-1 text-sm font-semibold text-white">{isSellerWorkspaceUser ? sellerLevelLabel(sellerOverviewStats.reputation?.level, isAr) : (isAr ? (buyerProfileSummary?.labelAr ?? "مشتري برونزي") : (buyerProfileSummary?.label ?? "Bronze Buyer"))}</p>
+                  <p className="text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF]">{welcomeRole === "approved_seller" ? (isAr ? "مستوى البائع" : "Seller Level") : welcomeRole === "buyer" ? (isAr ? "رتبة المشتري" : "Buyer Rank") : (isAr ? "دور الحساب" : "Account Role")}</p>
+                  <div className="mt-2">{welcomeRole === "approved_seller" ? <RankBadge rank={sellerRankSummary?.sellerLevel ?? sellerOverviewStats.reputation?.level} locale={isAr ? "ar" : "en"} audience="seller" /> : welcomeRole === "buyer" ? (buyerProfileSummary ? <RankBadge rank={buyerProfileSummary.key} locale={isAr ? "ar" : "en"} audience="buyer" /> : null) : <RoleBadge variant={welcomeRole} locale={isAr ? "ar" : "en"} />}</div>
                 </div>
                 <div className="rounded-2xl border border-white/10 bg-black/25 p-3">
-                  <p className="text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "معرّف AT" : "AT ID"}</p>
+                  <p className="text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF]">{welcomeRole === "owner" ? (isAr ? "هوية المالك العامة" : "Public owner identity") : (isAr ? "معرّف AT" : "AT ID")}</p>
                   <div className="mt-1 flex items-center gap-2">
-                    <Link href="/profile" className="text-sm font-semibold text-[#93C5FD] underline-offset-2 hover:underline">{workspaceDisplayId}</Link>
+                    <Link href="/profile" className="text-sm font-semibold text-[#93C5FD] underline-offset-2 hover:underline">{currencyText(workspaceDisplayId)}</Link>
                     <Button
                       type="button"
                       size="sm"
@@ -5147,54 +5220,28 @@ export function UsdtExchangePage({
                 </div>
                 <div className="rounded-2xl border border-white/10 bg-black/25 p-3">
                   <p className="text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "سوق اليوم" : "Today’s Market"}</p>
-                  <p className="mt-1 text-sm font-semibold text-white">USDT / ILS {formatIls(marketPricePerUsdt)}</p>
+                  <p className="mt-1 text-sm font-semibold text-white">{currencyText("USDT / ILS")} {currencyText(marketPricePerUsdt > 0 ? `₪${marketPricePerUsdt.toFixed(5)}` : "—")}</p>
                 </div>
               </div>
-            </div>
-          </div>
+              )}
+          </AccountWelcome>
 
-          {showBuyerSellerApplicationUpFront ? sellerApplicationPanel : null}
+          {showBuyerSellerApplicationUpFront && (!isDashboardWorkspace || sellerApplicationEligibility !== "application_pending") ? sellerApplicationPanel : null}
+          {isDashboardWorkspace && isApprovedSeller ? (
+            <Card className="mt-5 border-[#C9A227]/35 bg-[#C9A227]/5">
+              <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex items-center gap-3">
+                  <ShieldCheck className="h-5 w-5 shrink-0 text-[#D4AF37]" aria-hidden="true" />
+                  <CardTitle className="text-lg">{isAr ? "بائع معتمد" : "Approved Seller"}</CardTitle>
+                </div>
+                <Button type="button" variant="secondary" disabled={isWorkspaceWidgetsLoading || !showSellerWorkspace} onClick={workspaceCards.find((card) => card.key === "listings")?.onClick}>
+                  {isAr ? "عرض وإدارة العروض" : "View and Manage Listings"}
+                </Button>
+              </CardContent>
+            </Card>
+          ) : null}
 
-          <div id="workspace-summary" className="mt-5 scroll-mt-24">
-            <h2 className="text-lg font-semibold text-white md:text-xl">{isAr ? "مساحة العمل" : "Your workspace"}</h2>
-            <p className="mt-1 text-sm leading-6 text-[#B6BDC8]">{isAr ? "اختر المهمة التي تريد تنفيذها الآن." : "Choose what you want to do next."}</p>
-            <div className="mt-3 grid gap-2 min-[360px]:grid-cols-2 xl:grid-cols-4">
-              {workspaceCards.map((card) => {
-                const Icon = card.icon;
-                const statIsAction = ["create-listing", "public-profile", "buyer-profile", "account-settings", "marketplace-compliance"].includes(card.key);
-                const toneClass = card.tone === "gold"
-                  ? "border-[#C9A227]/35 bg-[#C9A227]/10"
-                  : card.tone === "blue"
-                    ? "border-[#6CAEFF]/35 bg-[#6CAEFF]/10"
-                    : card.tone === "green"
-                      ? "border-emerald-500/35 bg-emerald-500/10"
-                      : "border-amber-500/35 bg-amber-500/10";
-                return (
-                  <button
-                    key={card.key}
-                    type="button"
-                    onClick={card.onClick}
-                    aria-label={`${card.title}: ${card.subtitle}`}
-                    className={`flex min-h-[116px] w-full flex-col rounded-2xl border p-3 text-start transition hover:-translate-y-0.5 hover:border-white/30 ${toneClass}`}
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <p className="text-sm font-semibold leading-5 text-white">{card.title}</p>
-                        <p className="mt-1 line-clamp-2 text-xs leading-5 text-[#C8CDD5]">{card.subtitle}</p>
-                      </div>
-                      <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/15 bg-black/20">
-                        <Icon className="h-4 w-4 text-[#F4D87A]" />
-                      </span>
-                    </div>
-                    <p className={cn("mt-auto pt-2 font-semibold", statIsAction ? "inline-flex items-center gap-1 text-sm text-[#F4D87A]" : "text-xl tracking-tight text-white")}>
-                      {card.stat}
-                      {statIsAction ? <ArrowRight className={cn("h-4 w-4", isAr && "rotate-180")} aria-hidden="true" /> : null}
-                    </p>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
+          {!integrateWorkspace ? workspaceNavigation : null}
 
           {needsAttentionItems.length ? (
             <Card className="mt-4 border-amber-500/30 bg-[#0B0B0B]/92">
@@ -5203,7 +5250,7 @@ export function UsdtExchangePage({
                   <AlertTriangle className="h-4 w-4 text-amber-300" />
                   {isAr ? "بحاجة إلى انتباه" : "Needs Attention"}
                 </CardTitle>
-                <CardDescription>{isAr ? "أهم الإجراءات الحالية تظهر هنا أولًا." : "The most urgent actions appear here first."}</CardDescription>
+                <CardDescription>{isAr ? "خطوتك التالية حسب حالة حسابك وصفقاتك." : "Your next steps, based on your account and trade status."}</CardDescription>
               </CardHeader>
               <CardContent className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
                 {needsAttentionItems.map((item) => (
@@ -5211,11 +5258,11 @@ export function UsdtExchangePage({
                     key={item.title}
                     type="button"
                     onClick={item.onClick}
-                    className="rounded-2xl border border-amber-500/20 bg-amber-500/8 p-4 text-start transition hover:-translate-y-0.5 hover:border-amber-400/35 hover:bg-amber-500/12"
+                    className={`rounded-2xl border border-amber-500/20 bg-amber-500/8 p-4 text-start transition hover:-translate-y-0.5 hover:border-amber-400/35 hover:bg-amber-500/12 ${/commission|عمول/i.test(item.title) ? "commission-surface" : ""}`}
                   >
-                    <p className="text-xs uppercase tracking-[0.14em] text-amber-200/80">{item.title}</p>
-                    <p className="mt-2 text-sm font-semibold text-white">{item.body}</p>
-                    <p className="mt-3 text-xs font-medium text-amber-200">{item.action}</p>
+                    <p className="text-xs uppercase tracking-[0.14em] text-amber-200/80">{currencyText(item.title)}</p>
+                    <p className="mt-2 text-sm font-semibold text-white">{currencyText(item.body)}</p>
+                    <p className="mt-3 text-xs font-medium text-amber-200">{currencyText(item.action)}</p>
                   </button>
                 ))}
               </CardContent>
@@ -5225,146 +5272,14 @@ export function UsdtExchangePage({
         </>
       ) : null}
 
-      {!sessionUser ? (
-      <>
-      <div className="relative overflow-hidden rounded-3xl border border-white/10 bg-[#0A0A0A]/90 p-6 shadow-[0_24px_80px_rgba(0,0,0,0.4)] md:p-10">
-        <div className="pointer-events-none absolute inset-0 opacity-40">
-          <div className="absolute inset-0 bg-[radial-gradient(circle_at_18%_16%,rgba(201,162,39,0.16),transparent_42%),radial-gradient(circle_at_82%_20%,rgba(201,162,39,0.12),transparent_40%),linear-gradient(120deg,rgba(201,162,39,0.08),transparent_40%)]" />
-          <div className="absolute inset-0 bg-[repeating-linear-gradient(60deg,rgba(201,162,39,0.09)_0px,rgba(201,162,39,0.09)_1px,transparent_1px,transparent_56px),repeating-linear-gradient(-60deg,rgba(201,162,39,0.06)_0px,rgba(201,162,39,0.06)_1px,transparent_1px,transparent_56px)]" />
-          <span className="absolute left-[15%] top-[22%] h-1.5 w-1.5 animate-pulse rounded-full bg-[#D4AF37]/80" />
-          <span className="absolute left-[54%] top-[35%] h-1.5 w-1.5 animate-pulse rounded-full bg-[#D4AF37]/80 [animation-delay:0.7s]" />
-          <span className="absolute left-[77%] top-[58%] h-1.5 w-1.5 animate-pulse rounded-full bg-[#D4AF37]/80 [animation-delay:1.2s]" />
-        </div>
-
-        <div className={`relative z-10 max-w-4xl ${isAr ? "md:ms-auto md:text-right" : ""}`}>
-          <p className="inline-flex items-center gap-2 rounded-full border border-[#C9A227]/35 bg-[#C9A227]/10 px-3 py-1 text-xs uppercase tracking-[0.2em] text-[#C9A227]">
-            <Store className="h-3.5 w-3.5" />
-            Alpha Exchange
-          </p>
-          <p className="mt-4 text-xs uppercase tracking-[0.18em] text-[#9CA3AF]">{isApprovedSeller ? (isAr ? "إعادة الدخول إلى مساحة البيع" : "Returning to your seller workspace") : (isAr ? "إعادة الدخول إلى مساحة الشراء" : "Returning to your buyer workspace")}</p>
-          <h1 className="mt-2 text-4xl font-semibold leading-tight text-white md:text-6xl md:leading-[1.1]">{workspaceIdentityName}</h1>
-          <p className="mt-4 max-w-3xl text-base leading-relaxed text-white/85 md:text-lg">
-            {workspacePositiveMessage}
-          </p>
-          <div className="mt-5 flex flex-wrap gap-2">
-            <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-xs text-[#D1D5DB]">{isApprovedSeller ? (isAr ? "بائع معتمد" : "Approved seller") : (isAr ? "مشتري نشط" : "Active buyer")}</span>
-            <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-xs text-[#D1D5DB]">{workspaceDisplayId}</span>
-            <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-xs text-[#D1D5DB]">{isApprovedSeller ? sellerLevelLabel(sellerOverviewStats.reputation?.level, isAr) : (isAr ? "جاهز للتصفح" : "Ready to browse")}</span>
-          </div>
-          <div className={`mt-7 flex flex-wrap gap-3 ${isAr ? "md:justify-end" : ""}`}>
-            <a href="#marketplace">
-              <Button>{isAr ? "ابدأ صفقة" : "Start a Trade"}</Button>
-            </a>
-            <a href="#how-it-works">
-              <Button variant="secondary">{isAr ? "تعرّف على آلية العمل" : "Learn How It Works"}</Button>
-            </a>
-          </div>
-        </div>
-      </div>
-
-      <Card className="mt-8 border-white/10 bg-[#0B0B0B]/90">
-        <CardHeader>
-          <CardTitle>{isAr ? "للبائعين المعتمدين فقط" : "Approved Sellers Only"}</CardTitle>
-          <CardDescription>
-            {isAr
-              ? "يسمح فقط للبائعين المعتمدين من Alpha Traders بنشر العروض. يتم مراجعة كل طلب بائع يدويًا قبل الموافقة."
-              : "Only sellers approved by Alpha Traders are allowed to publish listings. Every seller application is reviewed manually before approval."}
-          </CardDescription>
-        </CardHeader>
-      </Card>
-
-      <div className="mt-6">
-        <AlphaMarketCenterView
-          locale={locale}
-          snapshot={marketSnapshot}
-          isLoading={marketFeed.isLoading}
-          error={marketFeed.error}
-        />
-      </div>
-
-      <div className="mt-6">
-        <h2 className="text-2xl font-semibold md:text-3xl">{isAr ? "مركز الثقة والأمان" : "Trust & Security"}</h2>
-        <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          {[
-            {
-              title: isAr ? "البائعون المعتمدون" : "Approved Sellers",
-              body: isAr ? "فقط البائعون المعتمدون يدويًا يمكنهم نشر العروض." : "Only manually approved sellers can publish listings.",
-              icon: ShieldCheck,
-            },
-            {
-              title: isAr ? "عمولة 1% شفافة" : "Transparent 1% Commission",
-              body: isAr ? "تحتسب Alpha Traders عمولة واضحة 1% على المعاملات المكتملة." : "Alpha Traders charges a simple, transparent 1% commission on completed transactions.",
-              icon: BadgePercent,
-            },
-            {
-              title: isAr ? "الخصوصية" : "Privacy",
-              body: isAr ? "يتم التعامل مع بيانات المستخدمين بشكل آمن." : "User information is handled securely.",
-              icon: LockKeyhole,
-            },
-            {
-              title: isAr ? "الدعم" : "Support",
-              body: isAr ? "دعم مباشر داخل غرفة التداول أثناء عملية التداول." : "Direct support inside the Trade Room during the trading process.",
-              icon: MessageCircle,
-            },
-          ].map((item) => {
-            const Icon = item.icon;
-            return (
-              <Card key={item.title} className="border-white/10 bg-[#0B0B0B]/90">
-                <CardHeader>
-                  <div className="inline-flex items-center gap-2">
-                    <span className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-[#C9A227]/25 bg-[#C9A227]/10 text-[#C9A227]">
-                      <Icon className="h-4 w-4" />
-                    </span>
-                    <CardTitle className="text-base">{item.title}</CardTitle>
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  <CardDescription>{item.body}</CardDescription>
-                </CardContent>
-              </Card>
-            );
-          })}
-        </div>
-      </div>
-      </>
-      ) : null}
-
       {workspaceError ? (
         <Card className="mt-6 border-amber-500/30 bg-[#0B0B0B]/95">
           <CardContent className="flex items-center gap-3 p-4 text-sm text-[#FDE68A]">
             <AlertTriangle className="h-4 w-4" />
-            <span>{workspaceError}</span>
+            <span>{currencyText(workspaceError)}</span>
           </CardContent>
         </Card>
       ) : null}
-
-      {!sessionUser ? (
-      <div id="how-it-works" className="mt-12">
-        <h2 className="text-2xl font-semibold md:text-3xl">{isAr ? "كيف يعمل Alpha Exchange" : "How It Works"}</h2>
-        <div className="mt-6 space-y-3">
-          {timelineSteps.map((step, index) => (
-            <div key={step.title} className="relative overflow-hidden rounded-2xl border border-white/10 bg-[#0B0B0B]/85 p-5">
-              <div className="pointer-events-none absolute inset-y-0 start-0 w-1 bg-gradient-to-b from-[#C9A227]/80 via-[#C9A227]/20 to-transparent" />
-              <div className={`flex items-start gap-4 ${isAr ? "flex-row-reverse" : ""}`}>
-                <span className="inline-flex h-9 min-w-9 items-center justify-center rounded-full border border-[#C9A227]/35 bg-[#C9A227]/10 text-sm font-semibold text-[#C9A227]">
-                  {index + 1}
-                </span>
-                <div>
-                  <h3 className="text-lg font-semibold">{step.title}</h3>
-                  <p className="mt-1 text-sm leading-7 text-[#9CA3AF]">{step.body}</p>
-                </div>
-              </div>
-              {index < timelineSteps.length - 1 ? (
-                <div className={`mt-3 flex ${isAr ? "justify-end pe-2" : "ps-2"}`}>
-                  <span className="text-[#C9A227]/65">↓</span>
-                </div>
-              ) : null}
-            </div>
-          ))}
-        </div>
-      </div>
-      ) : null}
-
       <div id="marketplace" className={isDashboardWorkspace ? "hidden" : "mt-12"}>
         <div id="marketplace-sellers" className="scroll-mt-28" />
         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -5375,66 +5290,21 @@ export function UsdtExchangePage({
           </div>
         </div>
 
-        {/* Professional live market panel */}
-        <div id="market-overview" className="mt-4 overflow-hidden rounded-2xl border border-white/10 bg-[#0A0A0A]/90 shadow-[0_16px_48px_rgba(0,0,0,0.35)]">
-          <div className="flex items-center justify-between border-b border-white/[0.07] px-4 py-3 sm:px-5">
-            <div>
-              <p className="text-[11px] uppercase tracking-[0.16em] text-[#D4AF37]">{isAr ? "السوق المباشر" : "Live Market"}</p>
-              <p className="mt-1 text-xs text-[#9CA3AF]">{isAr ? "تسعير فوري لثلاثة أزواج مرجعية" : "Real-time pricing across three reference pairs"}</p>
-            </div>
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/25 bg-emerald-500/10 px-2.5 py-1 text-[11px] text-emerald-300">
-              <span className="inline-flex h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" />
-              {marketSnapshot?.status === "live" ? (isAr ? "مباشر" : "LIVE") : (isAr ? "آخر تحديث" : "Last update")}
-            </span>
-          </div>
-          {(() => {
-            const marketCards = [
-              marketSnapshot?.pairs.usdtIls ?? { key: "usdtIls" as const, label: "USDT / ILS", price: marketPricePerUsdt, changePercent: null, source: "alpha-reference" },
-              marketSnapshot?.pairs.btcUsdt ?? { key: "btcUsdt" as const, label: "BTC / USDT", price: 0, changePercent: null, source: "coinbase-spot" },
-              marketSnapshot?.pairs.ethUsdt ?? { key: "ethUsdt" as const, label: "ETH / USDT", price: 0, changePercent: null, source: "coinbase-spot" },
-            ];
-
-            return (
-              <div className="px-4 py-4 sm:px-5">
-                <div className="flex gap-3 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden md:grid md:grid-cols-3 md:overflow-visible md:pb-0">
-                  {marketCards.map((pair, index) => {
-                    const positive = pair.changePercent !== null && pair.changePercent >= 0;
-                    const spark = buildSparklinePath(pair.changePercent, index * 4 + 3);
-                    return (
-                      <article
-                        key={pair.key}
-                        className="min-w-[230px] snap-start rounded-2xl border border-[#C9A227]/20 bg-[linear-gradient(155deg,rgba(201,162,39,0.14),rgba(8,8,8,0.9)_42%,rgba(8,8,8,0.98))] p-4 shadow-[0_10px_28px_rgba(0,0,0,0.35)] md:min-w-0"
-                      >
-                        <div className="flex items-center justify-between gap-2">
-                          <p className="text-[11px] uppercase tracking-[0.14em] text-[#F4D87A]">{pair.label}</p>
-                          <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${positive ? "border-emerald-500/35 bg-emerald-500/10 text-emerald-300" : "border-rose-500/35 bg-rose-500/10 text-rose-300"}`}>
-                            {formatMarketCardChange(pair.changePercent)}
-                          </span>
-                        </div>
-                        <p className="mt-2 text-2xl font-semibold tracking-tight text-white">{formatMarketCardPrice(pair.key, pair.price)}</p>
-                        <div className="mt-3 h-10 rounded-xl border border-white/10 bg-black/30 px-2 py-1">
-                          <svg viewBox="0 0 100 32" className="h-full w-full" preserveAspectRatio="none" role="img" aria-label={marketTrendAriaLabel(pair.label, isAr)}>
-                            <path d={spark} fill="none" stroke={positive ? "#34D399" : "#F87171"} strokeWidth="2" strokeLinecap="round" />
-                          </svg>
-                        </div>
-                        <p className="mt-2 text-xs leading-5 text-[#AEB5C0]">{marketReferenceLabel(pair.reference, pair.source, isAr)}</p>
-                      </article>
-                    );
-                  })}
-                </div>
-              </div>
-            );
-          })()}
-          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-white/[0.07] px-4 py-2.5 text-[11px] text-[#9CA3AF] sm:px-5">
-            <span>
-              {isAr ? "آخر تحديث" : "Last update"}: {formatIsraelMarketTime(marketSnapshot?.updatedAt, isAr)}
-            </span>
-            <span>{isAr ? "الحالة" : "Status"}: <span className={marketSnapshot?.status === "live" ? "text-emerald-300" : "text-amber-200"}>{marketSnapshot?.status === "live" ? (isAr ? "مباشر" : "LIVE") : (isAr ? "متدهور" : "Degraded")}</span></span>
-          </div>
-        </div>
+        <section id="market-overview" tabIndex={desktopWorkspaceNavigation ? -1 : undefined}
+          aria-label={isAr ? "نظرة عامة على السوق" : "Market Overview"}
+          className="mt-4 min-w-0 scroll-mt-24 rounded-2xl border border-white/10 bg-[#0B0B0B]/90">
+          <h3 className="flex items-center gap-2 border-b border-white/10 px-4 py-3 text-sm font-semibold sm:px-5 sm:text-base">
+            <TrendingUp aria-hidden="true" className="h-4 w-4 shrink-0 text-[#D4AF37]" />
+            {isAr ? "نظرة عامة على السوق" : "Market Overview"}
+          </h3>
+          <div className="px-3 py-4 sm:px-5"><LiveMarketCards snapshot={marketSnapshot} locale={locale} /></div>
+        </section>
 
         {isApprovedSeller && showSellerWorkspace ? (
           <SellerListingsWorkspacePortal
+            wiseEnabled={wise.enabled}
+            wiseAccounts={wise.accounts}
+            wiseAccountsLoading={wise.loading}
             {...{
               discordShareActionKey,
               discordSharing,
@@ -5466,6 +5336,7 @@ export function UsdtExchangePage({
               listingEditTradeRangeInvalid,
               locale,
               marketPricePerUsdt,
+              marketReferenceAvailable,
               maxAllowedListingPrice,
               myListings,
               scrollToCreateListingSection,
@@ -5475,6 +5346,8 @@ export function UsdtExchangePage({
               sellerExpandedListingId,
               sellerListingsExpanded,
               sellerRequests,
+              sellerWorkspaceMessage,
+              sellerWorkspaceMessageFeedbackKey,
               setEditingListingId,
               setListingEditForm,
               setListingEditOriginal,
@@ -5484,7 +5357,6 @@ export function UsdtExchangePage({
               sortedDashboardListings,
               ISRAELI_BANKS,
               formatIls,
-              formatIntegerForInput,
               listingChangeReasonLabel,
               listingStatusLabel,
               normalizeDecimalInput,
@@ -5501,18 +5373,14 @@ export function UsdtExchangePage({
 
         {/* Recent completed trades — visible to all to signal activity */}
         {recentCompletedTrades.length ? (
-          <Card className="mt-4 border-white/10 bg-[#0B0B0B]/90">
-            <CardContent className="p-4">
-              <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">
-                {isAr ? "الصفقات المكتملة مؤخرًا" : "Recently Completed Trades"}
-              </p>
+          <MarketplaceToolPanel title={isAr ? "الصفقات المكتملة مؤخرًا" : "Recently Completed Trades"} isAr={isAr} icon={<CheckCircle2 aria-hidden="true" className="h-4 w-4 shrink-0 text-emerald-400" />}>
               <div className="mt-2 grid gap-2 md:grid-cols-2">
                 {visibleRecentCompletedTrades.map((trade) => (
                   <div key={`recent-completed-${trade.id}`} className="flex items-start gap-3 rounded-xl border border-white/10 bg-black/25 p-3 text-xs text-[#D1D5DB]">
                     <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-400" />
                     <div>
-                      <p className="font-medium text-white">{shortTradeRef(trade, isAr)}</p>
-                      <p className="mt-0.5">{toNumber(trade.usdtAmount).toLocaleString("en-IL")} USDT • {toNumber(trade.fiatAmount).toLocaleString("en-IL")} {trade.currency}</p>
+                      <p className="font-medium text-white">{currencyText(shortTradeRef(trade, isAr))}</p>
+                      <p className="mt-0.5">{currencyText(`${Math.trunc(toNumber(trade.usdtAmount)).toLocaleString("en-US")} USDT`)} • {currencyText(`${toNumber(trade.fiatAmount).toLocaleString("en-IL")} ${trade.currency}`)}</p>
                       <p className="mt-0.5 text-[#9CA3AF]">{new Date(trade.completedAt ?? trade.updatedAt).toLocaleString(isAr ? "ar-IL" : "en-IL", { timeZone: ISRAEL_TIME_ZONE })}</p>
                     </div>
                   </div>
@@ -5527,23 +5395,15 @@ export function UsdtExchangePage({
                   aria-expanded={showAllCompletedTrades}
                   onClick={() => setShowAllCompletedTrades((value) => !value)}
                 >
-                  {showAllCompletedTrades
+                  {currencyText(showAllCompletedTrades
                     ? (isAr ? "عرض أقل" : "Show less")
-                    : (isAr ? `عرض ${recentCompletedTrades.length - 1} صفقات إضافية` : `Show ${recentCompletedTrades.length - 1} more`)}
+                    : (isAr ? `عرض ${recentCompletedTrades.length - 1} صفقات إضافية` : `Show ${recentCompletedTrades.length - 1} more`))}
                 </Button>
               ) : null}
-            </CardContent>
-          </Card>
+          </MarketplaceToolPanel>
         ) : null}
 
-        <div className="mt-5 flex items-center justify-end">
-          <Button type="button" variant="secondary" onClick={() => setShowMarketplaceFilters((value) => !value)}>
-            {showMarketplaceFilters ? (isAr ? "إخفاء الفلاتر" : "Hide Advanced Filters") : (isAr ? "فلاتر متقدمة" : "Advanced Filters")}
-          </Button>
-        </div>
-        {showMarketplaceFilters ? (
-          <Card className="mt-3 border-white/10 bg-[#0B0B0B]/90">
-            <CardContent className="p-4">
+        <MarketplaceToolPanel title={isAr ? "فلاتر متقدمة" : "Advanced Filters"} isAr={isAr} defaultOpen={showMarketplaceFilters}>
               <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                 <select value={currencyFilter} onChange={(event) => setCurrencyFilter(event.target.value)} className="flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 py-2 text-sm text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C9A227] focus-visible:ring-offset-1 focus-visible:ring-offset-[#050505]">
                   <option value="all">{isAr ? "العملة: الكل" : "Currency: All"}</option>
@@ -5566,27 +5426,32 @@ export function UsdtExchangePage({
                 </select>
                 <select value={sortBy} onChange={(event) => setSortBy(event.target.value as "trust-desc" | "price-asc" | "amount-desc" | "trades-desc" | "rating-desc" | "response-fast" | "newest")} className="flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 py-2 text-sm text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C9A227] focus-visible:ring-offset-1 focus-visible:ring-offset-[#050505]">
                   <option value="trust-desc">{isAr ? "ترتيب: أفضل البائعين" : "Sort: Best Sellers"}</option>
-                  <option value="price-asc">{isAr ? "الترتيب: أقل سعر" : "Sort: Lowest Price"}</option>
+                  <option value="price-asc">{mixedPriceCurrencies ? (isAr ? "السعر: مجمّع حسب العملة" : "Price: grouped by currency") : (isAr ? "الترتيب: أقل سعر" : "Sort: Lowest Price")}</option>
                   <option value="amount-desc">{isAr ? "الترتيب: أعلى كمية USDT" : "Sort: Highest Available USDT"}</option>
                   <option value="trades-desc">{isAr ? "الترتيب: أكثر صفقات مكتملة" : "Sort: Most Completed Trades"}</option>
                   <option value="rating-desc">{isAr ? "الترتيب: أعلى تقييم" : "Sort: Highest Rating"}</option>
                   <option value="response-fast">{isAr ? "الترتيب: أسرع استجابة" : "Sort: Fastest Response Time"}</option>
                   <option value="newest">{isAr ? "الترتيب: الأحدث" : "Sort: Newest Listing"}</option>
                 </select>
-                <Input placeholder={isAr ? "أقل كمية USDT" : "Min USDT amount"} value={minAmountFilter} onChange={(event) => setMinAmountFilter(event.target.value)} />
-                <Input placeholder={isAr ? "أعلى كمية USDT" : "Max USDT amount"} value={maxAmountFilter} onChange={(event) => setMaxAmountFilter(event.target.value)} />
-                <Input placeholder={isAr ? "أقل سعر (₪)" : "Min price (₪)"} value={minPriceFilter} onChange={(event) => setMinPriceFilter(event.target.value)} />
-                <Input placeholder={isAr ? "أعلى سعر (₪)" : "Max price (₪)"} value={maxPriceFilter} onChange={(event) => setMaxPriceFilter(event.target.value)} />
-                <Input placeholder={isAr ? "أقل درجة ثقة" : "Min trust score"} value={trustScoreFilter} onChange={(event) => setTrustScoreFilter(event.target.value)} />
+                <Input className="currency-money" placeholder={isAr ? "أقل كمية USDT" : "Min USDT amount"} value={minAmountFilter} onChange={(event) => setMinAmountFilter(event.target.value)} />
+                <Input className="currency-money" placeholder={isAr ? "أعلى كمية USDT" : "Max USDT amount"} value={maxAmountFilter} onChange={(event) => setMaxAmountFilter(event.target.value)} />
+                <Input className="currency-money" disabled={mixedPriceCurrencies} placeholder={mixedPriceCurrencies ? (isAr ? "اختر عملة لتصفية السعر" : "Choose a currency to filter price") : `${isAr ? "أقل سعر" : "Min price"} (${currencyFilter === "all" ? uniqueCurrencies[0] ?? "ILS" : currencyFilter})`} value={minPriceFilter} onChange={(event) => setMinPriceFilter(event.target.value)} />
+                <Input className="currency-money" disabled={mixedPriceCurrencies} placeholder={mixedPriceCurrencies ? (isAr ? "اختر عملة لتصفية السعر" : "Choose a currency to filter price") : `${isAr ? "أعلى سعر" : "Max price"} (${currencyFilter === "all" ? uniqueCurrencies[0] ?? "ILS" : currencyFilter})`} value={maxPriceFilter} onChange={(event) => setMaxPriceFilter(event.target.value)} />
+                <Input placeholder={isAr ? "الحد الأدنى لنقاط ألفا" : "Min Alpha Score"} value={trustScoreFilter} onChange={(event) => setTrustScoreFilter(event.target.value)} />
                 <Button type="button" variant={onlineOnlyFilter ? "default" : "secondary"} onClick={() => setOnlineOnlyFilter((prev) => !prev)}>
                   {onlineOnlyFilter ? (isAr ? "البائعون المتصلون فقط" : "Online Sellers Only") : (isAr ? "إظهار البائعين المتصلين فقط" : "Show Online Sellers Only")}
                 </Button>
               </div>
-            </CardContent>
-          </Card>
-        ) : null}
+        </MarketplaceToolPanel>
 
-        <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-2 min-[1440px]:grid-cols-3">
+        {buyRequestsHref ? <div className="mb-4 rounded-2xl border border-blue-400/30 bg-blue-400/[0.06] p-4 sm:p-5">
+          <Link href={demandListingIntent ? `/usdt-exchange/requests/${encodeURIComponent(demandListingIntent)}` : buyRequestsHref} className={requestPrimary}>
+            {demandListingIntent ? (isAr ? "العودة إلى طلب USDT" : "Return to the USDT request") : (isAr ? "طلبات الشراء" : "Buy Requests")}
+          </Link>
+          <p className="mt-2 text-sm leading-6 text-gray-300">{demandListingIntent ? (isAr ? "عد إلى الطلب بعد موافقة المالك على عرضك." : "Return to the request after your listing receives owner approval.") : interfaceAccess.canSell ? (isAr ? "تصفح طلبات المشترين وأرسل سعرك من عرضك المعتمد." : "Browse buyer requests and send your price from an approved listing.") : (isAr ? "انشر المبلغ المطلوب وراجع ردود البائعين المعتمدين." : "Post the amount you need and review responses from approved sellers.")}</p>
+        </div> : null}
+        {sessionUser && hasBuyerRole ? <MarketplacePriceAlertPanel key={sessionUser.id} userId={sessionUser.id} isAr={isAr} /> : null}
+        <div id="buyer-marketplace-listings" tabIndex={desktopBuyerNavigation ? -1 : undefined} className={cn("mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-2 min-[1440px]:grid-cols-3", desktopBuyerNavigation && "scroll-mt-24")}>
           {isLoadingListings
             ? Array.from({ length: 4 }).map((_, index) => (
                 <Card key={`skeleton-${index}`} className="border-white/10 bg-[#0B0B0B]/90">
@@ -5606,6 +5471,8 @@ export function UsdtExchangePage({
                   isAr={isAr}
                   marketPricePerUsdt={marketPricePerUsdt}
                   isOwnerListing={listing.sellerProfile?.isOwner === true}
+                  canViewPrivateIdentity={isOwnerViewer}
+                  requiresBuyerSetup={!interfaceAccess.trading}
                   isOwnListing={Boolean((isApprovedSeller || isAdminSession) && sessionUser?.id === listing.sellerId)}
                   isBuying={false}
                   onOpen={openListingModal}
@@ -5618,13 +5485,13 @@ export function UsdtExchangePage({
           <Card className="mt-4 border-white/10 bg-[#0B0B0B]/90">
             <CardContent className="p-6 text-center">
               <p className="text-base font-medium text-white">
-                {isAr ? "لا توجد عروض USDT نشطة متاحة الآن." : "No active USDT listings are available right now."}
+                {currencyText(isAr ? "لا توجد عروض USDT نشطة متاحة الآن." : "No active USDT listings are available right now.")}
               </p>
               <p className="mt-2 text-sm text-[#9CA3AF]">
                 {isAr ? "يمكن للبائعين المعتمدين إنشاء عرض من لوحة البائع." : "Approved sellers can create a listing from their Seller Dashboard."}
               </p>
               {canAccessListingCreation ? (
-                <Button type="button" className="mt-4" onClick={() => router.push("/dashboard/seller")}>
+                <Button type="button" className="mt-4" onClick={() => scrollToCreateListingSection()}>
                   {isAr ? "إنشاء عرض" : "Create Listing"}
                 </Button>
               ) : null}
@@ -5658,11 +5525,11 @@ export function UsdtExchangePage({
                     <span className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-[#C9A227]/25 bg-[#C9A227]/10 text-[#C9A227]">
                       <Icon className="h-4.5 w-4.5" />
                     </span>
-                    <CardTitle className="text-xl">{feature.title}</CardTitle>
+                    <CardTitle className={`text-xl ${feature.commissionNotice ? "commission-notice" : ""}`}>{currencyText(feature.title)}</CardTitle>
                   </div>
                 </CardHeader>
                 <CardContent>
-                  <CardDescription className="text-sm leading-7">{feature.body}</CardDescription>
+                  <CardDescription className={`text-sm leading-7 ${feature.commissionNotice ? "commission-notice" : ""}`}>{currencyText(feature.body)}</CardDescription>
                 </CardContent>
               </Card>
             );
@@ -5674,6 +5541,9 @@ export function UsdtExchangePage({
       {!isDashboardWorkspace && !showBuyerSellerApplicationUpFront ? sellerApplicationPanel : null}
       {isSellerWorkspaceUser && showSellerWorkspace ? (
 <SellerWorkspaceSection
+            wiseEnabled={wise.enabled}
+            wiseAccounts={wise.accounts}
+            wiseAccountsLoading={wise.loading}
           {...{
             activityHistory,
             commissionAdvancedOpen,
@@ -5681,6 +5551,7 @@ export function UsdtExchangePage({
             commissionNetwork,
             commissionPayBusy,
             commissionPayMessage,
+            commissionPayMessageFeedbackKey,
             commissionPayOpen,
             commissionPayableAmountDue,
             commissionPayerType,
@@ -5692,6 +5563,7 @@ export function UsdtExchangePage({
             deferredSellerPanelsReady,
             evidenceUploading,
             groupedActivityHistory,
+            onCommissionSettled: () => { void refreshSellerWorkspace(); },
             handleCommissionPayNow,
             handleOpenTradeRoom,
             handlePrefetchTradeRoom,
@@ -5702,6 +5574,12 @@ export function UsdtExchangePage({
             isListingCreateSubmitDisabled,
             isMobileViewport,
             isWorkspaceWidgetsLoading,
+            desktopNavigation: desktopSellerNavigation,
+            purchaseRequestsState: desktopSellerNavigation ? purchaseRequestsState : "ready",
+            onRetryPurchaseRequests: () => {
+              setPurchaseRequestsState("loading");
+              void refreshMyPurchaseRequests();
+            },
             listingActionKey,
             listingBlockedByActiveLimit,
             listingBlockedByCommission,
@@ -5709,7 +5587,6 @@ export function UsdtExchangePage({
             listingCommissionAgreement,
             listingCreateAmount,
             listingCreateBankAccountMismatch,
-            listingCreateCurrencyManualOverride,
             listingCreateForm,
             listingCreateGuardCardTone,
             listingCreateGuardTone,
@@ -5730,6 +5607,7 @@ export function UsdtExchangePage({
             marketInsightsCard,
             marketPricePerUsdt,
             marketSnapshot,
+            marketReferenceAvailable,
             maxAllowedListingPrice,
             myListingsById,
             openCommissionPayment,
@@ -5745,18 +5623,21 @@ export function UsdtExchangePage({
             sellerBankAccounts,
             sellerBankAccountsLoading,
             sellerCommissionStatus,
-            sellerDeferredPanelsSentinelRef,
+            sellerDeferredPanelsRef: setSellerDeferredPanelsTarget,
             sellerEvidenceFiles,
             sellerExpandedTradeId,
             sellerOverviewStats,
+            sellerRankSummary,
+            sellerRankError,
             sellerPrimaryRequestsExpanded,
             sellerRequestSections,
             sellerRequests,
             sellerResponseDrafts,
             sellerSafetyAcknowledgements,
             sellerTradeQuery,
-            sellerTradeStatus,
+            sellerTradeStatus: visibleSellerTradeStatus,
             sellerWorkspaceMessage,
+            sellerWorkspaceMessageFeedbackKey,
             sellerWorkspaceSummary,
             sessionUser,
             setCommissionAdvancedOpen,
@@ -5767,7 +5648,6 @@ export function UsdtExchangePage({
             setCommissionPayerType,
             setCommissionTxSignature,
             setListingCommissionAgreement,
-            setListingCreateCurrencyManualOverride,
             setListingCreateForm,
             setListingCreateResult,
             setSellerDashboardListingsTarget,
@@ -5785,8 +5665,7 @@ export function UsdtExchangePage({
             CompactTradeTimeline,
             LocalizedEvidenceFileInput,
             formatIls,
-            formatUsdt,
-            formatIntegerForInput,
+            formatUsdt: formatCommissionUsdt,
             normalizeDecimalInput,
             renderBankLogo,
             shortListingRef,
@@ -5816,7 +5695,7 @@ export function UsdtExchangePage({
             </CardContent>
           </Card>
         </div>
-      ) : (
+      ) : canViewBuyerWorkspace ? (
 <BuyerWorkspaceSection
           {...{
             activityHistory,
@@ -5826,13 +5705,19 @@ export function UsdtExchangePage({
             buyerOverviewCard,
             buyerRequests,
             buyerTradeQuery,
-            buyerTradeStatus,
+            buyerTradeStatus: visibleBuyerTradeStatus,
             buyerTradeVisibleCount,
+            desktopNavigation: desktopBuyerNavigation,
+            purchaseRequestsState: desktopBuyerNavigation ? purchaseRequestsState : "ready",
+            onRetryPurchaseRequests: () => {
+              setPurchaseRequestsState("loading");
+              void refreshMyPurchaseRequests();
+            },
+            onBrowseSellers: openBuyerMarketplace,
             evidenceUploading,
             filteredBuyerRequests,
             groupedActivityHistory,
             handleBuyerTradeStatus,
-            handleNotificationPreferencesSave,
             handleOpenTradeRoom,
             handlePrefetchTradeRoom,
             handleSubmitBuyerReview,
@@ -5840,7 +5725,6 @@ export function UsdtExchangePage({
             isMobileViewport,
             listingsById,
             locale,
-            notificationPreferences,
             pendingBuyerReviewTrade,
             renderNotificationCenterCard,
             sessionUser,
@@ -5849,8 +5733,6 @@ export function UsdtExchangePage({
             setBuyerTradeQuery,
             setBuyerTradeStatus,
             setBuyerTradeVisibleCount,
-            setNotificationPreferences,
-            setSessionUser,
             setTradeReviewDrafts,
             sortedBuyerRequests,
             tradeReviewDrafts,
@@ -5863,22 +5745,21 @@ export function UsdtExchangePage({
             paymentMethodEmoji,
             paymentMethodLabel,
             paymentMethodTradeInstruction,
-            roleBadgeVariantFromSession,
             shortListingRef,
             shortTradeRef,
             toNumber,
             tradeStatusLabel,
           }}
         />
-      )}
+      ) : null}
 
       {showDeepDeferredSections && !sessionUser && !isDashboardWorkspace ? (
       <div className="mt-12 grid gap-4 md:grid-cols-4">
         {[
           { value: `${todaysCompletedTrades.toLocaleString("en-IL")}`, labelAr: "صفقات مكتملة اليوم", label: "Completed Trades Today", icon: HandCoins },
           { value: `${marketplacePulse.verifiedSellers.toLocaleString("en-IL")}+`, labelAr: "بائعون موثقون", label: "Verified Sellers", icon: ShieldCheck },
-          { value: `${marketplacePulse.totalUsdtAvailable.toLocaleString("en-IL")} USDT`, labelAr: "USDT متاح", label: "USDT Available", icon: WalletCards },
-          { value: isAr ? `${marketplacePulse.averageResponseMinutes} دقائق` : `${marketplacePulse.averageResponseMinutes} min`, labelAr: "متوسط الاستجابة", label: "Average Response", icon: Clock3 },
+          { value: `${Math.trunc(marketplacePulse.totalUsdtAvailable).toLocaleString("en-US")} USDT`, labelAr: "USDT متاح", label: "USDT Available", icon: WalletCards },
+          { value: marketplacePulse.averageResponseMinutes == null ? "—" : formatMeasuredResponseTime(marketplacePulse.averageResponseMinutes, isAr, 1), labelAr: "متوسط الاستجابة", label: "Average Response", icon: Clock3 },
         ].map((item) => {
           const Icon = item.icon;
           return (
@@ -5887,8 +5768,8 @@ export function UsdtExchangePage({
                 <div className="mx-auto mb-2 inline-flex h-8 w-8 items-center justify-center rounded-full border border-[#C9A227]/25 bg-[#C9A227]/10 text-[#C9A227]">
                   <Icon className="h-4 w-4" />
                 </div>
-                <p className="text-xl font-semibold text-white">{item.value}</p>
-                <p className="mt-1 text-sm text-[#9CA3AF]">{isAr ? item.labelAr : item.label}</p>
+                <p className="text-xl font-semibold text-white">{currencyText(item.value)}</p>
+                <p className="mt-1 text-sm text-[#9CA3AF]">{currencyText(isAr ? item.labelAr : item.label)}</p>
               </CardContent>
             </Card>
           );
@@ -5902,11 +5783,11 @@ export function UsdtExchangePage({
         <div className="mt-5 space-y-3">
           {faqs.map((item) => (
             <details key={item.q} className="group rounded-2xl border border-white/10 bg-[#0B0B0B]/85 p-5 transition-colors hover:border-white/20">
-              <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 text-base font-medium text-white">
-                {item.q}
+              <summary className={`flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 text-base font-medium text-white ${item.commissionNotice ? "commission-notice" : ""}`}>
+                {currencyText(item.q)}
                 <CheckCircle2 className="h-4 w-4 text-[#C9A227] transition group-open:rotate-12" />
               </summary>
-              <p className="mt-3 text-sm leading-7 text-[#9CA3AF]">{item.a}</p>
+              <p className={`mt-3 text-sm leading-7 text-[#9CA3AF] ${item.commissionNotice ? "commission-notice" : ""}`}>{currencyText(item.a)}</p>
             </details>
           ))}
         </div>
@@ -5918,11 +5799,11 @@ export function UsdtExchangePage({
         <CardContent className="relative p-6 md:p-8">
           <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_14%_20%,rgba(201,162,39,0.16),transparent_42%),radial-gradient(circle_at_86%_78%,rgba(201,162,39,0.12),transparent_40%)]" />
           <div className={`relative z-10 ${isAr ? "md:text-right" : ""}`}>
-            <h3 className="text-2xl font-semibold md:text-3xl">{isAr ? "جاهز لتبادل USDT؟" : "Ready to Exchange USDT?"}</h3>
+            <h3 className="text-2xl font-semibold md:text-3xl">{currencyText(isAr ? "جاهز لتبادل USDT؟" : "Ready to Exchange USDT?")}</h3>
             <p className="mt-2 max-w-3xl text-[#D1D5DB]">
-              {isAr
+              {brandText(isAr
                 ? "انضم إلى مجتمع Alpha Traders واستمتع بسوق احترافي يربط بين البائعين والمشترين عبر Alpha Exchange."
-                : "Join the Alpha Traders community and experience a professional marketplace connecting buyers and sellers through Alpha Exchange."}
+                : "Join the Alpha Traders community and experience a professional marketplace connecting buyers and sellers through Alpha Exchange.")}
             </p>
             <div className={`mt-5 flex flex-wrap gap-3 ${isAr ? "md:justify-end" : ""}`}>
               <a href="#marketplace">
@@ -5952,13 +5833,14 @@ export function UsdtExchangePage({
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <h3 className="text-lg font-semibold text-white">{isAr ? "إزالة العرض" : "Remove listing"}</h3>
-                  <p className="mt-1 text-xs text-[#9CA3AF]">{isAr ? "يتم تسجيل سبب الإزالة للشفافية." : `Removing ${shortListingRef(removalListing)} is recorded for marketplace accountability.`}</p>
+                  <p className="mt-1 text-xs text-[#9CA3AF]">{currencyText(isAr ? "يتم تسجيل سبب الإزالة للشفافية." : `Removing ${shortListingRef(removalListing)} is recorded for marketplace accountability.`)}</p>
                 </div>
                 <button type="button" aria-label={isAr ? "إغلاق نافذة إزالة العرض" : "Close removal dialog"} onClick={() => setRemovalListing(null)} className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/20 text-[#D1D5DB] transition hover:border-[#C9A227] hover:text-[#C9A227]">
                   <X className="h-4 w-4" />
                 </button>
               </div>
               <div className="mt-4 space-y-3">
+                {removalError ? <ActionFeedback revealKey={removalErrorFeedbackKey} as="p" role="alert" className="rounded-xl border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-100">{currencyText(removalError)}</ActionFeedback> : null}
                 <div>
                   <label htmlFor="removal-reason" className="text-xs font-semibold uppercase tracking-[0.12em] text-[#FDE68A]">{isAr ? "السبب" : "Reason"} <span className="text-red-300">*</span></label>
                   <select
@@ -5992,6 +5874,7 @@ export function UsdtExchangePage({
                     type="button"
                     className="w-full"
                     disabled={!validateListingChangeReason({ reason: removalReason, explanation: removalExplanation }).ok || listingActionKey === `${removalListing.id}:delete`}
+                    data-feedback-submit
                     onClick={() => void confirmSellerListingRemoval()}
                   >
                     {listingActionKey === `${removalListing.id}:delete` ? (isAr ? "جارٍ الإزالة..." : "Removing...") : (isAr ? "إزالة العرض" : "Remove Listing")}
@@ -6007,18 +5890,21 @@ export function UsdtExchangePage({
       <Portal>
       {selectedListing ? (
         <PurchaseListingDialog
+          wiseEnabled={wise.enabled}
+          wiseAccounts={wise.accounts}
+          wiseAccountsLoading={wise.loading}
           locale={locale}
           listing={selectedListing}
           sellerProfileData={sellerProfileData}
           isSellerProfileLoading={isSellerProfileLoading}
           selectedAmount={selectedAmount}
           selectedPrice={selectedPrice}
-          commission={commission}
+          estimatedTradeValue={estimatedTradeValue}
+          estimatedBuyerFee={estimatedBuyerFee}
           estimatedTotal={estimatedTotal}
-          isOwnerViewer={isOwnerViewer}
-          isOwnerProfileActionLoading={isOwnerProfileActionLoading}
           purchaseSubmitted={purchaseSubmitted}
           buyerInfo={buyerInfo}
+          onBuyerDetailsChange={(details) => setBuyerInfo((prev) => ({ ...prev, ...details }))}
           selectedPaymentMethods={selectedListingPaymentMethods}
           selectedPaymentMethod={selectedListingPaymentMethod}
           buyerTradeAmount={buyerTradeAmount}
@@ -6030,6 +5916,7 @@ export function UsdtExchangePage({
           priceMode={purchasePriceMode}
           offeredPrice={buyerOfferedPrice}
           minimumOfferedPrice={selectedOfferBounds?.minimumPrice ?? ""}
+          maximumOfferedPrice={selectedOfferBounds?.maximumPrice ?? ""}
           offerPriceInvalid={Boolean(selectedOfferValidation && !selectedOfferValidation.ok)}
           offeredTradePrice={selectedTradePrice}
           requiresSafetyNotice={selectedListingRequiresSafetyNotice}
@@ -6037,33 +5924,32 @@ export function UsdtExchangePage({
           showVerificationCta={showVerificationCta}
           isRedirectingToVerification={isRedirectingToVerification}
           statusMessage={statusMessage}
+          statusMessageFeedbackKey={statusMessageFeedbackKey}
           isSubmittingPurchase={isSubmittingPurchase}
           onClose={closeListingModal}
           onSubmit={handlePurchaseSubmit}
-          onQuickBuy={() => void submitPurchaseRequest()}
           onPaymentMethodChange={(method) => {
             setSelectedPurchasePaymentMethod(method);
             setFaceToFaceSafetyAcknowledged(false);
+            if (isCardlessAtmPaymentMethod(method)) {
+              const price = purchasePriceMode === "buyer_offer" ? buyerOfferedPrice : selectedListing.price;
+              setBuyerInfo((prev) => ({ ...prev, usdtAmount: calculateCardlessUsdtAmount(prev.cardlessIlsAmount, price, true) ?? "" }));
+            }
           }}
-          onBuyerAmountChange={(value) => setBuyerInfo((prev) => ({ ...prev, usdtAmount: value }))}
+          onBuyerAmountChange={(value) => setBuyerInfo((prev) => ({ ...prev, usdtAmount: normalizeTradeAmountInput(value) }))}
           onBuyerWalletChange={(value) => setBuyerInfo((prev) => ({ ...prev, receivingWalletAddress: value }))}
-          onOfferedPriceChange={(value) => setBuyerOfferedPrice(normalizePriceOfferInput(value))}
+          onOfferedPriceChange={(value) => {
+            const price = normalizePriceOfferInput(value);
+            setBuyerOfferedPrice(price);
+            const amount = calculateCardlessUsdtAmount(buyerInfo.cardlessIlsAmount, price, true);
+            if (isCardlessAtmPaymentMethod(selectedListingPaymentMethod) && amount) setBuyerInfo((prev) => ({ ...prev, usdtAmount: amount }));
+          }}
           onSafetyAcknowledgedChange={setFaceToFaceSafetyAcknowledged}
           onGoToVerification={goToVerificationGate}
-          onOwnerSellerProfileState={(sellerId, state, successMessage) => {
-            void handleOwnerSellerProfileState(sellerId, state, successMessage);
-          }}
-          onOwnerSuspendSeller={(sellerId) => {
-            void handleOwnerSuspendSeller(sellerId);
-          }}
           formatIls={formatIls}
-          formatIntegerForInput={formatIntegerForInput}
-          localizedAuditAction={localizedAuditAction}
           paymentMethodEmoji={paymentMethodEmoji}
           paymentMethodLabel={paymentMethodLabel}
-          sellerLevelLabel={sellerLevelLabel}
           sellerLevelToneKey={sellerLevelToneKey}
-          tradeStatusLabel={tradeStatusLabel}
         />
       ) : null}
       </Portal>

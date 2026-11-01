@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 
 const mocks = vi.hoisted(() => ({
@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   getSupabaseEmailRedirectUrl: vi.fn(),
   signUp: vi.fn(),
   findUserByEmail: vi.fn(),
+  assertRegistrationPhoneAvailable: vi.fn(),
   upsertUserProfileForAuth: vi.fn(),
 }));
 
@@ -28,12 +29,14 @@ vi.mock("@/lib/supabase-auth-provider", () => ({
 
 vi.mock("@/lib/alpha-exchange-store", () => ({
   findUserByEmail: mocks.findUserByEmail,
+  assertRegistrationPhoneAvailable: mocks.assertRegistrationPhoneAvailable,
   upsertUserProfileForAuth: mocks.upsertUserProfileForAuth,
 }));
 
 import { POST } from "@/app/api/auth/register/route";
 
 describe("auth register route", () => {
+  afterEach(() => vi.unstubAllEnvs());
   beforeEach(() => {
     mocks.checkRateLimit.mockReset();
     mocks.resolveClientIp.mockReset();
@@ -41,6 +44,7 @@ describe("auth register route", () => {
     mocks.getSupabaseEmailRedirectUrl.mockReset();
     mocks.signUp.mockReset();
     mocks.findUserByEmail.mockReset();
+    mocks.assertRegistrationPhoneAvailable.mockReset().mockResolvedValue(undefined);
     mocks.upsertUserProfileForAuth.mockReset();
 
     mocks.resolveClientIp.mockReturnValue("198.51.100.23");
@@ -71,10 +75,57 @@ describe("auth register route", () => {
         confirmPassword: "password123",
         whatsappNumber: "+972500000000",
         agreedToTerms: true,
+        ageConfirmed: true,
         ...overrides,
       }),
     });
   }
+
+  it.each(["", "approved@example.test"])("blocks preview signup before any account preparation with allowlist %j", async allowlist => {
+    vi.stubEnv("VERCEL_ENV", "preview");
+    vi.stubEnv("ALPHA_EMAIL_STAGING_ALLOWLIST", allowlist);
+    const response = await POST(makeRequest("unapproved@example.test"));
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({ code: "REGISTRATION_FAILED" });
+    expect(mocks.findUserByEmail).not.toHaveBeenCalled();
+    expect(mocks.assertRegistrationPhoneAvailable).not.toHaveBeenCalled();
+    expect(mocks.signUp).not.toHaveBeenCalled();
+    expect(mocks.upsertUserProfileForAuth).not.toHaveBeenCalled();
+  });
+
+  it.each(["preview", "production"])("preserves normal signup for permitted %s recipients", async environment => {
+    vi.stubEnv("VERCEL_ENV", environment);
+    vi.stubEnv("ALPHA_EMAIL_STAGING_ALLOWLIST", environment === "preview" ? "BUYER@EXAMPLE.TEST" : "");
+    const response = await POST(makeRequest("buyer@example.test"));
+    expect(response.status).toBe(200);
+    expect(mocks.signUp).toHaveBeenCalledWith(expect.objectContaining({ email: "buyer@example.test" }));
+  });
+
+  it.each(["en", "ar"])("rejects a reused phone before provider signup in %s", async locale => {
+    mocks.inferLocaleFromRequest.mockReturnValue(locale);
+    mocks.assertRegistrationPhoneAvailable.mockRejectedValue(new Error("This phone number is already linked to another account."));
+    const response = await POST(makeRequest("new-user@example.com", locale));
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({ code: "PHONE_ALREADY_IN_USE" });
+    expect(mocks.signUp).not.toHaveBeenCalled();
+    expect(mocks.upsertUserProfileForAuth).not.toHaveBeenCalled();
+  });
+
+  it.each([false, null, undefined, "false", "true", 0, 1, {}, []])("requires literal true Terms consent, rejecting %j before signup", async agreedToTerms => {
+    const response = await POST(makeRequest("consent@example.test", "en", { agreedToTerms }));
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ code: "TERMS_REQUIRED" });
+    expect(mocks.signUp).not.toHaveBeenCalled();
+    expect(mocks.upsertUserProfileForAuth).not.toHaveBeenCalled();
+  });
+
+  it.each([false, undefined, "true"])("rejects unconfirmed adult eligibility %j before creating an account", async ageConfirmed => {
+    const response = await POST(makeRequest("age-check@example.test", "en", { ageConfirmed }));
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ code: "AGE_CONFIRMATION_REQUIRED" });
+    expect(mocks.signUp).not.toHaveBeenCalled();
+    expect(mocks.upsertUserProfileForAuth).not.toHaveBeenCalled();
+  });
 
   it("returns localized arabic message when ip limiter blocks", async () => {
     mocks.inferLocaleFromRequest.mockReturnValue("ar");
@@ -99,18 +150,18 @@ describe("auth register route", () => {
   });
 
   it.each([
-    { locale: "en" as const, message: "If this email can be registered, you will receive a confirmation message. If you already have an account, sign in or reset your password." },
-    { locale: "ar" as const, message: "إذا كان البريد صالحًا للتسجيل، فستصلك رسالة تأكيد. إذا كان لديك حساب بالفعل، فسجّل الدخول أو أعد تعيين كلمة المرور." },
+    { locale: "en" as const, message: "Registration failed. Please try again." },
+    { locale: "ar" as const, message: "تعذر إنشاء الحساب. يُرجى المحاولة مرة أخرى." },
   ])("normalizes unexpected provider errors in $locale", async ({ locale, message }) => {
     mocks.inferLocaleFromRequest.mockReturnValue(locale);
     mocks.signUp.mockRejectedValue(new Error("internal provider connection details"));
     const response = await POST(makeRequest("provider-error@example.com", locale));
     const payload = await response.json() as { ok?: boolean; message?: string };
 
-    expect(response.status).toBe(200);
+    expect(response.status).toBe(503);
     expect(payload).toEqual({
-      ok: true,
-      message,
+      code: "REGISTRATION_FAILED",
+      error: message,
     });
   });
 
@@ -128,32 +179,85 @@ describe("auth register route", () => {
     }));
   });
 
-  it("allows registration without a phone number and keeps the optional value out of auth metadata", async () => {
-    const response = await POST(makeRequest("no-phone@example.com", "en", { whatsappNumber: "" }));
+  it.each(["en", "ar"])("keeps the %s free Academy journey in the verification return URL", async locale => {
+    mocks.inferLocaleFromRequest.mockReturnValue(locale);
+    const response = await POST(makeRequest("learner@example.test", locale, { intent: "learn", redirectTo: "https://outside.test" }));
+    expect(response.status).toBe(200);
+    const destination = new URL(mocks.signUp.mock.calls[0][0].options.emailRedirectTo);
+    expect(destination.origin).toBe("https://www.alphatraders.co.il");
+    expect(destination.pathname).toBe(`/${locale}/login`);
+    expect(destination.searchParams.get("redirectTo")).toBe(`/${locale}/academy`);
+  });
 
+  it("never accepts an arbitrary registration intent as a destination", async () => {
+    await POST(makeRequest("learner@example.test", "en", { intent: "https://outside.test", redirectTo: "//outside.test" }));
+    expect(mocks.signUp.mock.calls[0][0].options.emailRedirectTo).toBe("https://www.alphatraders.co.il/en/login");
+  });
+
+  it.each(["en", "ar"])("keeps the %s mentorship journey in the verification return URL", async locale => {
+    mocks.inferLocaleFromRequest.mockReturnValue(locale);
+    const response = await POST(makeRequest("learner@example.test", locale, { intent: "mentorship", redirectTo: "https://outside.test" }));
+    expect(response.status).toBe(200);
+    const destination = new URL(mocks.signUp.mock.calls[0][0].options.emailRedirectTo);
+    expect(destination.origin).toBe("https://www.alphatraders.co.il");
+    expect(destination.pathname).toBe(`/${locale}/login`);
+    expect(destination.searchParams.get("redirectTo")).toBe(`/${locale}/learn-with-mark`);
+  });
+
+  it.each([undefined, null, "", "   ", 501234567, { number: "+972501234567" }])("rejects a missing contact before creating an account: %j", async (whatsappNumber) => {
+    const response = await POST(makeRequest("no-phone@example.com", "en", { whatsappNumber }));
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({ code: "WHATSAPP_REQUIRED" });
+    expect(mocks.signUp).not.toHaveBeenCalled();
+    expect(mocks.upsertUserProfileForAuth).not.toHaveBeenCalled();
+  });
+
+  it.each(["not-a-phone", "0000000000", "+123", "+1234567890123456", "call +972501234567"])("rejects an invalid contact before creating an account: %s", async (whatsappNumber) => {
+    const response = await POST(makeRequest("bad-phone@example.com", "en", { whatsappNumber }));
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({ code: "INVALID_WHATSAPP" });
+    expect(mocks.signUp).not.toHaveBeenCalled();
+    expect(mocks.upsertUserProfileForAuth).not.toHaveBeenCalled();
+  });
+
+  it("enforces the same requirement for native clients with Arabic errors", async () => {
+    mocks.inferLocaleFromRequest.mockReturnValue("ar");
+    const request = makeRequest("native@example.com", "ar", { whatsappNumber: "" });
+    request.headers.set("x-platform", "ios");
+    const response = await POST(request);
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      code: "WHATSAPP_REQUIRED",
+      error: "رقم واتساب مطلوب للتواصل بشأن حسابك.",
+    });
+    expect(mocks.signUp).not.toHaveBeenCalled();
+  });
+
+  it.each(["050-123-4567", "+972 (50) 123-4567", "٠٥٠١٢٣٤٥٦٧"])("stores a normalized contact in auth metadata and the private profile: %s", async (whatsappNumber) => {
+    const response = await POST(makeRequest("with-phone@example.com", "en", { whatsappNumber }));
     expect(response.status).toBe(200);
     expect(mocks.signUp).toHaveBeenCalledWith(expect.objectContaining({
-      email: "no-phone@example.com",
       options: expect.objectContaining({
-        data: { full_name: "Test User", preferred_locale: "en" },
+        data: { full_name: "Test User", preferred_locale: "en", whatsapp_number: "+972501234567" },
       }),
     }));
     expect(mocks.upsertUserProfileForAuth).toHaveBeenCalledWith(expect.objectContaining({
-      whatsappNumber: "",
-      preferredLocale: "en",
+      whatsappNumber: "+972501234567",
+      emailVerified: false,
     }));
+    expect(mocks.upsertUserProfileForAuth.mock.calls[0][0]).not.toHaveProperty("phoneVerifiedAt");
   });
 
-  it("normalizes provider rate limits so they cannot reveal an unknown address", async () => {
+  it("shows a retryable provider rate limit without claiming an email was sent", async () => {
     mocks.signUp.mockResolvedValue({
       data: null,
       error: { message: "email rate limit exceeded" },
     });
     const response = await POST(makeRequest("ratelimited@example.com", "en"));
-    const payload = await response.json() as { ok?: boolean; message?: string };
-    expect(response.status).toBe(200);
-    expect(payload.ok).toBe(true);
-    expect(payload.message).toContain("If this email can be registered");
+    expect(response.status).toBe(429);
+    expect(response.headers.get("Retry-After")).toBe("60");
+    await expect(response.json()).resolves.toMatchObject({ code: "REGISTRATION_RATE_LIMITED" });
+    expect(mocks.upsertUserProfileForAuth).not.toHaveBeenCalled();
   });
 
   it("uses composite ip+email key for retry-friendly legitimate registrations", async () => {
@@ -202,7 +306,7 @@ describe("auth register route", () => {
     expect(mocks.signUp).not.toHaveBeenCalled();
   });
 
-  it("returns the same provider failure for existing and unknown valid emails", async () => {
+  it("preserves duplicate signup handling while reporting a failed new signup", async () => {
     mocks.signUp.mockResolvedValue({
       data: null,
       error: { message: "provider unavailable" },
@@ -220,13 +324,41 @@ describe("auth register route", () => {
     const unknownResponse = await POST(makeRequest("unknown@example.com", "en"));
     const unknownPayload = await unknownResponse.json();
 
-    expect({ status: existingResponse.status, payload: existingPayload }).toEqual({
-      status: unknownResponse.status,
-      payload: unknownPayload,
-    });
+    expect(existingResponse.status).toBe(200);
+    expect(unknownResponse.status).toBe(503);
+    expect(unknownPayload).toEqual({ code: "REGISTRATION_FAILED", error: "Registration failed. Please try again." });
     expect(existingPayload).toEqual({
       ok: true,
       message: "If this email can be registered, you will receive a confirmation message. If you already have an account, sign in or reset your password.",
     });
+  });
+
+  it.each(["en", "ar"])("reports rejected compromised passwords clearly in %s without creating a profile", async locale => {
+    mocks.inferLocaleFromRequest.mockReturnValue(locale);
+    mocks.signUp.mockResolvedValue({ data: { user: null }, error: {
+      name: "AuthWeakPasswordError", code: "weak_password", status: 422,
+      message: "Password is known to be weak and easy to guess, please choose a different one.",
+    } });
+    const response = await POST(makeRequest("weak-password@example.com", locale));
+    expect(response.status).toBe(422);
+    const payload = await response.json();
+    expect(payload.code).toBe("WEAK_PASSWORD");
+    expect(payload.error).toContain(locale === "ar" ? "اختر كلمة مرور أقوى" : "Choose a stronger, unique password");
+    expect(payload.ok).toBeUndefined();
+    expect(mocks.upsertUserProfileForAuth).not.toHaveBeenCalled();
+  });
+
+  it("recognizes the provider's password rejection even without an error code", async () => {
+    mocks.signUp.mockResolvedValue({ data: null, error: { message: "Password is known to be weak and easy to guess, please choose a different one." } });
+    const response = await POST(makeRequest("weak-password@example.com"));
+    expect(response.status).toBe(422);
+    await expect(response.json()).resolves.toMatchObject({ code: "WEAK_PASSWORD" });
+  });
+
+  it("does not accept an empty signup result as an email delivery", async () => {
+    mocks.signUp.mockResolvedValue({ data: { user: null }, error: null });
+    const response = await POST(makeRequest("empty-result@example.com"));
+    expect(response.status).toBe(503);
+    expect(mocks.upsertUserProfileForAuth).not.toHaveBeenCalled();
   });
 });

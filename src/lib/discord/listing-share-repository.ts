@@ -1,4 +1,5 @@
 import "server-only";
+import { rollbackFailedTransaction } from "@/lib/postgres-transaction";
 
 import type { Pool, PoolClient } from "pg";
 
@@ -189,6 +190,7 @@ async function transaction<T>(
   operation: (client: PoolClient) => Promise<T>,
 ): Promise<T> {
   const client = await pool.connect();
+  let destroy = false;
   try {
     await client.query("begin");
     const result = await operation(client);
@@ -196,13 +198,19 @@ async function transaction<T>(
     return result;
   } catch (error) {
     if (error instanceof DiscordListingShareError) {
-      await client.query("commit");
+      // Persist the denial audit, but a failed COMMIT is still a failed
+      // transaction: never return its uncertain connection to the pool.
+      try { await client.query("commit"); }
+      catch (commitError) {
+        destroy = await rollbackFailedTransaction(client, commitError);
+        throw commitError;
+      }
     } else {
-      await client.query("rollback");
+      destroy = await rollbackFailedTransaction(client, error);
     }
     throw error;
   } finally {
-    client.release();
+    client.release(destroy);
   }
 }
 
@@ -250,11 +258,13 @@ export async function claimDiscordListingShare(input: {
 
     const actor = await client.query<{
       seller_status: string;
+      payload: Record<string, unknown>;
       disabled: boolean;
       profile_hidden: boolean;
       linked: boolean;
     }>(
       `select users.seller_status,
+              users.payload,
               coalesce((users.payload ->> 'disabled')::boolean, false) as disabled,
               coalesce(users.payload ->> 'isProfileHidden', 'false') = 'true' as profile_hidden,
               exists (
@@ -267,7 +277,11 @@ export async function claimDiscordListingShare(input: {
       [input.sellerId],
     );
     const seller = actor.rows[0];
-    if (!seller || seller.disabled || seller.seller_status !== "approved_seller") {
+    if (
+      !seller
+      || seller.disabled
+      || seller.seller_status !== "approved_seller"
+    ) {
       return deny(
         client,
         input.sellerId,

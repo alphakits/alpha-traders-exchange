@@ -1,3 +1,6 @@
+import { canonicalizeNonNegativeTradeAmount } from "@/lib/trade-amount";
+import { normalizeListingPrice } from "@/lib/price-offer";
+
 // Shared reason vocabulary + validation for accountable listing changes.
 //
 // After a listing is created, any change to amount/price/availability — and any
@@ -88,6 +91,7 @@ export function listingEditRequiresReason(
   return REASON_REQUIRED_FIELDS.some((field) => {
     const proposed = next[field];
     if (proposed === undefined) return false;
-    return normalizeValue(proposed) !== normalizeValue(current[field]);
+    const normalize = field === "price" ? normalizeListingPrice : canonicalizeNonNegativeTradeAmount;
+    return (normalize(proposed) ?? normalizeValue(proposed)) !== (normalize(current[field]) ?? normalizeValue(current[field]));
   });
 }

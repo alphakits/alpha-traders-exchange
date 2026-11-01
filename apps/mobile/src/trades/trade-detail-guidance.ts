@@ -1,6 +1,6 @@
 import type { MobileTradeDetail, MobileTradeStatus } from "@alpha-traders/contracts";
 
-export type MobileTradeGuidanceTarget = "hero" | "wallet" | "actions" | "review";
+export type MobileTradeGuidanceTarget = "hero" | "wallet" | "actions" | "review" | "bank";
 
 type TradeActionFlags = MobileTradeDetail["actions"];
 
@@ -18,7 +18,8 @@ export function hasImmediateMobileTradeAction(actions: TradeActionFlags) {
     || actions.canMarkUsdtSent
     || actions.canUploadReleaseEvidence
     || actions.canConfirmReceived
-    || actions.canCompleteFaceToFace,
+    || actions.canCompleteFaceToFace
+    || actions.canCompleteTrade,
   );
 }
 

@@ -20,9 +20,11 @@ export function getNotificationStreamReconnectDelayMs(attempt: number) {
 }
 
 /**
- * Opens the notification stream only for a canonically authenticated session.
- * An EventSource cannot expose a failed handshake status, so every connection
- * error is reconciled through `/api/auth/me` before a bounded-backoff reconnect.
+ * Opens the notification stream from the server-authenticated session without
+ * waiting on a duplicate client bootstrap read. The stream endpoint performs
+ * its own cookie authorization. Because EventSource cannot expose a failed
+ * handshake status, connection errors are reconciled through `/api/auth/me`
+ * before any bounded-backoff reconnect.
  * A confirmed signed-out state therefore closes the stream instead of letting
  * the browser retry an unauthorized request indefinitely, while temporary
  * network or server failures can recover without a page reload.
@@ -62,11 +64,11 @@ export function useAuthenticatedNotificationStream({ enabled = true, onNotificat
     let disposed = false;
     let reconnectTimeout: number | null = null;
     const stream = new EventSource("/api/alpha-exchange/notifications/stream");
-    const handleNotifications = (event: Event) => onNotificationsRef.current(event);
-    const onOpen = () => {
+    const handleNotifications = (event: Event) => {
       reconnectAttemptsRef.current = 0;
+      onNotificationsRef.current(event);
     };
-    const onError = () => {
+    const onError = (event: Event) => {
       if (!active) return;
       // A backgrounded or outgoing document can report an EventSource error
       // after its owning component has started to tear down. Close that stream
@@ -92,15 +94,16 @@ export function useAuthenticatedNotificationStream({ enabled = true, onNotificat
         // Components are rendered under the provider in production. The
         // fallback cycle keeps isolated component tests from relying on the
         // browser's uncontrolled native EventSource retry behavior.
-        if (!refreshCanonicalSession) {
+        // A named SSE event is a snapshot failure or planned rotation, not lost auth.
+        if (event instanceof MessageEvent || !refreshCanonicalSession) {
           setStreamCycle((value) => value + 1);
           return;
         }
-        void refreshCanonicalSession({ force: true }).then((result) => {
+        void refreshCanonicalSession({ background: true }).then((result) => {
           // Canonical provider state normally restarts this effect. If React
           // batches a very fast authenticated refresh back to the same visible
           // state, this explicit cycle still guarantees a fresh stream.
-          if (!disposed && result === "authenticated" && document.visibilityState !== "hidden") {
+          if (!disposed && result !== "anonymous" && document.visibilityState !== "hidden") {
             setStreamCycle((value) => value + 1);
           }
         });
@@ -116,12 +119,20 @@ export function useAuthenticatedNotificationStream({ enabled = true, onNotificat
       if (reconnectTimeout !== null) window.clearTimeout(reconnectTimeout);
       stream.close();
     };
+    const handlePageShow = (event: PageTransitionEvent) => {
+      if (event.persisted) setStreamCycle((value) => value + 1);
+    };
+    const handleOnline = () => {
+      if (document.visibilityState !== "hidden") setStreamCycle((value) => value + 1);
+    };
 
     stream.addEventListener("notifications", handleNotifications);
-    stream.addEventListener("open", onOpen as EventListener);
     stream.addEventListener("error", onError as EventListener);
+    stream.addEventListener("reconnect", onError as EventListener);
     window.addEventListener("pagehide", handlePageExit);
     window.addEventListener("beforeunload", handlePageExit);
+    window.addEventListener("pageshow", handlePageShow);
+    window.addEventListener("online", handleOnline);
 
     return () => {
       active = false;
@@ -129,9 +140,11 @@ export function useAuthenticatedNotificationStream({ enabled = true, onNotificat
       if (reconnectTimeout !== null) window.clearTimeout(reconnectTimeout);
       window.removeEventListener("pagehide", handlePageExit);
       window.removeEventListener("beforeunload", handlePageExit);
+      window.removeEventListener("pageshow", handlePageShow);
+      window.removeEventListener("online", handleOnline);
       stream.removeEventListener("notifications", handleNotifications);
-      stream.removeEventListener("open", onOpen as EventListener);
       stream.removeEventListener("error", onError as EventListener);
+      stream.removeEventListener("reconnect", onError as EventListener);
       stream.close();
     };
   }, [canonicalSessionResolving, canonicalUserId, documentVisible, enabled, hasCanonicalSession, refreshCanonicalSession, streamCycle]);

@@ -1,9 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import { findUserByEmail, upsertUserProfileForAuth } from "@/lib/alpha-exchange-store";
+import { normalizeRegistrationWhatsApp } from "@alpha-traders/contracts";
+import { assertRegistrationPhoneAvailable, findUserByEmail, upsertUserProfileForAuth } from "@/lib/alpha-exchange-store";
 import { checkSharedRateLimit, resolveClientIp } from "@/lib/rate-limit";
 import { createSupabaseAuthClient, getSupabaseEmailRedirectUrl, inferLocaleFromRequest } from "@/lib/supabase-auth-provider";
 import { logEvent } from "@/lib/structured-logging";
 import { assertNoDirectContactContent } from "@/lib/privacy-redaction";
+import { academyLoginPath, mentorshipLoginPath } from "@/lib/academy-entry";
+import { AUTH_WEAK_PASSWORD_COPY, authProviderLogMetadata, isAuthProviderRateLimitError, isWeakPasswordError } from "@/lib/auth-provider-errors";
+import { previewEmailRecipientFailure } from "@/lib/email-preview-safety";
 
 const AUTH_RESPONSE_HEADERS = { "Cache-Control": "no-store, max-age=0" };
 const REGISTRATION_RESPONSE_FLOOR_MS = 450;
@@ -13,9 +17,14 @@ type RegistrationErrorCode =
   | "REQUIRED_FIELDS"
   | "FIELD_TOO_LONG"
   | "INVALID_EMAIL"
+  | "WHATSAPP_REQUIRED"
+  | "INVALID_WHATSAPP"
+  | "PHONE_ALREADY_IN_USE"
   | "EMAIL_ALREADY_REGISTERED"
   | "TERMS_REQUIRED"
+  | "AGE_CONFIRMATION_REQUIRED"
   | "PASSWORD_TOO_SHORT"
+  | "WEAK_PASSWORD"
   | "PASSWORD_MISMATCH"
   | "REGISTRATION_FAILED";
 
@@ -27,6 +36,18 @@ const REGISTRATION_ERROR_COPY: Record<RegistrationErrorCode, { ar: string; en: s
   REQUIRED_FIELDS: {
     ar: "الاسم الكامل والبريد الإلكتروني وكلمة المرور مطلوبة.",
     en: "Full name, email, and password are required.",
+  },
+  WHATSAPP_REQUIRED: {
+    ar: "رقم واتساب مطلوب للتواصل بشأن حسابك.",
+    en: "A WhatsApp number is required for account contact.",
+  },
+  INVALID_WHATSAPP: {
+    ar: "أدخل رقم واتساب صالحًا مثل 05XXXXXXXX أو رقمًا دوليًا يبدأ بـ + ورمز الدولة.",
+    en: "Enter a valid WhatsApp number, such as 05XXXXXXXX or an international number starting with + and country code.",
+  },
+  PHONE_ALREADY_IN_USE: {
+    ar: "هذا الرقم مرتبط بحساب آخر. استخدم رقمًا مختلفًا أو سجّل الدخول إلى حسابك الحالي.",
+    en: "This phone number is linked to another account. Use a different number or sign in to your existing account.",
   },
   FIELD_TOO_LONG: {
     ar: "تجاوز حقل واحد أو أكثر الحد المسموح.",
@@ -44,6 +65,10 @@ const REGISTRATION_ERROR_COPY: Record<RegistrationErrorCode, { ar: string; en: s
     ar: "يجب الموافقة على شروط الخدمة.",
     en: "Terms must be accepted.",
   },
+  AGE_CONFIRMATION_REQUIRED: {
+    ar: "يجب تأكيد أن عمرك 18 عامًا أو أكثر.",
+    en: "Confirm that you are 18 or older to create an account.",
+  },
   PASSWORD_TOO_SHORT: {
     ar: "يجب أن تتكوّن كلمة المرور من 8 أحرف على الأقل.",
     en: "Password must be at least 8 characters.",
@@ -52,6 +77,7 @@ const REGISTRATION_ERROR_COPY: Record<RegistrationErrorCode, { ar: string; en: s
     ar: "كلمتا المرور غير متطابقتين.",
     en: "Passwords do not match.",
   },
+  WEAK_PASSWORD: AUTH_WEAK_PASSWORD_COPY,
   REGISTRATION_FAILED: {
     ar: "تعذر إنشاء الحساب. يُرجى المحاولة مرة أخرى.",
     en: "Registration failed. Please try again.",
@@ -123,22 +149,32 @@ export async function POST(request: NextRequest) {
     const email = String(body.email ?? "").trim().toLowerCase();
     const password = String(body.password ?? "");
     const confirmPassword = String(body.confirmPassword ?? "");
-    const whatsappNumber = String(body.whatsappNumber ?? "").trim();
-    const agreedToTerms = Boolean(body.agreedToTerms);
+    const whatsappInput = typeof body.whatsappNumber === "string" ? body.whatsappNumber.trim() : "";
+    const agreedToTerms = body.agreedToTerms === true;
 
     if (!fullName || !email || !password || !confirmPassword) {
       return registrationErrorResponse(locale, "REQUIRED_FIELDS", 400);
     }
-    if (fullName.length > 100 || whatsappNumber.length > 30 || email.length > 254) {
+    if (fullName.length > 100 || whatsappInput.length > 30 || email.length > 254 || password.length > 256) {
       return registrationErrorResponse(locale, "FIELD_TOO_LONG", 400);
     }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       return registrationErrorResponse(locale, "INVALID_EMAIL", 400);
     }
+    if (!whatsappInput) {
+      return registrationErrorResponse(locale, "WHATSAPP_REQUIRED", 400);
+    }
+    const whatsappNumber = normalizeRegistrationWhatsApp(whatsappInput);
+    if (!whatsappNumber) {
+      return registrationErrorResponse(locale, "INVALID_WHATSAPP", 400);
+    }
     assertNoDirectContactContent(fullName);
 
     if (!agreedToTerms) {
       return registrationErrorResponse(locale, "TERMS_REQUIRED", 400);
+    }
+    if (body.ageConfirmed !== true) {
+      return registrationErrorResponse(locale, "AGE_CONFIRMATION_REQUIRED", 400);
     }
     if (password.length < 8) {
       return registrationErrorResponse(locale, "PASSWORD_TOO_SHORT", 400);
@@ -166,6 +202,10 @@ export async function POST(request: NextRequest) {
       });
     }
 
+    // Supabase signup may send its own confirmation email before Resend runs.
+    if (previewEmailRecipientFailure([email])) {
+      return registrationErrorResponse(locale, "REGISTRATION_FAILED", 503);
+    }
     validRegistrationStartedAt = Date.now();
     const existingUser = await findUserByEmail(email);
     if (existingUser) {
@@ -177,16 +217,21 @@ export async function POST(request: NextRequest) {
       return registrationAcceptedResponse(locale, validRegistrationStartedAt);
     }
 
+    await assertRegistrationPhoneAvailable(whatsappNumber);
     const supabase = createSupabaseAuthClient({ requestHeaders: request.headers });
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
       options: {
-        emailRedirectTo: getSupabaseEmailRedirectUrl(locale),
+        emailRedirectTo: body.intent === "mentorship"
+          ? new URL(mentorshipLoginPath(locale), getSupabaseEmailRedirectUrl(locale)).toString()
+          : body.intent === "learn"
+          ? new URL(academyLoginPath(locale), getSupabaseEmailRedirectUrl(locale)).toString()
+          : getSupabaseEmailRedirectUrl(locale),
         data: {
           full_name: fullName,
           preferred_locale: locale,
-          ...(whatsappNumber ? { whatsapp_number: whatsappNumber } : {}),
+          whatsapp_number: whatsappNumber,
         },
       },
     });
@@ -200,20 +245,23 @@ export async function POST(request: NextRequest) {
         });
         return registrationAcceptedResponse(locale, validRegistrationStartedAt);
       }
-      logRegistrationRateLimit(
-        error.message.toLowerCase().includes("rate limit")
-          ? "provider_rate_limit"
-          : "provider_signup_failed",
-        {
-          ip: clientIp,
-          email,
-          provider: "supabase",
-        },
-      );
-      return registrationAcceptedResponse(locale, validRegistrationStartedAt);
+      const weakPassword = isWeakPasswordError(error);
+      const rateLimited = isAuthProviderRateLimitError(error);
+      logEvent("warn", {
+        event: "auth_registration",
+        outcome: "failed",
+        reason: weakPassword ? "weak_password" : rateLimited ? "provider_rate_limit" : "provider_signup_failed",
+        metadata: authProviderLogMetadata(error),
+      });
+      if (weakPassword) return registrationErrorResponse(locale, "WEAK_PASSWORD", 422);
+      if (rateLimited) return registrationErrorResponse(locale, "REGISTRATION_RATE_LIMITED", 429, {
+        ...AUTH_RESPONSE_HEADERS,
+        "Retry-After": "60",
+      });
+      return registrationErrorResponse(locale, "REGISTRATION_FAILED", 503);
     }
     if (!data.user) {
-      return registrationAcceptedResponse(locale, validRegistrationStartedAt);
+      return registrationErrorResponse(locale, "REGISTRATION_FAILED", 503);
     }
     if (Array.isArray(data.user.identities) && data.user.identities.length === 0) {
       return registrationAcceptedResponse(locale, validRegistrationStartedAt);
@@ -224,15 +272,22 @@ export async function POST(request: NextRequest) {
       email,
       whatsappNumber,
       emailVerified: false,
+      ageConfirmed: true,
       preferredLocale: locale,
     });
 
     return registrationAcceptedResponse(locale, validRegistrationStartedAt);
-  } catch {
-    // Provider, storage, and validation internals must not leak into the UI.
-    if (validRegistrationStartedAt !== null) {
-      return registrationAcceptedResponse(locale, validRegistrationStartedAt);
+  } catch (error) {
+    if (error instanceof Error && error.message === "This phone number is already linked to another account.") {
+      return registrationErrorResponse(locale, "PHONE_ALREADY_IN_USE", 409);
     }
-    return registrationErrorResponse(locale, "REGISTRATION_FAILED", 400);
+    // Provider, storage, and validation internals must not leak into the UI.
+    logEvent("error", {
+      event: "auth_registration",
+      outcome: "failed",
+      reason: "unexpected_error",
+      metadata: { errorType: error instanceof Error ? error.name : typeof error },
+    });
+    return registrationErrorResponse(locale, "REGISTRATION_FAILED", validRegistrationStartedAt !== null ? 503 : 400);
   }
 }

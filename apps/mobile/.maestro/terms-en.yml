@@ -1,0 +1,47 @@
+appId: com.alphakits.alphatraders
+name: English footer and canonical commission terms
+---
+# EAS can briefly lose its emulator transport during the first launch.
+# Retry only app startup; navigation and business assertions run once.
+- retry:
+    maxRetries: 2
+    commands:
+      - launchApp:
+          clearState: true
+- extendedWaitUntil:
+    visible: "Open menu|فتح القائمة"
+    timeout: 60000
+- runFlow:
+    when:
+      visible: "English|التبديل إلى الإنجليزية"
+    commands:
+      - tapOn: "English|التبديل إلى الإنجليزية"
+- extendedWaitUntil:
+    visible: "Open menu"
+    timeout: 60000
+- runFlow:
+    file: ../.maestro-helpers/scroll-to-text.yml
+    env:
+      TARGET_TEXT: ".*Legal.*"
+- tapOn: ".*Legal.*"
+# Bring expanded links into the touch viewport before selecting one.
+- swipe:
+    start: "50%, 80%"
+    end: "50%, 45%"
+    duration: 800
+    waitToSettleTimeoutMs: 500
+- takeScreenshot: footer-legal-open-en
+- runFlow:
+    file: ../.maestro-helpers/scroll-to-text.yml
+    env:
+      TARGET_TEXT: ".*Terms.*"
+- tapOn: ".*Terms.*"
+- extendedWaitUntil:
+    visible: "Terms of Service"
+    timeout: 60000
+- runFlow:
+    file: ../.maestro-helpers/scroll-to-text.yml
+    env:
+      TARGET_TEXT: ".*1% buyer.*1% seller.*2%.*"
+- assertVisible: ".*1% buyer.*1% seller.*2%.*"
+- takeScreenshot: terms-en

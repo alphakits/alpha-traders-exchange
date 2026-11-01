@@ -1,5 +1,9 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+// Synthetic quote for lifecycle tests; feed failures and price boundaries have separate coverage.
+vi.mock("@/lib/market-service", () => ({ DEFAULT_USD_ILS_RATE: 3.05, getUsdtIlsReferenceRate: async () => 4 }));
+
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AlphaExchangeDb, AlphaExchangeUser, PurchaseRequestStatus, UserRole } from "@/types/alpha-exchange";
+import { createTestSellerApprovalVerification } from "@/test-utils/seller-verification";
 
 vi.mock("@/lib/postgres-runtime", () => ({
   getRuntimePostgresPool: () => null,
@@ -9,14 +13,29 @@ import {
   adminOverrideMarketplaceListing,
   closePurchaseRequestManually,
   createPurchaseRequest,
+  recalculateCardlessTradeAmount,
+  updateTradeTerms,
+  sanitizePurchaseRequestForActor,
   forceCancelTradeByAdmin,
   forceCompleteTradeByAdmin,
+  forceCloseTradeByOwner,
+  unlockTradeReviewByAdmin,
+  getTradeRoomData,
+  getSellerCommissionStatus,
+  getMarketplaceListings,
+  getListingBroadcastEmailRecipients,
   invalidateAlphaExchangeStoreCache,
+  runAlphaExchangeMaintenance,
+  reconcilePendingTradeTrust,
   submitBuyerTradeReview,
+  submitSellerBuyerReview,
   updatePurchaseRequestStatus,
   uploadTradeEvidence,
 } from "@/lib/alpha-exchange-store";
 import { isBuyerEvidenceRequiredForPaymentMethod, isCashTradeCompletionAvailable, isCashTradeUsdtSentConfirmationAvailable, isFaceToFaceCompletionAvailable } from "@/lib/marketplace-payment-methods";
+import { getAlphaExchangeRepository } from "@/lib/alpha-exchange-repository";
+import * as tradeRealtime from "@/lib/realtime";
+import * as marketplaceEmail from "@/lib/marketplace-email-delivery";
 
 const SELLER_ID = "face-seller-1";
 const NEXT_SELLER_ID = "face-seller-2";
@@ -37,6 +56,9 @@ function createUser(id: string, role: "owner" | "buyer" | "approved_seller"): Al
     role,
     roles,
     sellerStatus: role === "approved_seller" ? "approved_seller" : "buyer",
+    sellerApprovalVerification: role === "approved_seller"
+      ? createTestSellerApprovalVerification(now, OWNER_ID)
+      : undefined,
     availabilityStatus: "available",
     onlineStatus: "online",
     createdAt: now,
@@ -121,6 +143,7 @@ function seedTrade(input: {
     price: "3.20",
     currency: "ILS",
     network: "TRC20",
+    bankName: paymentMethod === "Cardless ATM Withdrawal" ? "Bank Hapoalim, Bank Leumi" : undefined,
     paymentMethods: [paymentMethod],
     paymentMethod,
     minimumTrade: "50",
@@ -145,6 +168,8 @@ function seedTrade(input: {
     currency: "ILS",
     network: "TRC20",
     paymentMethod,
+    sellerBankAccountId: paymentMethod === "Bank Transfer" ? "demo-bank-account" : undefined,
+    sellerBankAccountSnapshot: paymentMethod === "Bank Transfer" ? { accountHolderName: "Demo Seller", bankName: "Bank Leumi", branchNumber: "123", accountNumber: "12345678", accountLast4: "5678" } : undefined,
     status,
     sellerSafetyAcknowledged: true,
     timeline: [],
@@ -165,11 +190,1363 @@ function completeFaceToFace(actor: "buyer" | "seller") {
 }
 
 describe("guided cash-trade completion", () => {
+  it("records simultaneous face-to-face cash confirmations once without settling the trade", async () => {
+    seedTrade({ paymentMethod: FACE_TO_FACE, status: "accepted" });
+    const results = await Promise.all([
+      updatePurchaseRequestStatus({ requestId: "face-request-1", actorUserId: BUYER_ID, actorRole: "buyer", nextStatus: "funds_received" }),
+      updatePurchaseRequestStatus({ requestId: "face-request-1", actorUserId: SELLER_ID, actorRole: "approved_seller", nextStatus: "funds_received" }),
+    ]);
+    expect(results.every(result => result.request.status === "funds_received")).toBe(true);
+    const saved = currentSnapshot().purchaseRequests[0];
+    expect(saved.timeline.filter(entry => ["buyer_confirmed_funds", "seller_confirmed_funds"].includes(entry.type))).toHaveLength(1);
+    expect(saved.completedAt).toBeUndefined();
+    expect(currentSnapshot().commissionRecords).toHaveLength(0);
+  });
+  it.each(["accepted", "payment_sent"] as const)("allows the face-to-face buyer to confirm actual cash receipt at %s, while only the seller settles", async (status) => {
+    seedTrade({ paymentMethod: FACE_TO_FACE, status });
+    const confirmed = await updatePurchaseRequestStatus({ requestId: "face-request-1", actorUserId: BUYER_ID, actorRole: "buyer", nextStatus: "funds_received" });
+    expect(confirmed.request.status).toBe("funds_received");
+    expect(confirmed.request.fundsReceivedAt).toBeTruthy();
+    expect(currentSnapshot().commissionRecords).toHaveLength(0);
+    await expect(updatePurchaseRequestStatus({ requestId: "face-request-1", actorUserId: BUYER_ID, actorRole: "buyer", nextStatus: "completed" })).rejects.toMatchObject({ code: "seller-completion-required" });
+    const completed = await updatePurchaseRequestStatus({ requestId: "face-request-1", actorUserId: SELLER_ID, actorRole: "approved_seller", nextStatus: "completed", completionMode: "seller", usdtSentConfirmed: true });
+    expect(completed.request.status).toBe("review_open");
+    expect(currentSnapshot().commissionRecords).toHaveLength(1);
+  });
+
+  it.each(["Bank Transfer", "Cardless ATM Withdrawal"])("rejects buyer cash-receipt confirmation for %s", async (paymentMethod) => {
+    seedTrade({ paymentMethod, status: "payment_sent" });
+    const before = JSON.stringify(currentSnapshot());
+    await expect(updatePurchaseRequestStatus({ requestId: "face-request-1", actorUserId: BUYER_ID, actorRole: "buyer", nextStatus: "funds_received" })).rejects.toMatchObject({ code: "buyer-transition-not-allowed" });
+    expect(JSON.stringify(currentSnapshot())).toBe(before);
+  });
+
+  it.each(["Bank Transfer", "Cardless ATM Withdrawal", FACE_TO_FACE])("rejects buyer direct-status completion for %s without changing settlement", async (paymentMethod) => {
+    seedTrade({ paymentMethod, status: "usdt_sent" });
+    const before = JSON.stringify(currentSnapshot());
+    await expect(updatePurchaseRequestStatus({
+      requestId: "face-request-1", actorUserId: BUYER_ID, actorRole: "buyer", nextStatus: "completed",
+    })).rejects.toMatchObject({ code: "seller-completion-required" });
+    expect(JSON.stringify(currentSnapshot())).toBe(before);
+  });
+
+  afterEach(() => vi.unstubAllEnvs());
+  it("does not settle inventory or assessed fees without a verifiable financial receipt", async () => {
+    const { requestId } = seedTrade({ status: "usdt_sent" });
+    currentSnapshot().purchaseRequests[0].fiatAmount = "unavailable";
+    const before = structuredClone(currentSnapshot());
+    await expect(updatePurchaseRequestStatus({ requestId, actorUserId: SELLER_ID, actorRole: "approved_seller", nextStatus: "completed", completionMode: "seller", usdtSentConfirmed: true }))
+      .rejects.toMatchObject({ code: "invalid-completion-receipt" });
+    expect(currentSnapshot().marketplaceListings).toEqual(before.marketplaceListings);
+    expect(currentSnapshot().commissionRecords).toEqual(before.commissionRecords);
+    expect(currentSnapshot().purchaseRequests).toEqual(before.purchaseRequests);
+  });
   beforeEach(() => {
     globalThis.__alphaExchangeMemorySnapshot = seedDb() as never;
     globalThis.__alphaExchangeMemoryEvidenceContent = undefined as never;
     globalThis.__alphaExchangeRepositoryPromise = undefined as never;
     invalidateAlphaExchangeStoreCache();
+  });
+
+  it.each([
+    { from: "pending", to: "accepted", actor: "seller", method: FACE_TO_FACE, title: "Trade request accepted", recipients: [BUYER_ID] },
+    { from: "pending", to: "declined", actor: "seller", method: FACE_TO_FACE, title: "Trade cancelled", recipients: [BUYER_ID] },
+    { from: "accepted", to: "cancelled", actor: "seller", method: FACE_TO_FACE, title: "Trade cancelled", recipients: [BUYER_ID, SELLER_ID] },
+    { from: "accepted", to: "payment_sent", actor: "buyer", method: FACE_TO_FACE, title: "Buyer handed over cash", recipients: [SELLER_ID] },
+    { from: "payment_sent", to: "funds_received", actor: "seller", method: "Bank Transfer", title: "Seller confirmed funds received", recipients: [BUYER_ID] },
+    { from: "funds_received", to: "usdt_release_pending", actor: "seller", method: "Bank Transfer", title: "USDT release pending", recipients: [BUYER_ID] },
+    { from: "usdt_release_pending", to: "usdt_sent", actor: "seller", method: "Bank Transfer", title: "Seller marked USDT sent", recipients: [BUYER_ID] },
+    { from: "usdt_release_pending", to: "usdt_sent", actor: "seller", method: "Bank Transfer", title: "Trade ready to complete", recipients: [SELLER_ID] },
+  ] as const)("retains required $title for $actor with optional alerts off", async scenario => {
+    const { requestId } = seedTrade({ paymentMethod: scenario.method, status: scenario.from });
+    for (const user of currentSnapshot().users) user.notificationPreferences = { inApp: false, browserPush: false, email: false, sms: false };
+    const command = { requestId, actorUserId: scenario.actor === "buyer" ? BUYER_ID : SELLER_ID,
+      actorRole: scenario.actor === "buyer" ? "buyer" as const : "approved_seller" as const, nextStatus: scenario.to };
+    await updatePurchaseRequestStatus(command);
+    const notices = currentSnapshot().notifications.filter(notice => notice.title === scenario.title);
+    expect(notices.map(notice => notice.userId).sort()).toEqual([...scenario.recipients].sort());
+    expect(notices.every(notice => notice.state === "unread" && !notice.isRead && notice.whatsappChannelOnly !== true)).toBe(true);
+    expect(notices.every(notice => notice.relatedRequestId === requestId && notice.relatedHref?.includes(requestId))).toBe(true);
+    const ids = notices.map(notice => notice.id).sort();
+    await updatePurchaseRequestStatus(command);
+    expect(currentSnapshot().notifications.filter(notice => notice.title === scenario.title).map(notice => notice.id).sort()).toEqual(ids);
+  });
+
+  it.each(["manual", "admin", "listing-active", "listing-pending"] as const)("retains required participant notices after %s closure with optional alerts off", async mode => {
+    const { requestId, listingId } = seedTrade({ status: mode === "listing-pending" || mode === "manual" ? "pending" : "accepted" });
+    for (const user of currentSnapshot().users) user.notificationPreferences = { inApp: false, browserPush: false, email: false, sms: false };
+    if (mode === "manual") await closePurchaseRequestManually({ requestId, actorUserId: SELLER_ID, actorRole: "approved_seller", reason: "Trade cannot proceed" });
+    else if (mode === "admin") await forceCancelTradeByAdmin({ requestId, actorUserId: OWNER_ID, reason: "Trade cannot proceed" });
+    else await adminOverrideMarketplaceListing({ listingId, adminUserId: OWNER_ID, action: mode === "listing-active" ? "force_close" : "close", reason: "Listing no longer available" });
+    const notices = currentSnapshot().notifications.filter(notice => notice.category === "trade" && [BUYER_ID, SELLER_ID].includes(notice.userId));
+    expect(notices.map(notice => notice.userId).sort()).toEqual(mode === "listing-pending" ? [BUYER_ID] : [BUYER_ID, SELLER_ID].sort());
+    expect(notices.every(notice => notice.state === "unread" && !notice.isRead && notice.whatsappChannelOnly !== true)).toBe(true);
+  });
+
+  it("publishes listing-closure trade notices only after persistence and none after failure", async () => {
+    const { listingId } = seedTrade({ status: "accepted" });
+    for (const user of currentSnapshot().users) user.notificationPreferences = { inApp: false, browserPush: false, email: false, sms: false };
+    const repository = await getAlphaExchangeRepository();
+    const persist = repository.saveSnapshot.bind(repository);
+    const publish = vi.spyOn(tradeRealtime, "publishRealtimeEvent");
+    const tradeNotices = () => publish.mock.calls.filter(([event]) => event.type.startsWith("notification.") && "notification" in event.payload && event.payload.notification?.category === "trade");
+    let fail = true;
+    const save = vi.spyOn(repository, "saveSnapshot").mockImplementation(async (db, options) => {
+      expect(tradeNotices()).toHaveLength(0);
+      if (fail) throw new Error("Controlled listing write failure");
+      return persist(db, options);
+    });
+    try {
+      const command = { listingId, adminUserId: OWNER_ID, action: "force_close" as const, reason: "Listing unavailable" };
+      await expect(adminOverrideMarketplaceListing(command)).rejects.toThrow("Controlled listing write failure");
+      expect(tradeNotices()).toHaveLength(0);
+      expect(currentSnapshot().notifications.filter(notice => notice.category === "trade")).toHaveLength(0);
+      fail = false;
+      invalidateAlphaExchangeStoreCache();
+      await adminOverrideMarketplaceListing(command);
+      expect(tradeNotices()).toHaveLength(2);
+    } finally { save.mockRestore(); publish.mockRestore(); }
+  });
+
+  it("skips the claim write and second full read when every release deadline is still open", async () => {
+    seedTrade({ status: "usdt_release_pending", paymentMethod: "Bank Transfer" });
+    currentSnapshot().purchaseRequests[0].usdtReleaseDeadlineAt = new Date(Date.now() + 60_000).toISOString();
+    const repository = await getAlphaExchangeRepository();
+    const load = vi.spyOn(repository, "loadSnapshot");
+    const save = vi.spyOn(repository, "saveSnapshot");
+    try {
+      // Exercise an ordinary caller of readDb, first cold and then warm.
+      await getListingBroadcastEmailRecipients(SELLER_ID);
+      await getListingBroadcastEmailRecipients(SELLER_ID);
+      expect(load).toHaveBeenCalledTimes(1);
+      expect(save).not.toHaveBeenCalled();
+    } finally { load.mockRestore(); save.mockRestore(); }
+  });
+
+  it.each(["maintenance", "ordinary read"])("lets just one worker claim and publish an overdue trade against an overlapping %s", async other => {
+    const { requestId } = seedTrade({ status: "usdt_release_pending", paymentMethod: "Bank Transfer" });
+    const due = new Date(Date.now() - 60_000).toISOString();
+    currentSnapshot().purchaseRequests[0].usdtReleaseDeadlineAt = due;
+    currentSnapshot().notifications.push({ id: "overdue-reminder", userId: SELLER_ID, category: "trade", title: "Reminder",
+      message: "Release is pending", reason: "automatic_trade_action_reminder", relatedRequestId: requestId,
+      isRead: false, state: "unread", createdAt: due });
+    const repository = await getAlphaExchangeRepository();
+    const read = repository.loadSnapshot.bind(repository);
+    let release!: () => void;
+    const barrier = new Promise<void>(resolve => { release = resolve; });
+    let reads = 0;
+    const load = vi.spyOn(repository, "loadSnapshot").mockImplementation(async () => {
+      const snapshot = await read();
+      if (reads < 2) {
+        if (++reads === 2) release();
+        await barrier;
+      }
+      return snapshot;
+    });
+    const publishedAfterCommit: boolean[] = [];
+    const observed: string[] = [];
+    const unsubscribe = tradeRealtime.subscribeRealtimeEvents(event => {
+      publishedAfterCommit.push(Boolean(currentSnapshot().purchaseRequests[0].timedOutAt));
+      observed.push(event.type);
+    });
+    try {
+      const results = await Promise.all([runAlphaExchangeMaintenance(), other === "maintenance"
+        ? runAlphaExchangeMaintenance() : getListingBroadcastEmailRecipients(SELLER_ID).then(() => null)]);
+      const saved = currentSnapshot();
+      const alerts = saved.notifications.filter(item => item.id !== "overdue-reminder");
+      expect(alerts.map(item => item.userId).sort()).toEqual([BUYER_ID, SELLER_ID, OWNER_ID].sort());
+      if (other === "maintenance") expect(results.filter(result => result?.changed)).toHaveLength(1);
+      expect(saved.auditLogs.filter(entry => entry.action === "trade_timed_out")).toHaveLength(1);
+      expect(saved.purchaseRequests[0].timeline.filter(entry => entry.type === "trade_timed_out")).toHaveLength(1);
+      expect(saved.notifications.find(item => item.id === "overdue-reminder")).toMatchObject({ state: "archived", isRead: true });
+      expect(observed.sort()).toEqual([
+        "notification.created", "notification.created", "notification.created", "notification.updated", "trade.status_changed",
+      ]);
+      expect(publishedAfterCommit).toEqual([true, true, true, true, true]);
+      expect(saved.purchaseRequests[0]).toMatchObject({ status: "usdt_release_pending", usdtAmount: "250" });
+      expect(saved.marketplaceListings[0].availableAmount).toBe("1000");
+      expect(saved.commissionRecords).toHaveLength(0);
+      expect(saved.trustScoreHistory).toHaveLength(0);
+    } finally { load.mockRestore(); unsubscribe(); }
+  });
+
+  function seedOverdueAndExpiredListing() {
+    const { requestId } = seedTrade({ status: "usdt_release_pending", paymentMethod: "Bank Transfer" });
+    const due = new Date(Date.now() - 60_000).toISOString();
+    const db = currentSnapshot();
+    db.purchaseRequests[0].usdtReleaseDeadlineAt = due;
+    db.notifications.push({ id: "archivable-reminder", userId: SELLER_ID, category: "trade", title: "Reminder",
+      message: "Release is pending", reason: "automatic_trade_action_reminder", relatedRequestId: requestId,
+      isRead: false, state: "unread", createdAt: due });
+    db.marketplaceListings.push({ ...db.marketplaceListings[0], id: "independent-listing", status: "active",
+      activeTradeRequestId: undefined, lockedAt: undefined, expiresAt: due });
+  }
+
+  it.each(["notification.updated", "trade.status_changed"] as const)("completes overdue maintenance and reaches healthy subscribers when a %s listener throws", async failedType => {
+    seedOverdueAndExpiredListing();
+    const privateDetail = "test-private-subscriber-detail";
+    const observed: string[] = [];
+    const stopFailed = tradeRealtime.subscribeRealtimeEvents(event => {
+      if (event.type === failedType) throw new Error(privateDetail);
+    });
+    const stopHealthy = tradeRealtime.subscribeRealtimeEvents(event => {
+      if (event.type === "notification.updated" || event.type === "trade.status_changed") observed.push(event.type);
+    });
+    const log = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const result = await runAlphaExchangeMaintenance().catch(() => null);
+      const saved = currentSnapshot();
+      expect(saved.purchaseRequests[0].timedOutAt).toBeTruthy();
+      expect(saved.notifications.find(item => item.id === "archivable-reminder")?.state).toBe("archived");
+      expect.soft(observed).toEqual(["notification.updated", "trade.status_changed"]);
+      expect.soft(result).toEqual({ changed: true });
+      expect.soft(saved.marketplaceListings.find(item => item.id === "independent-listing")?.status).toBe("expired");
+      const warnings = log.mock.calls.filter(([, entry]) => entry?.event === "overdue_trade_realtime_publication");
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0][1]).toEqual({ timestamp: expect.any(String), event: "overdue_trade_realtime_publication", outcome: "failed",
+        reason: "delivery_failed", metadata: { eventType: failedType } });
+      expect(JSON.stringify(log.mock.calls)).not.toContain(privateDetail);
+      expect(await runAlphaExchangeMaintenance()).toEqual({ changed: false });
+      expect(observed).toHaveLength(2);
+    } finally { stopFailed(); stopHealthy(); log.mockRestore(); }
+  });
+
+  it("continues committed overdue maintenance after the archive dispatcher and its diagnostic sink both fail", async () => {
+    seedOverdueAndExpiredListing();
+    const dispatch = tradeRealtime.publishIsolatedRealtimeEvent;
+    const publish = vi.spyOn(tradeRealtime, "publishIsolatedRealtimeEvent").mockImplementation(event => {
+      if (event.type === "notification.updated") throw new Error("dispatcher unavailable");
+      return dispatch(event);
+    });
+    const log = vi.spyOn(console, "warn").mockImplementation(() => { throw new Error("log sink unavailable"); });
+    try {
+      expect(await runAlphaExchangeMaintenance()).toEqual({ changed: true });
+      expect(publish.mock.calls.filter(([event]) => event.type === "trade.status_changed")).toHaveLength(1);
+      expect(currentSnapshot().marketplaceListings.find(item => item.id === "independent-listing")?.status).toBe("expired");
+      expect(log).toHaveBeenCalled();
+    } finally { publish.mockRestore(); log.mockRestore(); }
+  });
+
+  it.each(["released", "extended"])("discards every speculative timeout effect when the canonical release was %s", async outcome => {
+    const { requestId } = seedTrade({ status: "usdt_release_pending", paymentMethod: "Bank Transfer" });
+    const past = new Date(Date.now() - 60_000).toISOString();
+    const future = new Date(Date.now() + 60_000).toISOString();
+    const paid = { id: "unrelated-paid", sellerId: NEXT_SELLER_ID, rate: 0.01, grossAmount: 500, commissionAmount: 5,
+      paymentStatus: "paid" as const, createdAt: past, updatedAt: past };
+    const trust = { id: "unrelated-trust", sellerId: NEXT_SELLER_ID, oldScore: 50, newScore: 51,
+      reason: "Existing trade", triggeredBy: "existing-trade", createdAt: past };
+    currentSnapshot().purchaseRequests[0].usdtReleaseDeadlineAt = past;
+    currentSnapshot().notifications.push({ id: "still-active-reminder", userId: SELLER_ID, category: "trade", title: "Reminder",
+      message: "Release is pending", reason: "automatic_trade_action_reminder", relatedRequestId: requestId,
+      isRead: false, state: "unread", createdAt: past });
+    const repository = await getAlphaExchangeRepository();
+    const persist = repository.saveSnapshot.bind(repository);
+    const publish = vi.fn<(event: tradeRealtime.RealtimeEvent) => void>();
+    const unsubscribe = tradeRealtime.subscribeRealtimeEvents(publish);
+    const save = vi.spyOn(repository, "saveSnapshot").mockImplementationOnce(async (db, options) => {
+      const canonical = await repository.loadSnapshot();
+      const request = canonical.purchaseRequests[0];
+      if (outcome === "released") { request.status = "usdt_sent"; request.usdtSentAt = new Date().toISOString(); }
+      else request.usdtReleaseDeadlineAt = future;
+      canonical.commissionRecords.push(paid);
+      canonical.trustScoreHistory.push(trust);
+      await persist(canonical, { selectedTables: ["purchase_requests", "commissions", "trust_score_history"] });
+      await persist(db, options);
+    });
+    try {
+      const result = await runAlphaExchangeMaintenance();
+      expect(result.changed).toBe(false);
+      expect(publish).not.toHaveBeenCalled();
+      const saved = currentSnapshot();
+      expect(saved.purchaseRequests[0].status).toBe(outcome === "released" ? "usdt_sent" : "usdt_release_pending");
+      expect(saved.purchaseRequests[0].usdtReleaseDeadlineAt).toBe(outcome === "extended" ? future : past);
+      expect(saved.purchaseRequests[0].timedOutAt).toBeUndefined();
+      expect(saved.purchaseRequests[0].timeline.filter(entry => entry.type === "trade_timed_out")).toHaveLength(0);
+      expect(saved.auditLogs.filter(entry => entry.action === "trade_timed_out")).toHaveLength(0);
+      expect(saved.notifications).toMatchObject([{ id: "still-active-reminder", state: "unread", isRead: false }]);
+      expect(saved.commissionRecords).toMatchObject([paid]);
+      expect(saved.trustScoreHistory).toEqual([trust]);
+    } finally { save.mockRestore(); unsubscribe(); }
+  });
+
+  it("commits required overdue alerts before publishing and does not duplicate maintenance retries", async () => {
+    seedTrade({ status: "usdt_release_pending", paymentMethod: "Bank Transfer" });
+    currentSnapshot().purchaseRequests[0].usdtReleaseDeadlineAt = new Date(Date.now() - 60_000).toISOString();
+    currentSnapshot().notifications.push({ id: "failed-claim-reminder", userId: SELLER_ID, category: "trade", title: "Reminder",
+      message: "Release is pending", reason: "automatic_trade_action_reminder", relatedRequestId: currentSnapshot().purchaseRequests[0].id,
+      isRead: false, state: "unread", createdAt: new Date().toISOString() });
+    for (const user of currentSnapshot().users) user.notificationPreferences = { inApp: false, browserPush: false, email: false, sms: false };
+    const repository = await getAlphaExchangeRepository();
+    const persist = repository.saveSnapshot.bind(repository);
+    const publish = vi.fn<(event: tradeRealtime.RealtimeEvent) => void>();
+    const unsubscribe = tradeRealtime.subscribeRealtimeEvents(publish);
+    const notices = () => publish.mock.calls.filter(([event]) => event.type.startsWith("notification.") && "notification" in event.payload && ["Trade overdue", "USDT release overdue"].includes(event.payload.notification?.title ?? ""));
+    let fail = true;
+    const save = vi.spyOn(repository, "saveSnapshot").mockImplementation(async (db, options) => {
+      expect(publish).not.toHaveBeenCalled();
+      if (fail) throw new Error("Controlled maintenance write failure");
+      return persist(db, options);
+    });
+    try {
+      await expect(runAlphaExchangeMaintenance()).rejects.toThrow("Controlled maintenance write failure");
+      expect(publish).not.toHaveBeenCalled();
+      expect(currentSnapshot().purchaseRequests[0].timedOutAt).toBeUndefined();
+      expect(currentSnapshot().notifications).toMatchObject([{ id: "failed-claim-reminder", state: "unread", isRead: false }]);
+      fail = false;
+      await runAlphaExchangeMaintenance();
+      expect(notices()).toHaveLength(2);
+      const persisted = currentSnapshot().notifications.filter(notice => ["Trade overdue", "USDT release overdue"].includes(notice.title));
+      expect(persisted.map(notice => notice.userId).sort()).toEqual([BUYER_ID, SELLER_ID].sort());
+      expect(persisted.every(notice => notice.state === "unread" && !notice.isRead && notice.whatsappChannelOnly !== true)).toBe(true);
+      save.mockRestore();
+      await runAlphaExchangeMaintenance();
+      expect(notices()).toHaveLength(2);
+    } finally { save.mockRestore(); unsubscribe(); }
+  });
+
+  it("lets the face-to-face seller confirm full cash directly, reveal the wallet, and complete exactly once", async () => {
+    const { requestId } = seedTrade({ status: "accepted" });
+    const original = currentSnapshot().purchaseRequests[0];
+    original.feePolicyVersion = "buyer_seller_1pct_v1";
+    original.fiatAmount = "808.00";
+    original.buyerReceivingWalletAddress = "TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE";
+    const seller = { requestId, actorUserId: SELLER_ID, actorRole: "approved_seller" as const };
+    expect(sanitizePurchaseRequestForActor(original, SELLER_ID, "approved_seller").buyerReceivingWalletAddress).toBeUndefined();
+    await Promise.all([
+      updatePurchaseRequestStatus({ ...seller, nextStatus: "funds_received" }),
+      updatePurchaseRequestStatus({ ...seller, nextStatus: "funds_received" }),
+    ]);
+    const received = currentSnapshot().purchaseRequests[0];
+    expect(received).toMatchObject({ status: "funds_received", fiatAmount: "808.00", usdtAmount: "250" });
+    expect(received.paymentSentAt).toBeTruthy();
+    expect(received.timeline.filter(event => event.type === "seller_confirmed_funds")).toHaveLength(1);
+    expect(sanitizePurchaseRequestForActor(received, SELLER_ID, "approved_seller").buyerReceivingWalletAddress).toBe(original.buyerReceivingWalletAddress);
+    await expect(updatePurchaseRequestStatus({ ...seller, nextStatus: "cancelled" })).rejects.toThrow();
+    await updatePurchaseRequestStatus({ ...seller, nextStatus: "completed", completionMode: "seller", usdtSentConfirmed: true });
+    expect(currentSnapshot().purchaseRequests[0].status).toBe("review_open");
+    expect(currentSnapshot().commissionRecords).toHaveLength(1);
+    expect(currentSnapshot().commissionRecords[0].commissionAmount).toBe(5);
+  });
+
+  it.each(["Bank Transfer", "Cardless ATM Withdrawal"])("does not skip the buyer payment stage for %s", async paymentMethod => {
+    const { requestId } = seedTrade({ paymentMethod, status: "accepted" });
+    await expect(updatePurchaseRequestStatus({ requestId, actorUserId: SELLER_ID, actorRole: "approved_seller", nextStatus: "funds_received" })).rejects.toMatchObject({ code: "invalid-status-transition" });
+    expect(currentSnapshot().purchaseRequests[0].status).toBe("accepted");
+  });
+
+  describe.each([FACE_TO_FACE, "Bank Transfer", "Cardless ATM Withdrawal"])("paid amount lock: %s", (paymentMethod) => {
+    it.each(["payment_sent", "funds_received", "usdt_release_pending", "usdt_sent", "completed", "review_open"] as const)("rejects USDT, ILS and stale proposal acceptance at %s", async status => {
+      const { requestId } = seedTrade({ paymentMethod, status });
+      const request = currentSnapshot().purchaseRequests[0];
+      request.termsProposal = { id: "old-proposal", kind: "amount_correction", status: "pending", usdtAmount: "100", fiatAmount: "320", pricePerUsdt: "3.20", createdAt: request.updatedAt };
+      const before = structuredClone(request);
+      for (const action of ["propose_amount", "propose_ils_amount", "accept_amount"] as const) {
+        await expect(updateTradeTerms({ requestId, actorUserId: action === "accept_amount" ? BUYER_ID : SELLER_ID, action, value: "100", proposalId: "old-proposal", expectedUpdatedAt: request.updatedAt })).rejects.toThrow(/locked/);
+      }
+      expect(currentSnapshot().purchaseRequests[0]).toEqual(before);
+    });
+    it("rejects edits when an accepted screen has a recorded receipt", async () => {
+      const { requestId } = seedTrade({ paymentMethod, status: "accepted" });
+      const request = currentSnapshot().purchaseRequests[0];
+      request.fundsReceivedAt = new Date().toISOString();
+      await expect(updateTradeTerms({ requestId, actorUserId: SELLER_ID, action: "propose_amount", value: "100", expectedUpdatedAt: request.updatedAt })).rejects.toThrow(/locked/);
+    });
+  });
+
+  it("keeps three shared-listing trades safe and visible while unpaid fees block every new acceptance", async () => {
+    const { listingId } = seedTrade({ status: "pending", amount: "100" });
+    const db = currentSnapshot();
+    const template = db.purchaseRequests[0];
+    template.feePolicyVersion = "buyer_seller_1pct_v1";
+    for (let index = 1; index < 4; index++) {
+      const buyerId = `capacity-buyer-${index}`;
+      db.users.push(createUser(buyerId, "buyer"));
+      db.purchaseRequests.push({ ...structuredClone(template), id: `capacity-${index}`, tradeId: `capacity-trade-${index}`, buyerId });
+    }
+    const ids = db.purchaseRequests.map(request => request.id);
+    await Promise.all(ids.slice(0, 3).map(requestId => updatePurchaseRequestStatus({ requestId, actorUserId: SELLER_ID, actorRole: "approved_seller", nextStatus: "accepted" })));
+    await expect(updatePurchaseRequestStatus({ requestId: ids[3], actorUserId: SELLER_ID, actorRole: "approved_seller", nextStatus: "accepted" })).rejects.toMatchObject({ code: "SELLER_TRADE_LIMIT" });
+    let cards = await getMarketplaceListings("active", currentSnapshot());
+    expect(cards.find(card => card.id === listingId)).toMatchObject({ sellerActiveTradeCount: 3, availableAmount: "700", newRequestBlockReason: "trade_limit" });
+    for (const requestId of ids.slice(0, 3)) {
+      const request = currentSnapshot().purchaseRequests.find(item => item.id === requestId)!;
+      await updatePurchaseRequestStatus({ requestId, actorUserId: request.buyerId, actorRole: "buyer", nextStatus: "payment_sent" });
+      await updatePurchaseRequestStatus({ requestId, actorUserId: SELLER_ID, actorRole: "approved_seller", nextStatus: "funds_received" });
+      await updatePurchaseRequestStatus({ requestId, actorUserId: SELLER_ID, actorRole: "approved_seller", nextStatus: "completed", completionMode: "seller", usdtSentConfirmed: true });
+      await expect(updatePurchaseRequestStatus({ requestId: ids[3], actorUserId: SELLER_ID, actorRole: "approved_seller", nextStatus: "accepted" })).rejects.toMatchObject({ code: "commission-due" });
+      cards = await getMarketplaceListings("active", currentSnapshot());
+      expect(cards.find(card => card.id === listingId)?.newRequestBlockReason).toBeUndefined();
+    }
+    expect(currentSnapshot().marketplaceListings.find(item => item.id === listingId)).toMatchObject({ availableAmount: "700", status: "active", activeTradeRequestId: undefined });
+    expect(currentSnapshot().commissionRecords).toHaveLength(3);
+    expect(currentSnapshot().commissionRecords.every(record => record.commissionAmount === 2)).toBe(true);
+  });
+
+  it.each([undefined, "missing-request", "completed-request", "other-listing-request"])(
+    "recovers a stale representative pointer %s without expiring another active trade",
+    async (pointer) => {
+      const { requestId, listingId } = seedTrade({ status: "accepted", amount: "100" });
+      const db = currentSnapshot();
+      const activeRequest = db.purchaseRequests.find(request => request.id === requestId)!;
+      const activeListing = db.marketplaceListings.find(listing => listing.id === listingId)!;
+      activeListing.activeTradeRequestId = pointer;
+      activeListing.expiresAt = new Date(Date.now() - 60_000).toISOString();
+      db.purchaseRequests.push(
+        { ...structuredClone(activeRequest), id: "completed-request", status: "review_open", completedAt: new Date().toISOString() },
+        { ...structuredClone(activeRequest), id: "other-listing-request", listingId: "other-listing" },
+      );
+      invalidateAlphaExchangeStoreCache();
+
+      await runAlphaExchangeMaintenance();
+
+      expect(currentSnapshot().marketplaceListings.find(listing => listing.id === listingId)).toMatchObject({
+        status: "matched", activeTradeRequestId: requestId, availableAmount: "1000",
+      });
+      expect(currentSnapshot().purchaseRequests.find(request => request.id === requestId)?.status).toBe("accepted");
+    },
+  );
+
+  it.each([FACE_TO_FACE, "Bank Transfer"])("requires buyer approval for an inclusive ILS correction in %s", async paymentMethod => {
+    seedTrade({ paymentMethod, status: "pending" });
+    const original = currentSnapshot().purchaseRequests[0];
+    original.feePolicyVersion = "buyer_seller_1pct_v1";
+    const proposed = await updateTradeTerms({ requestId: original.id, actorUserId: SELLER_ID, action: "propose_ils_amount", value: "404", expectedUpdatedAt: original.updatedAt });
+    expect(proposed.usdtAmount).toBe("250");
+    expect(proposed.termsProposal).toMatchObject({ usdtAmount: "125", fiatAmount: "404.00", status: "pending" });
+    const accepted = await updateTradeTerms({ requestId: original.id, actorUserId: BUYER_ID, action: "accept_amount", proposalId: proposed.termsProposal!.id });
+    expect(accepted).toMatchObject({ usdtAmount: "125", fiatAmount: "404.00", feePolicyVersion: "buyer_seller_1pct_v1" });
+  });
+
+  it("refuses a correction that consumes another active trade's reserved inventory", async () => {
+    const { listingId } = seedTrade({ status: "pending", amount: "200" });
+    const original = currentSnapshot().purchaseRequests[0];
+    currentSnapshot().purchaseRequests.push({ ...structuredClone(original), id: "reserved-other", status: "accepted", buyerId: OUTSIDER_ID, listingId, usdtAmount: "700" });
+    await expect(updateTradeTerms({ requestId: original.id, actorUserId: SELLER_ID, action: "propose_ils_amount", value: "1280", expectedUpdatedAt: original.updatedAt })).rejects.toMatchObject({ code: "trade-terms-invalid" });
+  });
+
+  it.each([FACE_TO_FACE, "Bank Transfer", "Cardless ATM Withdrawal"])("settles an acknowledged two-sided fee exactly once for %s", async (paymentMethod) => {
+    const { requestId } = seedTrade({ paymentMethod, status: "usdt_sent" });
+    const request = currentSnapshot().purchaseRequests.find(item => item.id === requestId)!;
+    request.feePolicyVersion = "buyer_seller_1pct_v1";
+    request.fiatAmount = "808.00";
+    invalidateAlphaExchangeStoreCache();
+    const command = { requestId, actorUserId: SELLER_ID, actorRole: "approved_seller" as const, nextStatus: "completed" as const, completionMode: "seller" as const, usdtSentConfirmed: true };
+    await Promise.all([updatePurchaseRequestStatus(command), updatePurchaseRequestStatus(command)]);
+    expect(currentSnapshot().commissionRecords.filter(record => record.purchaseRequestId === requestId)).toEqual([
+      expect.objectContaining({ feePolicyVersion: "buyer_seller_1pct_v1", sellerFeeAmount: 2.5, buyerFeeCollectedAmount: 2.5, commissionAmount: 5, paymentStatus: "pending" }),
+    ]);
+    // Failure to collect the buyer share must not reduce the seller's debt.
+    const commission = currentSnapshot().commissionRecords[0];
+    commission.buyerFeeCollectedAmount = 0;
+    commission.commissionAmount = 2.5;
+    invalidateAlphaExchangeStoreCache();
+    expect(await getSellerCommissionStatus(SELLER_ID)).toMatchObject({ amountDue: 5, status: "pending" });
+  });
+
+  it.each([
+    { paymentMethod: FACE_TO_FACE, amount: "0.1", fiat: "0.32", fee: 0.001, total: 0.002 },
+    { paymentMethod: "Bank Transfer", amount: "0.1", fiat: "0.32", fee: 0.001, total: 0.002 },
+    { paymentMethod: "Cardless ATM Withdrawal", amount: "415.202811", fiat: "1300.00", fee: 4.152028, total: 8.304056 },
+  ])("preserves precise new fees through completion, retries and seller room for $paymentMethod", async ({ paymentMethod, amount, fiat, fee, total }) => {
+    const { requestId } = seedTrade({ paymentMethod, status: "usdt_sent", amount });
+    Object.assign(currentSnapshot().purchaseRequests[0], { feePolicyVersion: "buyer_seller_1pct_v1", commissionCalculationVersion: "usdt_6dp_v2", fiatAmount: fiat });
+    const command = { requestId, actorUserId: SELLER_ID, actorRole: "approved_seller" as const, nextStatus: "completed" as const, completionMode: "seller" as const, usdtSentConfirmed: true };
+    await Promise.all([updatePurchaseRequestStatus(command), updatePurchaseRequestStatus(command)]);
+    expect(currentSnapshot().commissionRecords).toEqual([expect.objectContaining({ commissionCalculationVersion: "usdt_6dp_v2", sellerFeeAmount: fee, buyerFeeCollectedAmount: fee, commissionAmount: total })]);
+    invalidateAlphaExchangeStoreCache();
+    expect(await getSellerCommissionStatus(SELLER_ID)).toMatchObject({ amountDue: total, totalAmountDue: total, pendingCount: 1 });
+    const room = await getTradeRoomData({ purchaseRequestId: requestId, actorUserId: SELLER_ID, actorRole: "approved_seller", markMessagesRead: false });
+    expect(room.sellerCommissionDueAmount).toBe(total);
+    expect(room.sellerPayableCommissionAmount).toBe(total);
+    expect(JSON.stringify(room.messages)).toContain(String(total));
+  });
+
+  it("preserves a pre-cutover small-trade obligation and its existing payment reference", async () => {
+    const { requestId } = seedTrade({ status: "usdt_sent", amount: "0.1" });
+    currentSnapshot().purchaseRequests[0].feePolicyVersion = "buyer_seller_1pct_v1";
+    await updatePurchaseRequestStatus({ requestId, actorUserId: SELLER_ID, actorRole: "approved_seller", nextStatus: "completed", completionMode: "seller", usdtSentConfirmed: true });
+    expect(currentSnapshot().commissionRecords[0]).toMatchObject({ sellerFeeAmount: 0.01, buyerFeeCollectedAmount: 0.01, commissionAmount: 0.02 });
+    const before = await getSellerCommissionStatus(SELLER_ID);
+    invalidateAlphaExchangeStoreCache();
+    const after = await getSellerCommissionStatus(SELLER_ID);
+    expect(after.amountDue).toBe(0.02);
+    expect(after.payableAmountDue).toBe(before.payableAmountDue);
+  });
+
+  it.each([FACE_TO_FACE, "Bank Transfer", "Cardless ATM Withdrawal"].flatMap(method => [[method, "600", "150"], [method, "150", "600"]]))("settles %s adjusted from %s to %s exactly once", async (paymentMethod, originalAmount, finalAmount) => {
+    const { requestId, listingId } = seedTrade({ paymentMethod, status: "pending", amount: originalAmount });
+    const original = currentSnapshot().purchaseRequests[0];
+    // Legacy ATM totals must still be valid bank denominations: 150 * 4 = 600 ILS.
+    const twoSided = paymentMethod !== "Cardless ATM Withdrawal";
+    Object.assign(original, { pricePerUsdt: "4.00", fiatAmount: (Number(originalAmount) * (twoSided ? 4.04 : 4)).toFixed(2),
+      feePolicyVersion: twoSided ? "buyer_seller_1pct_v1" : undefined });
+    const proposed = await propose("propose_amount", finalAmount);
+    expect(proposed.usdtAmount).toBe(originalAmount);
+    expect(currentSnapshot().marketplaceListings[0].availableAmount).toBe("1000");
+    const approval = { requestId, actorUserId: BUYER_ID, action: "accept_amount" as const, proposalId: proposed.termsProposal!.id };
+    const accepted = await updateTradeTerms(approval);
+    await updateTradeTerms(approval);
+    expect(accepted).toMatchObject({ usdtAmount: finalAmount, fiatAmount: (Number(finalAmount) * (twoSided ? 4.04 : 4)).toFixed(2), pricePerUsdt: "4.00" });
+    const seller = { requestId, actorUserId: SELLER_ID, actorRole: "approved_seller" as const };
+    await updatePurchaseRequestStatus({ ...seller, nextStatus: "accepted" });
+    if (paymentMethod === "Bank Transfer") {
+      await uploadTradeEvidence({ purchaseRequestId: requestId, actorUserId: BUYER_ID, actorRole: "buyer", side: "buyer", fileName: "payment.png", mimeType: "image/png", sizeBytes: 68, contentBase64: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO9Wl8cAAAAASUVORK5CYII=" });
+    } else if (paymentMethod === "Cardless ATM Withdrawal") {
+      await updatePurchaseRequestStatus({ requestId, actorUserId: BUYER_ID, actorRole: "buyer", nextStatus: "payment_sent", cardlessWithdrawalCode: "482913", cardlessVerificationKind: "date_of_birth", cardlessVerificationValue: "25/08/1995", clientOperationId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc" });
+    }
+    await updatePurchaseRequestStatus({ ...seller, nextStatus: "funds_received" });
+    if (paymentMethod === "Bank Transfer") await updatePurchaseRequestStatus({ ...seller, nextStatus: "usdt_release_pending" });
+    await updatePurchaseRequestStatus({ ...seller, nextStatus: "usdt_sent" });
+    const complete = { ...seller, nextStatus: "completed" as const, completionMode: "seller" as const, usdtSentConfirmed: true };
+    await Promise.all([updatePurchaseRequestStatus(complete), updatePurchaseRequestStatus(complete)]);
+    expect(currentSnapshot().marketplaceListings.find(item => item.id === listingId)?.availableAmount).toBe(String(1000 - Number(finalAmount)));
+    expect(currentSnapshot().commissionRecords).toEqual([expect.objectContaining({ sellerFeeAmount: Number(finalAmount) * 0.01, buyerFeeCollectedAmount: twoSided ? Number(finalAmount) * 0.01 : 0, commissionAmount: Number(finalAmount) * (twoSided ? 0.02 : 0.01) })]);
+    expect(currentSnapshot().purchaseRequests[0].usdtAmount).toBe(finalAmount);
+  });
+
+  it("releases the reduced reservation for another trade and prevents a later increase over shared stock", async () => {
+    const { requestId, listingId } = seedTrade({ status: "pending", amount: "600" });
+    const proposal = await propose("propose_amount", "150");
+    await updateTradeTerms({ requestId, actorUserId: BUYER_ID, action: "accept_amount", proposalId: proposal.termsProposal!.id });
+    const current = currentSnapshot().purchaseRequests[0];
+    currentSnapshot().purchaseRequests.push({ ...structuredClone(current), id: "second-reservation", status: "accepted", buyerId: OUTSIDER_ID, listingId, usdtAmount: "800", termsProposal: undefined });
+    invalidateAlphaExchangeStoreCache();
+    await expect(propose("propose_amount", "250")).rejects.toThrow(/limits/);
+    expect(currentSnapshot().purchaseRequests[0].usdtAmount).toBe("150");
+  });
+
+  it.each([
+    [FACE_TO_FACE, "funds_received"],
+    [FACE_TO_FACE, "usdt_release_pending"],
+    ["Bank Transfer", "usdt_sent"],
+    ["Cardless ATM Withdrawal", "usdt_sent"],
+  ] as const)("settles %s from %s on the seller's confirmation exactly once", async (paymentMethod, status) => {
+    const { requestId, listingId } = seedTrade({ paymentMethod, status });
+    const command = { requestId, actorUserId: SELLER_ID, actorRole: "approved_seller" as const,
+      nextStatus: "completed" as const, completionMode: "seller" as const, usdtSentConfirmed: true };
+    const results = await Promise.all([updatePurchaseRequestStatus(command), updatePurchaseRequestStatus(command)]);
+    expect(results.filter(result => result.statusChanged)).toHaveLength(1);
+    expect(results.every(result => result.request.status === "review_open")).toBe(true);
+    const snapshot = currentSnapshot();
+    const saved = snapshot.purchaseRequests.find(request => request.id === requestId)!;
+    expect(saved.completedAt).toBeTruthy();
+    const frozenReceipt = structuredClone(saved.completionReceipt);
+    expect(frozenReceipt).toMatchObject({ version: 1, source: "completion", usdtAmount: saved.usdtAmount, fiatAmount: saved.fiatAmount, completedAt: saved.completedAt, sellerFeeUsdt: "2.5", buyerFeeUsdt: "0", totalPlatformFeeUsdt: "2.5" });
+    expect(results.every(result => JSON.stringify(result.request.completionReceipt) === JSON.stringify(frozenReceipt))).toBe(true);
+    expect(saved.reviewUnlockedAt).toBeTruthy();
+    expect(saved.timeline.filter(event => event.type === "trade_completed")).toEqual([
+      expect.objectContaining({ actorUserId: SELLER_ID, message: "Seller confirmed trade completed" }),
+    ]);
+    if (status !== "usdt_sent") {
+      expect(saved.usdtSentAt).toBeTruthy();
+      expect(saved.timeline.filter(event => event.type === "usdt_sent")).toHaveLength(1);
+    }
+    expect(snapshot.commissionRecords.filter(record => record.purchaseRequestId === requestId)).toEqual([
+      expect.objectContaining({ sellerId: SELLER_ID, sellerFeeAmount: 2.5, buyerFeeCollectedAmount: 0, commissionAmount: 2.5, paymentStatus: "pending" }),
+    ]);
+    expect(snapshot.marketplaceListings.find(listing => listing.id === listingId)).toMatchObject({ availableAmount: "750", activeTradeRequestId: undefined });
+    expect(snapshot.notifications).toEqual(expect.arrayContaining([
+      expect.objectContaining({ userId: BUYER_ID, title: "Review available" }),
+      expect.objectContaining({ userId: SELLER_ID, message: "You completed the trade. Check your commission due." }),
+    ]));
+    await submitBuyerTradeReview({ requestId, buyerUserId: BUYER_ID, rating: 5, comment: "Received the full trade amount." });
+    expect(currentSnapshot().purchaseRequests.find(request => request.id === requestId)?.buyerReview?.rating).toBe(5);
+    expect(currentSnapshot().purchaseRequests.find(request => request.id === requestId)?.completionReceipt).toEqual(frozenReceipt);
+  });
+
+  it("requires explicit USDT delivery confirmation for the face-to-face shortcut", async () => {
+    seedTrade({ status: "funds_received" });
+    await expect(updatePurchaseRequestStatus({ requestId: "face-request-1", actorUserId: SELLER_ID,
+      actorRole: "approved_seller", nextStatus: "completed", completionMode: "seller" }))
+      .rejects.toMatchObject({ code: "seller-usdt-confirmation-required" });
+    expect(currentSnapshot().commissionRecords).toHaveLength(0);
+  });
+
+  it.each([
+    [FACE_TO_FACE, "payment_sent"], [FACE_TO_FACE, "accepted"],
+    ["Bank Transfer", "funds_received"], ["Bank Transfer", "usdt_release_pending"],
+    ["Cardless ATM Withdrawal", "funds_received"],
+  ] as const)("rejects premature seller completion for %s at %s", async (paymentMethod, status) => {
+    seedTrade({ paymentMethod, status });
+    await expect(updatePurchaseRequestStatus({ requestId: "face-request-1", actorUserId: SELLER_ID,
+      actorRole: "approved_seller", nextStatus: "completed", completionMode: "seller", usdtSentConfirmed: true }))
+      .rejects.toMatchObject({ code: "seller-completion-status-not-eligible" });
+    expect(currentSnapshot().commissionRecords).toHaveLength(0);
+  });
+
+  it("rejects the seller completion command from the buyer and pauses for open disputes", async () => {
+    seedTrade({ paymentMethod: "Bank Transfer", status: "usdt_sent" });
+    const command = { requestId: "face-request-1", nextStatus: "completed" as const, completionMode: "seller" as const, usdtSentConfirmed: true };
+    await expect(updatePurchaseRequestStatus({ ...command, actorUserId: BUYER_ID, actorRole: "buyer" }))
+      .rejects.toMatchObject({ code: "seller-completion-required" });
+    currentSnapshot().disputes.push({ id: "dispute-1", purchaseRequestId: "face-request-1", status: "open" } as never);
+    await expect(updatePurchaseRequestStatus({ ...command, actorUserId: SELLER_ID, actorRole: "approved_seller" }))
+      .rejects.toMatchObject({ code: "trade-disputed" });
+    expect(currentSnapshot().commissionRecords).toHaveLength(0);
+  });
+
+  describe.each(["Bank Transfer", FACE_TO_FACE, "Cardless ATM Withdrawal"])("%s amount lock after payment", paymentMethod => {
+    it.each(["payment_sent", "funds_received", "usdt_release_pending", "usdt_sent", "review_open"] as const)("cannot reduce 1000 to 500 at %s, including an old proposal", async status => {
+      const { requestId } = seedTrade({ paymentMethod, status, amount: "1000" });
+      const request = currentSnapshot().purchaseRequests[0];
+      request.termsProposal = { id: "old-500", kind: "amount_correction", status: "pending", usdtAmount: "500", fiatAmount: "1600.00", pricePerUsdt: "3.20", createdAt: request.createdAt };
+      const before = structuredClone(currentSnapshot());
+      for (const action of ["propose_amount", "propose_ils_amount", "counter_offer", "accept_amount"] as const) {
+        await expect(updateTradeTerms({ requestId, actorUserId: action === "accept_amount" ? BUYER_ID : SELLER_ID, action, value: "500", proposalId: "old-500", expectedUpdatedAt: request.updatedAt })).rejects.toThrow(/locked/);
+      }
+      if (paymentMethod === "Cardless ATM Withdrawal") await expect(recalculateCardlessTradeAmount({ requestId, actorUserId: SELLER_ID, ilsAmount: "500" })).rejects.toThrow(/locked/);
+      expect(currentSnapshot().purchaseRequests).toEqual(before.purchaseRequests);
+      expect(currentSnapshot().marketplaceListings).toEqual(before.marketplaceListings);
+      expect(currentSnapshot().commissionRecords).toEqual(before.commissionRecords);
+    });
+
+    it.each(["accept-first", "proposal-first"])("serializes acceptance against amount changes (%s)", async order => {
+      const { requestId } = seedTrade({ paymentMethod, status: "pending", amount: "1000" });
+      const request = currentSnapshot().purchaseRequests[0];
+      const accept = () => updatePurchaseRequestStatus({ requestId, actorUserId: SELLER_ID, actorRole: "approved_seller", nextStatus: "accepted" });
+      const propose = () => updateTradeTerms({ requestId, actorUserId: SELLER_ID, action: "propose_amount", value: "500", expectedUpdatedAt: request.updatedAt });
+      const results = await Promise.allSettled(order === "accept-first" ? [accept(), propose()] : [propose(), accept()]);
+      expect(results.filter(result => result.status === "fulfilled")).toHaveLength(1);
+      const after = currentSnapshot().purchaseRequests[0];
+      expect(after.usdtAmount).toBe("1000");
+      expect(after.status === "accepted" ? after.termsProposal?.status !== "pending" : after.termsProposal?.status === "pending").toBe(true);
+    });
+  });
+
+  it.each(["paymentSentAt", "fundsReceivedAt", "sensitivePaymentSharedAt"] as const)("never reopens a stale pending request with %s", async field => {
+    const { requestId } = seedTrade({ status: "pending", amount: "1000" });
+    const request = currentSnapshot().purchaseRequests[0];
+    request[field] = request.createdAt;
+    await expect(updateTradeTerms({ requestId, actorUserId: SELLER_ID, action: "propose_amount", value: "500", expectedUpdatedAt: request.updatedAt })).rejects.toThrow(/locked/);
+    expect(currentSnapshot().purchaseRequests[0].usdtAmount).toBe("1000");
+  });
+
+  async function propose(action: "counter_offer" | "propose_amount", value: string) {
+    const request = currentSnapshot().purchaseRequests[0];
+    return updateTradeTerms({ requestId: request.id, actorUserId: SELLER_ID, action, value, expectedUpdatedAt: request.updatedAt, safetyAcknowledged: true });
+  }
+
+  describe.each(["Bank Transfer", FACE_TO_FACE, "Cardless ATM Withdrawal"])("accepted %s amount corrections", paymentMethod => {
+    it("preserves agreed totals until buyer approval, then reserves the revised amount without charging early", async () => {
+      const { requestId } = seedTrade({ paymentMethod, status: "accepted", amount: "250" });
+      const request = currentSnapshot().purchaseRequests[0];
+      Object.assign(request, { pricePerUsdt: "4.00", fiatAmount: "1000.00", tradeCreatedAt: request.createdAt,
+        priceOfferAcceptedAt: request.createdAt, priceMode: "buyer_offer",
+        timeline: [{ id: "accepted-event", type: "request_accepted", createdAt: request.createdAt }] });
+      if (paymentMethod === "Bank Transfer") Object.assign(request, {
+        sensitivePaymentKind: "bank_details", sensitivePaymentSharedAt: request.createdAt,
+      });
+      await expect(propose("counter_offer", "3.20")).rejects.toThrow(/stage/);
+      const proposal = await propose("propose_amount", "400");
+      expect(proposal).toMatchObject({ status: "accepted", usdtAmount: "250", fiatAmount: "1000.00", amountAdjustmentCount: 1 });
+      await expect(updateTradeTerms({ requestId, actorUserId: SELLER_ID, action: "accept_amount", proposalId: proposal.termsProposal!.id })).rejects.toThrow(/intended participant/);
+      await expect(updatePurchaseRequestStatus({ requestId, actorUserId: BUYER_ID, actorRole: "buyer", nextStatus: "payment_sent" })).rejects.toMatchObject({ code: "trade-terms-pending" });
+      const approval = { requestId, actorUserId: BUYER_ID, action: "accept_amount" as const, proposalId: proposal.termsProposal!.id };
+      expect(await updateTradeTerms(approval)).toMatchObject({ status: "accepted", usdtAmount: "400", fiatAmount: "1600.00", amountAdjustmentCount: 1 });
+      expect(await updateTradeTerms(approval)).toMatchObject({ usdtAmount: "400", amountAdjustmentCount: 1 });
+      expect(currentSnapshot().marketplaceListings[0]).toMatchObject({ availableAmount: "1000", status: "matched" });
+      expect(currentSnapshot().commissionRecords).toHaveLength(0);
+      const second = await propose("propose_amount", "150");
+      await updateTradeTerms({ requestId, actorUserId: BUYER_ID, action: "accept_amount", proposalId: second.termsProposal!.id });
+      await expect(propose("propose_amount", "200")).rejects.toThrow(/two-adjustment limit/);
+      expect(currentSnapshot().purchaseRequests[0]).toMatchObject({ status: "accepted", usdtAmount: "150", fiatAmount: "600.00", amountAdjustmentCount: 2 });
+    });
+
+    it("rechecks other accepted reservations before approving an increase", async () => {
+      const { requestId, listingId } = seedTrade({ paymentMethod, status: "accepted", amount: "150" });
+      Object.assign(currentSnapshot().purchaseRequests[0], { pricePerUsdt: "4.00", fiatAmount: "600.00" });
+      const proposal = await propose("propose_amount", "1000");
+      currentSnapshot().purchaseRequests.push({ ...structuredClone(currentSnapshot().purchaseRequests[0]),
+        id: "other-accepted", listingId, buyerId: OUTSIDER_ID, usdtAmount: "200", termsProposal: undefined });
+      invalidateAlphaExchangeStoreCache();
+      await expect(updateTradeTerms({ requestId, actorUserId: BUYER_ID, action: "accept_amount", proposalId: proposal.termsProposal!.id })).rejects.toThrow(/no longer available/);
+      expect(currentSnapshot().purchaseRequests[0].usdtAmount).toBe("150");
+      expect(currentSnapshot().marketplaceListings[0].availableAmount).toBe("1000");
+      expect(currentSnapshot().commissionRecords).toHaveLength(0);
+    });
+  });
+
+  it.each(["payment-first", "proposal-first"])("serializes accepted corrections against cash confirmation (%s)", async order => {
+    const { requestId } = seedTrade({ status: "accepted", amount: "250" });
+    const expectedUpdatedAt = currentSnapshot().purchaseRequests[0].updatedAt;
+    const payment = () => updatePurchaseRequestStatus({ requestId, actorUserId: BUYER_ID, actorRole: "buyer", nextStatus: "funds_received" });
+    const correction = () => updateTradeTerms({ requestId, actorUserId: SELLER_ID, action: "propose_amount", value: "150", expectedUpdatedAt });
+    const results = await Promise.allSettled(order === "payment-first" ? [payment(), correction()] : [correction(), payment()]);
+    expect(results.filter(result => result.status === "fulfilled")).toHaveLength(1);
+    const after = currentSnapshot().purchaseRequests[0];
+    expect(after.usdtAmount).toBe("250");
+    expect(after.status === "funds_received" ? after.termsProposal?.status !== "pending" : after.termsProposal?.status === "pending").toBe(true);
+  });
+
+  describe.each(["Bank Transfer", "Cardless ATM Withdrawal", FACE_TO_FACE])("%s adjustment limits", paymentMethod => {
+    it("allows an increase to the exact available listing balance, but rejects larger and below-minimum totals without consuming a turn", async () => {
+      const {requestId} = seedTrade({paymentMethod, status:"pending", amount:"150"});
+      Object.assign(currentSnapshot().purchaseRequests[0], {pricePerUsdt:"4.00", fiatAmount:"600.00"});
+      await expect(propose("propose_amount", "1100")).rejects.toThrow(/limits/);
+      await expect(propose("propose_amount", paymentMethod === "Cardless ATM Withdrawal" ? "24" : "25")).rejects.toThrow(/limits|withdrawal/);
+      expect(currentSnapshot().purchaseRequests[0].amountAdjustmentCount).toBeUndefined();
+      const proposal = await propose("propose_amount", "1000");
+      expect(proposal).toMatchObject({usdtAmount:"150", amountAdjustmentCount:1});
+      const approved = await updateTradeTerms({requestId, actorUserId:BUYER_ID, action:"accept_amount", proposalId:proposal.termsProposal!.id});
+      expect(approved).toMatchObject({usdtAmount:"1000", fiatAmount:"4000.00", amountAdjustmentCount:1});
+      expect(currentSnapshot().marketplaceListings[0].availableAmount).toBe("1000");
+    });
+
+    it.each(["accept_amount", "decline_terms", "withdraw_terms"] as const)("allows two submitted adjustments and never refunds them after %s", async resolution => {
+      const {requestId} = seedTrade({paymentMethod, status:"pending", amount:"600"});
+      Object.assign(currentSnapshot().purchaseRequests[0], {pricePerUsdt:"4.00", fiatAmount:"2400.00", priceMode:"buyer_offer"});
+      for (const [index, value] of ["800", "150"].entries()) {
+        const proposal = await propose("propose_amount", value);
+        expect(proposal.amountAdjustmentCount).toBe(index + 1);
+        const response = {requestId, actorUserId:resolution === "withdraw_terms" ? SELLER_ID : BUYER_ID, action:resolution, proposalId:proposal.termsProposal!.id};
+        await updateTradeTerms(response);
+        await updateTradeTerms(response); // Response retries never consume another turn.
+      }
+      invalidateAlphaExchangeStoreCache();
+      const before = structuredClone(currentSnapshot());
+      for (const action of ["propose_amount", "propose_ils_amount", "counter_offer"] as const) {
+        await expect(updateTradeTerms({requestId, actorUserId:SELLER_ID, action, value:"100", expectedUpdatedAt:currentSnapshot().purchaseRequests[0].updatedAt})).rejects.toThrow(/two-adjustment limit/);
+      }
+      if (paymentMethod === "Cardless ATM Withdrawal") await expect(recalculateCardlessTradeAmount({requestId, actorUserId:SELLER_ID, ilsAmount:"400"})).rejects.toThrow(/two-adjustment limit/);
+      expect(currentSnapshot().purchaseRequests).toEqual(before.purchaseRequests);
+      expect(currentSnapshot().marketplaceListings).toEqual(before.marketplaceListings);
+      expect(currentSnapshot().commissionRecords).toEqual(before.commissionRecords);
+      expect(currentSnapshot().purchaseRequests[0].usdtAmount).toBe(resolution === "accept_amount" ? "150" : "600");
+      await updatePurchaseRequestStatus({requestId, actorUserId:SELLER_ID, actorRole:"approved_seller", nextStatus:"accepted"});
+      expect(currentSnapshot().purchaseRequests[0].amountAdjustmentCount).toBe(2);
+    });
+
+    it("allows only one concurrent submission for the final adjustment turn", async () => {
+      const {requestId} = seedTrade({paymentMethod, status:"pending"});
+      Object.assign(currentSnapshot().purchaseRequests[0], {pricePerUsdt:"4.00", amountAdjustmentCount:1});
+      const expectedUpdatedAt = currentSnapshot().purchaseRequests[0].updatedAt;
+      const results = await Promise.allSettled(["150", "200"].map(value => updateTradeTerms({requestId, actorUserId:SELLER_ID, action:"propose_amount", value, expectedUpdatedAt})));
+      expect(results.filter(result => result.status === "fulfilled")).toHaveLength(1);
+      expect(currentSnapshot().purchaseRequests[0].amountAdjustmentCount).toBe(2);
+      expect(currentSnapshot().purchaseRequests[0].messages?.filter(entry => entry.message.startsWith("Seller proposed "))).toHaveLength(1);
+    });
+
+    it("rechecks inventory on approval and does not consume reserved stock", async () => {
+      const {requestId, listingId} = seedTrade({paymentMethod, status:"pending", amount:"150"});
+      Object.assign(currentSnapshot().purchaseRequests[0], {pricePerUsdt:"4.00", fiatAmount:"600.00"});
+      const proposed = await propose("propose_amount", "1000");
+      currentSnapshot().purchaseRequests.push({...structuredClone(currentSnapshot().purchaseRequests[0]), id:"other-reserved", listingId, buyerId:OUTSIDER_ID, status:"accepted", usdtAmount:"200", termsProposal:undefined});
+      invalidateAlphaExchangeStoreCache();
+      await expect(updateTradeTerms({requestId, actorUserId:BUYER_ID, action:"accept_amount", proposalId:proposed.termsProposal!.id})).rejects.toThrow(/no longer available/);
+      expect(currentSnapshot().purchaseRequests[0].usdtAmount).toBe("150");
+      expect(currentSnapshot().marketplaceListings[0].availableAmount).toBe("1000");
+      expect(currentSnapshot().commissionRecords).toHaveLength(0);
+    });
+  });
+
+  it("preserves the two-turn limit for legacy trades whose count field is missing", async () => {
+    const {requestId} = seedTrade({status:"pending"});
+    for (const value of ["200", "150"]) {
+      const proposal = await propose("propose_amount", value);
+      await updateTradeTerms({requestId, actorUserId:SELLER_ID, action:"withdraw_terms", proposalId:proposal.termsProposal!.id});
+    }
+    delete currentSnapshot().purchaseRequests[0].amountAdjustmentCount;
+    invalidateAlphaExchangeStoreCache();
+    await expect(propose("propose_amount", "100")).rejects.toThrow(/two-adjustment limit/);
+    expect(sanitizePurchaseRequestForActor(currentSnapshot().purchaseRequests[0], SELLER_ID, "approved_seller").amountAdjustmentCount).toBe(2);
+  });
+
+  describe.each(["Bank Transfer", "Cardless ATM Withdrawal", FACE_TO_FACE])("%s seller cancellation", (paymentMethod) => {
+    it.each(["pending", "accepted"] as const)("cancels %s exactly once, releases the listing and names the seller", async (status) => {
+      const { requestId, listingId } = seedTrade({ paymentMethod, status });
+      await expect(updatePurchaseRequestStatus({ requestId, actorUserId: OUTSIDER_ID, actorRole: "buyer", nextStatus: "cancelled" })).rejects.toMatchObject({ code: "actor-not-allowed" });
+      const input = { requestId, actorUserId: SELLER_ID, actorRole: "approved_seller" as const, nextStatus: "cancelled" as const };
+      const results = await Promise.all([updatePurchaseRequestStatus(input), updatePurchaseRequestStatus(input)]);
+      expect(results.filter((result) => result.statusChanged)).toHaveLength(1);
+      const snapshot = currentSnapshot();
+      const request = snapshot.purchaseRequests.find((item) => item.id === requestId)!;
+      expect(request).toMatchObject({ status: "cancelled", usdtAmount: "250", fiatAmount: "800" });
+      expect(request.timeline.filter((entry) => entry.type === "request_cancelled")).toEqual([
+        expect.objectContaining({ actorUserId: SELLER_ID, message: "Seller cancelled request" }),
+      ]);
+      expect(snapshot.marketplaceListings.find((item) => item.id === listingId)).toMatchObject({ status: "active", activeTradeRequestId: undefined, availableAmount: "1000" });
+      const notices = snapshot.notifications.filter((item) => item.title === "Trade cancelled");
+      expect(notices).toHaveLength(2);
+      expect(notices.map((item) => item.userId).sort()).toEqual([BUYER_ID, SELLER_ID].sort());
+      expect(notices.every((item) => item.message === "The seller cancelled this trade request.")).toBe(true);
+      expect(snapshot.commissionRecords).toHaveLength(0);
+    });
+
+    it.each(["payment_sent", "funds_received", "usdt_release_pending", "usdt_sent", "completed", "review_open"] as const)("rejects seller cancellation at %s without unlocking the listing", async (status) => {
+      const { requestId, listingId } = seedTrade({ paymentMethod, status });
+      const listingBefore = structuredClone(currentSnapshot().marketplaceListings.find((item) => item.id === listingId));
+      await expect(updatePurchaseRequestStatus({ requestId, actorUserId: SELLER_ID, actorRole: "approved_seller", nextStatus: "cancelled" })).rejects.toMatchObject({ code: "invalid-status-transition" });
+      expect(currentSnapshot().purchaseRequests[0].status).toBe(status);
+      expect(currentSnapshot().marketplaceListings.find((item) => item.id === listingId)).toEqual(listingBefore);
+    });
+
+    it("applies a corrected amount only after buyer approval", async () => {
+      seedTrade({ paymentMethod, status: "pending" });
+      // A cardless correction must retain the bank's cash amount at the agreed price.
+      currentSnapshot().purchaseRequests[0].usdtAmount = "200";
+      const proposed = await propose("propose_amount", "250");
+      expect(proposed.usdtAmount).toBe("200");
+      expect(proposed.termsProposal).toMatchObject({ status: "pending", usdtAmount: "250", fiatAmount: "800.00" });
+      await expect(updateTradeTerms({ requestId: proposed.id, actorUserId: SELLER_ID, action: "accept_amount", proposalId: proposed.termsProposal!.id })).rejects.toThrow(/intended participant/);
+      const accepted = await updateTradeTerms({ requestId: proposed.id, actorUserId: BUYER_ID, action: "accept_amount", proposalId: proposed.termsProposal!.id });
+      expect(accepted).toMatchObject({ usdtAmount: "250", pricePerUsdt: "3.20", termsProposal: { status: "accepted" } });
+      expect(Number(accepted.fiatAmount)).toBe(800);
+    });
+
+    it.each(["cancel-first", "payment-first"])("commits only one outcome when cancellation races with payment (%s)", async (order) => {
+      const { requestId, listingId } = seedTrade({ paymentMethod });
+      const cancel = () => updatePurchaseRequestStatus({ requestId, actorUserId: SELLER_ID, actorRole: "approved_seller", nextStatus: "cancelled" });
+      const pay = () => paymentMethod === "Bank Transfer"
+        ? uploadTradeEvidence({ purchaseRequestId: requestId, actorUserId: BUYER_ID, actorRole: "buyer", side: "buyer", fileName: "payment.png", mimeType: "image/png", sizeBytes: 68, contentBase64: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO9Wl8cAAAAASUVORK5CYII=" })
+        : updatePurchaseRequestStatus({ requestId, actorUserId: BUYER_ID, actorRole: "buyer", nextStatus: "payment_sent", cardlessWithdrawalCode: "482913", cardlessVerificationKind: "date_of_birth", cardlessVerificationValue: "25/08/1995", clientOperationId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" });
+      const results = await Promise.allSettled(order === "cancel-first" ? [cancel(), pay()] : [pay(), cancel()]);
+      expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+      const snapshot = currentSnapshot();
+      const request = snapshot.purchaseRequests.find((item) => item.id === requestId)!;
+      expect(["cancelled", "payment_sent"]).toContain(request.status);
+      const cancelled = request.status === "cancelled";
+      expect(snapshot.marketplaceListings.find((item) => item.id === listingId)).toMatchObject({ status: cancelled ? "active" : "in_trade", activeTradeRequestId: cancelled ? undefined : requestId });
+      expect(request.timeline.filter((entry) => entry.type === "request_cancelled")).toHaveLength(cancelled ? 1 : 0);
+      expect(Boolean(request.paymentSentAt)).toBe(!cancelled);
+      if (cancelled) {
+        expect(snapshot.tradeEvidenceFiles.filter((item) => item.purchaseRequestId === requestId)).toHaveLength(0);
+        expect(request.messages?.some((message) => message.credentialKind === "cardless_code")).not.toBe(true);
+      }
+    });
+
+    it.each(["proposal-first", "payment-first"])("serializes an accepted amount proposal against receipt or code sharing (%s)", async order => {
+      const { requestId } = seedTrade({ paymentMethod, status: "accepted" });
+      const request = currentSnapshot().purchaseRequests[0];
+      const expectedUpdatedAt = request.updatedAt;
+      const correction = () => updateTradeTerms({ requestId, actorUserId: SELLER_ID, action: "propose_amount", value: "125", expectedUpdatedAt });
+      const pay = () => paymentMethod === "Bank Transfer"
+        ? uploadTradeEvidence({ purchaseRequestId: requestId, actorUserId: BUYER_ID, actorRole: "buyer", side: "buyer", fileName: "payment.png", mimeType: "image/png", sizeBytes: 68, contentBase64: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO9Wl8cAAAAASUVORK5CYII=" })
+        : updatePurchaseRequestStatus({ requestId, actorUserId: BUYER_ID, actorRole: "buyer", nextStatus: "payment_sent", cardlessWithdrawalCode: "482913", cardlessVerificationKind: "date_of_birth", cardlessVerificationValue: "25/08/1995", clientOperationId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc" });
+      const results = await Promise.allSettled(order === "proposal-first" ? [correction(), pay()] : [pay(), correction()]);
+      expect(results.filter(result => result.status === "fulfilled")).toHaveLength(1);
+      const after = currentSnapshot().purchaseRequests[0];
+      expect(after.usdtAmount).toBe("250");
+      expect(after.status === "payment_sent" ? after.termsProposal?.status !== "pending" : after.termsProposal?.status === "pending").toBe(true);
+      if (after.termsProposal?.status === "pending") {
+        expect(currentSnapshot().tradeEvidenceFiles.filter(entry => entry.purchaseRequestId === requestId)).toHaveLength(0);
+        expect(after.sensitivePaymentSharedAt).toBeUndefined();
+      }
+    });
+  });
+
+  it.each(["buyer", "seller"] as const)("blocks seller cancellation when %s evidence exists separately from the accepted request", async (side) => {
+    const { requestId } = seedTrade({ paymentMethod: "Bank Transfer" });
+    currentSnapshot().tradeEvidenceFiles.push({ id: "stored-proof", purchaseRequestId: requestId, side,
+      uploadedByUserId: side === "buyer" ? BUYER_ID : SELLER_ID, uploadedAt: new Date().toISOString(),
+      fileName: "payment.png", mimeType: "image/png", sizeBytes: 68, storagePath: "evidence/stored-proof.png", status: "uploaded" });
+    await expect(updatePurchaseRequestStatus({ requestId, actorUserId: SELLER_ID, actorRole: "approved_seller", nextStatus: "cancelled" })).rejects.toMatchObject({ code: "payment-progress-exists" });
+    expect(currentSnapshot().purchaseRequests[0].status).toBe("accepted");
+  });
+
+  it("allows seller cancellation after only bank details are revealed", async () => {
+    const { requestId } = seedTrade({ paymentMethod: "Bank Transfer" });
+    Object.assign(currentSnapshot().purchaseRequests[0], { sensitivePaymentKind: "bank_details", sensitivePaymentSharedAt: new Date().toISOString() });
+    await expect(updatePurchaseRequestStatus({ requestId, actorUserId: SELLER_ID, actorRole: "approved_seller", nextStatus: "cancelled" })).resolves.toMatchObject({ request: { status: "cancelled" } });
+  });
+
+  it.each(["marker", "message"])("blocks seller cancellation when a stale accepted trade already disclosed a code (%s)", async (source) => {
+    const { requestId } = seedTrade({ paymentMethod: "Cardless ATM Withdrawal" });
+    Object.assign(currentSnapshot().purchaseRequests[0], source === "marker"
+      ? { sensitivePaymentKind: "cardless_code", sensitivePaymentSharedAt: new Date().toISOString() }
+      : { messages: [{ id: "legacy-code", credentialKind: "cardless_code" }] });
+    await expect(updatePurchaseRequestStatus({ requestId, actorUserId: SELLER_ID, actorRole: "approved_seller", nextStatus: "cancelled" })).rejects.toMatchObject({ code: "payment-progress-exists" });
+    expect(currentSnapshot().purchaseRequests[0].status).toBe("accepted");
+  });
+
+  it("withdraws a pending amount proposal when the seller cancels before payment", async () => {
+    const { requestId } = seedTrade({ status: "pending" });
+    await propose("propose_amount", "200");
+    const result = await updatePurchaseRequestStatus({ requestId, actorUserId: SELLER_ID, actorRole: "approved_seller", nextStatus: "cancelled" });
+    expect(result.request.termsProposal?.status).toBe("withdrawn");
+  });
+
+  it("blocks seller cancellation during an open dispute", async () => {
+    const { requestId } = seedTrade({});
+    currentSnapshot().disputes.push({ id: "open-dispute", purchaseRequestId: requestId, status: "open" } as never);
+    await expect(updatePurchaseRequestStatus({ requestId, actorUserId: SELLER_ID, actorRole: "approved_seller", nextStatus: "cancelled" })).rejects.toMatchObject({ code: "trade-disputed" });
+  });
+
+  it("accepts a seller counter-offer directly into the same trade, once", async () => {
+    seedTrade({ status: "pending" });
+    currentSnapshot().purchaseRequests[0].priceMode = "buyer_offer";
+    currentSnapshot().purchaseRequests[0].pricePerUsdt = "3.00";
+    const offer = await propose("counter_offer", "3.10");
+    expect(offer.pricePerUsdt).toBe("3.00");
+    expect(offer.termsProposal?.fiatAmount).toBe("775.00");
+    await expect(updatePurchaseRequestStatus({ requestId: offer.id, actorUserId: SELLER_ID, actorRole: "approved_seller", nextStatus: "accepted" })).rejects.toThrow(/proposed terms/);
+    const accept = { requestId: offer.id, actorUserId: BUYER_ID, actorRole: "buyer" as const, nextStatus: "accepted" as const, acceptCounterOfferId: offer.termsProposal!.id };
+    const result = await updatePurchaseRequestStatus(accept);
+    expect(result.request.status).toBe("accepted");
+    expect(result.request.pricePerUsdt).toBe("3.10");
+    expect(result.request.fiatAmount).toBe("775.00");
+    expect(result.request.termsProposal?.status).toBe("accepted");
+    expect((await updatePurchaseRequestStatus(accept)).statusChanged).toBe(false);
+    expect(currentSnapshot().marketplaceListings[0].activeTradeRequestId).toBe(offer.id);
+    expect(currentSnapshot().notifications.filter((entry) => entry.userId === BUYER_ID && entry.title === "Trade proposal — your response needed"))
+      .toEqual([expect.objectContaining({ whatsappEvent: "trade_update", relatedRequestId: offer.id })]);
+    expect(currentSnapshot().notifications.filter((entry) => entry.userId === SELLER_ID && entry.title === "Counter-offer accepted"))
+      .toEqual([expect.objectContaining({ whatsappEvent: "trade_update", relatedRequestId: offer.id })]);
+  });
+
+  it("requires buyer approval before acceptance, then resumes the trade", async () => {
+    seedTrade({ status: "pending" });
+    const proposed = await propose("propose_amount", "275.25");
+    expect(proposed.usdtAmount).toBe("250");
+    await expect(updatePurchaseRequestStatus({ requestId: proposed.id, actorUserId: SELLER_ID, actorRole: "approved_seller", nextStatus: "usdt_sent" })).rejects.toThrow(/proposed terms/);
+    await expect(updateTradeTerms({ requestId: proposed.id, actorUserId: SELLER_ID, action: "accept_amount", proposalId: proposed.termsProposal!.id })).rejects.toThrow(/intended participant/);
+    const input = { requestId: proposed.id, actorUserId: BUYER_ID, action: "accept_amount" as const, proposalId: proposed.termsProposal!.id };
+    const accepted = await updateTradeTerms(input);
+    expect(accepted.usdtAmount).toBe("275.25");
+    expect(accepted.fiatAmount).toBe("880.80");
+    expect((await updateTradeTerms(input)).usdtAmount).toBe("275.25");
+    expect(currentSnapshot().notifications.filter((entry) => entry.userId === SELLER_ID && entry.title === "Trade proposal updated"))
+      .toEqual([expect.objectContaining({ whatsappEvent: "trade_update", relatedRequestId: proposed.id })]);
+    await updatePurchaseRequestStatus({ requestId: proposed.id, actorUserId: SELLER_ID, actorRole: "approved_seller", nextStatus: "accepted" });
+    await updatePurchaseRequestStatus({ requestId: proposed.id, actorUserId: SELLER_ID, actorRole: "approved_seller", nextStatus: "funds_received" });
+    const sent = await updatePurchaseRequestStatus({ requestId: proposed.id, actorUserId: SELLER_ID, actorRole: "approved_seller", nextStatus: "usdt_sent" });
+    expect(sent.request.status).toBe("usdt_sent");
+  });
+
+  it("declines an amount proposal without changing the original amounts", async () => {
+    seedTrade({ status: "pending" });
+    const proposed = await propose("propose_amount", "200");
+    const result = await updateTradeTerms({ requestId: proposed.id, actorUserId: BUYER_ID, action: "decline_terms", proposalId: proposed.termsProposal!.id });
+    expect(result.usdtAmount).toBe("250");
+    expect(result.termsProposal?.status).toBe("declined");
+  });
+
+  it("routes legacy cardless repair through buyer approval before acceptance", async () => {
+    seedTrade({ paymentMethod: "Cardless ATM Withdrawal", status: "pending" });
+    const request = currentSnapshot().purchaseRequests[0];
+    request.usdtAmount = "200";
+    const proposed = await recalculateCardlessTradeAmount({ requestId: request.id, actorUserId: SELLER_ID });
+    expect(proposed.usdtAmount).toBe("200");
+    expect(proposed.termsProposal).toMatchObject({ status: "pending", usdtAmount: "250" });
+    const corrected = await updateTradeTerms({ requestId: request.id, actorUserId: BUYER_ID, action: "accept_amount", proposalId: proposed.termsProposal!.id });
+    expect(corrected.usdtAmount).toBe("250");
+  });
+
+  it("rejects stale proposal acceptance after withdrawal and replacement", async () => {
+    seedTrade({ status: "pending" }); currentSnapshot().purchaseRequests[0].priceMode = "buyer_offer";
+    const first = await propose("counter_offer", "3.10");
+    const firstId = first.termsProposal!.id;
+    await updateTradeTerms({ requestId: first.id, actorUserId: SELLER_ID, action: "withdraw_terms", proposalId: firstId });
+    await propose("counter_offer", "3.15");
+    await expect(updatePurchaseRequestStatus({ requestId: first.id, actorUserId: BUYER_ID, actorRole: "buyer", nextStatus: "accepted", acceptCounterOfferId: firstId })).rejects.toThrow(/no longer current/);
+    expect(currentSnapshot().purchaseRequests[0].status).toBe("pending");
+  });
+
+  it.each(["usdt_sent", "completed", "review_open"] as const)("blocks amount changes at %s", async (status) => {
+    seedTrade({ status });
+    await expect(propose("propose_amount", "300")).rejects.toThrow(/stage/);
+  });
+
+  it("blocks outsiders, stale screens, over-allocation, and cardless cash mismatches", async () => {
+    seedTrade({ paymentMethod: "Cardless ATM Withdrawal", status: "pending" });
+    const request = currentSnapshot().purchaseRequests[0];
+    await expect(updateTradeTerms({ requestId: request.id, actorUserId: OUTSIDER_ID, action: "propose_amount", value: "250", expectedUpdatedAt: request.updatedAt })).rejects.toThrow(/not found/);
+    await expect(updateTradeTerms({ requestId: request.id, actorUserId: SELLER_ID, action: "propose_amount", value: "250", expectedUpdatedAt: "stale" })).rejects.toThrow(/changed/);
+    await expect(propose("propose_amount", "300")).rejects.toThrow(/withdrawal/);
+  });
+
+  it("requires buyer acceptance of a counter-offer at the upper price boundary", async () => {
+    seedTrade({ status: "pending" });
+    currentSnapshot().purchaseRequests[0].priceMode = "buyer_offer";
+    currentSnapshot().purchaseRequests[0].pricePerUsdt = "3.00";
+    const proposal = await propose("counter_offer", "3.55");
+    expect(proposal.pricePerUsdt).toBe("3.00");
+    expect(proposal.termsProposal?.pricePerUsdt).toBe("3.55");
+    const accepted = await updatePurchaseRequestStatus({ requestId: proposal.id, actorUserId: BUYER_ID, actorRole: "buyer", nextStatus: "accepted", acceptCounterOfferId: proposal.termsProposal!.id });
+    expect(accepted.request.pricePerUsdt).toBe("3.55");
+    expect(accepted.request.fiatAmount).toBe("887.50");
+  });
+
+  it("enforces the available balance and counter-offer price bounds", async () => {
+    seedTrade({ status: "pending" });
+    await expect(propose("propose_amount", "1001")).rejects.toThrow(/limits/);
+    currentSnapshot().purchaseRequests[0].status = "pending";
+    currentSnapshot().purchaseRequests[0].priceMode = "buyer_offer";
+    invalidateAlphaExchangeStoreCache();
+    await expect(propose("counter_offer", "3.56")).rejects.toThrow(/price range/);
+  });
+
+  function readyRequest(overrides: Partial<Parameters<typeof createPurchaseRequest>[0]> = {}) {
+    const { listingId } = seedTrade({ paymentMethod: "Cardless ATM Withdrawal", status: "pending" });
+    currentSnapshot().purchaseRequests = [];
+    return createPurchaseRequest({ buyerId: BUYER_ID, actorUserId: BUYER_ID, listingId, buyerName: "Ready Buyer", usdtAmount: "125", buyerReceivingWalletAddress: "0x7088a120cde7351dbf3e7831a9da3f74058c89a0", receivingNetwork: "BEP20", paymentMethod: "Cardless ATM Withdrawal", bankName: "Bank Hapoalim", cardlessWithdrawalCode: "482913", cardlessVerificationKind: "date_of_birth", cardlessVerificationValue: "25/08/1995", cardlessIlsAmount: "400", ...overrides });
+  }
+
+  function confirmPreparedCode(requestId: string) {
+    return updatePurchaseRequestStatus({ requestId, actorUserId: BUYER_ID, actorRole: "buyer",
+      nextStatus: "payment_sent", usePreparedCardlessDetails: true, clientOperationId: "dddddddd-dddd-4ddd-8ddd-dddddddddddd" });
+  }
+
+  function bankCode420Request(overrides: Partial<Parameters<typeof createPurchaseRequest>[0]> = {}) {
+    const { listingId } = seedTrade({ paymentMethod: "Cardless ATM Withdrawal", status: "pending" });
+    currentSnapshot().purchaseRequests = [];
+    Object.assign(currentSnapshot().marketplaceListings[0], { availableAmount: "420", originalAmount: "420", minimumTrade: "420", maximumTrade: "420", price: "3.10" });
+    if (overrides.paymentMethod) currentSnapshot().marketplaceListings[0].paymentMethods = ["Cardless ATM Withdrawal", overrides.paymentMethod];
+    invalidateAlphaExchangeStoreCache();
+    return createPurchaseRequest({ buyerId: BUYER_ID, actorUserId: BUYER_ID, listingId, buyerName: "Ready Buyer",
+      usdtAmount: "415.202811", buyerReceivingWalletAddress: "0x7088a120cde7351dbf3e7831a9da3f74058c89a0", receivingNetwork: "BEP20",
+      paymentMethod: "Cardless ATM Withdrawal", bankName: "Bank Hapoalim", cardlessWithdrawalCode: "482913",
+      cardlessVerificationKind: "date_of_birth", cardlessVerificationValue: "25/08/1995", cardlessIlsAmount: "1300",
+      feePolicyVersion: "buyer_seller_1pct_v1", ...overrides });
+  }
+
+  it.each([
+    { cash: "1300", usdt: "415.202811", remaining: "4.797189", fee: 4.152028, listingStatus: "paused" },
+    { cash: "1000", usdt: "319.386777", remaining: "100.613223", fee: 3.193868, listingStatus: "active" },
+  ])("settles a $cash ATM code below the listing minimum after explicit seller acceptance", async ({ cash, usdt, remaining, fee, listingStatus }) => {
+    const { request } = await bankCode420Request({ usdtAmount: usdt, cardlessIlsAmount: cash });
+    expect(request).toMatchObject({ usdtAmount: usdt, fiatAmount: `${cash}.00`, status: "pending", commissionCalculationVersion: "usdt_6dp_v2" });
+    expect(currentSnapshot().marketplaceListings[0].availableAmount).toBe("420");
+    expect(JSON.stringify(sanitizePurchaseRequestForActor(request, SELLER_ID, "approved_seller"))).not.toContain("482913");
+    const seller = { requestId: request.id, actorUserId: SELLER_ID, actorRole: "approved_seller" as const };
+    await updatePurchaseRequestStatus({ ...seller, nextStatus: "accepted" });
+    await confirmPreparedCode(request.id);
+    const room = await getTradeRoomData({ purchaseRequestId: request.id, actorUserId: SELLER_ID, actorRole: "approved_seller", markMessagesRead: false });
+    expect(room.request).toMatchObject({ status: "payment_sent", usdtAmount: usdt, fiatAmount: `${cash}.00` });
+    expect(JSON.stringify(room.messages)).toContain(`ILS amount: ${cash}.00`);
+    await updatePurchaseRequestStatus({ ...seller, nextStatus: "funds_received" });
+    await updatePurchaseRequestStatus({ ...seller, nextStatus: "usdt_sent" });
+    await updatePurchaseRequestStatus({ ...seller, nextStatus: "completed", completionMode: "cash_trade" });
+    expect(currentSnapshot().marketplaceListings[0]).toMatchObject({ availableAmount: remaining, status: listingStatus });
+    expect(currentSnapshot().commissionRecords).toEqual([expect.objectContaining({ sellerFeeAmount: fee, buyerFeeCollectedAmount: fee, commissionAmount: fee * 2, grossAmount: Number(cash) })]);
+  });
+
+  it("rejects claiming the full 420 USDT from a 1300 code or exceeding the seller's inventory", async () => {
+    await expect(bankCode420Request({ usdtAmount: "420" })).rejects.toMatchObject({ code: "CARDLESS_PAYMENT_AMOUNT_MISMATCH", details: { requiredTotal: "1315.02" } });
+    expect(currentSnapshot().purchaseRequests).toHaveLength(0);
+    await expect(bankCode420Request({ usdtAmount: "447.141488", cardlessIlsAmount: "1400" })).rejects.toThrow(/remaining|balance|maximum|available/i);
+    expect(currentSnapshot().purchaseRequests).toHaveLength(0);
+  });
+
+  it("keeps ordinary minimums enforced for a non-ATM request", async () => {
+    await expect(bankCode420Request({ paymentMethod: "Face-to-Face (Meet in Person)", safetyAcknowledged: true })).rejects.toThrow(/minimum/i);
+    expect(currentSnapshot().purchaseRequests).toHaveLength(0);
+  });
+
+  it("keeps the 1300 code and recalculates USDT when the seller counters the price", async () => {
+    const { request } = await bankCode420Request({ priceMode: "buyer_offer", offeredPrice: "3.09", usdtAmount: "416.546509" });
+    const proposed = await updateTradeTerms({ requestId: request.id, actorUserId: SELLER_ID, action: "counter_offer", value: "3.10", expectedUpdatedAt: request.updatedAt });
+    expect(proposed.termsProposal).toMatchObject({ usdtAmount: "415.202811", fiatAmount: "1300.00" });
+    await updatePurchaseRequestStatus({ requestId: request.id, actorUserId: BUYER_ID, actorRole: "buyer", nextStatus: "accepted", acceptCounterOfferId: proposed.termsProposal!.id });
+    expect(currentSnapshot().purchaseRequests[0]).toMatchObject({ usdtAmount: "415.202811", fiatAmount: "1300.00", status: "accepted" });
+    await confirmPreparedCode(request.id);
+    expect(currentSnapshot().purchaseRequests[0].status).toBe("payment_sent");
+  });
+
+  it.each([
+    { offeredPrice: "3.09", original: "416.546509", counterPrice: "3.10", reserved: "4", accepted: true },
+    { offeredPrice: "3.09", original: "416.546509", counterPrice: "3.08", reserved: "3", accepted: false },
+  ])("checks the recalculated ATM quantity against newly reserved stock: $accepted", async ({ offeredPrice, original, counterPrice, reserved, accepted }) => {
+    const { request } = await bankCode420Request({ priceMode: "buyer_offer", offeredPrice, usdtAmount: original });
+    const proposed = await updateTradeTerms({ requestId: request.id, actorUserId: SELLER_ID, action: "counter_offer", value: counterPrice, expectedUpdatedAt: request.updatedAt });
+    currentSnapshot().purchaseRequests.push({ ...structuredClone(currentSnapshot().purchaseRequests[0]), id: "other-reservation", buyerId: OUTSIDER_ID, status: "accepted", usdtAmount: reserved, termsProposal: undefined, messages: [] });
+    invalidateAlphaExchangeStoreCache();
+    const command = { requestId: request.id, actorUserId: BUYER_ID, actorRole: "buyer" as const, nextStatus: "accepted" as const, acceptCounterOfferId: proposed.termsProposal!.id };
+    if (accepted) {
+      await expect(updatePurchaseRequestStatus(command)).resolves.toMatchObject({ request: { usdtAmount: "415.202811", fiatAmount: "1300.00", status: "accepted" } });
+    } else {
+      await expect(updatePurchaseRequestStatus(command)).rejects.toMatchObject({ code: "listing-amount-unavailable" });
+      expect(currentSnapshot().purchaseRequests.find(item => item.id === request.id)).toMatchObject({ usdtAmount: original, status: "pending", termsProposal: { status: "pending" } });
+    }
+    expect(currentSnapshot().commissionRecords).toHaveLength(0);
+  });
+
+  it("rejects a new request whose positive USDT amount rounds to a zero payment", async () => {
+    const { listingId } = seedTrade({ status: "pending" });
+    currentSnapshot().purchaseRequests = [];
+    currentSnapshot().marketplaceListings[0].minimumTrade = "0";
+    await expect(createPurchaseRequest({ listingId, buyerId: BUYER_ID, actorUserId: BUYER_ID, buyerName: "Buyer", usdtAmount: "0.000001",
+      paymentMethod: FACE_TO_FACE, safetyAcknowledged: true, feePolicyVersion: "buyer_seller_1pct_v1",
+      receivingNetwork: "BEP20", buyerReceivingWalletAddress: "0x7088a120cde7351dbf3e7831a9da3f74058c89a0" })).rejects.toThrow(/payment total/i);
+    expect(currentSnapshot().purchaseRequests).toHaveLength(0);
+  });
+
+  it("adjusts a prepared ATM request before acceptance, replaces the old code and settles the new two-sided total", async () => {
+    const { request } = await readyRequest({ feePolicyVersion: "buyer_seller_1pct_v1", usdtAmount: "618.811881", cardlessIlsAmount: "2000" });
+    const proposed = await updateTradeTerms({ requestId: request.id, actorUserId: SELLER_ID, action: "propose_ils_amount", value: "500", expectedUpdatedAt: request.updatedAt });
+    expect(proposed.usdtAmount).toBe("618.811881");
+    expect(proposed.termsProposal).toMatchObject({ usdtAmount: "154.70297", fiatAmount: "500.00" });
+    await updateTradeTerms({ requestId: request.id, actorUserId: BUYER_ID, action: "accept_amount", proposalId: proposed.termsProposal!.id });
+    expect(currentSnapshot().purchaseRequests[0].messages?.some(message => message.credentialKind === "cardless_code")).toBe(false);
+    const seller = { requestId: request.id, actorUserId: SELLER_ID, actorRole: "approved_seller" as const };
+    const accepted = await updatePurchaseRequestStatus({ ...seller, nextStatus: "accepted" });
+    expect(accepted.request.status).toBe("accepted");
+    expect(accepted.request.sensitivePaymentSharedAt).toBeUndefined();
+    await updatePurchaseRequestStatus({ requestId: request.id, actorUserId: BUYER_ID, actorRole: "buyer", nextStatus: "payment_sent", cardlessWithdrawalCode: "923814", cardlessVerificationKind: "date_of_birth", cardlessVerificationValue: "25/08/1995", clientOperationId: "dddddddd-dddd-4ddd-8ddd-dddddddddddd" });
+    await expect(updateTradeTerms({ requestId: request.id, actorUserId: SELLER_ID, action: "propose_ils_amount", value: "400", expectedUpdatedAt: currentSnapshot().purchaseRequests[0].updatedAt })).rejects.toThrow(/locked/);
+    await updatePurchaseRequestStatus({ ...seller, nextStatus: "funds_received" });
+    await updatePurchaseRequestStatus({ ...seller, nextStatus: "usdt_sent" });
+    await updatePurchaseRequestStatus({ ...seller, nextStatus: "completed", completionMode: "seller", usdtSentConfirmed: true });
+    expect(currentSnapshot().marketplaceListings[0].availableAmount).toBe("845.29703");
+    expect(currentSnapshot().commissionRecords).toEqual([expect.objectContaining({ sellerFeeAmount: 1.54703, buyerFeeCollectedAmount: 1.54703, commissionAmount: 3.09406, grossAmount: 500 })]);
+  });
+
+  it("freezes the disclosed buyer fee in a new ATM request and preserves the exact cash through recalculation", async () => {
+    const { request } = await readyRequest({ feePolicyVersion: "buyer_seller_1pct_v1", usdtAmount: "154.70297", cardlessIlsAmount: "500" });
+    expect(request).toMatchObject({ feePolicyVersion: "buyer_seller_1pct_v1", fiatAmount: "500.00", usdtAmount: "154.70297" });
+    const seller = { requestId: request.id, actorUserId: SELLER_ID, actorRole: "approved_seller" as const };
+    await updatePurchaseRequestStatus({ ...seller, nextStatus: "accepted" });
+    const correction = await recalculateCardlessTradeAmount(seller);
+    await updateTradeTerms({ requestId: request.id, actorUserId: BUYER_ID, action: "accept_amount", proposalId: correction.termsProposal!.id });
+    expect(currentSnapshot().purchaseRequests.find(item => item.id === request.id)).toMatchObject({ feePolicyVersion: "buyer_seller_1pct_v1", fiatAmount: "500.00", usdtAmount: "154.70297" });
+    await confirmPreparedCode(request.id);
+    await updatePurchaseRequestStatus({ ...seller, nextStatus: "funds_received" });
+    await updatePurchaseRequestStatus({ ...seller, nextStatus: "usdt_sent" });
+    await updatePurchaseRequestStatus({ ...seller, nextStatus: "completed", completionMode: "cash_trade" });
+    expect(currentSnapshot().commissionRecords).toEqual([expect.objectContaining({ feePolicyVersion: "buyer_seller_1pct_v1", sellerFeeAmount: 1.54703, buyerFeeCollectedAmount: 1.54703, commissionAmount: 3.09406, paymentStatus: "pending" })]);
+  });
+
+  it("rejects an ATM request that omits the disclosed buyer fee from its cash amount", async () => {
+    await expect(readyRequest({ feePolicyVersion: "buyer_seller_1pct_v1" })).rejects.toMatchObject({ code: "CARDLESS_PAYMENT_AMOUNT_MISMATCH" });
+    expect(currentSnapshot().purchaseRequests).toHaveLength(0);
+  });
+
+  it.each(["seller", "buyer"] as const)("lets the %s cancel a prepared cardless request while the code is still hidden", async (actor) => {
+    const { request } = await readyRequest();
+    expect(request.messages?.some((message) => message.credentialKind === "cardless_code")).toBe(true);
+    const nextStatus = actor === "seller" ? "declined" : "cancelled";
+    await expect(updatePurchaseRequestStatus({ requestId: request.id, actorUserId: actor === "seller" ? SELLER_ID : BUYER_ID,
+      actorRole: actor === "seller" ? "approved_seller" : "buyer", nextStatus })).resolves.toMatchObject({ request: { status: nextStatus } });
+  });
+
+  it.each([undefined, "", "Unknown Bank", "Bank transfer", "Bank Hapoalim, Bank Leumi"])("requires one supported withdrawal bank (%s)", async (bankName) => {
+    await expect(readyRequest({ bankName })).rejects.toThrow(/Choose the bank/);
+    expect(currentSnapshot().purchaseRequests).toHaveLength(0);
+  });
+
+  it.each(["Bank Leumi", "Bank Hapoalim", "Mercantile", "Discount", "Mizrahi-Tefahot", "First International", "Yahav", "Massad", "Jerusalem", "ONE ZERO", "Esh"])("accepts the buyer's issuing bank independently of seller banks (%s)", async (bankName) => {
+    const { request } = await readyRequest({ bankName });
+    expect(currentSnapshot().purchaseRequests[0].bankName).toBe(bankName);
+    const projected = sanitizePurchaseRequestForActor(request, SELLER_ID, "approved_seller");
+    expect(projected.bankName).toBe(bankName);
+    expect(JSON.stringify(projected)).not.toContain("482913");
+  });
+
+  it.each([
+    { cardlessWithdrawalCode: "" }, { cardlessVerificationValue: "" }, { cardlessVerificationKind: "" },
+    { cardlessIlsAmount: "" }, { cardlessIlsAmount: "540" }, { cardlessIlsAmount: "10001" }, { cardlessIlsAmount: "500" },
+  ])("rejects an unprepared or mismatched cardless request before persisting (%j)", async (overrides) => {
+    await expect(readyRequest(overrides)).rejects.toMatchObject({ code: "cardlessIlsAmount" in overrides ? "CARDLESS_PAYMENT_AMOUNT_MISMATCH" : "CARDLESS_DETAILS_REQUIRED" });
+    expect(currentSnapshot().purchaseRequests).toHaveLength(0);
+  });
+
+  it("requires a wallet matching the buyer-selected network", async () => {
+    await expect(readyRequest({ receivingNetwork: "TRC20" })).rejects.toThrow();
+    expect(currentSnapshot().purchaseRequests).toHaveLength(0);
+  });
+
+  it("keeps prepared withdrawal details private after acceptance until the buyer confirms sending them", async () => {
+    const { request } = await readyRequest();
+    const seller = { requestId: request.id, actorUserId: SELLER_ID, actorRole: "approved_seller" as const };
+    await updatePurchaseRequestStatus({ ...seller, nextStatus: "accepted" });
+    const room = await getTradeRoomData({ purchaseRequestId: request.id, actorUserId: SELLER_ID, actorRole: "approved_seller", markMessagesRead: false });
+    expect(room.request.status).toBe("accepted");
+    expect(room.request.paymentSentAt).toBeUndefined();
+    expect(room.request.sensitivePaymentSharedAt).toBeUndefined();
+    expect(JSON.stringify(room)).not.toContain("482913");
+    expect(JSON.stringify(room)).not.toContain("1995-08-25");
+    expect(currentSnapshot().notifications.filter(entry => entry.title === "Cardless withdrawal code ready")).toHaveLength(0);
+    await expect(updatePurchaseRequestStatus({ ...seller, nextStatus: "funds_received" })).rejects.toMatchObject({ code: "invalid-status-transition" });
+  });
+
+  it.each([SELLER_ID, OUTSIDER_ID, OWNER_ID])("does not let %s disclose the buyer's prepared ATM details", async (actorUserId) => {
+    const { request } = await readyRequest();
+    await updatePurchaseRequestStatus({ requestId: request.id, actorUserId: SELLER_ID, actorRole: "approved_seller", nextStatus: "accepted" });
+    await expect(updatePurchaseRequestStatus({ requestId: request.id, actorUserId, actorRole: "buyer", nextStatus: "payment_sent",
+      usePreparedCardlessDetails: true, clientOperationId: "dddddddd-dddd-4ddd-8ddd-dddddddddddd" }))
+      .rejects.toMatchObject({ code: "buyer-cardless-confirmation-required" });
+    expect(currentSnapshot().purchaseRequests[0].status).toBe("accepted");
+    expect(currentSnapshot().commissionRecords).toHaveLength(0);
+  });
+
+  it("rejects prepared-code confirmation before acceptance and when the saved cash amount is stale", async () => {
+    const { request } = await readyRequest();
+    await expect(confirmPreparedCode(request.id)).rejects.toMatchObject({ code: "invalid-status-transition" });
+    await updatePurchaseRequestStatus({ requestId: request.id, actorUserId: SELLER_ID, actorRole: "approved_seller", nextStatus: "accepted" });
+    currentSnapshot().purchaseRequests[0].fiatAmount = "500.00";
+    invalidateAlphaExchangeStoreCache();
+    await expect(confirmPreparedCode(request.id)).rejects.toMatchObject({ code: "CARDLESS_DETAILS_UNAVAILABLE" });
+    expect(currentSnapshot().purchaseRequests[0].status).toBe("accepted");
+    expect(currentSnapshot().purchaseRequests[0].sensitivePaymentSharedAt).toBeUndefined();
+  });
+
+  it.each(["seller", "buyer"] as const)("keeps an accepted ATM trade cancellable by the %s until buyer disclosure", async (actor) => {
+    const { request } = await readyRequest();
+    await updatePurchaseRequestStatus({ requestId: request.id, actorUserId: SELLER_ID, actorRole: "approved_seller", nextStatus: "accepted" });
+    await expect(updatePurchaseRequestStatus({ requestId: request.id, actorUserId: actor === "seller" ? SELLER_ID : BUYER_ID,
+      actorRole: actor === "seller" ? "approved_seller" : "buyer", nextStatus: "cancelled" })).resolves.toMatchObject({ request: { status: "cancelled" } });
+    expect(currentSnapshot().commissionRecords).toHaveLength(0);
+    expect(currentSnapshot().marketplaceListings[0].availableAmount).toBe("1000");
+  });
+
+  it("protects prepared details until buyer confirmation, then reveals the wallet only after ATM cash collection", async () => {
+    const { request } = await readyRequest();
+    const seller = { requestId: request.id, actorUserId: SELLER_ID, actorRole: "approved_seller" as const };
+    for (const actorUserId of [SELLER_ID, OUTSIDER_ID, OWNER_ID]) {
+      const projected = sanitizePurchaseRequestForActor(request, actorUserId, "approved_seller");
+      expect(JSON.stringify(projected)).not.toContain("482913");
+      expect(JSON.stringify(projected)).not.toContain("1995-08-25");
+      expect(projected.buyerReceivingWalletAddress).toBeUndefined();
+    }
+    expect(JSON.stringify(currentSnapshot())).not.toContain("482913");
+    await updatePurchaseRequestStatus({ ...seller, nextStatus: "accepted" });
+    await expect(updatePurchaseRequestStatus({ ...seller, nextStatus: "accepted" })).resolves.toMatchObject({ statusChanged: false });
+    const confirmations = await Promise.all([confirmPreparedCode(request.id), confirmPreparedCode(request.id)]);
+    expect(confirmations.filter(result => result.statusChanged)).toHaveLength(1);
+    const codeAlerts = currentSnapshot().notifications.filter((entry) => entry.userId === SELLER_ID && entry.title === "Cardless withdrawal code ready");
+    expect(codeAlerts).toEqual([expect.objectContaining({ whatsappEvent: "trade_update", relatedRequestId: request.id })]);
+    expect(JSON.stringify(codeAlerts)).not.toContain("482913");
+    expect(JSON.stringify(codeAlerts)).not.toContain("1995-08-25");
+    let room = await getTradeRoomData({ purchaseRequestId: request.id, actorUserId: SELLER_ID, actorRole: "approved_seller", markMessagesRead: false });
+    expect(room.request.network).toBe("BEP20");
+    expect(room.request.status).toBe("payment_sent");
+    expect(room.request.timeline?.filter(entry => entry.type === "payment_sent")).toHaveLength(1);
+    expect(room.messages.filter(message => message.credentialKind === "cardless_code")).toHaveLength(1);
+    expect(JSON.stringify(room.messages)).toContain("ILS amount: 400.00");
+    expect(JSON.stringify(room.messages)).toContain("482913");
+    expect(room.request.buyerReceivingWalletAddress).toBeUndefined();
+    await expect(updatePurchaseRequestStatus({ ...seller, nextStatus: "usdt_sent" })).rejects.toThrow();
+    await expect(updatePurchaseRequestStatus({ ...seller, nextStatus: "cancelled" })).rejects.toMatchObject({ code: "invalid-status-transition" });
+    await expect(updatePurchaseRequestStatus({ requestId: request.id, actorUserId: BUYER_ID, actorRole: "buyer", nextStatus: "cancelled" })).rejects.toThrow();
+    await updatePurchaseRequestStatus({ ...seller, nextStatus: "funds_received" });
+    room = await getTradeRoomData({ purchaseRequestId: request.id, actorUserId: SELLER_ID, actorRole: "approved_seller", markMessagesRead: false });
+    expect(room.request.buyerReceivingWalletAddress).toBe(request.buyerReceivingWalletAddress);
+    expect(JSON.stringify(room.messages)).not.toContain("482913");
+    expect(JSON.stringify(currentSnapshot())).not.toContain("cardless:v1:");
+  });
+
+  it("keeps already-submitted ATM details readable when the encryption key changes", async () => {
+    vi.stubEnv("ALPHA_EXCHANGE_CARDLESS_CREDENTIAL_SECRET", "");
+    vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "legacy-material-used-only-for-tests");
+    const { request } = await readyRequest();
+    vi.stubEnv("ALPHA_EXCHANGE_CARDLESS_CREDENTIAL_SECRET", "dedicated-material-used-only-for-tests");
+    const seller = { requestId: request.id, actorUserId: SELLER_ID, actorRole: "approved_seller" as const };
+    await updatePurchaseRequestStatus({ ...seller, nextStatus: "accepted" });
+    await confirmPreparedCode(request.id);
+    const room = await getTradeRoomData({ purchaseRequestId: request.id, actorUserId: SELLER_ID, actorRole: "approved_seller", markMessagesRead: false });
+    expect(JSON.stringify(room.messages)).toContain("482913");
+    expect(room.request.buyerReceivingWalletAddress).toBeUndefined();
+    await updatePurchaseRequestStatus({ ...seller, nextStatus: "funds_received" });
+    expect(JSON.stringify(currentSnapshot())).not.toContain("cardless:v1:");
+  });
+
+  it("does not repair or rewrite a legacy amount after cash receipt", async () => {
+    const { request } = await readyRequest();
+    const seller = { requestId: request.id, actorUserId: SELLER_ID, actorRole: "approved_seller" as const };
+    await updatePurchaseRequestStatus({ ...seller, nextStatus: "accepted" });
+    await confirmPreparedCode(request.id);
+    await updatePurchaseRequestStatus({ ...seller, nextStatus: "funds_received" });
+    const persisted = currentSnapshot().purchaseRequests.find((item) => item.id === request.id)!;
+    persisted.fiatAmount = "540";
+    persisted.pricePerUsdt = "";
+    persisted.listingPriceAtRequest = "3.2";
+    invalidateAlphaExchangeStoreCache();
+    await expect(recalculateCardlessTradeAmount({ ...seller, ilsAmount: "794" })).rejects.toThrow();
+    await expect(recalculateCardlessTradeAmount({ ...seller, ilsAmount: "500" })).rejects.toThrow(/before payment/);
+    expect(currentSnapshot().purchaseRequests.find(item => item.id === request.id)?.fiatAmount).toBe("540");
+  });
+
+  it("requires buyer approval to replace an accepted private bank code's cash amount", async () => {
+    const { request } = await readyRequest();
+    const seller = { requestId: request.id, actorUserId: SELLER_ID, actorRole: "approved_seller" as const };
+    await updatePurchaseRequestStatus({ ...seller, nextStatus: "accepted" });
+    const correction = await recalculateCardlessTradeAmount({ ...seller, ilsAmount: "500" });
+    expect(correction).toMatchObject({ status: "accepted", fiatAmount: "400.00", usdtAmount: "125" });
+    await expect(confirmPreparedCode(request.id)).rejects.toMatchObject({ code: "trade-terms-pending" });
+    const approved = await updateTradeTerms({ requestId: request.id, actorUserId: BUYER_ID, action: "accept_amount", proposalId: correction.termsProposal!.id });
+    expect(approved).toMatchObject({ status: "accepted", fiatAmount: "500.00", usdtAmount: "156.25", cardlessCodeAwaitingBuyerConfirmation: false });
+    expect(approved.messages?.some(entry => entry.credentialKind === "cardless_code")).toBe(false);
+    await expect(confirmPreparedCode(request.id)).rejects.toThrow();
+  });
+
+  it("locks seller USDT after code sharing and accounts once for simultaneous completion", async () => {
+    const { request } = await readyRequest();
+    const seller = { requestId: request.id, actorUserId: SELLER_ID, actorRole: "approved_seller" as const };
+    await updatePurchaseRequestStatus({ ...seller, nextStatus: "accepted" });
+    await confirmPreparedCode(request.id);
+    await expect(recalculateCardlessTradeAmount({ requestId: request.id, actorUserId: BUYER_ID })).rejects.toThrow();
+    const persisted = currentSnapshot().purchaseRequests.find((item) => item.id === request.id)!;
+    expect(persisted.usdtAmount).toBe("125");
+    invalidateAlphaExchangeStoreCache();
+    await expect(recalculateCardlessTradeAmount(seller)).rejects.toThrow(/before payment/);
+    expect(currentSnapshot().purchaseRequests.find(item => item.id === request.id)).toMatchObject({ usdtAmount: "125", fiatAmount: "400.00" });
+    await updatePurchaseRequestStatus({ ...seller, nextStatus: "funds_received" });
+    await updatePurchaseRequestStatus({ ...seller, nextStatus: "usdt_sent" });
+    await expect(recalculateCardlessTradeAmount(seller)).rejects.toThrow();
+    const [sellerResult, buyerResult] = await Promise.allSettled([
+      updatePurchaseRequestStatus({ ...seller, nextStatus: "completed", completionMode: "cash_trade" }),
+      updatePurchaseRequestStatus({ requestId: request.id, actorUserId: BUYER_ID, actorRole: "buyer", nextStatus: "completed" }),
+    ]);
+    expect(sellerResult.status).toBe("fulfilled");
+    expect(buyerResult).toMatchObject({ status: "rejected", reason: { code: "seller-completion-required" } });
+    expect(currentSnapshot().commissionRecords).toHaveLength(1);
+    expect(currentSnapshot().commissionRecords[0]).toMatchObject({ sellerFeeAmount: 1.25, buyerFeeCollectedAmount: 0, commissionAmount: 1.25 });
+    expect(currentSnapshot().marketplaceListings[0].availableAmount).toBe("875");
+  });
+
+  it("saves independent seller and buyer reviews concurrently, with idempotent retries and participant checks", async () => {
+    seedTrade({ status: "usdt_sent" });
+    const sellerReview = { requestId: "face-request-1", sellerUserId: SELLER_ID, rating: 5, comment: "Prompt cash payment" };
+    await expect(submitSellerBuyerReview(sellerReview)).rejects.toThrow(/completion/);
+    await updatePurchaseRequestStatus({ requestId: "face-request-1", actorUserId: SELLER_ID, actorRole: "approved_seller", nextStatus: "completed", completionMode: "cash_trade" });
+    await expect(submitSellerBuyerReview({ ...sellerReview, sellerUserId: BUYER_ID })).rejects.toThrow(/Only the seller/);
+    await expect(submitSellerBuyerReview({ ...sellerReview, rating: 8 })).rejects.toThrow(/Rating/);
+    await Promise.all([
+      submitSellerBuyerReview(sellerReview),
+      submitBuyerTradeReview({ requestId: "face-request-1", buyerUserId: BUYER_ID, rating: 5, comment: "Fast exchange" }),
+    ]);
+    invalidateAlphaExchangeStoreCache();
+    const room = await getTradeRoomData({ purchaseRequestId: "face-request-1", actorUserId: SELLER_ID, actorRole: "approved_seller", markMessagesRead: false });
+    expect(room.request.sellerBuyerReview).toMatchObject({ reviewerUserId: SELLER_ID, comment: "Prompt cash payment" });
+    expect(room.request.buyerReview).toMatchObject({ reviewerUserId: BUYER_ID, comment: "Fast exchange" });
+    await expect(submitSellerBuyerReview(sellerReview)).resolves.toMatchObject({ sellerBuyerReview: { reviewerUserId: SELLER_ID, rating: 5, comment: "Prompt cash payment", createdAt: room.request.sellerBuyerReview?.createdAt } });
+    await expect(submitSellerBuyerReview({ ...sellerReview, comment: "Changed review" })).rejects.toThrow(/already submitted/);
+    expect(currentSnapshot().commissionRecords).toHaveLength(1);
+    await expect(closePurchaseRequestManually({ requestId: "face-request-1", actorUserId: SELLER_ID, actorRole: "approved_seller", reason: "other", explanation: "No trade happened" })).rejects.toThrow();
+  });
+
+  it("requires both withdrawal fields without advancing or exposing incomplete details", async () => {
+    seedTrade({ paymentMethod: "Cardless ATM Withdrawal", status: "accepted" });
+    await expect(updatePurchaseRequestStatus({ requestId: "face-request-1", actorUserId: BUYER_ID, actorRole: "buyer", nextStatus: "payment_sent",
+      cardlessWithdrawalCode: "482913", clientOperationId: "0123456789abcdef0123456789abcdef",
+    })).rejects.toMatchObject({ code: "cardless-verification-required" });
+    expect(currentSnapshot().purchaseRequests[0]?.status).toBe("accepted");
+    expect(JSON.stringify(currentSnapshot())).not.toContain("482913");
+  });
+
+  it.each([
+    ["id_number", "012345678", "ID number: 012345678"],
+    ["date_of_birth", "29/02/1992", "Date of birth: 29/02/1992"],
+  ])("protects %s together with the code and rejects a changed retry", async (kind, value, display) => {
+    seedTrade({ paymentMethod: "Cardless ATM Withdrawal", status: "accepted" });
+    const input = { requestId: "face-request-1", actorUserId: BUYER_ID, actorRole: "buyer" as const, nextStatus: "payment_sent" as const,
+      cardlessWithdrawalCode: "482913", cardlessVerificationKind: kind, cardlessVerificationValue: value,
+      clientOperationId: "0123456789abcdef0123456789abcdef" };
+    await updatePurchaseRequestStatus(input);
+    const persisted = JSON.stringify(currentSnapshot());
+    expect(persisted).not.toContain("482913");
+    expect(persisted).not.toContain(value);
+    vi.stubEnv("ALPHA_EXCHANGE_CARDLESS_CREDENTIAL_SECRET", "rotated-dedicated-key-for-test-only-material");
+    expect((await updatePurchaseRequestStatus(input)).statusChanged).toBe(false);
+    await expect(updatePurchaseRequestStatus({ ...input, cardlessVerificationValue: kind === "id_number" ? "112345678" : "28/02/1992" }))
+      .rejects.toMatchObject({ code: "cardless-code-conflict" });
+    const room = await getTradeRoomData({ purchaseRequestId: "face-request-1", actorUserId: SELLER_ID, actorRole: "approved_seller", markMessagesRead: false });
+    expect(room.messages).toEqual(expect.arrayContaining([expect.objectContaining({ message: `Cardless withdrawal code: 482913\n${display}` })]));
+    await expect(getTradeRoomData({ purchaseRequestId: "face-request-1", actorUserId: OUTSIDER_ID, actorRole: "buyer", markMessagesRead: false })).rejects.toThrow();
+    await updatePurchaseRequestStatus({ requestId: "face-request-1", actorUserId: SELLER_ID, actorRole: "approved_seller", nextStatus: "funds_received" });
+    const afterCash = await getTradeRoomData({ purchaseRequestId: "face-request-1", actorUserId: SELLER_ID, actorRole: "approved_seller", markMessagesRead: false });
+    expect(JSON.stringify(afterCash.messages)).not.toContain("482913");
+    expect(JSON.stringify(afterCash.messages)).not.toContain(value);
+    expect(JSON.stringify(currentSnapshot())).not.toContain("cardless:v1:");
   });
 
   it("records USDT sent first, then lets only the seller complete the cash trade", async () => {
@@ -288,7 +1665,8 @@ describe("guided cash-trade completion", () => {
     const nextPurchase = () => createPurchaseRequest({
       buyerId: BUYER_ID,
       listingId: "listing-next-cash-trade",
-      usdtAmount: "100",
+      usdtAmount: "125",
+      cardlessWithdrawalCode: "482913", cardlessVerificationKind: "date_of_birth", cardlessVerificationValue: "25/08/1995", cardlessIlsAmount: "400",
       buyerName: "Face Buyer",
       buyerReceivingWalletAddress: "TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE",
       paymentMethod: "Cardless ATM Withdrawal",
@@ -309,6 +1687,56 @@ describe("guided cash-trade completion", () => {
     await expect(nextPurchase()).resolves.toMatchObject({ request: { status: "pending" } });
   });
 
+  it.each(["buyer", "approved_seller"] as const)("lets a %s buy from ten sellers consecutively immediately after each saved review", async (buyerRole) => {
+    seedTrade({ paymentMethod: "Cardless ATM Withdrawal", status: "pending" });
+    const seed = currentSnapshot();
+    const template = seed.marketplaceListings[0];
+    seed.purchaseRequests = [];
+    seed.marketplaceListings = [];
+    const buyer = seed.users.find((item) => item.id === BUYER_ID)!;
+    buyer.role = buyerRole;
+    buyer.roles = [buyerRole];
+    for (let i = 0; i < 11; i += 1) {
+      const sellerId = `repeat-seller-${i}`;
+      seed.users.push(createUser(sellerId, "approved_seller"));
+      seed.marketplaceListings.push({ ...template, id: `repeat-listing-${i}`, sellerId, status: "active" });
+    }
+    const purchase = (i: number) => createPurchaseRequest({
+      buyerId: BUYER_ID, actorUserId: BUYER_ID, listingId: `repeat-listing-${i}`,
+      buyerName: "Repeat Buyer", buyerReceivingWalletAddress: "TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE",
+      usdtAmount: "125", paymentMethod: "Cardless ATM Withdrawal", bankName: "Bank Hapoalim",
+      cardlessWithdrawalCode: "482913", cardlessVerificationKind: "date_of_birth", cardlessVerificationValue: "25/08/1995", cardlessIlsAmount: "400",
+    });
+    for (let i = 0; i < 10; i += 1) {
+      const { request: trade } = await purchase(i);
+      const seller = { requestId: trade.id, actorUserId: `repeat-seller-${i}`, actorRole: "approved_seller" as const };
+      await updatePurchaseRequestStatus({ ...seller, nextStatus: "accepted" });
+      const pendingProjection = sanitizePurchaseRequestForActor(trade, seller.actorUserId, seller.actorRole);
+      expect(JSON.stringify(pendingProjection)).not.toContain("482913");
+      await confirmPreparedCode(trade.id);
+      const acceptedRoom = await getTradeRoomData({ purchaseRequestId: trade.id, actorUserId: seller.actorUserId, actorRole: seller.actorRole, markMessagesRead: false });
+      expect(acceptedRoom.request.status).toBe("payment_sent");
+      expect(acceptedRoom.request.buyerReceivingWalletAddress).toBeUndefined();
+      expect(JSON.stringify(acceptedRoom.messages)).toContain("ILS amount: 400.00");
+      await updatePurchaseRequestStatus({ ...seller, nextStatus: "funds_received" });
+      await updatePurchaseRequestStatus({ ...seller, nextStatus: "usdt_sent" });
+      await expect(updatePurchaseRequestStatus({ requestId: trade.id, actorUserId: BUYER_ID, actorRole: buyerRole, nextStatus: "completed" }))
+        .rejects.toMatchObject({ code: "seller-completion-required" });
+      const completed = await updatePurchaseRequestStatus({ ...seller, nextStatus: "completed", completionMode: "cash_trade" });
+      expect(completed.request.status).toBe("review_open");
+      await expect(purchase(i + 1)).rejects.toMatchObject({ code: "PENDING_BUYER_FEEDBACK" });
+      await Promise.all([
+        completed.deferredTrustWrite?.(),
+        submitBuyerTradeReview({ requestId: trade.id, buyerUserId: BUYER_ID, rating: 5, comment: `Completed trade ${i + 1}` }),
+      ]);
+    }
+    // No refresh, delay, logout or owner intervention before the next purchase.
+    await expect(purchase(10)).resolves.toMatchObject({ request: { status: "pending" } });
+    const saved = currentSnapshot();
+    expect(saved.purchaseRequests.filter((item) => item.buyerId === BUYER_ID && item.buyerReview)).toHaveLength(10);
+    expect(saved.commissionRecords).toHaveLength(10);
+  });
+
   it.each([FACE_TO_FACE, "Cardless ATM Withdrawal"])(
     "advances %s through buyer and seller confirmations without evidence",
     async (paymentMethod) => {
@@ -319,6 +1747,12 @@ describe("guided cash-trade completion", () => {
         actorUserId: BUYER_ID,
         actorRole: "buyer",
         nextStatus: "payment_sent",
+        ...(paymentMethod === "Cardless ATM Withdrawal" ? {
+          cardlessWithdrawalCode: "482913",
+      cardlessVerificationKind: "id_number",
+      cardlessVerificationValue: "012345678",
+          clientOperationId: "0123456789abcdef0123456789abcdef",
+        } : {}),
       });
       expect(buyerConfirmed.request).toMatchObject({
         status: "payment_sent",
@@ -557,18 +1991,388 @@ describe("guided cash-trade completion", () => {
     }));
   });
 
-  it("requires the explicit Face-to-Face command instead of weakening ordinary completion", async () => {
-    seedTrade({ status: "usdt_sent" });
+  it.each([FACE_TO_FACE, "Bank Transfer", "Cardless ATM Withdrawal"])("preserves settlement and history when the owner closes completed %s trades", async paymentMethod => {
+    const { requestId, listingId } = seedTrade({ paymentMethod, status: "funds_received" });
+    await forceCompleteTradeByAdmin({ requestId, actorUserId: OWNER_ID, reason: "Delivery verified" });
+    const before = currentSnapshot();
+    const commission = structuredClone(before.commissionRecords);
+    const listing = structuredClone(before.marketplaceListings.find(item => item.id === listingId));
+    const completed = structuredClone(before.purchaseRequests.find(item => item.id === requestId)!);
+    const closed = await forceCloseTradeByOwner({ requestId, actorUserId: OWNER_ID, reason: "Owner has reviewed all records" });
+    expect(closed).toMatchObject({ status: completed.status, completedAt: completed.completedAt, closedByUserId: OWNER_ID, closeReason: "Owner has reviewed all records" });
+    expect(closed.messages).toEqual(completed.messages);
+    expect(currentSnapshot().commissionRecords).toEqual(commission);
+    expect(currentSnapshot().marketplaceListings.find(item => item.id === listingId)).toEqual(listing);
+    expect(currentSnapshot().auditLogs).toContainEqual(expect.objectContaining({ action: "admin_override", reason: "Owner has reviewed all records" }));
+    await forceCloseTradeByOwner({ requestId, actorUserId: OWNER_ID, reason: "Retry" });
+    expect(currentSnapshot().auditLogs.filter(item => item.details?.includes("Owner closed the completed trade"))).toHaveLength(1);
+    await forceCompleteTradeByAdmin({ requestId, actorUserId: OWNER_ID, reason: "Completion retry" });
+    expect(currentSnapshot().commissionRecords).toEqual(commission);
+    expect(currentSnapshot().marketplaceListings.find(item => item.id === listingId)).toEqual(listing);
+  });
 
-    await expect(updatePurchaseRequestStatus({
-      requestId: "face-request-1",
-      actorUserId: BUYER_ID,
-      actorRole: "buyer",
-      nextStatus: "completed",
-    })).rejects.toMatchObject({
-      code: "cash-trade-seller-completion-required",
-      details: expect.objectContaining({ guard: "cash-trade-seller-completion-command" }),
+  it.each(["pending", "accepted"] as const)("owner force-close cancels %s requests before payment and retains the reason", async status => {
+    const { requestId } = seedTrade({ status });
+    await forceCloseTradeByOwner({ requestId, actorUserId: OWNER_ID, reason: "Participants requested cancellation" });
+    const closed = currentSnapshot().purchaseRequests.find(item => item.id === requestId)!;
+    expect(closed).toMatchObject({ status: "cancelled", closedByUserId: OWNER_ID, closeReason: "Participants requested cancellation" });
+    expect(closed.closedAt).toBeTruthy();
+    await forceCloseTradeByOwner({ requestId, actorUserId: OWNER_ID, reason: "Retry" });
+    expect(currentSnapshot().auditLogs.filter(item => item.details?.includes("Owner cancelled trade"))).toHaveLength(1);
+  });
+
+  it("allows owner cancellation after payment while keeping reviews tied to completed trades", async () => {
+    const { requestId } = seedTrade({ status: "payment_sent" });
+    await expect(forceCloseTradeByOwner({ requestId, actorUserId: OWNER_ID, reason: "Bank declined; funds not received" })).resolves.toMatchObject({ status: "cancelled" });
+    await expect(unlockTradeReviewByAdmin({ requestId, actorUserId: OWNER_ID, reason: "Review" })).rejects.toThrow("Only completed trades");
+  });
+
+  describe.each([FACE_TO_FACE, "Bank Transfer", "Cardless ATM Withdrawal"])("owner intervention: %s", paymentMethod => {
+    it.each(["pending", "accepted", "payment_sent", "funds_received", "usdt_release_pending", "usdt_sent"] as const)("cancels %s without creating fees or deducting inventory", async status => {
+      const { requestId, listingId } = seedTrade({ paymentMethod, status });
+      const before = structuredClone(currentSnapshot().marketplaceListings.find(item => item.id === listingId)!);
+      const reason = "Bank declined the withdrawal; seller received no money";
+      await forceCloseTradeByOwner({ requestId, actorUserId: OWNER_ID, reason });
+      const db = currentSnapshot();
+      expect(db.purchaseRequests.find(item => item.id === requestId)).toMatchObject({ status: "cancelled", closedByUserId: OWNER_ID, closeReason: reason, actionReminderState: undefined });
+      expect(db.marketplaceListings.find(item => item.id === listingId)).toMatchObject({ availableAmount: before.availableAmount, activeTradeRequestId: undefined });
+      expect(db.commissionRecords).toHaveLength(0);
+      expect(db.notifications.filter(item => item.title === "Trade cancelled by owner")).toHaveLength(2);
+      await forceCloseTradeByOwner({ requestId, actorUserId: OWNER_ID, reason });
+      expect(currentSnapshot().auditLogs.filter(item => item.details?.includes("Owner cancelled trade"))).toHaveLength(1);
     });
+  });
+
+  it("locks collected ATM cash against buyer/seller cancellation and adjustment while retaining the owner's override", async () => {
+    const { requestId, listingId } = seedTrade({ paymentMethod: "Cardless ATM Withdrawal", status: "funds_received" });
+    const request = currentSnapshot().purchaseRequests.find(item => item.id === requestId)!;
+    request.fundsReceivedAt = request.updatedAt;
+    const before = structuredClone(currentSnapshot());
+    for (const [actorUserId, actorRole] of [[BUYER_ID, "buyer"], [SELLER_ID, "approved_seller"]] as const) {
+      await expect(updatePurchaseRequestStatus({ requestId, actorUserId, actorRole, nextStatus: "cancelled" })).rejects.toThrow();
+      await expect(closePurchaseRequestManually({ requestId, actorUserId, actorRole, reason: "Attempt after cash collection" })).rejects.toThrow();
+      await expect(updateTradeTerms({ requestId, actorUserId, action: "propose_amount", value: "200", expectedUpdatedAt: request.updatedAt })).rejects.toThrow();
+      await expect(recalculateCardlessTradeAmount({ requestId, actorUserId, ilsAmount: "600" })).rejects.toThrow();
+    }
+    expect(currentSnapshot().purchaseRequests).toEqual(before.purchaseRequests);
+    expect(currentSnapshot().marketplaceListings).toEqual(before.marketplaceListings);
+    expect(currentSnapshot().commissionRecords).toEqual(before.commissionRecords);
+    await forceCloseTradeByOwner({ requestId, actorUserId: OWNER_ID, reason: "Owner reviewed the ATM dispute" });
+    expect(currentSnapshot().purchaseRequests.find(item => item.id === requestId)).toMatchObject({ status: "cancelled", closedByUserId: OWNER_ID });
+    expect(currentSnapshot().marketplaceListings.find(item => item.id === listingId)?.availableAmount).toBe(before.marketplaceListings.find(item => item.id === listingId)?.availableAmount);
+    expect(currentSnapshot().auditLogs).toContainEqual(expect.objectContaining({ actorUserId: OWNER_ID, reason: "Owner reviewed the ATM dispute" }));
+  });
+
+  it("cancels a disclosed ATM code with evidence, an open dispute and a pending proposal in one audited decision", async () => {
+    const { requestId } = seedTrade({ paymentMethod: "Cardless ATM Withdrawal", status: "accepted" });
+    const request = currentSnapshot().purchaseRequests[0];
+    request.sensitivePaymentKind = "cardless_code";
+    request.sensitivePaymentSharedAt = request.updatedAt;
+    request.messages = [{ id: "credential-history", credentialKind: "cardless_code", message: "Encrypted test credential" }] as never;
+    request.termsProposal = { id: "unaccepted", status: "pending", kind: "amount_correction", usdtAmount: "500", fiatAmount: "1600", pricePerUsdt: "3.20", createdAt: request.updatedAt };
+    currentSnapshot().tradeEvidenceFiles.push({
+      id: "evidence", purchaseRequestId: requestId, side: "buyer", uploadedByUserId: BUYER_ID,
+      uploadedAt: request.updatedAt, fileName: "declined-payment.png", mimeType: "image/png",
+      sizeBytes: 68, storagePath: "evidence/declined-payment.png", status: "uploaded",
+    });
+    currentSnapshot().disputes.push({ id: "withdrawal-failed", purchaseRequestId: requestId, status: "open", reason: "Bank declined withdrawal", updatedAt: request.updatedAt } as never);
+    const messages = structuredClone(request.messages);
+    const evidence = structuredClone(currentSnapshot().tradeEvidenceFiles);
+    const reason = "The bank declined the code; no cash or USDT was delivered";
+    await forceCloseTradeByOwner({ requestId, actorUserId: OWNER_ID, reason });
+    const result = currentSnapshot();
+    expect(result.purchaseRequests[0]).toMatchObject({ status: "cancelled", termsProposal: { status: "withdrawn" }, usdtAmount: "250" });
+    expect(result.purchaseRequests[0].messages).toEqual(messages);
+    expect(result.tradeEvidenceFiles).toEqual(evidence);
+    expect(result.disputes[0]).toMatchObject({ status: "resolved", resolvedByUserId: OWNER_ID, resolutionNotes: reason });
+    expect(result.auditLogs).toContainEqual(expect.objectContaining({ action: "trade_dispute_resolved", reason }));
+    expect(result.purchaseRequests[0].timeline).toContainEqual(expect.objectContaining({ type: "request_cancelled", actorRole: "owner" }));
+    expect(result.commissionRecords).toHaveLength(0);
+  });
+
+  it.each(["pending", "accepted", "payment_sent", "funds_received", "usdt_release_pending", "usdt_sent", "cancelled", "declined"] as const)("lets an owner complete %s after manual verification, with exactly one settlement", async status => {
+    const { requestId, listingId } = seedTrade({ status });
+    const request = currentSnapshot().purchaseRequests[0];
+    if (["cancelled", "declined"].includes(status)) {
+      request.closedAt = request.updatedAt;
+      request.closedByUserId = OWNER_ID;
+      request.closeReason = "Previously closed";
+    }
+    await forceCompleteTradeByAdmin({ requestId, actorUserId: OWNER_ID, reason: "Owner verified payment and delivery" });
+    await forceCompleteTradeByAdmin({ requestId, actorUserId: OWNER_ID, reason: "Receipt retry" });
+    expect(currentSnapshot().purchaseRequests[0]).toMatchObject({ status: "review_open", closedAt: undefined });
+    expect(currentSnapshot().commissionRecords.filter(item => item.purchaseRequestId === requestId)).toHaveLength(1);
+    expect(currentSnapshot().marketplaceListings.find(item => item.id === listingId)?.availableAmount).toBe("750");
+  });
+
+  it("owner completion resolves a dispute and withdraws an unaccepted amount without applying it", async () => {
+    const { requestId } = seedTrade({ status: "accepted" });
+    const request = currentSnapshot().purchaseRequests[0];
+    request.termsProposal = { id: "amount-proposal", status: "pending", kind: "amount_correction", usdtAmount: "900", fiatAmount: "2880", pricePerUsdt: "3.20", createdAt: request.updatedAt };
+    currentSnapshot().disputes.push({ id: "delivery-review", purchaseRequestId: requestId, status: "open", updatedAt: request.updatedAt } as never);
+    await forceCompleteTradeByAdmin({ requestId, actorUserId: OWNER_ID, reason: "Verified the agreed 250 USDT exchange" });
+    expect(currentSnapshot().purchaseRequests[0]).toMatchObject({ status: "review_open", usdtAmount: "250", termsProposal: { status: "withdrawn" } });
+    expect(currentSnapshot().disputes[0].status).toBe("resolved");
+    expect(currentSnapshot().commissionRecords).toHaveLength(1);
+  });
+
+  it("ordinary admins cannot inherit the owner's cancellation or pending-completion override", async () => {
+    const { requestId } = seedTrade({ status: "payment_sent" });
+    const owner = currentSnapshot().users.find(item => item.id === OWNER_ID)!;
+    currentSnapshot().users.push({ ...owner, id: "ordinary-admin", role: "admin", roles: ["admin"] });
+    await expect(forceCloseTradeByOwner({ requestId, actorUserId: "ordinary-admin", reason: "Attempt" })).rejects.toThrow("Owner access required");
+    await expect(forceCancelTradeByAdmin({ requestId, actorUserId: "ordinary-admin", reason: "Attempt" })).rejects.toThrow("cannot be force-closed");
+    currentSnapshot().purchaseRequests[0].status = "pending";
+    invalidateAlphaExchangeStoreCache();
+    await expect(forceCompleteTradeByAdmin({ requestId, actorUserId: "ordinary-admin", reason: "Attempt" })).rejects.toMatchObject({ code: "admin-completion-status-not-eligible" });
+  });
+
+  it("a cancellation racing completion never double-settles or restores sold inventory", async () => {
+    const { requestId, listingId } = seedTrade({ status: "usdt_sent" });
+    const results = await Promise.allSettled([
+      forceCloseTradeByOwner({ requestId, actorUserId: OWNER_ID, reason: "Owner cancellation decision" }),
+      forceCompleteTradeByAdmin({ requestId, actorUserId: OWNER_ID, reason: "Owner completion decision" }),
+    ]);
+    expect(results.some(item => item.status === "fulfilled")).toBe(true);
+    const db = currentSnapshot();
+    const completed = Boolean(db.purchaseRequests[0].completedAt);
+    expect(db.commissionRecords).toHaveLength(completed ? 1 : 0);
+    expect(db.marketplaceListings.find(item => item.id === listingId)?.availableAmount).toBe(completed ? "750" : "1000");
+    expect(db.purchaseRequests[0].status).toBe(completed ? "review_open" : "cancelled");
+  });
+
+  it("persists review unlock and its audit entry while retaining completed status", async () => {
+    const { requestId } = seedTrade({ status: "completed" });
+    await unlockTradeReviewByAdmin({ requestId, actorUserId: OWNER_ID, reason: "Reopen review window" });
+    const request = currentSnapshot().purchaseRequests.find(item => item.id === requestId)!;
+    expect(request.status).toBe("completed");
+    expect(request.reviewUnlockedAt).toBeTruthy();
+    expect(request.timeline).toContainEqual(expect.objectContaining({ type: "review_unlocked", actorUserId: OWNER_ID }));
+    expect(currentSnapshot().auditLogs).toContainEqual(expect.objectContaining({ action: "admin_override", reason: "Reopen review window" }));
+  });
+
+  it.each([BUYER_ID, SELLER_ID, OUTSIDER_ID, "missing-owner"])("rejects forged owner actions by %s", async actorUserId => {
+    const { requestId } = seedTrade({ status: "accepted" });
+    for (const action of [forceCompleteTradeByAdmin, forceCancelTradeByAdmin, forceCloseTradeByOwner, unlockTradeReviewByAdmin]) {
+      await expect(action({ requestId, actorUserId, reason: "Attempted override" })).rejects.toThrow("access required");
+    }
+    expect(currentSnapshot().purchaseRequests.find(item => item.id === requestId)?.status).toBe("accepted");
+  });
+
+  it("rejects disabled owners, blank reasons and admin use of owner-only closure", async () => {
+    const { requestId } = seedTrade({ status: "completed" });
+    const owner = currentSnapshot().users.find(item => item.id === OWNER_ID)!;
+    owner.disabled = true;
+    await expect(forceCloseTradeByOwner({ requestId, actorUserId: OWNER_ID, reason: "Close" })).rejects.toThrow("Owner access required");
+    owner.disabled = false;
+    await expect(forceCloseTradeByOwner({ requestId, actorUserId: OWNER_ID, reason: "  " })).rejects.toThrow("Reason is required");
+    owner.role = "admin"; owner.roles = ["admin"];
+    await expect(forceCloseTradeByOwner({ requestId, actorUserId: OWNER_ID, reason: "Close" })).rejects.toThrow("Owner access required");
+  });
+
+  it("preserves both owner closure and review changes when they run concurrently", async () => {
+    const { requestId } = seedTrade({ status: "completed" });
+    await Promise.all([
+      forceCloseTradeByOwner({ requestId, actorUserId: OWNER_ID, reason: "Owner closed" }),
+      unlockTradeReviewByAdmin({ requestId, actorUserId: OWNER_ID, reason: "Owner unlocked" }),
+    ]);
+    const request = currentSnapshot().purchaseRequests.find(item => item.id === requestId)!;
+    expect(request.closedAt).toBeTruthy();
+    expect(request.reviewUnlockedAt).toBeTruthy();
+    expect(request.timeline).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: "trade_closed_manually" }), expect.objectContaining({ type: "review_unlocked" }),
+    ]));
+    expect(currentSnapshot().auditLogs.filter(item => item.purchaseRequestId === requestId)).toHaveLength(2);
+  });
+
+  it("blocks force cancellation of a trade with an unresolved dispute", async () => {
+    const { requestId } = seedTrade({ status: "accepted" });
+    currentSnapshot().disputes.push({ id: "owner-action-dispute", purchaseRequestId: requestId, status: "open" } as never);
+    await expect(forceCancelTradeByAdmin({ requestId, actorUserId: OWNER_ID, reason: "Close" })).rejects.toThrow("Resolve the open dispute");
+  });
+
+  it.each([true, false])("reconciles after exhausted completion conflicts without a fourth write (committed=%s)", async committedByOtherWriter => {
+    const requestId = "face-request-1";
+    seedTrade({ status: "usdt_sent" });
+    const repository = await getAlphaExchangeRepository();
+    const persist = repository.saveSnapshot.bind(repository);
+    let attempts = 0;
+    const publish = vi.spyOn(tradeRealtime, "publishRealtimeEvent");
+    const save = vi.spyOn(repository, "saveSnapshot").mockImplementation(async (incoming, options) => {
+      attempts++;
+      if (attempts === 3 && committedByOtherWriter) await persist(incoming);
+      const canonical = structuredClone(currentSnapshot());
+      canonical.marketplaceListings[0].updatedAt = new Date(Date.now() + attempts * 1000).toISOString();
+      options?.validateLatestBeforeCommit?.(canonical);
+      throw new Error("Expected canonical conflict");
+    });
+    try {
+      const action = updatePurchaseRequestStatus({ requestId, actorUserId: SELLER_ID, actorRole: "approved_seller",
+        nextStatus: "completed", completionMode: "seller", usdtSentConfirmed: true });
+      if (committedByOtherWriter) {
+        const result = await action;
+        expect(result.statusChanged).toBe(false);
+        expect(result.request.completedAt).toBeTruthy();
+        expect(currentSnapshot().commissionRecords).toHaveLength(1);
+        expect(currentSnapshot().marketplaceListings[0].availableAmount).toBe("750");
+      } else {
+        await expect(action).rejects.toMatchObject({ code: "concurrent-status-change" });
+        expect(currentSnapshot().commissionRecords).toHaveLength(0);
+        expect(currentSnapshot().purchaseRequests[0].status).toBe("usdt_sent");
+        expect(publish.mock.calls.filter(([event]) => event.type.startsWith("notification.") || event.type === "reputation.updated")).toHaveLength(0);
+      }
+      expect(save).toHaveBeenCalledTimes(3);
+    } finally { save.mockRestore(); publish.mockRestore(); }
+  });
+
+  it.each(["commit", "core_failure", "trust_failure"])("publishes completion and promotion only after their commits (%s)", async outcome => {
+    const { requestId } = seedTrade({ status: "usdt_sent", amount: "15000" });
+    currentSnapshot().marketplaceListings[0].availableAmount = "20000";
+    currentSnapshot().marketplaceListings[0].originalAmount = "20000";
+    currentSnapshot().users.find(user => user.id === SELLER_ID)!.notificationPreferences!.email = true;
+    for (const user of currentSnapshot().users) user.notificationPreferences!.inApp = false;
+    const repository = await getAlphaExchangeRepository();
+    const persist = repository.saveSnapshot.bind(repository);
+    const publish = vi.spyOn(tradeRealtime, "publishRealtimeEvent");
+    const email = vi.spyOn(marketplaceEmail, "sendMarketplaceEmail").mockResolvedValue({ ok: true });
+    let saves = 0;
+    const save = vi.spyOn(repository, "saveSnapshot").mockImplementation(async (incoming, options) => {
+      saves++;
+      expect(email).not.toHaveBeenCalled();
+      expect(publish.mock.calls.filter(([event]) => event.type === "reputation.updated")).toHaveLength(0);
+      if (saves === 1) expect(publish).not.toHaveBeenCalled();
+      if ((saves === 1 && outcome === "core_failure") || (saves === 2 && outcome === "trust_failure")) throw new Error("Controlled database failure");
+      return persist(incoming, options);
+    });
+    try {
+      const action = updatePurchaseRequestStatus({ requestId, actorUserId: SELLER_ID, actorRole: "approved_seller", nextStatus: "completed", completionMode: "seller" });
+      if (outcome === "core_failure") {
+        await expect(action).rejects.toThrow("Controlled database failure");
+        expect(publish).not.toHaveBeenCalled();
+        expect(email).not.toHaveBeenCalled();
+        expect(currentSnapshot().commissionRecords).toHaveLength(0);
+        return;
+      }
+      const result = await action;
+      const completionNotices = currentSnapshot().notifications.filter(notice => notice.whatsappEvent === "trade_completed");
+      expect(completionNotices.map(notice => notice.userId).sort()).toEqual([BUYER_ID, SELLER_ID].sort());
+      expect(completionNotices.every(notice => notice.state === "unread" && !notice.isRead && notice.whatsappChannelOnly !== true)).toBe(true);
+      expect(currentSnapshot().notifications.some(notice => notice.title === "Review available")).toBe(false);
+      expect(publish.mock.calls.filter(([event]) => event.type === "trade.status_changed")).toHaveLength(1);
+      expect(email).not.toHaveBeenCalled();
+      const trustTask = result.deferredTrustWrite!();
+      if (outcome === "trust_failure") {
+        await expect(trustTask).rejects.toThrow("Controlled database failure");
+        expect(email).not.toHaveBeenCalled();
+        expect(publish.mock.calls.filter(([event]) => event.type === "reputation.updated")).toHaveLength(0);
+        expect(currentSnapshot().purchaseRequests[0].completedAt).toBeTruthy();
+        expect(save).toHaveBeenCalledTimes(2);
+        return;
+      }
+      await trustTask;
+      expect(currentSnapshot().users.find(user => user.id === SELLER_ID)?.sellerPrestigeRank).toBe("silver");
+      expect(email).toHaveBeenCalledTimes(1);
+      expect(publish.mock.calls.some(([event]) => event.type === "reputation.updated")).toBe(true);
+      const publications = publish.mock.calls.length;
+      await result.deferredTrustWrite!();
+      const retry = await updatePurchaseRequestStatus({ requestId, actorUserId: SELLER_ID, actorRole: "approved_seller", nextStatus: "completed", completionMode: "seller" });
+      expect(retry.statusChanged).toBe(false);
+      expect(save).toHaveBeenCalledTimes(2);
+      expect(email).toHaveBeenCalledTimes(1);
+      expect(publish).toHaveBeenCalledTimes(publications);
+    } finally { save.mockRestore(); publish.mockRestore(); email.mockRestore(); }
+  });
+
+  it("preserves newer account security changes when delayed completion trust work runs", async () => {
+    const { requestId } = seedTrade({ status: "usdt_sent" });
+    const completed = await updatePurchaseRequestStatus({ requestId, actorUserId: SELLER_ID,
+      actorRole: "approved_seller", nextStatus: "completed", completionMode: "seller" });
+    const repository = await getAlphaExchangeRepository();
+    const newer = await repository.loadSnapshot();
+    const account = newer.users.find(user => user.id === OUTSIDER_ID)!;
+    account.disabled = true;
+    account.passwordHash = "new-password-hash-from-concurrent-account-change";
+    account.preferredLocale = "en";
+    await repository.saveSnapshot(newer, { selectedTables: ["users"] });
+    await completed.deferredTrustWrite!();
+    expect(currentSnapshot().users.find(user => user.id === OUTSIDER_ID)).toMatchObject({
+      disabled: true, passwordHash: "new-password-hash-from-concurrent-account-change", preferredLocale: "en",
+    });
+    expect(currentSnapshot().commissionRecords).toHaveLength(1);
+    expect(currentSnapshot().marketplaceListings[0].availableAmount).toBe("750");
+  });
+
+  it("rebases trust work against an account change committed while its write was waiting", async () => {
+    const { requestId } = seedTrade({ status: "usdt_sent" });
+    const result = await updatePurchaseRequestStatus({ requestId, actorUserId: SELLER_ID,
+      actorRole: "approved_seller", nextStatus: "completed", completionMode: "seller" });
+    const repository = await getAlphaExchangeRepository();
+    const persist = repository.saveSnapshot.bind(repository);
+    let changed = false;
+    const save = vi.spyOn(repository, "saveSnapshot").mockImplementation(async (incoming, options) => {
+      if (!changed && options?.selectedTables?.includes("trust_snapshots")) {
+        changed = true;
+        const canonical = await repository.loadSnapshot();
+        canonical.users.find(user => user.id === OUTSIDER_ID)!.disabled = true;
+        await persist(canonical, { selectedTables: ["users"] });
+      }
+      return persist(incoming, options);
+    });
+    try {
+      await result.deferredTrustWrite!();
+      expect(changed).toBe(true);
+      expect(currentSnapshot().users.find(user => user.id === OUTSIDER_ID)?.disabled).toBe(true);
+      expect(currentSnapshot().purchaseRequests[0].trustReconciliation?.reconciledAt).toBeTruthy();
+    } finally { save.mockRestore(); }
+  });
+
+  it.each(["lost_callback", "failed_write"])("maintenance recovers durable trust work after %s without repeating settlement", async failure => {
+    const { requestId } = seedTrade({ status: "usdt_sent", amount: "15000" });
+    currentSnapshot().marketplaceListings[0].availableAmount = "20000";
+    currentSnapshot().marketplaceListings[0].originalAmount = "20000";
+    const result = await updatePurchaseRequestStatus({ requestId, actorUserId: SELLER_ID,
+      actorRole: "approved_seller", nextStatus: "completed", completionMode: "seller" });
+    expect(currentSnapshot().purchaseRequests[0].trustReconciliation?.reconciledAt).toBeUndefined();
+    expect(currentSnapshot().users.find(user => user.id === SELLER_ID)?.sellerPrestigeRank).toBe("bronze");
+    if (failure === "failed_write") {
+      const repository = await getAlphaExchangeRepository();
+      const save = vi.spyOn(repository, "saveSnapshot").mockRejectedValueOnce(new Error("Controlled trust write interruption"));
+      await expect(result.deferredTrustWrite!()).rejects.toThrow("Controlled trust write interruption");
+      save.mockRestore();
+    }
+    invalidateAlphaExchangeStoreCache();
+    await runAlphaExchangeMaintenance();
+    expect(currentSnapshot().purchaseRequests[0].trustReconciliation?.reconciledAt).toBeTruthy();
+    expect(currentSnapshot().users.find(user => user.id === SELLER_ID)?.sellerPrestigeRank).toBe("silver");
+    expect(currentSnapshot().commissionRecords).toHaveLength(1);
+    expect(currentSnapshot().marketplaceListings[0].availableAmount).toBe("5000");
+    const beforeRetry = JSON.stringify(currentSnapshot());
+    expect(await reconcilePendingTradeTrust()).toEqual({ reconciled: 0 });
+    expect(JSON.stringify(currentSnapshot())).toBe(beforeRetry);
+  });
+
+  it("coalesces pending trade trust work using all committed trades", async () => {
+    for (const [requestId, amount] of [["coalesced-a", "250"], ["coalesced-b", "400"]]) {
+      seedTrade({ requestId, status: "usdt_sent", amount });
+      await updatePurchaseRequestStatus({ requestId, actorUserId: SELLER_ID,
+        actorRole: "approved_seller", nextStatus: "completed", completionMode: "seller" });
+    }
+    const first = reconcilePendingTradeTrust();
+    expect(reconcilePendingTradeTrust()).toBe(first);
+    expect(await first).toEqual({ reconciled: 2 });
+    expect(currentSnapshot().users.find(user => user.id === SELLER_ID)?.lifetimeCompletedVolumeUsdt).toBe(650);
+    expect(currentSnapshot().purchaseRequests.every(request => request.trustReconciliation?.reconciledAt)).toBe(true);
+    expect(currentSnapshot().commissionRecords).toHaveLength(2);
+  });
+
+  it("rejects a stale buyer completion retry after seller completion", async () => {
+    seedTrade({ status: "usdt_sent" });
+    await updatePurchaseRequestStatus({ requestId: "face-request-1", actorUserId: SELLER_ID, actorRole: "approved_seller", nextStatus: "completed", completionMode: "cash_trade" });
+    const settled = JSON.stringify(currentSnapshot());
+    await expect(updatePurchaseRequestStatus({
+      requestId: "face-request-1", actorUserId: BUYER_ID, actorRole: "buyer", nextStatus: "completed",
+    })).rejects.toMatchObject({ code: "seller-completion-required" });
+    expect(JSON.stringify(currentSnapshot())).toBe(settled);
   });
 
   it.each(["pending", "declined", "cancelled"] as const)(

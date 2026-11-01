@@ -2,6 +2,9 @@
   "name": "alpha-traders",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": ">=24.22.1 <25"
+  },
   "workspaces": [
     "apps/*",
     "packages/*"
@@ -11,14 +14,20 @@
     "dev": "node scripts/ensure-single-dev.mjs && node ./node_modules/next/dist/bin/next dev",
     "dev:clean": "npm run clean && npm run dev",
     "dev:e2e": "npm run clean && node scripts/ensure-single-dev.mjs && node ./node_modules/next/dist/bin/next dev",
-    "build": "node scripts/ensure-no-active-dev.mjs && node scripts/build-production.mjs",
+    "build": "node scripts/ensure-no-active-dev.mjs && npm run test:news-calendar && npm run test:db-runtime && npm run test:seo-discovery && npm run test:owner-analytics && node scripts/build-production.mjs",
+    "test:news-calendar": "node --import tsx scripts/verify-weekly-usd-calendar.ts",
     "start": "node ./node_modules/next/dist/bin/next start",
     "lint": "node ./node_modules/eslint/bin/eslint.js",
     "test": "node ./node_modules/vitest/vitest.mjs run",
+    "test:db-runtime": "node scripts/check-postgres-timeout-guard.mjs && node ./node_modules/vitest/vitest.mjs run src/lib/postgres-runtime-security.test.ts",
+    "test:seo-discovery": "node scripts/check-public-discovery.mjs",
+    "test:owner-analytics": "node scripts/check-owner-live-analytics.mjs && node scripts/check-owner-analytics-reporting.mjs && node scripts/check-owner-analytics-finalization.mjs",
     "test:watch": "node ./node_modules/vitest/vitest.mjs",
     "test:e2e": "node ./node_modules/playwright/cli.js test",
+    "test:e2e:phone-verification": "node ./node_modules/playwright/cli.js test --config=playwright.phone-verification.config.ts",
     "test:coverage": "node ./node_modules/vitest/vitest.mjs run --coverage",
     "verify:release": "node scripts/release-safety-gate.mjs",
+    "verify:dependencies": "node scripts/check-dependency-advisories.mjs",
     "verify:release:full": "node scripts/release-safety-gate.mjs --with-e2e",
     "discord:inspect": "node scripts/discord/inspect-alpha-discord.mjs",
     "discord:verify": "node scripts/discord/verify-alpha-discord-auth.mjs",
@@ -40,7 +49,8 @@
     "mobile:scale-rehearsal": "node ./node_modules/vitest/vitest.mjs run src/__tests__/marketplace-concurrency-scale.test.ts",
     "mobile:review-surface": "node scripts/verify-mobile-review-surface.mjs",
     "mobile:export": "npm run mobile:clean && npm --workspace @alpha-traders/mobile run export",
-    "mobile:verify": "npm run mobile:typecheck && npm run mobile:doctor && npm run mobile:store-readiness && npm run mobile:export"
+    "mobile:verify": "npm run mobile:typecheck && npm run mobile:doctor && npm run mobile:store-readiness && npm run mobile:export",
+    "postinstall": "node scripts/patch-expo-uri-decoder.mjs && node scripts/patch-dependency-security.mjs"
   },
   "dependencies": {
     "@alpha-traders/contracts": "*",
@@ -49,12 +59,14 @@
     "@supabase/supabase-js": "^2.110.7",
     "@types/qrcode": "^1.5.6",
     "@vercel/functions": "^3.9.7",
+    "@vercel/speed-insights": "2.0.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "decode-uri-component": "0.5.1",
     "discord.js": "^14.27.0",
-    "expo": "~57.0.21",
+    "expo": "~57.0.31",
     "lucide-react": "^1.25.0",
-    "next": "15.5.25",
+    "next": "15.5.28",
     "next-intl": "^4.13.2",
     "pg": "^8.22.0",
     "qrcode": "^1.5.4",
@@ -63,12 +75,15 @@
     "react-hook-form": "^7.81.0",
     "react-native-screens": "4.26.2",
     "server-only": "^0.0.1",
-    "sharp": "^0.35.4",
+    "sharp": "^0.35.5",
     "tailwind-merge": "^3.6.0",
     "tsx": "^4.23.10",
-    "zod": "^4.4.3"
+    "web-push": "^3.6.7",
+    "unpdf": "1.9.1",
+    "zod": "4.6.7"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "0.5.8",
     "@eslint/eslintrc": "^3",
     "@playwright/test": "^1.61.1",
     "@tailwindcss/postcss": "^4",
@@ -78,18 +93,36 @@
     "@types/pg": "^8.20.0",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@types/web-push": "^3.6.4",
     "@vitejs/plugin-react": "^6.0.3",
-    "@vitest/coverage-v8": "^4.1.10",
+    "@vitest/coverage-v8": "4.1.12",
     "eslint": "^9",
     "eslint-config-next": "15.5.20",
     "jsdom": "^29.1.1",
     "playwright": "^1.61.1",
     "tailwindcss": "^4",
     "typescript": "^5",
-    "vitest": "^4.1.10"
+    "vite": "8.1.6",
+    "vitest": "4.1.12"
   },
   "overrides": {
+    "decode-uri-component": "$decode-uri-component",
+    "glob": "14.0.2",
+    "minimatch@^10.0.0": "11.0.1",
+    "minimatch@^11.0.0": "11.0.1",
+    "node-forge": "1.4.1",
+    "zod": "$zod",
+    "undici@^6.0.0": "6.29.1",
+    "undici@^7.0.0": "7.30.1",
     "nanoid": "3.3.18",
-    "postcss": "8.5.26"
+    "postcss": "8.5.26",
+    "shell-quote": "1.12.0",
+    "uuid": "11.1.1"
+  },
+  "allowScripts": {
+    "@parcel/watcher@2.5.6": true,
+    "esbuild@0.28.1": true,
+    "@swc/core@1.15.43": true,
+    "unrs-resolver@1.12.2": true
   }
 }

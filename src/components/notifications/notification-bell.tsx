@@ -1,6 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { navigateToPageSection } from "@/lib/page-section-navigation";
+import { brandText } from "@/components/ui/currency-text";
+
+import { ActionFeedback, useActionFeedbackState } from "@/components/ui/action-feedback";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Bell, BellDot, CircleDot, Megaphone, Scale, ShieldCheck, Star, Tags, UserRound, XCircle } from "lucide-react";
 import type { AppLocale } from "@/i18n/routing";
 import { Link, useRouter } from "@/i18n/navigation";
@@ -12,7 +16,7 @@ import { formatListingId, formatTradeId } from "@/lib/format-id";
 import { replaceExchangeEntityIdsWithHints } from "@/lib/alpha-exchange-display";
 import { formatNotificationRelativeTime } from "@/lib/notification-time";
 import { sortNotificationsNewestFirst } from "@/lib/notification-sort";
-import { getTradeRoomConversationDestination } from "@/lib/trade-room-notification-destination";
+import { extractRequestIdFromTradeRoomHref, extractTradeRoomHrefFromRelatedHref, getTradeRoomConversationDestination } from "@/lib/trade-room-notification-destination";
 import { getCommissionPaymentNotificationDestination } from "@/lib/commission-payment-destination";
 import {
   getExplicitNonTradeRoomNotificationDestination,
@@ -23,7 +27,7 @@ import { useAuthenticatedNotificationStream } from "@/components/notifications/u
 import { useOptionalCanonicalSession } from "@/components/auth/canonical-session-provider";
 import { localizeNotificationActionLabel, localizeNotificationCopy } from "@/lib/notification-localization";
 import { forwardCompletedTradesToNative, syncNotificationCountToNative } from "@/lib/native-app-bridge";
-import { isCashTradePaymentMethod } from "@/lib/marketplace-payment-methods";
+import { getTradeRoomSnapshotAction as buildTradeRoomActionForSnapshot, tradeRoomActionLabel, type TradeRoomActionSnapshot as TradeSnapshotPayload } from "@/lib/trade-room-destination";
 
 type NotificationsPayload = {
   notifications: AlphaExchangeNotification[];
@@ -38,22 +42,6 @@ type NotificationsStreamPayload = {
   unreadCount: number;
 };
 
-type TradeRoomRequestPayload = {
-  id: string;
-  status: string;
-  sellerId: string;
-  buyerId: string;
-  paymentMethod?: string;
-};
-
-type TradeSnapshotPayload = {
-  requestId?: string;
-  currentStage?: string;
-  sellerId?: string;
-  buyerId?: string;
-  paymentMethod?: string;
-};
-
 function notificationIcon(notification: AlphaExchangeNotification) {
   if (notification.category === "trade") return Scale;
   if (notification.category === "listing") return Tags;
@@ -62,33 +50,6 @@ function notificationIcon(notification: AlphaExchangeNotification) {
   if (notification.category === "trust") return Star;
   if (notification.title.toLowerCase().includes("announcement")) return Megaphone;
   return BellDot;
-}
-
-function extractTradeRoomHrefFromRelatedHref(relatedHref?: string) {
-  const href = relatedHref?.trim();
-  if (!href) return null;
-  const normalized = href.startsWith("/") ? href : `/${href}`;
-  const roomMatch = normalized.match(/\/trade-room\/([^/?#]+)/i);
-  if (roomMatch?.[1]) return `/trade-room/${decodeURIComponent(roomMatch[1])}`;
-  const requestMatch = normalized.match(/[?&]requestId=([^&]+)/i);
-  if (requestMatch?.[1]) return `/trade-room/${decodeURIComponent(requestMatch[1])}`;
-  return null;
-}
-
-function extractRequestIdFromTradeRoomHref(href: string | null | undefined) {
-  if (!href) return null;
-  try {
-    const parsed = new URL(href, "https://www.alphatraders.co.il");
-    const normalizedPath = parsed.pathname.replace(/\/+$/, "").toLowerCase();
-    const match = normalizedPath.match(/\/trade-room\/([^/?#]+)/i);
-    if (match?.[1]) return decodeURIComponent(match[1]);
-    return null;
-  } catch {
-    const normalized = href.split("?")[0]?.split("#")[0]?.replace(/\/+$/, "") ?? "";
-    const match = normalized.match(/\/trade-room\/([^/?#]+)/i);
-    if (match?.[1]) return decodeURIComponent(match[1]);
-    return null;
-  }
 }
 
 function formatNotificationTitle(notification: AlphaExchangeNotification, locale: AppLocale) {
@@ -109,30 +70,6 @@ function buildTradeRoomHashForAction(action: string) {
   return "action-required";
 }
 
-function buildTradeRoomActionForRequest(request: TradeRoomRequestPayload, actorUserId: string) {
-  const isSeller = request.sellerId === actorUserId;
-  const isBuyer = request.buyerId === actorUserId;
-  const cashTrade = isCashTradePaymentMethod(request.paymentMethod);
-  if (request.status === "pending" && isSeller) return "accept-trade";
-  if (request.status === "accepted" && isBuyer) return cashTrade ? "confirm-cash-payment" : "upload-payment-receipt";
-  if (request.status === "payment_sent" && isSeller) return "confirm-money-received";
-  if (request.status === "funds_received" && isSeller) return cashTrade ? "confirm-usdt-sent" : "release-usdt";
-  if (request.status === "usdt_release_pending" && isSeller) return cashTrade ? "confirm-usdt-sent" : "upload-seller-evidence";
-  if (request.status === "usdt_sent" && cashTrade && isSeller) return "complete-cash-trade";
-  if (request.status === "usdt_sent" && !cashTrade && isBuyer) return "confirm-usdt-received";
-  if ((request.status === "review_open" || request.status === "completed" || request.status === "locked") && isBuyer) return "review-trade";
-  return "open-trade";
-}
-
-function buildTradeRoomActionForSnapshot(snapshot: TradeSnapshotPayload, actorUserId: string) {
-  const requestId = String(snapshot.requestId ?? "").trim();
-  const status = String(snapshot.currentStage ?? "").trim();
-  const sellerId = String(snapshot.sellerId ?? "").trim();
-  const buyerId = String(snapshot.buyerId ?? "").trim();
-  if (!requestId || !status || !sellerId || !buyerId) return null;
-  return buildTradeRoomActionForRequest({ id: requestId, status, sellerId, buyerId, paymentMethod: snapshot.paymentMethod }, actorUserId);
-}
-
 function inferTradeActionFromNotificationText(notification: AlphaExchangeNotification) {
   const text = `${notification.title} ${notification.message}`.toLowerCase();
   if (/new trade request/.test(text)) return "accept-trade";
@@ -143,7 +80,8 @@ function inferTradeActionFromNotificationText(notification: AlphaExchangeNotific
   if (/cash trade ready to complete/.test(text)) return "complete-cash-trade";
   if (/will complete the cash trade|no receipt confirmation is required/.test(text)) return "open-trade";
   if (/seller confirmed funds received|usdt release pending/.test(text)) return "upload-seller-evidence";
-  if (/seller marked usdt sent|usdt sent/.test(text)) return "confirm-usdt-received";
+  // Without a participant snapshot, the room must resolve the next action.
+  if (/seller marked usdt sent|usdt sent/.test(text)) return "open-trade";
   if (/review available|trade completed/.test(text)) return "review-trade";
   return "open-trade";
 }
@@ -153,16 +91,16 @@ function buildTradeDestinationFromNotification(notification: AlphaExchangeNotifi
   if (conversationDestination) return conversationDestination;
   const requestId = notification.relatedRequestId?.trim()
     || (notification.tradeSnapshot as TradeSnapshotPayload | undefined)?.requestId?.trim()
-    || extractRequestIdFromTradeRoomHref(notification.relatedHref ?? notification.actionHref)
+    || (extractRequestIdFromTradeRoomHref(notification.relatedHref) ?? extractRequestIdFromTradeRoomHref(notification.actionHref))
     || null;
   if (!requestId) return null;
 
   const snapshotAction = notification.userId
-    ? buildTradeRoomActionForSnapshot(notification.tradeSnapshot as TradeSnapshotPayload, notification.userId)
+    ? buildTradeRoomActionForSnapshot(notification.tradeSnapshot, notification.userId)
     : null;
   const action = snapshotAction ?? inferTradeActionFromNotificationText(notification);
   const hash = buildTradeRoomHashForAction(action);
-  return `/trade-room/${requestId}?action=${encodeURIComponent(action)}#${hash}`;
+  return `/trade-room/${encodeURIComponent(requestId)}?action=${encodeURIComponent(action)}#${hash}`;
 }
 
 type NotificationBellProps = { locale: AppLocale };
@@ -182,13 +120,21 @@ function NotificationBellSession({
 }: NotificationBellProps & { canonicalSession: OptionalCanonicalSession }) {
   const isAr = locale === "ar";
   const [isOpen, setIsOpen] = useState(false);
+  const [panelOffset, setPanelOffset] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState<Record<string, boolean>>({});
   const [notifications, setNotifications] = useState<AlphaExchangeNotification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError, errorFeedbackKey] = useActionFeedbackState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [lastLoadedAt, setLastLoadedAt] = useState(0);
   const [openNotificationsSnapshot, setOpenNotificationsSnapshot] = useState<AlphaExchangeNotification[] | null>(null);
+  const loadControllerRef = useRef<AbortController | null>(null);
+  const notificationMutationVersionRef = useRef(0);
+  const optimisticReadIdsRef = useRef(new Map<string, { version: number; confirmed: boolean }>());
+  const optimisticMarkAllRef = useRef<{ version: number; confirmed: boolean; unreadCount: number; ids: Set<string> } | null>(null);
+  const refreshSession = canonicalSession?.refresh;
+  const canonicalUserId = canonicalSession?.user?.id;
   const panelRef = useRef<HTMLDivElement | null>(null);
   const isOpenRef = useRef(false);
   const notificationsCountRef = useRef(0);
@@ -208,15 +154,70 @@ function NotificationBellSession({
     syncNotificationCountToNative(normalized, canonicalSession?.user?.id, locale);
   }, [canonicalSession?.user?.id, locale]);
 
+  const reconcileIncomingNotifications = useCallback((
+    incomingNotifications: AlphaExchangeNotification[],
+    incomingUnreadCount: number,
+  ) => {
+    const activeIncoming = activeBellNotifications(incomingNotifications);
+    const activeIds = new Set(activeIncoming.map((notification) => notification.id));
+    for (const [id, action] of optimisticReadIdsRef.current) {
+      if (action.confirmed && !activeIds.has(id)) optimisticReadIdsRef.current.delete(id);
+    }
+    const visibleIncoming = activeIncoming.filter((notification) => !optimisticReadIdsRef.current.has(notification.id));
+    const markAll = optimisticMarkAllRef.current;
+    if (markAll?.confirmed && !activeIncoming.some((notification) => markAll.ids.has(notification.id))) {
+      optimisticMarkAllRef.current = null;
+    }
+    // A stream snapshot is limited, while the bulk action clears every unread
+    // item. Account for the full count until the server acknowledges that clear.
+    const unreadCount = optimisticMarkAllRef.current
+      ? Math.max(visibleIncoming.length, incomingUnreadCount - optimisticMarkAllRef.current.unreadCount)
+      : Math.max(0, incomingUnreadCount - (activeIncoming.length - visibleIncoming.length));
+    return { notifications: visibleIncoming, unreadCount };
+  }, []);
+
+  function finishOptimisticRead(ids: string[], version: number, succeeded: boolean) {
+    for (const id of ids) {
+      const action = optimisticReadIdsRef.current.get(id);
+      if (action?.version !== version) continue;
+      if (succeeded) optimisticReadIdsRef.current.set(id, { version, confirmed: true });
+      else optimisticReadIdsRef.current.delete(id);
+    }
+  }
+
+  function finishOptimisticMarkAll(version: number, succeeded: boolean) {
+    const action = optimisticMarkAllRef.current;
+    if (action?.version !== version) return;
+    if (succeeded) action.confirmed = true;
+    else optimisticMarkAllRef.current = null;
+  }
+
   useEffect(() => () => {
     // Prevent a response owned by an unmounted account-scoped bell from
     // publishing native or React state after an authentication change.
     activeNotificationAccountScopeRef.current = "disposed";
+    loadControllerRef.current?.abort();
   }, []);
 
   useEffect(() => {
     isOpenRef.current = isOpen;
   }, [isOpen]);
+
+  useLayoutEffect(() => {
+    const positionPanel = () => {
+      const wrapper = panelRef.current;
+      const panel = wrapper?.querySelector<HTMLElement>('[data-testid="notification-panel"]');
+      if (!wrapper || !panel) return;
+      const anchor = wrapper.getBoundingClientRect();
+      const viewport = document.documentElement.clientWidth;
+      const naturalLeft = locale === "ar" ? anchor.left : anchor.right - panel.offsetWidth;
+      const boundedLeft = Math.max(8, Math.min(naturalLeft, viewport - panel.offsetWidth - 8));
+      setPanelOffset(boundedLeft - naturalLeft);
+    };
+    positionPanel();
+    window.addEventListener("resize", positionPanel);
+    return () => window.removeEventListener("resize", positionPanel);
+  }, [isOpen, locale]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -224,7 +225,9 @@ function NotificationBellSession({
       return;
     }
     if (openNotificationsSnapshot === null && notifications.length > 0) {
-      setOpenNotificationsSnapshot(notifications);
+      // A read/dismiss action may have cleared the snapshot after this
+      // render. Do not restore an older list over that newer user action.
+      setOpenNotificationsSnapshot((current) => current ?? notifications);
     }
   }, [isOpen, notifications, openNotificationsSnapshot]);
 
@@ -257,24 +260,48 @@ function NotificationBellSession({
     options?: { preserveOpenList?: boolean; forceListUpdate?: boolean },
   ) => {
     if (!canLoadNotifications) return;
+    if (loadControllerRef.current && !options?.forceListUpdate) return;
+    loadControllerRef.current?.abort();
+    const controller = new AbortController();
+    loadControllerRef.current = controller;
+    const timeout = window.setTimeout(() => controller.abort(), 12_000);
     const operationScope = notificationAccountScope;
+    const operationMutationVersion = notificationMutationVersionRef.current;
+    // A no-store read started after a successful write is authoritative. Let
+    // a later explicit unread change replace that confirmed local read.
+    const confirmedReadVersions = new Map(
+      [...optimisticReadIdsRef.current].filter(([, action]) => action.confirmed).map(([id, action]) => [id, action.version]),
+    );
+    const confirmedMarkAllVersion = optimisticMarkAllRef.current?.confirmed
+      ? optimisticMarkAllRef.current.version : null;
     const startedAt = Date.now();
     const shouldPreserveList = options?.preserveOpenList && isOpenRef.current && notificationsCountRef.current > 0;
     if (!shouldPreserveList) {
       setIsLoading(true);
     }
-    setError(null);
+    setLoadError(null);
     try {
       incrementLoginJourneyApiCall("/api/alpha-exchange/notifications");
-      const response = await fetch(`/api/alpha-exchange/notifications?limit=${limit}&includeActivity=0&unreadOnly=1`, { cache: "no-store" });
+      const response = await fetch(`/api/alpha-exchange/notifications?limit=${limit}&includeActivity=0&unreadOnly=1`, { cache: "no-store", signal: controller.signal });
       if (!response.ok) {
-        if (response.status === 401) void canonicalSession?.refresh({ force: true });
+        if (response.status === 401) void refreshSession?.({ force: true });
         throw new Error(isAr ? "تعذر تحميل الإشعارات." : "Failed to load notifications.");
       }
       const payload = (await response.json()) as NotificationsPayload;
-      if (activeNotificationAccountScopeRef.current !== operationScope) return;
-      const incoming = activeBellNotifications(payload.notifications ?? []);
-      forwardCompletedTradesToNative(incoming, canonicalSession?.user?.id, locale);
+      if (
+        activeNotificationAccountScopeRef.current !== operationScope
+        || loadControllerRef.current !== controller
+        || notificationMutationVersionRef.current !== operationMutationVersion
+      ) return;
+      for (const [id, version] of confirmedReadVersions) {
+        if (optimisticReadIdsRef.current.get(id)?.version === version) optimisticReadIdsRef.current.delete(id);
+      }
+      if (confirmedMarkAllVersion !== null && optimisticMarkAllRef.current?.version === confirmedMarkAllVersion) {
+        optimisticMarkAllRef.current = null;
+      }
+      const reconciled = reconcileIncomingNotifications(payload.notifications ?? [], payload.unreadCount ?? 0);
+      const incoming = reconciled.notifications;
+      forwardCompletedTradesToNative(incoming, canonicalUserId, locale);
       const keepVisibleList = !options?.forceListUpdate && isOpenRef.current && notificationsCountRef.current > 0;
       if (!shouldPreserveList && !keepVisibleList) {
         const sortedIncoming = sortNotificationsNewestFirst(incoming);
@@ -283,19 +310,22 @@ function NotificationBellSession({
           setOpenNotificationsSnapshot(sortedIncoming);
         }
       }
-      applyUnreadCount(payload.unreadCount ?? 0);
+      applyUnreadCount(reconciled.unreadCount);
       setLastLoadedAt(Date.now());
       appendLoginJourneyStep("Notifications loading (header bell)", startedAt, Date.now(), { limit, status: response.status });
     } catch {
-      if (activeNotificationAccountScopeRef.current === operationScope) {
-        setError(isAr ? "تعذر تحميل الإشعارات." : "Failed to load notifications.");
+      if (activeNotificationAccountScopeRef.current === operationScope && loadControllerRef.current === controller) {
+        setLoadError(isAr ? "تعذر تحميل الإشعارات." : "Failed to load notifications.");
       }
     } finally {
-      if (activeNotificationAccountScopeRef.current === operationScope && !shouldPreserveList) {
+      window.clearTimeout(timeout);
+      const ownsLoad = loadControllerRef.current === controller;
+      if (ownsLoad) loadControllerRef.current = null;
+      if (ownsLoad && activeNotificationAccountScopeRef.current === operationScope && !shouldPreserveList) {
         setIsLoading(false);
       }
     }
-  }, [applyUnreadCount, canLoadNotifications, canonicalSession, isAr, locale, notificationAccountScope]);
+  }, [applyUnreadCount, canLoadNotifications, canonicalUserId, refreshSession, isAr, locale, notificationAccountScope, reconcileIncomingNotifications]);
 
   useEffect(() => {
     if (!canLoadNotifications) return;
@@ -307,9 +337,11 @@ function NotificationBellSession({
     const messageEvent = event as MessageEvent<string>;
     try {
       const payload = JSON.parse(messageEvent.data) as NotificationsStreamPayload;
-      const incoming = activeBellNotifications(
+      const reconciled = reconcileIncomingNotifications(
         Array.isArray(payload.notifications) ? payload.notifications : [],
+        typeof payload.unreadCount === "number" ? payload.unreadCount : 0,
       );
+      const incoming = reconciled.notifications;
       forwardCompletedTradesToNative(
         incoming,
         canonicalSession?.user?.id,
@@ -318,35 +350,35 @@ function NotificationBellSession({
       if (!isOpenRef.current) {
         setNotifications(sortNotificationsNewestFirst(incoming));
       }
-      applyUnreadCount(typeof payload.unreadCount === "number" ? payload.unreadCount : 0);
+      applyUnreadCount(reconciled.unreadCount);
     } catch {
       // Ignore malformed stream payloads and keep current state.
     }
-  }, [applyUnreadCount, canonicalSession?.user?.id, locale, notificationAccountScope]);
+  }, [applyUnreadCount, canonicalSession?.user?.id, locale, notificationAccountScope, reconcileIncomingNotifications]);
   useAuthenticatedNotificationStream({ enabled: canLoadNotifications, onNotifications: handleNotificationStream });
 
-  async function handleToggleOpen() {
-    const nextOpen = !isOpen;
+  function handleToggleOpen() {
+    const nextOpen = !isOpenRef.current;
+    isOpenRef.current = nextOpen;
+    setIsOpen(nextOpen);
     if (nextOpen) {
       router.prefetch("/notifications");
-      const isFresh = Date.now() - lastLoadedAt < BELL_REFRESH_WINDOW_MS;
-      if (!isFresh || notifications.length === 0) {
-        await loadNotifications(20);
+      if (Date.now() - lastLoadedAt >= BELL_REFRESH_WINDOW_MS || notifications.length === 0) {
+        void loadNotifications(20);
       }
-      setIsOpen(true);
-      return;
     }
-    setIsOpen(false);
   }
 
   async function handleMarkOneRead(notificationId: string) {
     const target = notifications.find((item) => item.id === notificationId)
       ?? openNotificationsSnapshot?.find((item) => item.id === notificationId);
     if (!target || target.isRead) return;
+    const actionVersion = ++notificationMutationVersionRef.current;
+    optimisticReadIdsRef.current.set(notificationId, { version: actionVersion, confirmed: false });
     // The bell is an active-inbox surface. Read items remain available in the
     // full Notification Center, but disappear from this quick-action list.
     setNotifications((prev) => prev.filter((item) => item.id !== notificationId));
-    setOpenNotificationsSnapshot((prev) => prev?.filter((item) => item.id !== notificationId) ?? prev);
+    setOpenNotificationsSnapshot((prev) => (prev ?? notifications).filter((item) => item.id !== notificationId));
     applyUnreadCount(Math.max(0, unreadCountRef.current - 1));
     try {
       const response = await fetch(`/api/alpha-exchange/notifications/${notificationId}`, {
@@ -354,11 +386,13 @@ function NotificationBellSession({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ isRead: true }),
       });
+      finishOptimisticRead([notificationId], actionVersion, response.ok);
       if (!response.ok) {
         // Revert on failure with a fresh server fetch.
         await loadNotifications(20, { forceListUpdate: true });
       }
     } catch {
+      finishOptimisticRead([notificationId], actionVersion, false);
       await loadNotifications(20, { forceListUpdate: true });
     }
   }
@@ -367,8 +401,10 @@ function NotificationBellSession({
     const actionKey = `${notification.id}:dismiss`;
     if (actionLoading[actionKey]) return;
     setActionLoading((prev) => ({ ...prev, [actionKey]: true }));
+    const actionVersion = ++notificationMutationVersionRef.current;
+    optimisticReadIdsRef.current.set(notification.id, { version: actionVersion, confirmed: false });
     setNotifications((prev) => prev.filter((item) => item.id !== notification.id));
-    setOpenNotificationsSnapshot((prev) => prev?.filter((item) => item.id !== notification.id) ?? prev);
+    setOpenNotificationsSnapshot((prev) => (prev ?? notifications).filter((item) => item.id !== notification.id));
     if (!notification.isRead) applyUnreadCount(Math.max(0, unreadCountRef.current - 1));
     try {
       const response = await fetch(`/api/alpha-exchange/notifications/${notification.id}`, {
@@ -377,7 +413,9 @@ function NotificationBellSession({
         body: JSON.stringify({ action: "dismiss" }),
       });
       if (!response.ok) throw new Error("notification_dismiss_failed");
+      finishOptimisticRead([notification.id], actionVersion, true);
     } catch {
+      finishOptimisticRead([notification.id], actionVersion, false);
       setError(isAr ? "تعذر حفظ الإشعار لوقت لاحق." : "Failed to save this notification for later.");
       await loadNotifications(20, { forceListUpdate: true });
     } finally {
@@ -388,6 +426,16 @@ function NotificationBellSession({
   async function handleMarkAllRead() {
     // The quick-action bell contains unread items only. Keep read history in
     // the Notification Center and clear this surface immediately.
+    const actionVersion = ++notificationMutationVersionRef.current;
+    const actionIds = [...new Set([
+      ...notifications.map((notification) => notification.id),
+      ...(openNotificationsSnapshot ?? []).map((notification) => notification.id),
+      ...optimisticReadIdsRef.current.keys(),
+    ])];
+    optimisticMarkAllRef.current = {
+      version: actionVersion, confirmed: false, unreadCount: unreadCountRef.current, ids: new Set(actionIds),
+    };
+    for (const id of actionIds) optimisticReadIdsRef.current.set(id, { version: actionVersion, confirmed: false });
     setNotifications([]);
     setOpenNotificationsSnapshot([]);
     applyUnreadCount(0);
@@ -397,10 +445,14 @@ function NotificationBellSession({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "mark_all_read" }),
       });
+      finishOptimisticRead(actionIds, actionVersion, response.ok);
+      finishOptimisticMarkAll(actionVersion, response.ok);
       if (!response.ok) {
         await loadNotifications(20, { forceListUpdate: true });
       }
     } catch {
+      finishOptimisticRead(actionIds, actionVersion, false);
+      finishOptimisticMarkAll(actionVersion, false);
       await loadNotifications(20, { forceListUpdate: true });
     }
   }
@@ -413,7 +465,7 @@ function NotificationBellSession({
     if (requestId) prefetchTradeRoom(router, requestId, canonicalSession?.user?.id ?? notification.userId);
     if (!notification.isRead) void handleMarkOneRead(notification.id);
     setIsOpen(false);
-    router.push(destination);
+    navigateToPageSection(router, destination);
   }
 
   function isTradeNotification(notification: AlphaExchangeNotification) {
@@ -448,35 +500,11 @@ function NotificationBellSession({
     return null;
   }
 
-  async function handleSellerApplicationDecision(notification: AlphaExchangeNotification, decision: "approve" | "reject") {
-    const applicationId = extractSellerApplicationId(notification);
-    if (!applicationId) return;
-    const actionKey = `${notification.id}:${decision}`;
-    if (actionLoading[`${notification.id}:approve`] || actionLoading[`${notification.id}:reject`] || actionLoading[`${notification.id}:dismiss`]) return;
-    setActionLoading((prev) => ({ ...prev, [actionKey]: true }));
-    try {
-      const reason = decision === "approve" ? "Approved from notification workflow" : "Rejected from notification workflow";
-      const response = await fetch(`/api/alpha-exchange/admin/seller-applications/${encodeURIComponent(applicationId)}/${decision}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ reason }),
-      });
-      if (!response.ok) {
-        setError(isAr ? "تعذر تحديث طلب البائع." : "Failed to update seller application.");
-        return;
-      }
-      // The server archives every matching admin action notification after a
-      // decision. Reload instead of marking this item read, which would
-      // otherwise turn an archived action back into a visible read item.
-      await loadNotifications(20, { forceListUpdate: true });
-    } catch {
-      setError(isAr ? "تعذر تحديث طلب البائع." : "Failed to update seller application.");
-    } finally {
-      setActionLoading((prev) => ({ ...prev, [actionKey]: false }));
-    }
-  }
-
   function resolveNotificationActionLabel(notification: AlphaExchangeNotification) {
+    if (isTradeNotification(notification) && !getTradeRoomConversationDestination(notification) && !getCommissionPaymentNotificationDestination(notification)) {
+      const action = buildTradeRoomActionForSnapshot(notification.tradeSnapshot, notification.userId);
+      if (action) return tradeRoomActionLabel(action, locale);
+    }
     const label = getCommissionPaymentNotificationDestination(notification)
       ? "Pay Commission"
       : notification.actionLabel?.trim()
@@ -486,14 +514,14 @@ function NotificationBellSession({
           : notification.category === "application"
             ? "Review Application"
             : notification.category === "listing"
-              ? "Manage Listing"
+              ? "View listing"
               : "View Details";
     return localizeNotificationActionLabel(label, locale, notification);
   }
 
   function resolveTradeRoomHref(notification: AlphaExchangeNotification) {
-    if (notification.relatedRequestId?.trim()) return `/trade-room/${notification.relatedRequestId.trim()}`;
-    return extractTradeRoomHrefFromRelatedHref(notification.relatedHref ?? notification.actionHref);
+    if (notification.relatedRequestId?.trim()) return `/trade-room/${encodeURIComponent(notification.relatedRequestId.trim())}`;
+    return (extractTradeRoomHrefFromRelatedHref(notification.relatedHref) ?? extractTradeRoomHrefFromRelatedHref(notification.actionHref));
   }
 
   const hasUnread = unreadCount > 0;
@@ -523,7 +551,8 @@ function NotificationBellSession({
 
       <div
         data-testid="notification-panel"
-        className={`absolute end-0 top-12 z-50 flex max-h-[min(26rem,calc(100vh-5rem))] max-h-[min(26rem,calc(100dvh-5rem))] w-[min(22rem,calc(100vw-1rem))] flex-col overflow-hidden rounded-2xl border border-white/15 bg-[#0b0b0b]/95 shadow-2xl backdrop-blur-xl transition-all duration-200 [padding-bottom:env(safe-area-inset-bottom)] md:top-11 md:origin-top-right ${
+        style={{ translate: `${panelOffset}px 0` }}
+        className={`absolute end-0 top-12 z-50 flex max-h-[min(26rem,calc(100vh-5rem))] max-h-[min(26rem,calc(100dvh-5rem))] w-[min(22rem,calc(100vw-1rem))] flex-col overflow-hidden rounded-2xl border border-white/15 bg-[#0b0b0b]/95 shadow-2xl backdrop-blur-xl transition-[opacity,scale,transform] duration-200 [padding-bottom:env(safe-area-inset-bottom)] md:top-11 md:origin-top-right ${
           isOpen ? "visible scale-100 opacity-100" : "invisible scale-95 opacity-0"
         }`}
         onMouseDown={(event) => event.stopPropagation()}
@@ -556,7 +585,7 @@ function NotificationBellSession({
 
         <div className="min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain p-3 [touch-action:pan-y]">
           {isLoading ? <p className="empty-state-panel p-3 text-xs">{isAr ? "جاري التحميل..." : "Loading..."}</p> : null}
-          {error ? <p className="rounded-xl border border-red-400/20 bg-red-500/10 p-3 text-xs text-red-200">{error}</p> : null}
+          {error || loadError ? <ActionFeedback autoReveal={Boolean(error)} revealKey={errorFeedbackKey} as="p" role="alert" className="rounded-xl border border-red-400/20 bg-red-500/10 p-3 text-xs text-red-200">{error ?? loadError}</ActionFeedback> : null}
           {renderedNotifications.length === 0 ? <p className="empty-state-panel p-3 text-xs">{isAr ? "لا توجد إشعارات حتى الآن." : "No notifications yet."}</p> : null}
           {renderedNotifications.map((notification) => {
                 const Icon = notificationIcon(notification);
@@ -578,10 +607,10 @@ function NotificationBellSession({
                       <Icon className="mt-0.5 h-4 w-4 shrink-0 text-[#C9A227]" />
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center justify-between gap-2">
-                          <p className="truncate text-sm font-medium text-white"><bdi dir="auto">{formatNotificationTitle(notification, locale)}</bdi></p>
+                          <p className={`truncate text-sm font-medium text-white ${notification.reason?.startsWith("commission_") ? "commission-notice" : ""}`}><bdi dir="auto">{brandText(formatNotificationTitle(notification, locale))}</bdi></p>
                           <span className="shrink-0 text-[11px] text-[#9CA3AF]"><bdi dir="auto">{formatNotificationRelativeTime(notification.createdAt, locale)}</bdi></span>
                         </div>
-                        <p className="mt-1 line-clamp-2"><bdi dir="auto">{formatNotificationMessage(notification, locale)}</bdi></p>
+                        <p className={`mt-1 line-clamp-2 ${notification.reason?.startsWith("commission_") ? "commission-notice" : ""}`}><bdi dir="auto">{brandText(formatNotificationMessage(notification, locale))}</bdi></p>
                         <div className="mt-2 flex flex-wrap items-center gap-1.5">
                           {!notification.isRead ? <span className="inline-flex items-center rounded-full bg-[#C9A227]/20 px-2 py-0.5 text-[10px] text-[#C9A227]">{isAr ? "غير مقروء" : "Unread"}</span> : null}
                           {actionRequired ? <span className="inline-flex items-center rounded-full border border-amber-400/40 bg-amber-400/10 px-2 py-0.5 text-[10px] font-semibold text-amber-200">{isAr ? "مطلوب إجراء" : "Action required"}</span> : null}
@@ -637,27 +666,7 @@ function NotificationBellSession({
                                 size="sm"
                                 variant="secondary"
                                 className="h-7 px-2.5 text-[11px]"
-                                disabled={Boolean(actionLoading[`${notification.id}:approve`] || actionLoading[`${notification.id}:reject`] || actionLoading[`${notification.id}:dismiss`])}
-                                onClick={() => void handleSellerApplicationDecision(notification, "approve")}
-                              >
-                                {isAr ? "موافقة" : "Approve"}
-                              </Button>
-                              <Button
-                                type="button"
-                                size="sm"
-                                variant="secondary"
-                                className="h-7 px-2.5 text-[11px]"
-                                disabled={Boolean(actionLoading[`${notification.id}:approve`] || actionLoading[`${notification.id}:reject`] || actionLoading[`${notification.id}:dismiss`])}
-                                onClick={() => void handleSellerApplicationDecision(notification, "reject")}
-                              >
-                                {isAr ? "رفض" : "Reject"}
-                              </Button>
-                              <Button
-                                type="button"
-                                size="sm"
-                                variant="secondary"
-                                className="h-7 px-2.5 text-[11px]"
-                                disabled={Boolean(actionLoading[`${notification.id}:dismiss`] || actionLoading[`${notification.id}:approve`] || actionLoading[`${notification.id}:reject`])}
+                                disabled={Boolean(actionLoading[`${notification.id}:dismiss`])}
                                 onClick={() => {
                                   void handleDismissNotification(notification);
                                 }}
@@ -666,12 +675,17 @@ function NotificationBellSession({
                                   ? (isAr ? "جاري الحفظ..." : "Saving...")
                                   : (isAr ? "لاحقاً" : "Later")}
                               </Button>
+                              {!notification.isRead ? (
+                                <Button type="button" size="sm" variant="secondary" className="h-7 px-2.5 text-[11px]" onClick={() => void handleMarkOneRead(notification.id)}>
+                                  {isAr ? "تحديد كمقروء" : "Mark as read"}
+                                </Button>
+                              ) : null}
                             </>
                           ) : (
                             <>
                               {!notification.isRead ? (
                                 <Button type="button" size="sm" variant="secondary" className="h-7 px-2.5 text-[11px]" onClick={() => void handleMarkOneRead(notification.id)}>
-                                  {isAr ? "تحديد كمقروء" : "Mark read"}
+                                  {isAr ? "تحديد كمقروء" : "Mark as read"}
                                 </Button>
                               ) : null}
                             </>
@@ -684,7 +698,7 @@ function NotificationBellSession({
               })}
         </div>
 
-        <div className="flex items-center justify-between border-t border-white/10 px-3 py-2">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-white/10 px-3 py-2">
           <Button type="button" size="sm" variant="secondary" onClick={() => void handleMarkAllRead()} className="h-8 px-3 text-xs">
             {isAr ? "تحديد الكل كمقروء" : "Mark all as read"}
           </Button>

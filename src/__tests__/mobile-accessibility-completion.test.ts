@@ -19,7 +19,8 @@ describe("mobile accessibility completion", () => {
     expect(reducedMotion).toContain("AccessibilityInfo.isReduceMotionEnabled()");
     expect(reducedMotion).toContain('"reduceMotionChanged"');
     expect(rootLayout).toContain('animation: "none"');
-    expect(websiteShell).toContain('accessibilityRole="progressbar"');
+    expect(websiteShell).toContain("<LaunchScreen");
+    expect(source("apps/mobile/src/components/launch-screen.tsx")).toContain('accessibilityRole="progressbar"');
     expect(websiteShell).toContain('accessibilityRole="alert"');
     expect(publicLayout).toContain('isReducedMotionEnabled ? "none"');
     expect(publicLayout).toContain('isRTL ? "slide_from_left" : "slide_from_right"');
@@ -49,7 +50,7 @@ describe("mobile accessibility completion", () => {
     expect(login).toContain('accessibilityLabel={t("password")}');
     expect(tradeForm).toContain('accessibilityRole="radiogroup"');
     expect(tradeForm).toContain('accessibilityLabel={t("tradeAmount")}');
-    expect(tradeForm).toContain('accessibilityLabel={`${t("receivingWallet")} · ${listing.network}`}');
+    expect(tradeForm).toContain('accessibilityLabel={`${t("receivingWallet")} · ${chosenNetwork}`}');
     expect(tradeForm).toContain("activeFormScopeRef");
     expect(tradeForm).toContain("setWalletAddress(\"\")");
     expect(tradeRoom).toContain('accessibilityRole="header"');
@@ -68,7 +69,7 @@ describe("mobile accessibility completion", () => {
     expect(tradeRoom).toContain('t("cashUsdtSentConfirmation")');
     expect(tradeRoom).toContain('t("confirmUsdtSent")');
     expect(tradeRoom).toContain("actions.canMarkPaymentSent");
-    expect(tradeRoom).toContain('t("sentWithdrawalCode")');
+    expect(tradeRoom).toContain('t("sendAndConfirmWithdrawalCode")');
     expect(tradeRoom).toContain('t("handedOverCash")');
     expect(tradeRoom).toContain('loading={busyAction === "complete-cash-trade"}');
     expect(tradeRoom).toContain("actions.canUploadPaymentEvidence");
@@ -91,7 +92,7 @@ describe("mobile accessibility completion", () => {
   });
 
   it("labels the footer newsletter field and keeps mobile footer targets usable", () => {
-    const footer = source("src/components/layout/site-footer.tsx");
+    const footer = source("src/components/layout/site-footer-content.tsx");
     const newsletter = source("src/components/layout/footer-newsletter-signup.tsx");
 
     expect(footer).toContain('<FooterNewsletterSignup locale={locale} />');
@@ -103,17 +104,17 @@ describe("mobile accessibility completion", () => {
     expect(footer).toContain('inline-flex min-h-11 items-center gap-2');
   });
 
-  it("shows a visible keyboard focus boundary around the embedded market chart", () => {
-    const chart = source("src/components/market/tradingview-market-charts.tsx");
+  it("labels the view-only market chart for assistive technology", () => {
+    const chart = source("src/components/market/candlestick-chart.tsx");
 
-    expect(chart).toContain('title={title}');
-    expect(chart).toContain('focus-visible:ring-2');
-    expect(chart).toContain('focus-visible:ring-[#C9A227]');
+    expect(chart).toContain('role="img" aria-label=');
+    expect(chart).toContain('5-minute candlestick chart');
+    expect(chart).toContain('شموع ٥ دقائق');
   });
 
-  it("keeps coarse-pointer checkbox and radio controls at least 24px", () => {
+  it("keeps small-screen checkbox and radio controls at least 24px with any pointer", () => {
     const css = source("src/app/globals.css");
-    const coarsePointerStart = css.indexOf('@media (max-width: 768px) and (pointer: coarse)');
+    const coarsePointerStart = css.lastIndexOf('@media (max-width: 768px) {');
     const reducedMotionStart = css.indexOf('@media (prefers-reduced-motion: reduce)', coarsePointerStart);
     const coarsePointerRules = css.slice(coarsePointerStart, reducedMotionStart);
 
@@ -125,12 +126,15 @@ describe("mobile accessibility completion", () => {
     expect(coarsePointerRules).toContain('min-height: 1.5rem');
   });
 
-  it("renders final homepage statistics immediately instead of exposing zero-value placeholders", () => {
+  it("renders final homepage statistics and honest cross-device labels immediately", () => {
     const stats = source("src/components/sections/home/homepage-stats.tsx");
 
     expect(stats).toContain('numericValue: 20');
     expect(stats).toContain('numericValue: 2');
-    expect(stats).toContain('numericValue: 100');
+    expect(stats).toContain('staticDisplay: "On demand"');
+    expect(stats).toContain('staticDisplay: "Web + App"');
+    expect(stats).toContain('subtitleEn: "Phone & desktop"');
+    expect(stats).not.toContain('numericValue: 100');
     expect(stats).toContain('{displayValue}');
     expect(stats).not.toContain('useInView');
     expect(stats).not.toContain('setDisplayValue');

@@ -1,3 +1,4 @@
+import { brandText, currencyText } from "@/components/ui/currency-text";
 import { getLocale } from "next-intl/server";
 import Image from "next/image";
 import { ArrowUpRight, MessageCircle, Music2, Users } from "lucide-react";
@@ -37,7 +38,7 @@ export default async function CommunityPage() {
         {items.map((item) => (
           <Card key={item} className="h-full hover:-translate-y-0.5">
             <CardHeader>
-              <CardTitle className="text-lg">{item}</CardTitle>
+              <CardTitle className="text-lg">{currencyText(item)}</CardTitle>
             </CardHeader>
             <CardContent className="text-sm text-[#9CA3AF]">
               {isAr ? "بيئة تعلم احترافية خالية من الضوضاء." : "Premium noise-free educational environment."}
@@ -54,12 +55,12 @@ export default async function CommunityPage() {
               WhatsApp
             </p>
             <h2 className="text-2xl font-semibold leading-tight md:text-3xl">
-              {isAr ? "انضم إلى مجتمع Alpha Traders" : "Join the Alpha Traders Community"}
+              {brandText(isAr ? "انضم إلى مجتمع Alpha Traders" : "Join the Alpha Traders Community")}
             </h2>
             <p className="mt-4 text-sm leading-7 text-[#9CA3AF] md:text-base">
-              {isAr
+              {currencyText(isAr
                 ? "مجتمع الواتساب العام يضم +900 عضو نشط يتداولون، يناقشون فرص السوق، ويتبادلون خبرات ونقاشات USDT بشكل يومي."
-                : "Our public WhatsApp community is home to 900+ active members who trade, exchange USDT discussions, share market insights, discuss opportunities, and support each other daily."}
+                : "Our public WhatsApp community is home to 900+ active members who trade, exchange USDT discussions, share market insights, discuss opportunities, and support each other daily.")}
             </p>
 
             <div className="mt-5 flex flex-wrap gap-2">
@@ -68,7 +69,7 @@ export default async function CommunityPage() {
                 : ["USDT buyers & sellers", "Crypto exchange discussions", "Active traders", "Market updates", "Community support", "Trading conversations"]
               ).map((item) => (
                 <span key={item} className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1 text-xs text-[#D1D5DB]">
-                  {item}
+                  {currencyText(item)}
                 </span>
               ))}
             </div>
@@ -111,7 +112,7 @@ export default async function CommunityPage() {
         <div className="mt-7 grid gap-3 md:grid-cols-4">
           {stats.map((stat) => (
             <div key={stat} className="rounded-2xl border border-white/10 bg-black/20 p-4 text-center text-sm font-medium text-[#E5E7EB]">
-              {stat}
+              {currencyText(stat)}
             </div>
           ))}
         </div>
@@ -122,9 +123,9 @@ export default async function CommunityPage() {
             {isAr ? "بيان ثقة المجتمع" : "Community Trust Note"}
           </div>
           <p className="mt-2">
-            {isAr
+            {currencyText(isAr
               ? "تم إنشاء المجتمع للأشخاص الراغبين بالتواصل مع متداولين آخرين والمشاركة في نقاشات تبادل USDT وحوارات السوق. المشاركة تهدف لتبادل الخبرة والمعلومات التعليمية فقط، بدون أي وعود بالأرباح أو ضمانات للمعاملات."
-              : "This community is intended for people who want to connect with other traders and participate in USDT exchange discussions. It is built for educational sharing and peer conversations, without guarantees of profits, transactions, or outcomes."}
+              : "This community is intended for people who want to connect with other traders and participate in USDT exchange discussions. It is built for educational sharing and peer conversations, without guarantees of profits, transactions, or outcomes.")}
           </p>
         </div>
       </div>
@@ -140,9 +141,9 @@ export default async function CommunityPage() {
               {isAr ? "تابع رحلتنا على تيك توك" : "Follow Our Journey on TikTok"}
             </h2>
             <p className="mt-4 text-sm leading-7 text-[#9CA3AF] md:text-base">
-              {isAr
+              {brandText(isAr
                 ? "تابع @Mark_Jozen للحصول على محتوى تداول، رؤى السوق، فيديوهات تعليمية، تحديثات المجتمع، ولمحات من كواليس Alpha Traders."
-                : "Follow @Mark_Jozen for trading content, market insights, educational videos, community updates, and behind-the-scenes content from Alpha Traders."}
+                : "Follow @Mark_Jozen for trading content, market insights, educational videos, community updates, and behind-the-scenes content from Alpha Traders.")}
             </p>
 
             <div className={`surface-panel-subtle mt-6 p-5 ${isAr ? "md:text-right" : ""}`}>

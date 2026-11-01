@@ -1,8 +1,9 @@
 import type { NextRequest } from "next/server";
 import { authenticateLocalUser } from "@/lib/auth";
-import { upsertUserProfileForAuth } from "@/lib/alpha-exchange-store";
+import { findUserByEmail, upsertUserProfileForAuth } from "@/lib/alpha-exchange-store";
 import { createSupabaseAuthClient } from "@/lib/supabase-auth-provider";
 import type { AlphaExchangeUser } from "@/types/alpha-exchange";
+import { isAuthProviderRateLimitError, isAuthProviderUnavailableError } from "@/lib/auth-provider-errors";
 
 export type MobileCredentialResult =
   | { status: "authenticated"; user: AlphaExchangeUser }
@@ -15,7 +16,10 @@ export async function authenticateMobileCredentials(
   email: string,
   password: string,
 ): Promise<MobileCredentialResult> {
-  const localUser = await authenticateLocalUser(email, password);
+  // Mobile needs to distinguish a correct password for a disabled account from
+  // invalid credentials. Web auth keeps the safer default that filters disabled
+  // users before returning them.
+  const localUser = await authenticateLocalUser(email, password, { includeDisabled: true });
   if (localUser) {
     if (localUser.disabled) return { status: "disabled" };
     if (localUser.emailVerified !== true) return { status: "email_unverified" };
@@ -33,6 +37,7 @@ export async function authenticateMobileCredentials(
   const supabase = createSupabaseAuthClient({ requestHeaders: request.headers });
   const { data, error } = await supabase.auth.signInWithPassword({ email, password });
   if (error) {
+    if (isAuthProviderRateLimitError(error) || isAuthProviderUnavailableError(error)) throw error;
     return error.message.toLowerCase().includes("email not confirmed")
       ? { status: "email_unverified" }
       : { status: "invalid" };
@@ -40,6 +45,8 @@ export async function authenticateMobileCredentials(
   const supabaseUser = data.user;
   if (!supabaseUser?.email) return { status: "invalid" };
   if (!supabaseUser.email_confirmed_at) return { status: "email_unverified" };
+  const existingUser = await findUserByEmail(supabaseUser.email);
+  if (existingUser?.disabled === true) return { status: "disabled" };
   const user = await upsertUserProfileForAuth({
     fullName: String(supabaseUser.user_metadata?.full_name ?? supabaseUser.email.split("@")[0]),
     email: supabaseUser.email,

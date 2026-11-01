@@ -1,7 +1,7 @@
 import { after } from "next/server";
 import { NextRequest, NextResponse } from "next/server";
-import { sanitizePurchaseRequestForActor, TradeBlockedError, updatePurchaseRequestStatus } from "@/lib/alpha-exchange-store";
-import { requireApiUser, requireEmailVerificationForTrading } from "@/lib/api-auth";
+import { updateTradeTerms, recalculateCardlessTradeAmount, sanitizePurchaseRequestForActor, TradeBlockedError, updatePurchaseRequestStatus } from "@/lib/alpha-exchange-store";
+import { requireApiUser, requireMarketplaceVerificationForTrading } from "@/lib/api-auth";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { prepareTradeEventEmails, tradeEmailEventForStatus } from "@/lib/marketplace-email-events";
 import { tradeDestination } from "@/lib/action-destinations";
@@ -10,6 +10,11 @@ import { logEvent } from "@/lib/structured-logging";
 
 type RouteContext = {
   params: Promise<{ requestId: string }>;
+};
+
+const PRIVATE_NO_STORE_HEADERS = {
+  "Cache-Control": "private, no-store, max-age=0",
+  Pragma: "no-cache",
 };
 
 function isValidRequestStatus(value: string): value is "pending" | "accepted" | "payment_sent" | "funds_received" | "usdt_release_pending" | "usdt_sent" | "completed" | "declined" | "cancelled" {
@@ -29,7 +34,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
   }
   if (!user) return unauthorized;
 
-  const emailVerificationRequired = requireEmailVerificationForTrading(user);
+  const emailVerificationRequired = requireMarketplaceVerificationForTrading(user);
   if (routeDebug) {
     console.log("[patch-diag] stage=email-verification", { diagId, emailBlocked: Boolean(emailVerificationRequired) });
   }
@@ -69,11 +74,21 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     }
     const rawBody = body as Record<string, unknown>;
     const action = String(rawBody.action ?? "").trim();
-    if (action && action !== "complete_cash_trade" && action !== "complete_face_to_face") {
+    if (["counter_offer", "propose_amount", "propose_ils_amount", "accept_amount", "decline_terms", "withdraw_terms"].includes(action)) {
+      const updated = await updateTradeTerms({ requestId: requestId, actorUserId: user.id, action: action as Parameters<typeof updateTradeTerms>[0]["action"], value: String(rawBody?.value ?? ""), proposalId: String(rawBody?.proposalId ?? ""), expectedUpdatedAt: String(rawBody?.expectedUpdatedAt ?? ""), safetyAcknowledged: rawBody?.safetyAcknowledged === true });
+      return NextResponse.json({ request: sanitizePurchaseRequestForActor(updated, user.id, user.role) }, { headers: PRIVATE_NO_STORE_HEADERS });
+    }
+    if (action === "recalculate_cardless_amount") {
+      const updated = await recalculateCardlessTradeAmount({ requestId, actorUserId: user.id, ilsAmount: rawBody.ilsAmount == null ? undefined : String(rawBody.ilsAmount) });
+      return NextResponse.json({ request: sanitizePurchaseRequestForActor(updated, user.id, user.role), destination: tradeDestination(updated, user.id) }, { headers: PRIVATE_NO_STORE_HEADERS });
+    }
+    if (action && action !== "accept_counter_offer" && action !== "complete_cash_trade" && action !== "complete_trade" && action !== "complete_face_to_face" && action !== "submit_cardless_code") {
       return NextResponse.json({ error: "Invalid trade action.", stage: "action-invalid", code: "invalid-action", diagId }, { status: 400 });
     }
+    const isSellerCompletion = action === "complete_trade";
     const isCashTradeCompletion = action === "complete_cash_trade" || action === "complete_face_to_face";
-    const status = isCashTradeCompletion ? "completed" : String(rawBody.status ?? "").trim();
+    const isCardlessCodeSubmission = action === "submit_cardless_code";
+    const status = action === "accept_counter_offer" ? "accepted" : (isCashTradeCompletion || isSellerCompletion) ? "completed" : isCardlessCodeSubmission ? "payment_sent" : String(rawBody.status ?? "").trim();
     const safetyAcknowledged = rawBody.safetyAcknowledged === true;
     if (routeDebug) {
       console.log("[patch-diag] stage=body-parsed", { diagId, requestId, receivedStatus: rawBody.status, action, parsedStatus: status, safetyAcknowledged });
@@ -121,8 +136,15 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       actorUserId: user.id,
       actorRole: user.role,
       nextStatus: status,
-      completionMode: isCashTradeCompletion ? "cash_trade" : undefined,
+      acceptCounterOfferId: action === "accept_counter_offer" ? String(rawBody.proposalId ?? "") : undefined,
+      completionMode: isSellerCompletion ? "seller" : isCashTradeCompletion ? "cash_trade" : undefined,
+      usdtSentConfirmed: rawBody?.usdtSentConfirmed === true,
       safetyAcknowledged,
+      cardlessWithdrawalCode: isCardlessCodeSubmission ? String(rawBody.withdrawalCode ?? "") : undefined,
+      cardlessVerificationKind: isCardlessCodeSubmission ? String(rawBody.verificationKind ?? "") : undefined,
+      cardlessVerificationValue: isCardlessCodeSubmission ? String(rawBody.verificationValue ?? "") : undefined,
+      usePreparedCardlessDetails: isCardlessCodeSubmission && rawBody.usePreparedDetails === true,
+      clientOperationId: isCardlessCodeSubmission ? String(rawBody.clientOperationId ?? "") : undefined,
       traceId: isUsdtSent ? traceId : undefined,
     });
     if (deferredTrustWrite) {
@@ -208,6 +230,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     }
     return NextResponse.json(responseBody, {
       headers: {
+        ...PRIVATE_NO_STORE_HEADERS,
         "X-Trade-Route-Ms": String(routeMs),
         "X-Trade-Queue-Ms": String(queueMs),
         "X-Trade-Db-Ms": String(metrics.totalMs),
@@ -255,6 +278,6 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
         responseBody: rejection,
       });
     }
-    return NextResponse.json(rejection, { status: responseStatus });
+    return NextResponse.json(rejection, { status: responseStatus, headers: PRIVATE_NO_STORE_HEADERS });
   }
 }

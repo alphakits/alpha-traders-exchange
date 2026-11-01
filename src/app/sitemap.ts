@@ -8,6 +8,9 @@ export default function sitemap(): MetadataRoute.Sitemap {
   const staticRoutes = [
     "",
     "/about-founder",
+    "/start",
+    "/learn-trading-free",
+    "/buy-usdt-israel",
     "/founder",
     "/community",
     "/contact",
@@ -28,7 +31,14 @@ export default function sitemap(): MetadataRoute.Sitemap {
       entries.push({
         url: `${base}/${locale}${route}`,
         changeFrequency: "weekly",
-        priority: route === "" ? 1 : ["/safety-trust", "/terms", "/privacy-policy"].includes(route) ? 0.9 : 0.8,
+        priority:
+          route === ""
+            ? 1
+            : ["/start", "/learn-trading-free", "/buy-usdt-israel"].includes(route)
+              ? 0.95
+              : ["/safety-trust", "/terms", "/privacy-policy"].includes(route)
+                ? 0.9
+                : 0.8,
       });
     }
   }

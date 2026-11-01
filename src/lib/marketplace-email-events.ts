@@ -1,3 +1,4 @@
+import { accountNameForViewer } from "@/lib/public-account-identity";
 import {
   findUserById,
   getListingBroadcastEmailRecipients,
@@ -71,6 +72,7 @@ async function deliver(input: Omit<MarketplaceEmailPayload, "recipientName"> & {
   const result = await sendMarketplaceEmail({
     ...payload,
     to: recipient.email,
+    ...(payload.completionReceipt ? { recipientId: recipient.id } : {}),
     recipientName: recipient.fullName,
     recipientLocale: normalizePreferredLocale(recipient.preferredLocale),
     idempotencyKey,
@@ -87,6 +89,7 @@ async function deliver(input: Omit<MarketplaceEmailPayload, "recipientName"> & {
       },
     });
   }
+  return result;
 }
 
 function tradeEmailContent(
@@ -130,8 +133,8 @@ function tradeEmailContent(
         ...common,
         title,
         message: {
-          ar: "وافق البائع على صفقة اللقاء الشخصي. بعد تسليم النقد اضغط زر التأكيد؛ لا يلزم رفع صورة. بعد تأكيد البائع استلام النقد ستظهر له محفظتك ليؤكد إرسال USDT ثم يُكمل الصفقة بزر منفصل.",
-          en: "The seller accepted the Face-to-Face trade. After handing over the cash, use the confirmation button; no photo is required. Once the seller confirms receipt, your wallet is revealed so the seller can confirm USDT sent, then complete the trade separately.",
+          ar: "وافق البائع على صفقة اللقاء الشخصي. أكد تسليم النقد؛ لا يلزم رفع صورة. بعد تأكيد أي طرف استلام البائع للنقد تظهر له محفظتك ليرسل كامل USDT ويكمل الصفقة دون انتظار تأكيد آخر منك.",
+          en: "The seller accepted the Face-to-Face trade. Confirm handing over the cash; no photo is required. Once either participant confirms the seller received the cash, your wallet is revealed so the seller can send all USDT and complete the trade without another buyer confirmation.",
         },
       };
     }
@@ -213,11 +216,23 @@ function tradeEmailContent(
     };
   }
   if (event === "seller_funds_received") {
+    if (isFaceToFacePaymentMethod(request.paymentMethod) && request.timeline?.some((entry) => entry.type === "buyer_confirmed_funds")) {
+      return { ...common,
+        title: { ar: "أكد المشتري استلام البائع للنقد", en: "Buyer Confirmed Cash Receipt" },
+        message: { ar: "أكد المشتري تسليم كامل النقد للبائع. تحقق من النقد، ثم أرسل USDT إلى المحفظة الظاهرة وأكمل الصفقة.", en: "The buyer confirmed handing the full cash total to the seller. Verify the cash, send USDT to the revealed wallet, then complete the trade." },
+      };
+    }
     const cashTrade = isCashTradePaymentMethod(request.paymentMethod);
+    const faceToFace = isFaceToFacePaymentMethod(request.paymentMethod);
     return {
       ...common,
       title: { ar: "أكد البائع استلام الأموال", en: "Seller Confirmed Funds Received" },
-      message: cashTrade
+      message: faceToFace
+        ? {
+            ar: "أكد البائع استلام النقد. ظهرت محفظتك للبائع الآن ليرسل USDT، ثم يُكمل الصفقة دون انتظار تأكيدك.",
+            en: "The seller confirmed receiving the cash. Your wallet is now revealed so the seller can send USDT, then complete the trade without waiting for your confirmation.",
+          }
+        : cashTrade
         ? {
             ar: "أكد البائع استلام النقد. ظهرت محفظتك للبائع الآن ليرسل USDT ويؤكد الإرسال، ثم يُكمل الصفقة بزر منفصل.",
             en: "The seller confirmed receiving the cash. Your wallet is now revealed so the seller can send USDT and confirm it, then complete the trade separately.",
@@ -249,8 +264,8 @@ function tradeEmailContent(
             en: "The seller marked USDT as sent. Only the seller completes the trade, with no photo upload; completion moves it to review and records the commission.",
           }
         : {
-            ar: "أكّد البائع إرسال USDT. أكّد الاستلام في غرفة الصفقة.",
-            en: "The seller marked USDT as sent. Confirm receipt in the Trade Room.",
+            ar: "أكّد البائع إرسال USDT ويمكنه إكمال الصفقة دون انتظارك. تحقق من محفظتك؛ يمكنك أيضًا تأكيد الاستلام.",
+            en: "The seller marked USDT as sent and can complete the trade without waiting. Check your wallet; you may also confirm receipt in the Trade Room.",
           },
     };
   }
@@ -258,9 +273,15 @@ function tradeEmailContent(
     return {
       ...common,
       title: { ar: "اكتملت الصفقة", en: "Trade Completed" },
-      message: {
-        ar: `اكتملت الصفقة ${referenceLabel} وانتقلت إلى السجل والمراجعة. تم تسجيل العمولة المستحقة على البائع.`,
-        en: `Trade ${referenceLabel} is complete and has moved to history and review. The seller commission has been recorded.`,
+      actionPath: `${actionPath}#trade-receipt`,
+      actionLabel: { ar: "عرض الإيصال وسجل الصفقة", en: "View receipt and trade history" },
+      completionReceipt: request.completionReceipt,
+      message: request.completionReceipt ? {
+        ar: `اكتملت الصفقة ${referenceLabel}. إيصال صفقتك الخاص موجود أدناه وفي المرفق. افتح الصفقة لعرض الإيصال والمحادثة والسجل المحفوظ.`,
+        en: `Trade ${referenceLabel} is complete. Your private trade receipt is included below and attached. Open the trade to view its saved receipt, conversation and history.`,
+      } : {
+        ar: `اكتملت الصفقة ${referenceLabel}. افتح الصفقة لعرض التفاصيل والسجل المحفوظ.`,
+        en: `Trade ${referenceLabel} is complete. Open the trade to view its saved details and history.`,
       },
     };
   }
@@ -289,14 +310,14 @@ export async function prepareTradeEventEmails(input: {
     || (input.event === "seller_usdt_released" && isCashTradePaymentMethod(input.request.paymentMethod))
     ? [input.request.buyerId, input.request.sellerId]
     : input.event === "new_buy_request" || input.event === "buyer_payment_sent"
+      || (input.event === "seller_funds_received" && isFaceToFacePaymentMethod(input.request.paymentMethod) && input.request.timeline?.some((entry) => entry.type === "buyer_confirmed_funds"))
       ? [input.request.sellerId]
       : [input.request.buyerId];
   const recipients = [buyer, seller].filter(
     (user): user is NonNullable<typeof user> => Boolean(user && recipientIds.includes(user.id)),
   );
-  const content = tradeEmailContent(input.event, input.request);
   return () => Promise.all(recipients.map((recipient) => deliver({
-    ...content,
+    ...tradeEmailContent(input.event, { ...input.request, buyerName: accountNameForViewer(buyer ?? { id: input.request.buyerId }, recipient) }),
     recipient,
     idempotencyKey: `trade-lifecycle:${input.request.id}:${input.event}:${recipient.id}`,
   })));
@@ -307,7 +328,7 @@ export async function prepareTradeRoomConversationEmail(input: {
   request: Pick<PurchaseRequest, "id" | "tradeId">;
   recipientUserId: string;
   senderUserId: string;
-  senderRole: "buyer" | "seller";
+  senderRole: "buyer" | "seller" | "owner";
   idempotencyKey: string;
 }) {
   // All recipient identity and routing are resolved server-side. The caller
@@ -391,21 +412,23 @@ export async function prepareListingReviewEmails(input: {
     ? await getListingBroadcastEmailRecipients(input.listing.sellerId)
     : [];
   return async () => {
-    await Promise.all([
-      deliver(sellerDelivery),
-      ...recipients.map((recipient) => deliver({
+    // Deliver the seller's decision first, then avoid a burst of concurrent
+    // broadcast requests competing for the same provider rate-limit window.
+    await deliver(sellerDelivery);
+    for (const recipient of recipients) {
+      await deliver({
         event: "new_listing_published" as const,
         recipient,
         title: { ar: "نُشر إعلان USDT جديد", en: "New USDT Listing Published" },
         message: {
-          ar: `نشر ${seller.fullName} كمية ${input.listing.availableAmount} USDT على شبكة ${input.listing.network} بسعر ${input.listing.price} ${input.listing.currency}/USDT.`,
-          en: `${seller.fullName} published ${input.listing.availableAmount} USDT on ${input.listing.network} at ${input.listing.price} ${input.listing.currency}/USDT.`,
+          ar: `نشر ${accountNameForViewer(seller, recipient)} كمية ${input.listing.availableAmount} USDT على شبكة ${input.listing.network} بسعر ${input.listing.price} ${input.listing.currency}/USDT.`,
+          en: `${accountNameForViewer(seller, recipient)} published ${input.listing.availableAmount} USDT on ${input.listing.network} at ${input.listing.price} ${input.listing.currency}/USDT.`,
         },
         actionLabel: { ar: "تصفّح السوق", en: "Browse Marketplace" },
         actionPath: marketplacePath(),
         referenceLabel: input.listing.id,
         idempotencyKey: `listing-published:${input.listing.id}:${recipient.id}`,
-      })),
-    ]);
+      });
+    }
   };
 }

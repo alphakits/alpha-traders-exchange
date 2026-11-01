@@ -17,6 +17,6 @@ describe("SupportPage", () => {
 
     expect(screen.getByRole("form", { name: "أرسل لنا رسالة" })).toBeTruthy();
     expect((screen.getByLabelText(/الموضوع/) as HTMLInputElement).value).toBe("طلب دعم Alpha Traders");
-    expect(screen.getByText(/لا ترسل كلمة المرور/)).toBeTruthy();
+    expect(screen.getByText(/لا ترسل كلمات المرور/)).toBeTruthy();
   });
 });

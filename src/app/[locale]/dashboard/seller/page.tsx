@@ -6,6 +6,8 @@ import { hasRole } from "@/lib/roles";
 import { UsdtExchangePage } from "@/components/sections/usdt-exchange/usdt-exchange-page";
 import { toClientSessionUser } from "@/lib/client-session-user";
 import { SellerEnforcementRestrictionScreen } from "@/components/sections/seller/seller-enforcement-restriction-screen";
+import { isOwnerApprovedSeller } from "@/lib/seller-approval";
+import { demandEnabled } from "@/lib/usdt-demand-policy";
 
 export const dynamic = "force-dynamic";
 
@@ -33,7 +35,9 @@ export default async function SellerDashboardPage({ params }: { params: Promise<
 
   // Suspended sellers retain read/payment access so they can settle an
   // outstanding commission. Listing mutations remain restricted separately.
-  if (!hasRole(user, "approved_seller") && user.sellerStatus !== "suspended") {
+  const isVerifiedApprovedSeller = user.sellerStatus === "approved_seller"
+    && isOwnerApprovedSeller(user);
+  if (!isVerifiedApprovedSeller && user.sellerStatus !== "suspended") {
     redirect(`/${locale}/dashboard`);
   }
 
@@ -49,5 +53,5 @@ export default async function SellerDashboardPage({ params }: { params: Promise<
     );
   }
 
-  return <UsdtExchangePage locale={locale as "ar" | "en"} initialSessionUser={toClientSessionUser(user)} workspaceMode="seller" />;
+  return <UsdtExchangePage locale={locale as "ar" | "en"} initialSessionUser={toClientSessionUser(user)} usdtRequestsEnabled={demandEnabled()} />;
 }

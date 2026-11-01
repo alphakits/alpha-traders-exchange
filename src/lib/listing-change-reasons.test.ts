@@ -65,4 +65,11 @@ describe("listing change reasons", () => {
     expect(listingEditRequiresReason(current, { availableAmount: " 1000 " })).toBe(false);
     expect(listingEditRequiresReason(current, {})).toBe(false);
   });
+
+  it("does not block editing payment methods when legacy numbers only change formatting", () => {
+    expect(listingEditRequiresReason(
+      { availableAmount: "7,000", price: "3.3", minimumTrade: "0.00", maximumTrade: "7,000" },
+      { availableAmount: "7000", price: "3.30", minimumTrade: "0", maximumTrade: "7000" },
+    )).toBe(false);
+  });
 });

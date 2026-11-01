@@ -56,4 +56,16 @@ describe("Trade Room conversation notification destinations", () => {
       actionHref: "/trade-room/purchase-123#chat",
     }))).toBeNull();
   });
+
+  it("skips a malformed legacy action and keeps a valid related conversation", () => {
+    expect(getTradeRoomConversationDestination(notification({
+      reason: "trade_room_message",
+      actionHref: "/trade-room/%E0%A4%A#chat",
+      relatedHref: "/trade-room/Purchase-AbC#chat",
+    }))).toBe("/trade-room/Purchase-AbC?action=open-trade#chat");
+  });
+
+  it.each(["https://example.test/trade-room/123#chat", "//example.test/trade-room/123#chat", "/trade-room/%E0%A4%A#chat"])("ignores an invalid conversation URL: %s", (actionHref) => {
+    expect(getTradeRoomConversationDestination(notification({ actionHref }))).toBeNull();
+  });
 });

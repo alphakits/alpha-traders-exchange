@@ -1,6 +1,7 @@
 // @vitest-environment node
 
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { PGlite } from "@electric-sql/pglite";
 import type { AlphaExchangeNotification, AlphaExchangeUser, PurchaseRequest } from "@/types/alpha-exchange";
 
 const mocks = vi.hoisted(() => ({
@@ -72,6 +73,7 @@ class FakeWhatsAppPool {
   newerStopExists = false;
   deliveries = new Map<string, DeliveryRow>();
   notifications = new Map<string, AlphaExchangeNotification>();
+  recoveryQuery: { sql: string; params: unknown[] } | null = null;
 
   constructor(
     readonly user: AlphaExchangeUser,
@@ -180,6 +182,7 @@ class FakeWhatsAppPool {
       return { rows, rowCount: rows.length };
     }
     if (sql.includes("join alpha_exchange.whatsapp_subscriptions") && sql.includes("as notification_payload")) {
+      this.recoveryQuery = { sql: String(sqlValue), params };
       const rows = [...this.notifications.values()]
         .filter((notification) => {
           const key = this.deliveryKey(notification.id, whatsappNotificationRevision(notification), notification.userId);
@@ -332,6 +335,7 @@ describe("WhatsApp durable delivery integration", () => {
     const recovered = {
       ...notification,
       id: "notification-recovered",
+      category: "dispute" as const,
       whatsappEventAt: "2026-09-12T00:05:00.000Z",
       whatsappEventKey: "wae-00000000-0000-4000-8000-000000000013",
     };
@@ -380,5 +384,63 @@ describe("WhatsApp durable delivery integration", () => {
     expect(pool.deliveries.has(
       `${recoveryUnderBacklog.id}:${recoveryUnderBacklog.whatsappEventKey}:${user.id}`,
     )).toBe(true);
+
+    // Execute the actual recovery SQL against PostgreSQL semantics, including
+    // the newly eligible dispute category and unrelated/old/duplicate rows.
+    const postgres = await PGlite.create();
+    try {
+      await postgres.exec(`
+        create schema alpha_exchange;
+        create table alpha_exchange.users (id text primary key);
+        create table alpha_exchange.notifications (id text primary key, user_id text, category text, payload jsonb);
+        create table alpha_exchange.whatsapp_subscriptions (user_id text, active boolean, consent_version text);
+        create table alpha_exchange.whatsapp_deliveries (notification_id text, notification_revision text, recipient_user_id text);
+      `);
+      await postgres.query("insert into alpha_exchange.users values ($1)", [user.id]);
+      await postgres.query("insert into alpha_exchange.whatsapp_subscriptions values ($1, true, $2)", [user.id, CURRENT_WHATSAPP_CONSENT_VERSION]);
+      const eventAt = new Date().toISOString();
+      const fixtures = [
+        { ...notification, id: "db-trade", whatsappEventAt: eventAt },
+        { ...notification, id: "db-dispute", category: "dispute", whatsappEventAt: eventAt },
+        { ...notification, id: "db-system", category: "system", whatsappEventAt: eventAt },
+        { ...notification, id: "db-old-dispute", category: "dispute", whatsappEventAt: "2020-01-01T00:00:00.000Z" },
+        { ...notification, id: "db-untagged", category: "dispute", whatsappEvent: undefined, whatsappEventAt: eventAt },
+        { ...notification, id: "db-malformed", category: "dispute", whatsappEventAt: "not-an-event-time" },
+        { ...notification, id: "db-duplicate", category: "dispute", whatsappEventAt: eventAt },
+      ];
+      for (const fixture of fixtures) {
+        await postgres.query("insert into alpha_exchange.notifications values ($1, $2, $3, $4::jsonb)", [fixture.id, user.id, fixture.category, JSON.stringify(fixture)]);
+      }
+      await postgres.query("insert into alpha_exchange.whatsapp_deliveries values ($1, $2, $3)", ["db-duplicate", notification.whatsappEventKey, user.id]);
+      expect(pool.recoveryQuery).not.toBeNull();
+      const result = await postgres.query<{ notification_payload: AlphaExchangeNotification }>(pool.recoveryQuery!.sql, pool.recoveryQuery!.params);
+      expect(result.rows.map((row) => row.notification_payload.id).sort()).toEqual(["db-dispute", "db-trade"]);
+    } finally {
+      await postgres.close();
+    }
+  }, 15_000);
+});
+
+describe.each(["preferences", "inbound STOP", "delivery claim", "changed phone"])("WhatsApp %s transaction recovery", path => {
+  it.each(["timeout", "rollback", "server"] as const)("handles %s without reusing the connection or sending a message", async failure => {
+    vi.stubEnv("ALPHA_EXCHANGE_WHATSAPP_CONSENT_UI_ENABLED", "true");
+    vi.stubEnv("ALPHA_EXCHANGE_WHATSAPP_PHONE_FINGERPRINT_SECRET", "0123456789abcdef0123456789abcdef");
+    const user = { id: "seller-1", verifiedPhone: "+972541234567", phoneVerifiedAt: "2026-09-11T23:59:00.000Z", preferredLocale: "en" } as AlphaExchangeUser;
+    const request = { id: "request-1", buyerId: "buyer-1", sellerId: user.id, status: "payment_sent", updatedAt: "2026-09-12T00:01:00.000Z" } as PurchaseRequest;
+    const pool = new FakeWhatsAppPool(user, request); mocks.pool = pool;
+    await updateWhatsAppSubscription({ userId: user.id, enabled: true, verifiedPhone: user.verifiedPhone, phoneVerifiedAt: user.phoneVerifiedAt, locale: "en", tradeUpdatesEnabled: true, chatMessagesEnabled: true, consentAccepted: true, consentVersion: CURRENT_WHATSAPP_CONSENT_VERSION });
+    const notification = { id: "notification-1", userId: user.id, category: "trade", title: "Payment sent", message: "Synthetic", isRead: false, state: "unread", relatedRequestId: request.id, whatsappEvent: "trade_update", whatsappEventAt: "2026-09-12T00:01:00.000Z", whatsappEventKey: "wae-00000000-0000-4000-8000-000000000011", createdAt: "2026-09-12T00:01:00.000Z" } as AlphaExchangeNotification;
+    pool.notifications.set(notification.id, notification);
+    if (path === "changed phone") user.verifiedPhone = "+972541234568";
+    const original = failure === "timeout" ? new Error("Query read timeout") : Object.assign(new Error("controlled statement failure"), { code: "57014" });
+    const query = vi.fn(async (sql: string) => { if (sql === "begin") throw original; if (sql === "rollback" && failure === "rollback") throw new Error("socket lost"); return { rows: [], rowCount: 0 }; });
+    const release = vi.fn(); vi.spyOn(pool, "connect").mockResolvedValue({ query, release });
+    const action = path === "preferences" ? updateWhatsAppSubscription({ userId: user.id, enabled: false })
+      : path === "inbound STOP" ? revokeWhatsAppConsentByPhone({ phone: user.verifiedPhone!, messageId: "synthetic-stop" }) : deliverWhatsAppNotification(notification);
+    await expect(action).rejects.toBe(original);
+    expect(release).toHaveBeenCalledTimes(1);
+    if (failure === "server") expect(release).not.toHaveBeenCalledWith(true); else expect(release).toHaveBeenCalledWith(true);
+    expect(query.mock.calls.some(([sql]) => sql === "rollback")).toBe(failure !== "timeout");
+    expect(mocks.send).not.toHaveBeenCalled();
   });
 });

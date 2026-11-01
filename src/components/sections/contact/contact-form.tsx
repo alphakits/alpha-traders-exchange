@@ -1,10 +1,13 @@
 "use client";
 
+import { ActionFeedback } from "@/components/ui/action-feedback";
 import { useState, useRef, useId } from "react";
 import { Loader2, CheckCircle2, AlertCircle, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { LEARNING_EXPERIENCE, LEARNING_INTEREST_SUBJECT, LEARNING_INTEREST_TOPIC, type LearningDetails } from "@/lib/learning-interest";
+import { readLearningCampaign } from "@/lib/learning-campaign-client";
 
 type Locale = "ar" | "en";
 
@@ -132,11 +135,29 @@ type ContactValues = {
 export function ContactForm({
   locale,
   initialValues,
+  topic,
 }: {
   locale: Locale;
   initialValues?: Partial<ContactValues>;
+  topic?: typeof LEARNING_INTEREST_TOPIC;
 }) {
-  const t = T[locale] ?? T.en;
+  const isLearningInterest = topic === LEARNING_INTEREST_TOPIC;
+  const learningCopy = locale === "ar" ? {
+    experience: "خبرتك الحالية", experiencePlaceholder: "اختَر الأقرب لمستواك", experienceError: "اختَر مستواك الحالي.",
+    availability: "الوقت المتاح للدراسة", availabilityPlaceholder: "مثلًا: 3 ساعات بالأسبوع، مساءً بتوقيت إسرائيل", availabilityError: "اكتب الوقت المتاح للدراسة، من حرفين إلى 160 حرفًا.",
+  } : {
+    experience: "Your current experience", experiencePlaceholder: "Choose the closest match", experienceError: "Choose your current experience.",
+    availability: "Available study time", availabilityPlaceholder: "For example: 3 hours a week, evenings (Israel time)", availabilityError: "Describe your available study time in 2–160 characters.",
+  };
+  const t = isLearningInterest ? {
+    ...T[locale],
+    formTitle: locale === "ar" ? "استفسر عن ICT Mentorship" : "Ask about ICT Mentorship",
+    message: locale === "ar" ? "هدفك وأسئلتك" : "Your learning goal and questions",
+    messagePlaceholder: locale === "ar" ? "أهدافك وأسئلتك. لا ترسل تفاصيل مالية أو كلمات مرور." : "Your goals and questions. Do not include financial details or passwords.",
+    send: locale === "ar" ? "إرسال استفسار المنتورشيب" : "Send mentorship enquiry",
+    successTitle: locale === "ar" ? "تم تسجيل اهتمامك" : "Your interest has been recorded",
+    successBody: locale === "ar" ? "حُفظ استفسارك لمارك. سنرد عبر البريد. هذا ليس حجزًا أو التزامًا بالدفع." : "Your enquiry is saved for Mark. We will reply by email. This is not a booking or payment commitment.",
+  } : T[locale] ?? T.en;
   const isRtl = locale === "ar";
 
   const uid = useId();
@@ -144,17 +165,28 @@ export function ContactForm({
   const emailId = `${uid}-email`;
   const subjectId = `${uid}-subject`;
   const messageId = `${uid}-message`;
+  const experienceId = `${uid}-experience`;
+  const availabilityId = `${uid}-availability`;
 
   const [values, setValues] = useState<ContactValues>(() => ({
     name: initialValues?.name ?? "",
     email: initialValues?.email ?? "",
-    subject: initialValues?.subject ?? "",
+    subject: isLearningInterest ? LEARNING_INTEREST_SUBJECT[locale] : initialValues?.subject ?? "",
     message: initialValues?.message ?? "",
   }));
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [status, setStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
   const [errorMsg, setErrorMsg] = useState("");
+  const [intakeClosed, setIntakeClosed] = useState(false);
+  const [learningDetails, setLearningDetails] = useState<{ experience: LearningDetails["experience"] | ""; availability: string }>({ experience: "", availability: "" });
   const honeypotRef = useRef<HTMLInputElement>(null);
+  const submittingRef = useRef(false);
+
+  const setLearning = (field: "experience" | "availability") => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+    const value = e.target.value;
+    setLearningDetails(prev => ({ ...prev, [field]: value }));
+    setFieldErrors(prev => { const next = { ...prev }; delete next[field]; return next; });
+  };
 
   const set = (field: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     setValues((prev) => ({ ...prev, [field]: e.target.value }));
@@ -163,8 +195,14 @@ export function ContactForm({
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (submittingRef.current || intakeClosed) return;
 
     const errors = validateClient(values, t);
+    if (isLearningInterest) {
+      if (!learningDetails.experience || !Object.hasOwn(LEARNING_EXPERIENCE, learningDetails.experience)) errors.experience = learningCopy.experienceError;
+      const length = learningDetails.availability.trim().length;
+      if (length < 2 || length > 160) errors.availability = learningCopy.availabilityError;
+    }
     if (Object.keys(errors).length > 0) {
       setFieldErrors(errors);
       setStatus("error");
@@ -172,6 +210,7 @@ export function ContactForm({
       return;
     }
 
+    submittingRef.current = true;
     setStatus("loading");
     setErrorMsg("");
     setFieldErrors({});
@@ -187,9 +226,21 @@ export function ContactForm({
           subject: values.subject.trim(),
           message: values.message.trim(),
           locale,
+          ...(topic ? { topic } : {}),
+          ...(isLearningInterest ? { campaignLinkId: readLearningCampaign(window), learningDetails: { ...learningDetails, availability: learningDetails.availability.trim() } } : {}),
           website: honeypotRef.current?.value ?? "",
         }),
       });
+
+      if (isLearningInterest && res.status === 409) {
+        const data = await res.json().catch(() => ({}));
+        if (data.error === "mentorship_intake_closed") {
+          setIntakeClosed(true);
+          setStatus("error");
+          setErrorMsg(locale === "ar" ? "انتهت نافذة استقبال طلبات ICT Mentorship لعام 2026. الأكاديمية المجانية ما زالت متاحة." : "The 2026 ICT Mentorship enquiry window has closed. The free Academy remains available.");
+          return;
+        }
+      }
 
       if (res.status === 429) {
         setStatus("error");
@@ -203,7 +254,9 @@ export function ContactForm({
           const mapped: Record<string, string> = {};
           for (const [k, msgs] of Object.entries(data.issues as Record<string, string[]>)) {
             const code = Array.isArray(msgs) ? msgs[0] : undefined;
-            const localized = localizeContactIssue(k, code, t);
+            const localized = isLearningInterest && k === "experience" ? learningCopy.experienceError
+              : isLearningInterest && k === "availability" ? learningCopy.availabilityError
+                : localizeContactIssue(k, code, t);
             if (localized) mapped[k] = localized;
           }
           setFieldErrors(mapped);
@@ -220,19 +273,24 @@ export function ContactForm({
       }
 
       setStatus("success");
-      setValues({ name: "", email: "", subject: "", message: "" });
+      setValues({ name: "", email: "", subject: isLearningInterest ? LEARNING_INTEREST_SUBJECT[locale] : "", message: "" });
+      setLearningDetails({ experience: "", availability: "" });
     } catch {
       setStatus("error");
       setErrorMsg(t.errorGeneric);
+    } finally {
+      submittingRef.current = false;
     }
   }
 
   if (status === "success") {
     return (
-      <div className="mt-8 flex max-w-3xl flex-col items-center gap-4 rounded-2xl border border-[#C9A227]/30 bg-[#C9A227]/5 p-8 text-center">
+      <ActionFeedback className="mt-8 flex max-w-3xl flex-col items-center gap-4 rounded-2xl border border-[#C9A227]/30 bg-[#C9A227]/5 p-8 text-center">
         <CheckCircle2 className="h-12 w-12 text-[#C9A227]" aria-hidden="true" />
         <h2 className="text-xl font-semibold text-white">{t.successTitle}</h2>
         <p className="text-sm text-white/70">{t.successBody}</p>
+        {isLearningInterest ? <a href={`/${locale}/learn-with-mark#mark-explains`} className="text-sm text-[#C9A227] underline underline-offset-4">{locale === "ar" ? "اسمع شرح مارك · 7:44" : "Hear Mark’s explanation · 7:44"}</a> : null}
+        {isLearningInterest ? <a href={`/${locale}/learn-trading-free`} className="text-sm text-[#C9A227] underline underline-offset-4">{locale === "ar" ? "استكشف الأكاديمية المجانية" : "Explore the Free Academy"}</a> : null}
         <button
           type="button"
           onClick={() => setStatus("idle")}
@@ -240,7 +298,7 @@ export function ContactForm({
         >
           {locale === "ar" ? "إرسال رسالة أخرى" : "Send another message"}
         </button>
-      </div>
+      </ActionFeedback>
     );
   }
 
@@ -253,6 +311,7 @@ export function ContactForm({
       className="mt-8 grid max-w-3xl gap-5 rounded-2xl border border-white/10 bg-white/[0.02] p-5 md:p-6"
     >
       <h2 className="text-base font-semibold text-white/80">{t.formTitle}</h2>
+      {isLearningInterest ? <p className="text-sm leading-7 text-white/70">{locale === "ar" ? "اكتب مستواك وهدفك ووقتك المتاح. بيانات الطلب يطّلع عليها المالك للرد على استفسارك، ولا تظهر للزوار. قد يُرفق رمز رابط الحملة لمعرفة أي محتوى جلب الاهتمام، مع احترام عدم التتبع. إرسال الطلب لا يضيفك تلقائيًا إلى نشرة تسويقية." : "Share your level, learning goal and availability. The owner can review your details to respond; they are not public. A campaign link code may accompany your enquiry to understand which content brought interest, respecting tracking opt-outs. Submitting does not automatically subscribe you to marketing."}</p> : null}
 
       {/* Honeypot — hidden from real users */}
       <input
@@ -285,10 +344,10 @@ export function ContactForm({
           required
         />
         {fieldErrors.name && (
-          <p id={`${nameId}-err`} role="alert" className="flex items-center gap-1 text-xs text-red-400">
+          <ActionFeedback as="p" role="alert" id={`${nameId}-err`}  className="flex items-center gap-1 text-xs text-red-400">
             <AlertCircle className="h-3 w-3 flex-shrink-0" aria-hidden="true" />
             {fieldErrors.name}
-          </p>
+          </ActionFeedback>
         )}
       </div>
 
@@ -302,20 +361,24 @@ export function ContactForm({
           name="email"
           type="email"
           autoComplete="email"
+          autoCapitalize="none"
+          spellCheck={false}
+          dir="ltr"
           placeholder={t.emailPlaceholder}
           maxLength={254}
           value={values.email}
           onChange={set("email")}
           disabled={status === "loading"}
           aria-invalid={!!fieldErrors.email}
-          aria-describedby={fieldErrors.email ? `${emailId}-err` : undefined}
+          aria-describedby={[isLearningInterest ? `${emailId}-hint` : "", fieldErrors.email ? `${emailId}-err` : ""].filter(Boolean).join(" ") || undefined}
           required
         />
+        {isLearningInterest ? <p id={`${emailId}-hint`} className="text-xs leading-6 text-white/60">{locale === "ar" ? "استخدم بريدًا بتقدر تفتحه؛ الرد على استفسارك بيكون من خلاله." : "Use an email you can access; replies to your enquiry go here."}</p> : null}
         {fieldErrors.email && (
-          <p id={`${emailId}-err`} role="alert" className="flex items-center gap-1 text-xs text-red-400">
+          <ActionFeedback as="p" role="alert" id={`${emailId}-err`}  className="flex items-center gap-1 text-xs text-red-400">
             <AlertCircle className="h-3 w-3 flex-shrink-0" aria-hidden="true" />
             {fieldErrors.email}
-          </p>
+          </ActionFeedback>
         )}
       </div>
 
@@ -327,10 +390,11 @@ export function ContactForm({
         <Input
           id={subjectId}
           name="subject"
+          readOnly={isLearningInterest}
           type="text"
           placeholder={t.subjectPlaceholder}
           maxLength={200}
-          value={values.subject}
+          value={isLearningInterest ? (locale === "ar" ? "ICT Mentorship مع مارك" : "ICT Mentorship with Mark") : values.subject}
           onChange={set("subject")}
           disabled={status === "loading"}
           aria-invalid={!!fieldErrors.subject}
@@ -338,12 +402,29 @@ export function ContactForm({
           required
         />
         {fieldErrors.subject && (
-          <p id={`${subjectId}-err`} role="alert" className="flex items-center gap-1 text-xs text-red-400">
+          <ActionFeedback as="p" role="alert" id={`${subjectId}-err`}  className="flex items-center gap-1 text-xs text-red-400">
             <AlertCircle className="h-3 w-3 flex-shrink-0" aria-hidden="true" />
             {fieldErrors.subject}
-          </p>
+          </ActionFeedback>
         )}
       </div>
+
+      {isLearningInterest ? <fieldset disabled={status === "loading"} className="grid min-w-0 gap-5">
+        <legend className="sr-only">{locale === "ar" ? "عن تعلّمك" : "About your learning"}</legend>
+        <div className="grid min-w-0 gap-1.5">
+          <label htmlFor={experienceId} className="text-sm text-white/60">{learningCopy.experience} <span className="text-[#C9A227]">*</span></label>
+          <select id={experienceId} name="experience" value={learningDetails.experience} onChange={setLearning("experience")} required aria-invalid={!!fieldErrors.experience} aria-describedby={fieldErrors.experience ? `${experienceId}-err` : undefined} className="min-h-11 w-full min-w-0 rounded-xl border border-white/15 bg-[#111] px-3 py-3 text-base text-white focus:border-[#C9A227] focus:outline-none focus:ring-2 focus:ring-[#C9A227]/30">
+            <option value="">{learningCopy.experiencePlaceholder}</option>
+            {Object.entries(LEARNING_EXPERIENCE).map(([value, label]) => <option key={value} value={value}>{label[locale]}</option>)}
+          </select>
+          {fieldErrors.experience ? <ActionFeedback as="p" role="alert" id={`${experienceId}-err`} className="text-xs text-red-400">{fieldErrors.experience}</ActionFeedback> : null}
+        </div>
+        <div className="grid gap-1.5">
+          <label htmlFor={availabilityId} className="text-sm text-white/60">{learningCopy.availability} <span className="text-[#C9A227]">*</span></label>
+          <Input id={availabilityId} name="availability" value={learningDetails.availability} onChange={setLearning("availability")} placeholder={learningCopy.availabilityPlaceholder} maxLength={160} required aria-invalid={!!fieldErrors.availability} aria-describedby={fieldErrors.availability ? `${availabilityId}-err` : undefined} />
+          {fieldErrors.availability ? <ActionFeedback as="p" role="alert" id={`${availabilityId}-err`} className="text-xs text-red-400">{fieldErrors.availability}</ActionFeedback> : null}
+        </div>
+      </fieldset> : null}
 
       {/* Message */}
       <div className="grid gap-1.5">
@@ -365,10 +446,10 @@ export function ContactForm({
         />
         <div className={`flex items-center gap-1 ${fieldErrors.message ? "justify-between" : "justify-end"}`}>
           {fieldErrors.message && (
-            <p id={`${messageId}-err`} role="alert" className="flex items-center gap-1 text-xs text-red-400">
+            <ActionFeedback as="p" role="alert" id={`${messageId}-err`}  className="flex items-center gap-1 text-xs text-red-400">
               <AlertCircle className="h-3 w-3 flex-shrink-0" aria-hidden="true" />
               {fieldErrors.message}
-            </p>
+            </ActionFeedback>
           )}
           <span className="text-xs text-white/30" aria-live="polite">
             {values.message.length}/4000
@@ -378,13 +459,14 @@ export function ContactForm({
 
       {/* Global error banner */}
       {status === "error" && errorMsg && !Object.keys(fieldErrors).length && (
-        <p role="alert" className="flex items-center gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-400">
+        <ActionFeedback as="p" role="alert" className="flex items-center gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-400">
           <AlertCircle className="h-4 w-4 flex-shrink-0" aria-hidden="true" />
           {errorMsg}
-        </p>
+        </ActionFeedback>
       )}
 
-      <Button type="submit" disabled={status === "loading"} className="gap-2 self-start">
+      {intakeClosed ? <a href={`/${locale}/learn-trading-free`} className="text-sm text-[#C9A227] underline">{locale === "ar" ? "استكشف الأكاديمية المجانية" : "Explore the Free Academy"}</a> : null}
+      <Button type="submit" disabled={status === "loading" || intakeClosed} className="gap-2 self-start">
         {status === "loading" ? (
           <>
             <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />

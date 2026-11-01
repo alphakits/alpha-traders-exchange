@@ -1,10 +1,13 @@
 import "./globals.css";
+import "./visual-polish.css";
 import type { Metadata, Viewport } from "next";
 import { getLocale } from "next-intl/server";
 import { GlobalBlockchainBackground } from "@/components/layout/global-blockchain-background";
-import { localeDirection, type AppLocale } from "@/i18n/routing";
+import { PublicSpeedInsights } from "@/components/layout/public-speed-insights";
+import { localeDirection, routing, type AppLocale } from "@/i18n/routing";
 import { buildLocalizedSiteMetadata } from "@/lib/site-metadata";
 import { buildSiteIdentitySchemas, serializeJsonLd } from "@/lib/seo";
+import { BROWSER_SUPPORT_GUARD } from "@/lib/browser-support";
 
 export const viewport: Viewport = {
   themeColor: "#C9A227",
@@ -14,9 +17,9 @@ export const viewport: Viewport = {
 
 async function getRequestLocale(): Promise<AppLocale> {
   try {
-    return (await getLocale()) === "en" ? "en" : "ar";
+    return (await getLocale()) === "ar" ? "ar" : routing.defaultLocale;
   } catch {
-    return "ar";
+    return routing.defaultLocale;
   }
 }
 
@@ -30,13 +33,16 @@ export default async function RootLayout({
   children: React.ReactNode;
 }>) {
   // Read locale from next-intl middleware context so we can set lang/dir server-side.
-  // Falls back to "ar" (the default locale) for non-locale routes like /api/*.
+  // Falls back to the English site default when no locale context is available.
   const locale = await getRequestLocale();
-  const dir = localeDirection[locale] ?? "rtl";
+  const dir = localeDirection[locale];
   const siteIdentitySchemas = buildSiteIdentitySchemas();
 
   return (
     <html lang={locale} dir={dir} suppressHydrationWarning>
+      <head>
+        <script id="alpha-browser-support" dangerouslySetInnerHTML={{ __html: BROWSER_SUPPORT_GUARD }} />
+      </head>
       <body className="relative bg-background text-foreground antialiased" suppressHydrationWarning>
         <script
           type="application/ld+json"
@@ -44,6 +50,7 @@ export default async function RootLayout({
         />
         <GlobalBlockchainBackground />
         <div className="relative z-10">{children}</div>
+        {process.env.VERCEL === "1" ? <PublicSpeedInsights /> : null}
       </body>
     </html>
   );

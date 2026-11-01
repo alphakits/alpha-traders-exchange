@@ -1,0 +1,407 @@
+"""Offline failure-injection tests; never call the production website."""
+
+import copy
+import datetime as dt
+import io
+import json
+import sys
+from pathlib import Path
+import tempfile
+import unittest
+from unittest.mock import patch
+
+from production_health import (APIS, AUTH_GUARDS, BASE, CONTROL, HEALTH, LISTINGS, MARKET,
+                               PAGES, FX_MAX_CLOSED_AGE_SECONDS, Monitor, Page, assess, load_previous, main, validate)
+
+NOW = dt.datetime(2026, 10, 7, 17, 0, tzinfo=dt.timezone.utc)
+
+
+def sample(path=HEALTH, **overrides):
+    result = {"path": path, "phase": "keepalive", "method": "GET",
+              "requestUtc": NOW.isoformat(), "headers": [], "coverageError": None,
+              "issues": [], "connectionReused": True, "responseAfterSetupSeconds": 0.3,
+              "metrics": {"http_code": 200, "http_connect": 200, "exitcode": 0,
+                          "content_type": "application/json", "time_total": 0.3,
+                          "time_appconnect": 0, "url_effective": BASE + path}}
+    result.update(overrides)
+    return result
+
+
+def health(**overrides):
+    value = {"status": "ok", "checks": {"database": "ok"},
+             "responseTimeMs": 4, "timestamp": NOW.isoformat()}
+    value.update(overrides)
+    return json.dumps(value)
+
+
+def healthy_report():
+    return {"complete": True, "runnerErrors": [],
+            "observations": [sample(p) for p in APIS + PAGES + APIS + AUTH_GUARDS]}
+
+
+def market_payload(closed=False):
+    pairs = {p: {"price": 3} for p in ("btcUsdt", "ethUsdt")}
+    pairs["usdtIls"] = {"price": 3.1, "source": "WISE:USDILS",
+                         "quoteStatus": "closed" if closed else "live",
+                         "quotedAt": NOW.isoformat(),
+                         "validUntil": (NOW + dt.timedelta(seconds=120)).isoformat()}
+    return {"rate": 3.1, "market": {"status": "degraded" if closed else "live", "stale": False,
+            "unavailablePairs": [], "updatedAt": NOW.isoformat(), "pairs": pairs}}
+
+
+class ContractTests(unittest.TestCase):
+    def test_private_api_requires_unauthorized_json_and_no_store(self):
+        for path in AUTH_GUARDS:
+            observation = sample(path, headers=[{"status": 401, "headers": {"cache-control": "private, no-store, max-age=0"}}])
+            observation["metrics"]["http_code"] = 401
+            self.assertEqual(validate(observation, '{"error":"Unauthorized"}'), [])
+            observation["metrics"]["http_code"] = 200
+            self.assertIn("signed_out_guard_failed", validate(observation, '{"error":"Unauthorized"}'))
+            observation["metrics"]["http_code"] = 401
+            observation["headers"] = []
+            self.assertIn("private_api_cache_policy_missing", validate(observation, '{"error":"Unauthorized"}'))
+
+    def test_private_api_rejects_redirects_malformed_json_and_partial_responses(self):
+        observation = sample(AUTH_GUARDS[0], headers=[{"status": 401, "headers": {"cache-control": "private, no-store"}}])
+        observation["metrics"]["http_code"] = 401
+        for body in ('[]', 'not JSON', '{"records":[]}'):
+            self.assertIn("malformed_response_contract", validate(observation, body))
+        observation["metrics"]["url_effective"] = "https://other.test" + AUTH_GUARDS[0]
+        self.assertIn("unexpected_auth_redirect", validate(observation, '{"error":"Unauthorized"}'))
+        observation["metrics"]["exitcode"] = 18
+        self.assertEqual(validate(observation, '{"error":"Unauthorized"}'), [])
+        self.assertEqual(observation["coverageError"], "incomplete_response")
+
+    def test_journal_requires_locale_preserving_sign_in_redirect(self):
+        for locale, direction in [("ar", "rtl"), ("en", "ltr")]:
+            path = f"/{locale}/journal"
+            observation = sample(path)
+            body = f'<html lang="{locale}" dir="{direction}"><title>Alpha Traders</title></html>'
+            self.assertIn("journal_sign_in_redirect_missing", validate(observation, body))
+            observation["metrics"]["url_effective"] = BASE + f"/{locale}/login?redirectTo=%2F{locale}%2Fjournal"
+            self.assertEqual(validate(observation, body), [])
+            observation["metrics"]["url_effective"] = BASE + f"/{locale}/login"
+            self.assertIn("journal_return_path_lost", validate(observation, body))
+
+    def test_health_timestamp_boundaries_and_skew(self):
+        for offset, stale in [(-181, True), (-180, False), (60, False), (61, True)]:
+            with self.subTest(offset=offset):
+                errors = validate(sample(), health(timestamp=(NOW + dt.timedelta(seconds=offset)).isoformat()))
+                self.assertEqual("stale_or_future_data" in errors, stale)
+
+    def test_invalid_timestamps_and_json_do_not_pass(self):
+        for body in ["not JSON", "[]", health(timestamp="2026-10-07T17:00:00"),
+                     health(responseTimeMs=float("nan")), health(timestamp="not a date")]:
+            self.assertIn("malformed_response_contract", validate(sample(), body))
+
+    def test_database_duration_is_distinct_from_request_duration(self):
+        observation = sample()
+        observation["metrics"]["time_total"] = 12
+        self.assertEqual(validate(observation, health()), [])
+        self.assertEqual(observation["databaseProbeMs"], 4)
+        self.assertIn("slow_database_probe", validate(sample(), health(responseTimeMs=1000)))
+
+    def test_overflowing_json_number_does_not_break_evidence_serialization(self):
+        observation = sample()
+        body = health().replace('"responseTimeMs": 4', '"responseTimeMs": 1e999')
+        self.assertIn("invalid_database_duration", validate(observation, body))
+        json.dumps(observation, allow_nan=False)
+
+    def test_health_requires_both_ok_fields(self):
+        self.assertIn("unhealthy_database", validate(sample(), health(status="degraded")))
+        self.assertIn("unhealthy_database", validate(sample(), health(checks={"database": "error"})))
+
+    def test_actual_http_403_is_a_component_error(self):
+        observation = sample()
+        observation["metrics"]["http_code"] = 403
+        self.assertEqual(validate(observation, "Forbidden"), ["http_error"])
+        self.assertIsNone(observation["coverageError"])
+
+    def test_proxy_403_is_not_a_website_403(self):
+        observation = sample(headers=[{"status": 403, "headers": {"x-proxy-error": "blocked-by-allowlist"}}])
+        observation["metrics"].update(http_code=0, http_connect=403, exitcode=56)
+        self.assertEqual(validate(observation, ""), [])
+        self.assertEqual(observation["coverageError"], "proxy_connection_rejected")
+
+    def test_dns_tls_timeout_before_response_is_unverified(self):
+        for error in (6, 28, 60):
+            observation = sample()
+            observation["metrics"].update(http_code=0, http_connect=0, exitcode=error)
+            self.assertEqual(validate(observation, ""), [])
+            self.assertEqual(observation["coverageError"], "no_production_response")
+
+    def test_listings_requires_an_array(self):
+        self.assertEqual(validate(sample(LISTINGS), '{"listings":[]}'), [])
+        self.assertIn("missing_listings_array", validate(sample(LISTINGS), '{"listings":{}}'))
+
+    def test_market_contract_including_every_pair(self):
+        market = market_payload()
+        self.assertEqual(validate(sample(MARKET), json.dumps(market)), [])
+        for key, value in [("status", "degraded"), ("stale", True), ("unavailablePairs", ["btcUsdt"])]:
+            broken = copy.deepcopy(market)
+            broken["market"][key] = value
+            self.assertIn("market_degraded", validate(sample(MARKET), json.dumps(broken)))
+        for pair in market["market"]["pairs"]:
+            for price in (0, -1, True, "3", float("inf")):
+                broken = copy.deepcopy(market)
+                broken["market"]["pairs"][pair]["price"] = price
+                self.assertTrue(validate(sample(MARKET), json.dumps(broken)))
+
+    def test_valid_declared_fx_closure_is_observed_without_a_false_outage(self):
+        payload = market_payload(closed=True)
+        observation = sample(MARKET)
+        self.assertEqual(validate(observation, json.dumps(payload)), [])
+        self.assertEqual(observation["fxQuoteStatus"], "closed")
+        # The source rate can be the closing rate while its explicit quote
+        # validity and the overall snapshot remain current.
+        payload["market"]["pairs"]["usdtIls"]["quotedAt"] = (NOW - dt.timedelta(days=2)).isoformat()
+        self.assertEqual(validate(sample(MARKET), json.dumps(payload)), [])
+
+    def test_closure_never_hides_missing_crypto_or_a_stale_snapshot(self):
+        for key, value in [("stale", True), ("unavailablePairs", ["btcUsdt"]),
+                           ("unavailablePairs", ["ethUsdt"]), ("unavailablePairs", ["usdtIls"]),
+                           ("updatedAt", (NOW - dt.timedelta(seconds=181)).isoformat())]:
+            payload = market_payload(closed=True)
+            payload["market"][key] = value
+            self.assertTrue(validate(sample(MARKET), json.dumps(payload)), (key, value))
+        payload = market_payload(closed=True)
+        payload["market"]["pairs"]["btcUsdt"]["price"] = 0
+        self.assertIn("invalid_market_price", validate(sample(MARKET), json.dumps(payload)))
+
+    def test_live_and_closed_fx_require_the_identified_source_and_unexpired_validity(self):
+        for closed in (False, True):
+            limit = FX_MAX_CLOSED_AGE_SECONDS if closed else 120
+            for key, value in [
+                ("source", "unverified"), ("quoteStatus", "stale"), ("quoteStatus", None),
+                ("quoteStatus", []), ("quoteStatus", {}),
+                ("price", 1), ("price", 11), ("quotedAt", "not a timestamp"),
+                ("quotedAt", (NOW + dt.timedelta(seconds=6)).isoformat()),
+                ("quotedAt", (NOW - dt.timedelta(seconds=limit + 1)).isoformat()),
+                ("validUntil", NOW.isoformat()),
+                ("validUntil", (NOW + dt.timedelta(seconds=limit + 1)).isoformat()),
+            ]:
+                with self.subTest(closed=closed, field=key, value=value):
+                    payload = market_payload(closed)
+                    payload["market"]["pairs"]["usdtIls"][key] = value
+                    self.assertIn("invalid_fx_reference", validate(sample(MARKET), json.dumps(payload)))
+            payload = market_payload(closed)
+            payload["rate"] = 3.2
+            self.assertIn("invalid_fx_reference", validate(sample(MARKET), json.dumps(payload)))
+
+    def test_quote_expiry_is_checked_at_response_completion(self):
+        payload = market_payload()
+        observation = sample(MARKET, completedUtc=(NOW + dt.timedelta(seconds=121)).isoformat())
+        self.assertIn("invalid_fx_reference", validate(observation, json.dumps(payload)))
+
+    def test_locales_and_exchange_return_paths(self):
+        for locale, direction in [("ar", "rtl"), ("en", "ltr")]:
+            path = f"/{locale}/usdt-exchange"
+            observation = sample(path)
+            observation["metrics"]["url_effective"] = BASE + f"/{locale}/login?redirectTo=%2F{locale}%2Fusdt-exchange"
+            body = f'<html lang="{locale}" dir="{direction}"><title>Alpha Traders</title></html>'
+            self.assertEqual(validate(observation, body), [])
+            observation["metrics"]["url_effective"] = BASE + f"/{locale}/login"
+            self.assertIn("exchange_return_path_lost", validate(observation, body))
+
+    def test_fatal_html_and_missing_assets_fail(self):
+        errors = validate(sample("/en"), '<html lang="ar" dir="rtl"><title>Error</title>Internal Server Error</html>')
+        self.assertTrue({"incorrect_locale", "invalid_page_title", "fatal_html", "missing_script_references"} <= set(errors))
+
+    def test_assets_are_observed_deduplicated_and_query_preserved(self):
+        body = '<script src="/_next/static/a.js?dpl=x&amp;v=1"></script>' * 2
+        body += '<script src="https://other.test/_next/static/a.js"></script><script src="/course/video.js"></script>'
+        self.assertEqual(Page(body).scripts, {BASE + "/_next/static/a.js?dpl=x&v=1"})
+
+
+class IncidentTests(unittest.TestCase):
+    def test_damaged_previous_file_does_not_stop_fresh_observations(self):
+        with tempfile.TemporaryDirectory() as folder:
+            previous = Path(folder) / "previous.json"
+            previous.write_text('{"activeIncidents":')
+            output = Path(folder) / "report.json"
+
+            def fake_batch(monitor, paths, phase, method="GET"):
+                observations = [sample(path, phase=phase, method=method) for path in paths]
+                for observation in observations:
+                    monitor.record(observation)
+                return observations
+
+            args = ["production_health.py", "--output", str(output), "--previous", str(previous)]
+            with patch.object(sys, "argv", args), patch.object(Monitor, "batch", fake_batch), patch("sys.stdout", io.StringIO()):
+                self.assertEqual(main(), 2)
+            report = json.loads(output.read_text())
+            self.assertTrue(report["complete"])
+            self.assertTrue(report["observations"])
+            self.assertEqual(report["status"], "verification_limited")
+            self.assertEqual(report["notification"]["resolved"], [])
+            self.assertIn("monitoring:scheduler:previous_observation_unavailable", report["activeIncidents"])
+
+    def test_missing_or_invalid_history_is_explicit_not_a_website_outage(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "previous.json"
+            self.assertEqual(load_previous(path), {"previousStateUnavailable": True})
+            for body in ('null', '[]', '"text"', '{"activeIncidents":null}',
+                         '{"activeIncidents":{"bad":{}}}', '{"finishedUtc":NaN}'):
+                path.write_text(body)
+                result = assess(healthy_report(), load_previous(path))
+                self.assertEqual(result["status"], "verification_limited")
+                self.assertFalse(any(i["kind"] == "component" for i in result["activeIncidents"].values()))
+
+    def test_valid_history_preserves_prior_incident_deduplication(self):
+        value = {"finishedUtc": NOW.isoformat(), "activeIncidents": {
+            "component:market:stale": {"kind": "component", "component": MARKET, "code": "stale"}}}
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "previous.json"
+            path.write_text(json.dumps(value))
+            self.assertEqual(load_previous(path), value)
+
+    def test_late_monitor_detects_the_observation_gap_despite_healthy_site(self):
+        report = healthy_report()
+        report.update(startedUtc=NOW.isoformat(), maxObservationGapSeconds=900)
+        previous = {"finishedUtc": (NOW - dt.timedelta(seconds=1800)).isoformat()}
+        result = assess(report, previous)
+        self.assertEqual(result["status"], "verification_limited")
+        self.assertEqual(report["observationGapSeconds"], 1800)
+        self.assertTrue(any(i["code"] == "observation_gap_exceeded" for i in result["activeIncidents"].values()))
+        self.assertFalse(any(i["kind"] == "component" for i in result["activeIncidents"].values()))
+
+    def test_cadence_boundaries_deduplication_and_recovery(self):
+        report = healthy_report()
+        report.update(startedUtc=NOW.isoformat(), maxObservationGapSeconds=900)
+        previous = {"finishedUtc": (NOW - dt.timedelta(seconds=901)).isoformat()}
+        first = assess(report, previous)
+        repeated = assess(report, {**previous, **first})
+        self.assertFalse(repeated["notification"]["required"])
+        recovered = assess(report, {**first, "finishedUtc": (NOW - dt.timedelta(seconds=900)).isoformat()})
+        self.assertEqual(recovered["status"], "healthy")
+        self.assertTrue(recovered["notification"]["resolved"])
+
+    def test_missing_invalid_or_future_previous_observation_is_unverified(self):
+        report = healthy_report()
+        report.update(startedUtc=NOW.isoformat(), maxObservationGapSeconds=900)
+        for previous in ({}, {"finishedUtc": "not-a-date"}, {"finishedUtc": None},
+                         {"finishedUtc": (NOW + dt.timedelta(seconds=61)).isoformat()}):
+            result = assess(report, previous)
+            self.assertEqual(result["status"], "verification_limited")
+            self.assertTrue(any(i["code"] == "previous_observation_unavailable" for i in result["activeIncidents"].values()))
+
+    def test_observation_gap_limit_rejects_invalid_configuration(self):
+        with tempfile.TemporaryDirectory() as folder:
+            for limit in (0, -1, float("nan"), float("inf")):
+                with self.assertRaises(ValueError):
+                    Monitor(Path(folder) / "report.json", max_observation_gap_seconds=limit)
+
+    def test_healthy_run_without_changes_is_silent(self):
+        result = assess(healthy_report())
+        self.assertEqual(result["status"], "healthy")
+        self.assertFalse(result["notification"]["required"])
+
+    def test_repeated_market_failure_is_component_degradation(self):
+        report = healthy_report()
+        for observation in report["observations"]:
+            if observation["path"] == MARKET:
+                observation["issues"] = ["market_degraded"]
+        result = assess(report)
+        self.assertEqual(result["status"], "component_degraded")
+        self.assertEqual(len(result["activeIncidents"]), 1)
+        self.assertFalse(assess(report, result)["notification"]["required"])
+        self.assertTrue(assess(healthy_report(), result)["notification"]["resolved"])
+
+    def test_healthy_retry_does_not_hide_repeated_application_latency(self):
+        report = healthy_report()
+        for observation in report["observations"]:
+            if observation["path"] == HEALTH:
+                observation["responseAfterSetupSeconds"] = 3
+        result = assess(report)
+        self.assertEqual(result["status"], "component_degraded")
+        self.assertTrue(any(i["code"] == "repeated_response_latency" for i in result["activeIncidents"].values()))
+
+    def test_bad_response_followed_by_healthy_fast_response_recovers(self):
+        report = healthy_report()
+        report["observations"][0]["issues"] = ["http_error"]
+        self.assertEqual(assess(report)["status"], "healthy")
+
+    def test_incomplete_run_cannot_resolve_old_incident(self):
+        previous = {"activeIncidents": {"component:market:stale": {"kind": "component", "component": MARKET, "code": "stale"}}}
+        result = assess({"complete": False, "observations": [], "runnerErrors": []}, previous)
+        self.assertIn("component:market:stale", result["activeIncidents"])
+        self.assertEqual(result["notification"]["resolved"], [])
+
+    def test_shared_setup_delay_does_not_become_production_outage(self):
+        report = healthy_report()
+        for path in [HEALTH, LISTINGS, CONTROL]:
+            observation = sample(path, phase="control" if path == CONTROL else "fresh", connectionReused=False)
+            observation["metrics"].update(time_total=8.3, time_appconnect=8)
+            report["observations"].append(observation)
+        result = assess(report)
+        self.assertEqual(result["status"], "verification_limited")
+        self.assertEqual([i["code"] for i in result["activeIncidents"].values()], ["shared_connection_startup_delay"])
+
+    def test_healthy_control_exposes_repeated_site_setup_delay(self):
+        report = healthy_report()
+        for path in (HEALTH, LISTINGS):
+            observation = sample(path, phase="fresh", connectionReused=False)
+            observation["metrics"].update(time_appconnect=8)
+            report["observations"].append(observation)
+        report["observations"].append(sample(CONTROL, phase="control"))
+        result = assess(report)
+        self.assertTrue(any(i["code"] == "site_connection_startup_delay" for i in result["activeIncidents"].values()))
+
+    def test_no_connection_reuse_is_an_explicit_gap(self):
+        report = healthy_report()
+        for observation in report["observations"]:
+            observation["connectionReused"] = False
+        self.assertIn(f"keepalive:{HEALTH}", assess(report)["coverageGaps"])
+
+    def test_observations_survive_before_final_assessment(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "report.json"
+            monitor = Monitor(path)
+            monitor.record(sample())
+            saved = json.loads(path.read_text())
+            self.assertFalse(saved["complete"])
+            self.assertEqual(len(saved["observations"]), 1)
+
+    def test_policy_denial_stops_expansion_and_checkpoints(self):
+        with tempfile.TemporaryDirectory() as folder:
+            output = Path(folder) / "report.json"
+            class FakeCurl:
+                def __init__(self, args, **kwargs):
+                    Path(args[args.index("--dump-header") + 1]).write_text(
+                        "HTTP/1.1 403 Forbidden\nx-proxy-error: blocked-by-allowlist\n")
+                    self.stdout = io.StringIO(json.dumps({"http_code": 0, "http_connect": 403,
+                                                        "exitcode": 56, "time_total": .1}) + "\n")
+                def poll(self):
+                    return 0
+                def wait(self, **kwargs):
+                    return 0
+            with patch("production_health.subprocess.Popen", FakeCurl):
+                result = Monitor(output).run()
+            self.assertEqual(len(result["observations"]), 1)
+            self.assertFalse(result["complete"])
+            self.assertEqual(result["status"], "verification_limited")
+            self.assertIsNone(result["observations"][0]["connectionReused"])
+            self.assertFalse(any(i["kind"] == "component" for i in result["activeIncidents"].values()))
+
+    def test_new_failure_gets_retries_after_earlier_healthy_samples(self):
+        with tempfile.TemporaryDirectory() as folder:
+            class SyntheticMonitor(Monitor):
+                def batch(self, paths, phase, method="GET"):
+                    results = []
+                    for path in paths:
+                        observation = sample(path, phase=phase, method=method)
+                        seen = sum(o["path"] == HEALTH for o in self.report["observations"])
+                        # Health succeeds during setup, then fails twice and recovers.
+                        if path == HEALTH and seen in (2, 3):
+                            observation["issues"] = ["http_error"]
+                        self.record(observation)
+                        results.append(observation)
+                    return results
+            result = SyntheticMonitor(Path(folder) / "report.json").run()
+            health_samples = [o for o in result["observations"] if o["path"] == HEALTH]
+            self.assertEqual(len(health_samples), 5)
+            self.assertEqual(result["status"], "healthy")
+
+
+if __name__ == "__main__":
+    unittest.main()

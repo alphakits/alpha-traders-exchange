@@ -1,4 +1,5 @@
 import "server-only";
+import { rollbackFailedTransaction } from "@/lib/postgres-transaction";
 
 import { randomUUID } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
@@ -59,20 +60,23 @@ async function transaction<T>(
   operation: (client: PoolClient) => Promise<T>,
 ): Promise<T> {
   const client = await pool.connect();
+  let destroy = false;
   try {
     await client.query("begin");
     const value = await operation(client);
     await client.query("commit");
     return value;
   } catch (error) {
-    await client.query("rollback");
+    destroy = await rollbackFailedTransaction(client, error);
     throw error;
   } finally {
-    client.release();
+    client.release(destroy);
   }
 }
 
-function desiredStatus(sellerStatus: string): "approved" | "pending" | "suspended" | "none" {
+function desiredStatus(
+  sellerStatus: string,
+): "approved" | "pending" | "suspended" | "none" {
   if (sellerStatus === "approved_seller") return "approved";
   if (sellerStatus === "pending_seller_approval") return "pending";
   if (sellerStatus === "suspended") return "suspended";
@@ -163,8 +167,8 @@ export async function linkDiscordIdentity(input: {
   const pool = requirePool(input.pool);
   try {
     await transaction(pool, async (client) => {
-      const seller = await client.query<{ seller_status: string }>(
-        `select seller_status from alpha_exchange.users where id = $1 for update`,
+      const seller = await client.query<{ seller_status: string; payload: Record<string, unknown> }>(
+        `select seller_status, payload from alpha_exchange.users where id = $1 for update`,
         [input.platformUserId],
       );
       if (!seller.rows[0]) throw new Error("Alpha Traders account not found.");

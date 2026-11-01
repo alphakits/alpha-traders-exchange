@@ -11,7 +11,12 @@ export function isExplicitLocalProductionE2eRuntime() {
     && process.env.ALPHA_E2E_TEST_SUPPORT === "1"
     && process.env.ALPHA_E2E_LOOPBACK_ONLY === "1"
     && !process.env.VERCEL
-    && !process.env.VERCEL_ENV;
+    && !process.env.VERCEL_ENV
+    // Copying local markers into a persistent deployment must not downgrade
+    // authentication, fixture-route, or diagnostic security boundaries.
+    && !process.env.SUPABASE_DB_URL
+    && !process.env.DATABASE_URL
+    && !process.env.SUPABASE_SERVICE_ROLE_KEY;
 }
 
 export function isProductionSecurityRuntime() {
@@ -31,7 +36,7 @@ export function allowsLocalTestSupportRequest(request: { nextUrl: URL }) {
   if (!allowsTestOnlyRuntime()) return false;
 
   const hostname = request.nextUrl.hostname.trim().toLowerCase();
-  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
+  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1" || hostname === "[::1]";
 }
 
 export function allowsRuntimeDiagnostics() {

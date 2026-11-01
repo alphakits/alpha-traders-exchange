@@ -1,3 +1,10 @@
+import { receiptNotice, tradeReceiptRows } from "@alpha-traders/contracts";
+import { sellerFeeResponsibilityNotice, tradePaymentReceiptConfirmation, tradeChatTextDirection, TRADE_CHAT_MESSAGE_MAX_LENGTH, OWNER_TRADE_CHAT_MESSAGE_MAX_LENGTH } from "@alpha-traders/contracts";
+import { BrandedText as Text } from "../components/branded-text";
+import { AttentionSiren } from "../components/attention-siren";
+import { TradeTermsPanel } from "../components/trade-terms-panel";
+import { TradeCancellationControl } from "../components/trade-cancellation-control";
+import { updateMobileTradeTerms } from "../api/mobile-api";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -9,7 +16,6 @@ import {
   RefreshControl,
   ScrollView,
   StyleSheet,
-  Text,
   TextInput,
   View,
 } from "react-native";
@@ -27,13 +33,15 @@ import type {
   MobileTradeStatus,
 } from "@alpha-traders/contracts";
 import { colors, radius, spacing, typography } from "@alpha-traders/design-tokens";
+import { normalizeCardlessDigits, parseCardlessWithdrawalDetails, tradeChatRoleLabel, tradeChatStatusLabel, type CardlessVerificationKind } from "@alpha-traders/contracts";
 import {
-  completeMobileCashTrade,
+  completeMobileTrade,
   getMobileTrade,
   getMobileTradeBankDetails,
   MobileApiError,
   openMobileTradeDispute,
   sendMobileTradeMessage,
+  submitMobileCardlessCode,
   submitMobileBuyerReview,
   submitMobileSellerReviewResponse,
   updateMobileTrade,
@@ -64,6 +72,11 @@ type BankDetails = {
   accountLast4: string;
 };
 
+function chatTextStyle(value: string, isRTL: boolean) {
+  const writingDirection = tradeChatTextDirection(value, isRTL ? "rtl" : "ltr");
+  return { writingDirection, textAlign: writingDirection === "rtl" ? "right" as const : "left" as const };
+}
+
 function stageInstruction(
   status: MobileTradeStatus,
   t: ReturnType<typeof useLocale>["t"],
@@ -74,14 +87,16 @@ function stageInstruction(
     if (status === "pending") return t("waitingForSeller");
     if (status === "accepted") {
       if (side === "buyer") return cashTradeKind === "cardless_atm" ? t("cashBuyerSendCodeNext") : t("cashBuyerHandOverNext");
-      return cashTradeKind === "cardless_atm" ? t("cashSellerWaitCode") : t("cashSellerWaitHandover");
+      return cashTradeKind === "cardless_atm" ? t("cashSellerWaitCode") : t("cashSellerConfirmReceiptNext");
     }
     if (status === "payment_sent") {
       if (side === "seller") return cashTradeKind === "cardless_atm" ? t("cashSellerCollectAtmNext") : t("cashSellerConfirmReceiptNext");
       return t("cashBuyerWaitReceiptConfirmation");
     }
     if (status === "funds_received" || status === "usdt_release_pending") {
-      return side === "seller" ? t("cashSellerSendUsdtNext") : t("cashBuyerWaitUsdt");
+      return side === "seller" && cashTradeKind === "face_to_face"
+        ? t("faceSellerDeliverComplete")
+        : side === "seller" ? t("cashSellerSendUsdtNext") : t("cashBuyerWaitUsdt");
     }
     if (status === "usdt_sent") return side === "seller" ? t("cashSellerCompleteNext") : t("cashBuyerWaitCompletion");
   }
@@ -90,15 +105,15 @@ function stageInstruction(
   if (status === "payment_sent") return t("waitingForFunds");
   if (status === "funds_received") return t("waitingForRelease");
   if (status === "usdt_release_pending") return t("waitingForProof");
-  if (status === "usdt_sent") return t("waitingForReceipt");
+  if (status === "usdt_sent") return side === "seller" ? t("cashSellerCompleteNext") : t("cashBuyerWaitCompletion");
   if (status === "completed" || status === "review_open") return t("tradeFinished");
   return t("tradeEnded");
 }
 
-function DetailRow({ label, value, isRTL }: { label: string; value: string; isRTL: boolean }) {
+function DetailRow({ label, value, isRTL, commissionNotice }: { label: string; value: string; isRTL: boolean; commissionNotice?: boolean }) {
   return (
     <View style={[styles.detailRow, isRTL && styles.rowReverse]}>
-      <Text style={[styles.detailLabel, isRTL && styles.rtlText]}>{label}</Text>
+      <Text style={[styles.detailLabel, commissionNotice && { color: colors.commissionNotice }, isRTL && styles.rtlText]}>{label}</Text>
       <Text selectable style={[styles.detailValue, isRTL && styles.rtlText]}>{value}</Text>
     </View>
   );
@@ -154,6 +169,8 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
   const isFocused = useIsFocused();
   const queryClient = useQueryClient();
   const { user, requestWithSession } = useAuth();
+  const isOwnerChat = user?.role === "owner" || user?.roles.includes("owner") === true;
+  const messageLimit = isOwnerChat ? OWNER_TRADE_CHAT_MESSAGE_MAX_LENGTH : TRADE_CHAT_MESSAGE_MAX_LENGTH;
   const { locale, isRTL, t } = useLocale();
   const usdIlsRate = useUsdDisplayRate();
   const [busyAction, setBusyAction] = useState<string | null>(null);
@@ -161,6 +178,10 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
   const [notice, setNotice] = useState<string | null>(null);
   const [bankDetails, setBankDetails] = useState<BankDetails | null>(null);
   const [draftMessage, setDraftMessage] = useState("");
+  const [cardlessWithdrawalCode, setCardlessWithdrawalCode] = useState("");
+  const [cardlessVerificationKind, setCardlessVerificationKind] = useState<CardlessVerificationKind>("id_number");
+  const [cardlessVerificationValue, setCardlessVerificationValue] = useState("");
+  const cardlessDetails = parseCardlessWithdrawalDetails({ withdrawalCode: cardlessWithdrawalCode, verificationKind: cardlessVerificationKind, verificationValue: cardlessVerificationValue });
   const [disputeReason, setDisputeReason] = useState("");
   const [reviewRating, setReviewRating] = useState(5);
   const [reviewComment, setReviewComment] = useState("");
@@ -202,6 +223,9 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
     setNotice(null);
     setBankDetails(null);
     setDraftMessage("");
+    setCardlessWithdrawalCode("");
+    setCardlessVerificationKind("id_number");
+    setCardlessVerificationValue("");
     setDisputeReason("");
     setReviewRating(5);
     setReviewComment("");
@@ -328,9 +352,48 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
     }
   }
 
+  async function submitCardlessCode() {
+    if (busyAction) return;
+    const usePreparedDetails = query.data?.trade.actions.canConfirmPreparedCardlessCode === true;
+    const submissionDetails = usePreparedDetails ? { usePreparedDetails: true as const } : cardlessDetails.ok ? cardlessDetails.details : null;
+    if (!submissionDetails) {
+      setError(t("withdrawalDetailsInvalid"));
+      return;
+    }
+    const operationScope = activeTradeScopeRef.current;
+    setError(null);
+    setNotice(null);
+    setBusyAction("payment_sent");
+    try {
+      const response = await requestWithSession((tokens, requestLocale) =>
+        submitMobileCardlessCode(tokens, requestLocale, requestId, submissionDetails, Crypto.randomUUID()));
+      if (activeTradeScopeRef.current !== operationScope) return;
+      setCardlessWithdrawalCode("");
+      setCardlessVerificationValue("");
+      applyTradeMutation(response);
+    } catch (caught) {
+      if (activeTradeScopeRef.current === operationScope) {
+        setError(caught instanceof MobileApiError ? caught.message : t("genericError"));
+      }
+    } finally {
+      if (activeTradeScopeRef.current === operationScope) setBusyAction(null);
+    }
+  }
+
+  function confirmCardlessCode() {
+    if (busyAction) return;
+    Alert.alert(t("actionConfirmation"), t("withdrawalCodeSentConfirmation"), [
+      { text: t("cancel"), style: "cancel" },
+      { text: t("confirm"), onPress: () => void submitCardlessCode() },
+    ]);
+  }
+
   function confirmStatus(status: MobileTradeStatus, message: string, safetyAcknowledged = false, destructive = false) {
     if (busyAction) return;
-    Alert.alert(t("actionConfirmation"), message, [
+    const feeNotice = query.data?.trade.side === "seller" && query.data.trade.feePolicyVersion === "buyer_seller_1pct_v1" && ["accepted", "funds_received", "completed"].includes(status)
+      ? `\n${sellerFeeResponsibilityNotice(locale)}\n${query.data.trade.currency} ${query.data.trade.fiatAmount}` : "";
+    const receiptMessage = status === "funds_received" && query.data ? tradePaymentReceiptConfirmation(locale, query.data.trade.currency, query.data.trade.fiatAmount, query.data.trade.feePolicyVersion === "buyer_seller_1pct_v1") : message;
+    Alert.alert(t("actionConfirmation"), receiptMessage + feeNotice, [
       { text: t("cancel"), style: "cancel" },
       {
         text: t("confirm"),
@@ -338,6 +401,19 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
         onPress: () => void updateStatus(status, safetyAcknowledged),
       },
     ]);
+  }
+
+  async function updateTerms(action: string, value: string, safetyAcknowledged: boolean) {
+    if (busyAction || !query.data?.trade) return;
+    const current = query.data.trade;
+    const operationScope = activeTradeScopeRef.current;
+    setBusyAction("trade-terms"); setError(null);
+    try {
+      const response = await requestWithSession((tokens, requestLocale) => updateMobileTradeTerms(tokens, requestLocale, requestId, { action, value, proposalId: current.termsProposal?.id, expectedUpdatedAt: current.updatedAt, safetyAcknowledged }));
+      if (activeTradeScopeRef.current === operationScope) applyTradeMutation(response);
+    } catch (caught) {
+      if (activeTradeScopeRef.current === operationScope) setError(caught instanceof MobileApiError ? caught.message : t("genericError"));
+    } finally { if (activeTradeScopeRef.current === operationScope) setBusyAction(null); }
   }
 
   async function completeCashTrade() {
@@ -348,9 +424,9 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
     setBusyAction("complete-cash-trade");
     try {
       const response = await requestWithSession((tokens, requestLocale) =>
-        completeMobileCashTrade(tokens, requestLocale, requestId));
+        completeMobileTrade(tokens, requestLocale, requestId));
       if (activeTradeScopeRef.current !== operationScope) return;
-      setNotice(query.data?.trade.paymentMethod === "Cardless ATM Withdrawal" ? t("cardlessAtmCompleted") : t("faceToFaceCompleted"));
+      setNotice(t("tradeFinished"));
       applyTradeMutation(response);
     } catch (caught) {
       if (activeTradeScopeRef.current === operationScope) {
@@ -363,8 +439,12 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
 
   function confirmCashTradeCompletion() {
     if (busyAction) return;
-    const isCardlessAtm = query.data?.trade.paymentMethod === "Cardless ATM Withdrawal";
-    Alert.alert(isCardlessAtm ? t("cardlessAtmCompletionTitle") : t("faceToFaceCompletionTitle"), t("cashUsdtCompletionConfirmation"), [
+    const message = query.data?.trade.feePolicyVersion === "buyer_seller_1pct_v1"
+      ? `${locale === "ar" ? "أؤكد استلام الدفع وإرسال كامل USDT للمشتري. الإكمال نهائي." : "I confirm payment was received and the full USDT amount was sent to the buyer. Completion is final."} ${sellerFeeResponsibilityNotice(locale)}`
+      : query.data?.trade.status === "usdt_sent" ? t("cashUsdtCompletionConfirmation") : locale === "ar"
+      ? "أؤكد استلام الدفع وإرسال كامل USDT لمحفظة المشتري الصحيحة. الإكمال يسجّل العمولة ولا يمكن التراجع."
+      : "Confirm payment received and all USDT sent to the correct buyer wallet. Completion records the commission and cannot be undone.";
+    Alert.alert(t("sentUsdtComplete"), message, [
       { text: t("cancel"), style: "cancel" },
       { text: t("confirm"), onPress: () => void completeCashTrade() },
     ]);
@@ -381,6 +461,8 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
         getMobileTradeBankDetails(tokens, requestLocale, requestId));
       if (activeTradeScopeRef.current !== operationScope) return;
       setBankDetails(response.bankDetails);
+      scrollToGuidanceTarget("bank");
+      await query.refetch();
     } catch (caught) {
       if (activeTradeScopeRef.current === operationScope) {
         setError(caught instanceof MobileApiError ? caught.message : t("genericError"));
@@ -388,6 +470,14 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
     } finally {
       if (activeTradeScopeRef.current === operationScope) setBusyAction(null);
     }
+  }
+
+  function confirmRevealBankDetails() {
+    if (busyAction) return;
+    Alert.alert(t("bankDetails"), t("revealBankDetailsConfirmation"), [
+      { text: t("cancel"), style: "cancel" },
+      { text: t("confirm"), onPress: () => void revealBankDetails() },
+    ]);
   }
 
   async function uploadEvidence(side: "buyer" | "seller") {
@@ -453,7 +543,7 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
     if (sendingMessage) return;
     const operationScope = activeTradeScopeRef.current;
     const message = draftMessage.trim();
-    if (!message || message.length > 1200) {
+    if (!message || message.length > messageLimit) {
       setError(t("messageInvalid"));
       return;
     }
@@ -546,7 +636,7 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
     setBusyAction("review");
     try {
       const response = await requestWithSession((tokens, requestLocale) =>
-        submitMobileBuyerReview(tokens, requestLocale, requestId, reviewRating, comment));
+        submitMobileBuyerReview(tokens, requestLocale, requestId, reviewRating, comment, trade?.actions.canReviewBuyer ? "seller_buyer_review" : "buyer_review"));
       if (activeTradeScopeRef.current !== operationScope) return;
       queryClient.setQueryData(
         ["mobile-trade", user?.id ?? "anonymous", requestId, locale],
@@ -554,7 +644,7 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
       );
       setReviewComment("");
       setNotice(t("reviewSubmitted"));
-      await Promise.all([
+      void Promise.allSettled([
         queryClient.invalidateQueries({ queryKey: ["mobile-trades"] }),
         queryClient.invalidateQueries({ queryKey: ["mobile-notifications"] }),
       ]);
@@ -588,7 +678,7 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
       );
       setReviewResponse("");
       setNotice(t("responseSubmitted"));
-      await Promise.all([
+      void Promise.allSettled([
         queryClient.invalidateQueries({ queryKey: ["mobile-trades"] }),
         queryClient.invalidateQueries({ queryKey: ["mobile-notifications"] }),
       ]);
@@ -624,9 +714,10 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
 
   const trade: MobileTradeDetail = query.data.trade;
   const actions = trade.actions;
-  const actionsDisabled = busyAction !== null;
+  const actionsDisabled = busyAction !== null || trade.termsProposal?.status === "pending";
   const isFaceToFace = trade.paymentMethod === "Face-to-Face (Meet in Person)";
   const isCardlessAtm = trade.paymentMethod === "Cardless ATM Withdrawal";
+  const hasPreparedCardlessDetails = isCardlessAtm && trade.actions.canConfirmPreparedCardlessCode === true;
   const cashTradeKind = isCardlessAtm ? "cardless_atm" : isFaceToFace ? "face_to_face" : null;
 
   return (
@@ -658,7 +749,7 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
               <Text style={styles.statusText}>{mobileTradeStatusLabel(trade.status, locale)}</Text>
             </View>
           </View>
-          <Text style={[styles.instruction, isRTL && styles.rtlText]}>{stageInstruction(trade.status, t, cashTradeKind, trade.side)}</Text>
+          <Text style={[styles.instruction, isRTL && styles.rtlText]}>{trade.termsProposal?.status === "pending" ? (locale === "ar" ? "راجع اقتراح البائع أدناه. بانتظار موافقة المشتري." : "Review the proposal below. Awaiting buyer confirmation.") : stageInstruction(trade.status, t, cashTradeKind, trade.side)}</Text>
         </View>
 
         {!cashTradeKind && trade.status === "usdt_release_pending" && visibleTimeRemaining !== null ? (
@@ -683,11 +774,20 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
           </View>
         ) : null}
 
+        {trade.completionReceipt ? <View style={styles.summaryCard}>
+          <Text accessibilityRole="header" style={[styles.sectionTitle, isRTL && styles.rtlText]}>{isRTL ? "إيصال الصفقة" : "Trade receipt"}</Text>
+          {tradeReceiptRows(trade.completionReceipt, locale).map(([label, value]) => <DetailRow key={label} isRTL={isRTL} label={label} value={value} />)}
+          <Text style={[styles.timelineDate, isRTL && styles.rtlText]}>{receiptNotice(trade.completionReceipt, locale)}</Text>
+        </View> : null}
         <View style={styles.summaryCard}>
+          {trade.feePolicyVersion === "buyer_seller_1pct_v1" ? <Text style={[styles.commissionNotice, isRTL && styles.rtlText]}>{trade.side === "seller"
+            ? sellerFeeResponsibilityNotice(locale)
+            : (isRTL ? "عمولتك كمشتري 1% مشمولة في إجمالي الدفع للبائع، وتستلم كامل كمية USDT المتفق عليها." : "Your buyer fee of 1% is included in the payment total to the seller. You receive the full agreed USDT amount.")}</Text> : null}
           <DetailRow isRTL={isRTL} label={t("tradeAmount")} value={formatUsdt(trade.usdtAmount)} />
           <DetailRow isRTL={isRTL} label={t("unitPrice")} value={formatCurrencyAmountAsUsd(trade.pricePerUsdt, trade.currency, usdIlsRate, 4)} />
-          <DetailRow isRTL={isRTL} label={t("tradeValue")} value={formatCurrencyAmountAsUsd(trade.fiatAmount, trade.currency, usdIlsRate)} />
+          <DetailRow isRTL={isRTL} commissionNotice={trade.feePolicyVersion === "buyer_seller_1pct_v1"} label={trade.feePolicyVersion === "buyer_seller_1pct_v1" ? (isRTL ? "الإجمالي للبائع (يشمل عمولة المشتري 1%)" : "Total to seller (includes buyer 1%)") : t("tradeValue")} value={`${trade.currency} ${Number(trade.fiatAmount).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} />
           <DetailRow isRTL={isRTL} label={t("selectPayment")} value={mobilePaymentMethodLabel(trade.paymentMethod, locale)} />
+          {isCardlessAtm && trade.bankName ? <DetailRow isRTL={isRTL} label={locale === "ar" ? "بنك السحب" : "Withdrawal bank"} value={trade.bankName} /> : null}
           <DetailRow isRTL={isRTL} label={t("tradeSide")} value={trade.side === "buyer" ? t("purchaseSide") : t("saleSide")} />
         </View>
 
@@ -699,8 +799,8 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
         ) : null}
 
         {actions.canViewBankDetails ? (
-          <View style={styles.section}>
-            <Text accessibilityRole="header" style={[styles.sectionTitle, isRTL && styles.rtlText]}>{t("bankDetails")}</Text>
+          <View collapsable={false} onLayout={(event) => recordGuidanceLayout("bank", event)} style={[styles.section, styles.importantPanel]}>
+            <Text accessibilityRole="header" style={[styles.sectionTitle, isRTL && styles.rtlText]}><AttentionSiren key={bankDetails ? "revealed" : "locked"} />{t("bankDetails")}</Text>
             {bankDetails ? (
               <View style={styles.bankRows}>
                 <DetailRow isRTL={isRTL} label={t("accountHolder")} value={bankDetails.accountHolderName} />
@@ -709,7 +809,7 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
                 <DetailRow isRTL={isRTL} label={t("accountNumber")} value={bankDetails.accountNumber} />
               </View>
             ) : (
-              <GoldButton disabled={actionsDisabled} loading={busyAction === "bank-details"} onPress={() => void revealBankDetails()} variant="outline">
+              <GoldButton disabled={actionsDisabled} loading={busyAction === "bank-details"} onPress={confirmRevealBankDetails} variant="outline">
                 {t("revealBankDetails")}
               </GoldButton>
             )}
@@ -717,19 +817,35 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
           </View>
         ) : null}
 
+        {isCardlessAtm && trade.status === "payment_sent" ? trade.messages.filter(message => message.credentialKind === "cardless_code").map((message, index) => (
+          <View key={`withdrawal-${message.createdAt}-${index}`} style={[styles.section, styles.importantPanel]}>
+            <Text accessibilityRole="header" style={[styles.sectionTitle, isRTL && styles.rtlText]}><AttentionSiren />{t("withdrawalDetailsTitle")}</Text>
+            {trade.bankName ? <DetailRow isRTL={isRTL} label={t("bankName")} value={trade.bankName} /> : null}
+            <Text selectable style={[styles.messageText, chatTextStyle(message.message, isRTL)]}>{message.message}</Text>
+          </View>
+        )) : null}
+
         {cashTradeKind && !["declined", "cancelled", "completed", "review_open", "locked"].includes(trade.status) ? (
           <View style={styles.faceToFaceCard}>
             <Text accessibilityRole="header" style={[styles.sectionTitle, isRTL && styles.rtlText]}>
               {t("cashNoEvidenceTitle")}
             </Text>
-            <Text style={[styles.sectionBody, isRTL && styles.rtlText]}>{t("cashNoEvidenceBody")}</Text>
+            <Text style={[styles.sectionBody, isRTL && styles.rtlText]}>{isFaceToFace ? t("faceSellerDeliverComplete") : t("cashNoEvidenceBody")}</Text>
           </View>
         ) : null}
 
         <View collapsable={false} onLayout={(event) => recordGuidanceLayout("actions", event)} style={styles.actions}>
+          {trade.side === "seller" && trade.status === "pending" && trade.sellerCommissionDue ? (
+            <View style={styles.section}>
+              <Text accessibilityRole="header" style={[styles.sectionTitle, styles.commissionNotice, isRTL && styles.rtlText]}>{isRTL ? "ادفع العمولة لقبول الطلب" : "Pay Commission to Accept"}</Text>
+              <Text style={[styles.commissionNotice, isRTL && styles.rtlText]}>{isRTL ? "سدّد جميع العمولات المستحقة أولاً لقبول هذا الطلب. يبقى الطلب محفوظاً ويمكنك قبوله بعد تأكيد السداد." : "Pay all outstanding commission before accepting this request. Your request stays available after payment is verified."}</Text>
+              <GoldButton onPress={() => router.push("/seller/commissions")}>{isRTL ? "دفع العمولة" : "Pay Commission"}</GoldButton>
+            </View>
+          ) : null}
+          <TradeTermsPanel key={trade.id} trade={trade} isAr={locale === "ar"} disabled={busyAction !== null || trade.hasOpenDispute} onAction={updateTerms} />
           {actions.canAccept ? (
             <GoldButton
-              disabled={actionsDisabled}
+              disabled={actionsDisabled || Boolean(trade.sellerCommissionDue)}
               loading={busyAction === "accepted"}
               onPress={() => confirmStatus("accepted", isFaceToFace ? t("acceptSafetyConfirmation") : t("actionConfirmation"), isFaceToFace)}
             >
@@ -744,21 +860,18 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
               </GoldButton>
             </View>
           ) : null}
-          {actions.canCancel ? (
-            <GoldButton disabled={actionsDisabled} loading={busyAction === "cancelled"} onPress={() => confirmStatus("cancelled", trade.status === "accepted" ? t("cancelBeforePaymentConfirmation") : t("cancelConfirmation"), false, true)} variant="outline">
-              {t("cancelTrade")}
-            </GoldButton>
-          ) : null}
-          {actions.canCompleteFaceToFace ? (
+          <TradeCancellationControl trade={trade} isAr={locale === "ar"} disabled={actionsDisabled} loading={busyAction === "cancelled"}
+            onCancel={() => confirmStatus("cancelled", trade.status === "accepted" ? t("cancelBeforePaymentConfirmation") : t("cancelConfirmation"), false, true)} />
+          {(actions.canCompleteTrade ?? actions.canCompleteFaceToFace) ? (
             <GoldButton
               disabled={actionsDisabled}
               loading={busyAction === "complete-cash-trade"}
               onPress={confirmCashTradeCompletion}
             >
-              {t("sentUsdtComplete")}
+              ✅ {t("sentUsdtComplete")}
             </GoldButton>
           ) : null}
-          {actions.canMarkUsdtSent ? (
+          {actions.canMarkUsdtSent && !actions.canCompleteTrade ? (
             <GoldButton
               disabled={actionsDisabled}
               loading={busyAction === "usdt_sent"}
@@ -768,13 +881,56 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
             </GoldButton>
           ) : null}
           {actions.canMarkPaymentSent ? (
-            <GoldButton
-              disabled={actionsDisabled}
-              loading={busyAction === "payment_sent"}
-              onPress={() => confirmStatus("payment_sent", isCardlessAtm ? t("withdrawalCodeSentConfirmation") : t("cashHandoverConfirmation"))}
-            >
-              {isCardlessAtm ? t("sentWithdrawalCode") : t("handedOverCash")}
-            </GoldButton>
+            <View style={styles.actionGroup}>
+              {hasPreparedCardlessDetails ? (
+                <Text style={[styles.messageText, isRTL && styles.rtlText]}>{locale === "ar" ? "بيانات السحب محفوظة وخاصة. أكد إرسال الرمز لمشاركتها مع البائع. يُقفل الإلغاء بعد التأكيد." : "Your saved withdrawal details are still private. Confirm sending the code to share them with the seller. Cancellation locks after confirmation."}</Text>
+              ) : isCardlessAtm ? (
+                <>
+                <Text style={[styles.sectionTitle, isRTL && styles.rtlText]}>{t("withdrawalDetailsTitle")}</Text>
+                <Text style={[styles.messageText, isRTL && styles.rtlText]}>{t("withdrawalDetailsHint")}</Text>
+                <Text style={[styles.messageText, isRTL && styles.rtlText]}>{t("withdrawalCodeLabel")}</Text>
+                <TextInput
+                  accessibilityLabel={t("withdrawalCodeLabel")}
+                  editable={!actionsDisabled}
+                  inputMode="numeric"
+                  keyboardType="number-pad"
+                  maxLength={12}
+                  onChangeText={(value) => setCardlessWithdrawalCode(normalizeCardlessDigits(value).replace(/\s+/g, "").slice(0, 12))}
+                  placeholder={t("withdrawalCodePlaceholder")}
+                  placeholderTextColor={colors.textMuted}
+                  secureTextEntry
+                  style={styles.input}
+                  value={cardlessWithdrawalCode}
+                />
+                <View accessibilityRole="radiogroup" style={{ flexDirection: isRTL ? "row-reverse" : "row", gap: spacing.sm }}>
+                  {(["id_number", "date_of_birth"] as const).map((kind) => (
+                    <Pressable key={kind} accessibilityRole="radio" accessibilityState={{ checked: cardlessVerificationKind === kind, disabled: actionsDisabled }}
+                      disabled={actionsDisabled} style={[styles.ratingOption, cardlessVerificationKind === kind && styles.ratingOptionSelected]}
+                      onPress={() => { setCardlessVerificationKind(kind); setCardlessVerificationValue(""); }}>
+                      <Text style={[styles.ratingOptionText, cardlessVerificationKind === kind && styles.ratingOptionTextSelected]}>
+                        {kind === "id_number" ? t("withdrawalIdNumber") : t("withdrawalBirthDate")}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+                <Text style={[styles.messageText, isRTL && styles.rtlText]}>{cardlessVerificationKind === "id_number" ? t("withdrawalIdNumber") : t("withdrawalBirthDate")}</Text>
+                <TextInput accessibilityLabel={cardlessVerificationKind === "id_number" ? t("withdrawalIdNumber") : t("withdrawalBirthDate")}
+                  editable={!actionsDisabled} autoComplete="off" autoCorrect={false}
+                  keyboardType={cardlessVerificationKind === "id_number" ? "number-pad" : "default"}
+                  maxLength={cardlessVerificationKind === "id_number" ? 12 : 10}
+                  value={cardlessVerificationValue} onChangeText={(value) => setCardlessVerificationValue(normalizeCardlessDigits(value))}
+                  placeholder={cardlessVerificationKind === "id_number" ? t("withdrawalIdNumber") : "DD/MM/YYYY"}
+                  placeholderTextColor={colors.textMuted} style={styles.input} />
+                </>
+              ) : null}
+              <GoldButton
+                disabled={actionsDisabled || (isCardlessAtm && !hasPreparedCardlessDetails && !cardlessDetails.ok)}
+                loading={busyAction === (isCardlessAtm ? "payment_sent" : "funds_received")}
+                onPress={isCardlessAtm ? confirmCardlessCode : () => confirmStatus("funds_received", t("cashHandoverConfirmation"))}
+              >
+                {isCardlessAtm ? t("sendAndConfirmWithdrawalCode") : t("handedOverCash")}
+              </GoldButton>
+            </View>
           ) : null}
           {actions.canUploadPaymentEvidence ? (
             <GoldButton disabled={actionsDisabled} loading={busyAction === "evidence-buyer" || busyAction === "picking-evidence"} onPress={() => void uploadEvidence("buyer")}>
@@ -846,12 +1002,20 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
           </View>
         ) : null}
 
-        {actions.canSubmitReview ? (
+        {trade.side === "seller" && trade.status !== "pending" && trade.sellerCommissionDue ? (
+          <View style={[styles.section, styles.importantPanel]}>
+            <Text accessibilityRole="header" style={[styles.sectionTitle, styles.commissionNotice, isRTL && styles.rtlText]}><AttentionSiren />{isRTL ? "عمولة مستحقة" : "Commission Due"}</Text>
+            <Text style={[styles.sectionBody, isRTL && styles.rtlText]}>{formatUsdt(trade.sellerCommissionDue.amount)}</Text>
+            <GoldButton onPress={() => router.push("/seller/commissions")}>💳 {isRTL ? "دفع العمولة" : "Pay Commission"}</GoldButton>
+          </View>
+        ) : null}
+
+        {actions.canSubmitReview || actions.canReviewBuyer ? (
           <View collapsable={false} onLayout={(event) => recordGuidanceLayout("review", event)} style={styles.section}>
             <Text accessibilityRole="header" style={[styles.sectionTitle, isRTL && styles.rtlText]}>
-              {t("reviewTitle")}
+              {actions.canReviewBuyer ? (isRTL ? "تقييم المشتري (اختياري)" : "Review buyer (optional)") : t("reviewTitle")}
             </Text>
-            <Text style={[styles.sectionBody, isRTL && styles.rtlText]}>{t("reviewBody")}</Text>
+            <Text style={[styles.sectionBody, isRTL && styles.rtlText]}>{actions.canReviewBuyer ? (isRTL ? "الصفقة مكتملة. يمكنك تقييم المشتري أو العودة للرئيسية." : "The trade is completed. You can review the buyer or return home.") : t("reviewBody")}</Text>
             <RatingSelector
               disabled={actionsDisabled}
               isRTL={isRTL}
@@ -938,13 +1102,17 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
 
         <View style={styles.section}>
           <Text accessibilityRole="header" style={[styles.sectionTitle, isRTL && styles.rtlText]}>{t("tradeChat")}</Text>
-          <Text style={[styles.chatSafety, isRTL && styles.rtlText]}>{t("chatSafety")}</Text>
+          {trade.participants ? <View style={styles.messageParticipants}>
+            <Text style={styles.messageIdentity}>{tradeChatRoleLabel("buyer", locale)} · {trade.participants.buyerPublicId}</Text>
+            <Text style={styles.messageIdentity}>{tradeChatRoleLabel("seller", locale)} · {trade.participants.sellerPublicId}</Text>
+          </View> : null}
+          <Text style={[styles.chatSafety, isRTL && styles.rtlText]}>{isOwnerChat ? (locale === "ar" ? "يمكن للمالك مشاركة أرقام الهاتف وتفاصيل واتساب والروابط. تبقى بيانات السحب ضمن الإجراء المحمي." : "Owner messages can include phone numbers, WhatsApp details, and links. Withdrawal credentials still use the protected action.") : t("chatSafety")}</Text>
           <View style={styles.messageList}>
             {trade.messages.length ? trade.messages.map((message, index) => {
               if (message.sender === "system") {
                 return (
                   <View key={`${message.createdAt}-system-${index}`} style={styles.systemMessage}>
-                    <Text style={[styles.systemMessageText, isRTL && styles.rtlText]}>{message.message}</Text>
+                    <Text style={[styles.systemMessageText, chatTextStyle(message.message, isRTL), /commission|عمول/i.test(message.message) && { color: colors.commissionNotice }]}>{message.message}</Text>
                     <Text style={styles.messageTime}>{new Date(message.createdAt).toLocaleTimeString(locale === "ar" ? "ar-IL" : "en-IL", { hour: "2-digit", minute: "2-digit" })}</Text>
                   </View>
                 );
@@ -953,21 +1121,32 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
               return (
                 <View
                   key={`${message.createdAt}-${message.sender}-${index}`}
-                  style={[styles.messageBubble, isOwn ? styles.ownMessage : styles.counterpartyMessage]}
+                  style={[styles.messageBubble, isOwn ? styles.ownMessage : styles.counterpartyMessage, message.isOwnerMessage && { borderColor: "#f87171", backgroundColor: "#450a0a", borderWidth: 1 }]}
                 >
-                  <Text style={[styles.messageText, isRTL && styles.rtlText]}>{message.message}</Text>
-                  <Text style={styles.messageTime}>{new Date(message.createdAt).toLocaleTimeString(locale === "ar" ? "ar-IL" : "en-IL", { hour: "2-digit", minute: "2-digit" })}</Text>
+                  <Text style={[styles.messageIdentity, isRTL && styles.rtlText, message.isOwnerMessage && { color: "#fecaca" }]}>
+                    {message.senderPublicId ? `${message.senderPublicId} · ` : ""}
+                    {tradeChatRoleLabel(message.isOwnerMessage ? "owner" : message.participantRole ?? (isOwn ? trade.side : trade.side === "buyer" ? "seller" : "buyer"), locale)}
+                    {isOwn ? (locale === "ar" ? " · أنت" : " · You") : ""}
+                  </Text>
+                  <Text style={[styles.messageText, chatTextStyle(message.message, isRTL)]}>{message.message}</Text>
+                  <View style={styles.messageFooter}>
+                    <Text style={styles.messageTime}>{new Date(message.createdAt).toLocaleTimeString(locale === "ar" ? "ar-IL" : "en-IL", { hour: "2-digit", minute: "2-digit" })}</Text>
+                    {message.status ? <Text style={styles.messageTime}>{tradeChatStatusLabel(message.status, locale)}</Text> : null}
+                  </View>
                 </View>
               );
             }) : (
               <Text style={[styles.noMessages, isRTL && styles.rtlText]}>{t("noMessages")}</Text>
             )}
           </View>
+          {isCardlessAtm && trade.side === "buyer" && !isOwnerChat && trade.status === "accepted" ? (
+            <Text style={[styles.chatSafety, isRTL && styles.rtlText]}>{t("cardlessProtectedCodeHint")}</Text>
+          ) : (
           <View style={[styles.composer, isRTL && styles.rowReverse]}>
             <TextInput
               accessibilityLabel={t("messagePlaceholder")}
               editable={!sendingMessage}
-              maxLength={1200}
+              maxLength={messageLimit}
               multiline
               onChangeText={(value) => {
                 setDraftMessage(value);
@@ -975,7 +1154,7 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
               }}
               placeholder={t("messagePlaceholder")}
               placeholderTextColor={colors.textMuted}
-              style={[styles.messageInput, isRTL && styles.rtlInput]}
+              style={[styles.messageInput, chatTextStyle(draftMessage, isRTL)]}
               value={draftMessage}
             />
             <GoldButton
@@ -987,6 +1166,7 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
               {t("send")}
             </GoldButton>
           </View>
+          )}
         </View>
 
         <View style={styles.section}>
@@ -1008,6 +1188,7 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
 }
 
 const styles = StyleSheet.create({
+  importantPanel: { borderColor: "rgba(248,113,113,0.65)", borderWidth: 1, backgroundColor: "rgba(127,29,29,0.22)" },
   safeArea: { backgroundColor: "transparent", flex: 1 },
   flex: { flex: 1 },
   content: { gap: spacing.lg, padding: spacing.lg, paddingBottom: spacing.hero },
@@ -1044,8 +1225,11 @@ const styles = StyleSheet.create({
   safetyNote: { color: colors.warning, fontSize: typography.caption, lineHeight: 18 },
   faceToFaceCard: { backgroundColor: "rgba(67, 205, 138, 0.08)", borderColor: "rgba(67, 205, 138, 0.38)", borderRadius: radius.lg, borderWidth: 1, gap: spacing.sm, padding: spacing.lg },
   actions: { gap: spacing.md },
+  actionGroup: { gap: spacing.sm },
+  input: { backgroundColor: colors.surfaceRaised, borderColor: colors.border, borderRadius: radius.md, borderWidth: 1, color: colors.text, fontSize: typography.body, minHeight: 52, paddingHorizontal: spacing.md, paddingVertical: spacing.sm },
   policyWarningCard: { backgroundColor: "rgba(240, 106, 106, 0.08)", borderColor: "rgba(240, 106, 106, 0.35)", borderRadius: radius.lg, borderWidth: 1, gap: spacing.sm, padding: spacing.md },
-  policyWarningText: { color: colors.danger, fontSize: typography.caption, lineHeight: 19 },
+  policyWarningText: { color: colors.commissionNotice, fontSize: typography.caption, lineHeight: 19 },
+  commissionNotice: { color: colors.commissionNotice, fontSize: typography.small, lineHeight: 22, marginBottom: 8 },
   error: { color: colors.danger, fontSize: typography.small, lineHeight: 20 },
   notice: { color: colors.success, fontSize: typography.small, fontWeight: "800", lineHeight: 21 },
   sectionBody: { color: colors.textMuted, fontSize: typography.body, lineHeight: 24 },
@@ -1065,6 +1249,9 @@ const styles = StyleSheet.create({
   privacyNote: { color: colors.goldMuted, fontSize: typography.caption, textAlign: "center" },
   chatSafety: { color: colors.warning, fontSize: typography.caption, lineHeight: 18 },
   messageList: { gap: spacing.sm },
+  messageParticipants: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
+  messageIdentity: { color: colors.goldBright, fontSize: typography.caption, fontWeight: "700" },
+  messageFooter: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", gap: spacing.sm },
   messageBubble: { borderRadius: radius.md, gap: spacing.xs, maxWidth: "86%", paddingHorizontal: spacing.md, paddingVertical: spacing.sm },
   ownMessage: { alignSelf: "flex-end", backgroundColor: "rgba(216, 180, 74, 0.18)", borderColor: colors.borderGold, borderWidth: 1 },
   counterpartyMessage: { alignSelf: "flex-start", backgroundColor: colors.surfaceRaised, borderColor: colors.border, borderWidth: 1 },

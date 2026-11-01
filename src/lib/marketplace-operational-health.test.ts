@@ -54,6 +54,19 @@ function request(overrides: Partial<PurchaseRequest> = {}): PurchaseRequest {
 }
 
 describe("buildMarketplaceOperationalSnapshot", () => {
+  it("detects delayed trust reconciliation at ten minutes and clears after recovery", () => {
+    const trade = request({ status: "completed", priceMode: "listing_price", trustReconciliation: {
+      requestedAt: "2026-09-03T19:50:00.001Z", requestedByUserId: "seller-1",
+    } });
+    const input = { marketplaceListings: [listing()], purchaseRequests: [trade] };
+    expect(buildMarketplaceOperationalSnapshot(input, NOW).incidents).toHaveLength(0);
+    trade.trustReconciliation!.requestedAt = "2026-09-03T19:50:00.000Z";
+    expect(buildMarketplaceOperationalSnapshot(input, NOW)).toMatchObject({ status: "attention", incidents: [
+      { kind: "pending_trade_trust", severity: "warning", requestId: trade.id, ageMinutes: 10 },
+    ] });
+    trade.trustReconciliation!.reconciledAt = NOW.toISOString();
+    expect(buildMarketplaceOperationalSnapshot(input, NOW)).toMatchObject({ status: "healthy", incidents: [] });
+  });
   it("returns a healthy snapshot for a fresh pending offer", () => {
     const result = buildMarketplaceOperationalSnapshot({
       marketplaceListings: [listing()],
@@ -117,6 +130,49 @@ describe("buildMarketplaceOperationalSnapshot", () => {
     expect(result.status).toBe("critical");
     expect(result.dataIntegrityIssues).toBe(1);
     expect(result.incidents[0]).toMatchObject({ kind: "unlinked_active_trade", requestId: "request-1" });
+  });
+
+  it.each(["accepted", "payment_sent", "funds_received", "usdt_release_pending", "usdt_sent"] as const)(
+    "accepts three trades sharing one representative listing lock at %s",
+    (status) => {
+      const activeRequests = [1, 2, 3].map((index) => request({
+        id: `request-${index}`,
+        buyerId: `buyer-${index}`,
+        status,
+        priceMode: "listing_price",
+      }));
+      const result = buildMarketplaceOperationalSnapshot({
+        marketplaceListings: [listing({ status: "in_trade", activeTradeRequestId: "request-2" })],
+        purchaseRequests: activeRequests,
+      }, NOW);
+
+      expect(result).toMatchObject({ status: "healthy", activeTrades: 3, dataIntegrityIssues: 0 });
+      expect(result.incidents).toEqual([]);
+    },
+  );
+
+  it("rejects a representative lock belonging to another listing", () => {
+    const result = buildMarketplaceOperationalSnapshot({
+      marketplaceListings: [listing({ status: "in_trade", activeTradeRequestId: "other-request" })],
+      purchaseRequests: [
+        request({ status: "accepted" }),
+        request({ id: "other-request", listingId: "other-listing", status: "accepted" }),
+      ],
+    }, NOW);
+
+    expect(result.incidents).toContainEqual(expect.objectContaining({ kind: "orphaned_listing_lock" }));
+    expect(result.incidents).toContainEqual(expect.objectContaining({ kind: "unlinked_active_trade", requestId: "request-1" }));
+  });
+
+  it("rejects an active request whose seller does not own the linked listing", () => {
+    const result = buildMarketplaceOperationalSnapshot({
+      marketplaceListings: [listing({ status: "in_trade", activeTradeRequestId: "request-1" })],
+      purchaseRequests: [request({ status: "accepted", sellerId: "other-seller" })],
+    }, NOW);
+
+    expect(result.status).toBe("critical");
+    expect(result.incidents).toContainEqual(expect.objectContaining({ kind: "orphaned_listing_lock" }));
+    expect(result.incidents).toContainEqual(expect.objectContaining({ kind: "unlinked_active_trade", requestId: "request-1" }));
   });
 
   it("flags an accepted trade that remains idle after its warning", () => {

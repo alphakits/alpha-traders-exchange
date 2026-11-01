@@ -1,3 +1,4 @@
+import { previewEmailRecipientFailure, previewEmailSubject } from "./email-preview-safety";
 import {
   BRAND_EMAIL_LOGO_SRC,
   BRAND_NAME,
@@ -115,25 +116,32 @@ export async function sendAuthEmailViaResend(input: {
     return { ok: false as const, reason: "resend_not_configured" as const };
   }
 
-  const response = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      from,
-      to: [input.to],
-      subject: input.subject,
-      html: input.html,
-      text: input.text,
-      headers: buildBrandedEmailHeaders(),
-      attachments: [buildBrandedEmailLogoAttachment()],
-    }),
-  });
+  try {
+    const previewFailure = previewEmailRecipientFailure([input.to]);
+    if (previewFailure) return previewFailure;
+    const response = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      signal: AbortSignal.timeout(10_000),
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        from,
+        to: [input.to],
+        subject: previewEmailSubject(input.subject),
+        html: input.html,
+        text: input.text,
+        headers: buildBrandedEmailHeaders(),
+        attachments: [buildBrandedEmailLogoAttachment()],
+      }),
+    });
 
-  if (!response.ok) {
+    if (!response.ok) {
+      return { ok: false as const, reason: "resend_request_failed" as const };
+    }
+    return { ok: true as const };
+  } catch {
     return { ok: false as const, reason: "resend_request_failed" as const };
   }
-  return { ok: true as const };
 }

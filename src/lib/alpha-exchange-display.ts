@@ -40,7 +40,7 @@ function collect(lookup: Record<string, string>, rows: DisplayEntity[] | undefin
     const displayNumber = toDisplayNumber(row.displayNumber);
     if (!id) continue;
     lookup[id] = `${label} ${formatDisplayId(type, displayNumber, id)}`;
-    if (row.tradeId?.trim()) {
+    if (type === "trade" && row.tradeId?.trim()) {
       lookup[row.tradeId.trim()] = `${label} ${formatDisplayId(type, displayNumber, row.tradeId.trim())}`;
     }
   }

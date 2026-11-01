@@ -1,5 +1,9 @@
 "use client";
 
+import { fetchClientJson } from "@/lib/client-request-deadline";
+import { clientResponseMessage } from "@/lib/client-response-message";
+
+import { ActionFeedback, useActionFeedbackState } from "@/components/ui/action-feedback";
 import { useState, type FormEvent } from "react";
 import { Link } from "@/i18n/navigation";
 import { Button } from "@/components/ui/button";
@@ -12,8 +16,8 @@ export function ForgotPasswordForm({ locale }: { locale: "ar" | "en" }) {
     : "If an account exists for this email, we've sent password reset instructions.";
   const [email, setEmail] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage, errorMessageFeedbackKey] = useActionFeedbackState<string | null>(null);
+  const [statusMessage, setStatusMessage, statusMessageFeedbackKey] = useActionFeedbackState<string | null>(null);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -22,14 +26,13 @@ export function ForgotPasswordForm({ locale }: { locale: "ar" | "en" }) {
     if (isSubmitting) return;
     setIsSubmitting(true);
     try {
-      const response = await fetch("/api/auth/reset/request", {
+      const { response, payload } = await fetchClientJson<{ error?: unknown; message?: unknown } | null>("/api/auth/reset/request", {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-Locale": locale },
         body: JSON.stringify({ email }),
-      });
-      const payload = (await response.json()) as { error?: string; message?: string };
+      }, 30_000);
       if (!response.ok) {
-        setErrorMessage(isAr ? "فشل إرسال رابط إعادة التعيين." : (payload.error ?? "Failed to send reset link."));
+        setErrorMessage(isAr ? "فشل إرسال رابط إعادة التعيين." : clientResponseMessage(payload?.error, "Failed to send reset link."));
         return;
       }
       setStatusMessage(genericSuccessMessage);
@@ -67,8 +70,8 @@ export function ForgotPasswordForm({ locale }: { locale: "ar" | "en" }) {
           </Button>
         </form>
 
-        {errorMessage ? <p className="mt-3 text-sm text-rose-300" role="status" aria-live="polite">{errorMessage}</p> : null}
-        {statusMessage ? <p className="mt-3 text-sm text-emerald-300" role="status" aria-live="polite">{statusMessage}</p> : null}
+        {errorMessage ? <ActionFeedback revealKey={errorMessageFeedbackKey} as="p" role="alert" className="mt-3 text-sm text-rose-300">{errorMessage}</ActionFeedback> : null}
+        {statusMessage ? <ActionFeedback revealKey={statusMessageFeedbackKey} as="p" className="mt-3 text-sm text-emerald-300" role="status" aria-live="polite">{statusMessage}</ActionFeedback> : null}
 
         <p className="mt-5 text-sm text-[#9CA3AF]">
           <Link href="/login" className="text-[#C9A227] hover:underline">

@@ -3,6 +3,10 @@
  * Called once at module load time in production to fail fast on missing config.
  */
 import { isProductionSecurityRuntime } from "@/lib/runtime-safety";
+import { validateUsdtReleaseConfig } from "@/lib/usdt-release-config";
+import { getTwilioSmsSender } from "@/lib/notification-platform";
+import { getTwilioWhatsAppConfigurationStatus } from "@/lib/twilio-whatsapp";
+import { WHATSAPP_AUTHENTICATION_TEMPLATE_NAME, WHATSAPP_EVENT_TEMPLATES } from "@/lib/whatsapp-platform";
 
 type EnvVar = {
   key: string;
@@ -39,17 +43,25 @@ const ENV_VARS: EnvVar[] = [
   { key: "DISCORD_MARKETPLACE_WEBHOOK_SECRET", required: false, description: "HMAC secret protecting marketplace event relay requests" },
   { key: "ALPHA_EXCHANGE_LARGE_TRADE_THRESHOLD", required: false, description: "Min USDT amount considered a large trade" },
   { key: "ALPHA_EXCHANGE_EVIDENCE_MAX_SIZE_MB", required: false, description: "Max evidence upload size in MB" },
+  { key: "ALPHA_EXCHANGE_CARDLESS_CREDENTIAL_SECRET", required: false, description: "Dedicated server-only encryption key material for temporary Cardless ATM withdrawal credentials" },
   { key: "CRON_SECRET", required: false, description: "Bearer secret protecting scheduled Trade Room reminder jobs" },
   { key: "ALPHA_EXCHANGE_EXPOSE_RESET_TOKEN", required: false, description: "Dev-only: expose reset token in API response (never set in production)" },
-  { key: "TWILIO_ACCOUNT_SID", required: false, description: "Twilio account SID for server-side SMS delivery" },
-  { key: "TWILIO_AUTH_TOKEN", required: false, description: "Twilio auth token for server-side SMS delivery and callback validation" },
-  { key: "TWILIO_PHONE_NUMBER", required: false, description: "Twilio E.164 sender number for server-side SMS delivery" },
+  { key: "TWILIO_ACCOUNT_SID", required: false, description: "Twilio account SID for server-side SMS and WhatsApp delivery" },
+  { key: "TWILIO_AUTH_TOKEN", required: false, description: "Twilio auth token for server-side messaging and callback validation" },
+  { key: "TWILIO_PHONE_NUMBER", required: false, description: "Legacy Twilio E.164 SMS sender when no explicit SMS identity is configured" },
+  { key: "TWILIO_SMS_FROM", required: false, description: "Explicit Twilio E.164 or supported alphanumeric SMS sender" },
+  { key: "TWILIO_SMS_MESSAGING_SERVICE_SID", required: false, description: "Twilio Messaging Service SID, taking precedence over SMS sender numbers" },
   { key: "ALPHA_EXCHANGE_TWILIO_SEND_ENABLED", required: false, description: "Explicitly enable all outbound Twilio SMS" },
-  { key: "ALPHA_EXCHANGE_PHONE_VERIFICATION_ENABLED", required: false, description: "Explicitly enable optional phone verification" },
-  { key: "ALPHA_EXCHANGE_PHONE_VERIFICATION_PROVIDER", required: false, description: "Phone verification transport: disabled, twilio, or whatsapp" },
+  { key: "ALPHA_EXCHANGE_TWILIO_OTP_SEND_ENABLED", required: false, description: "Enable requested verification SMS without enabling trade notification SMS" },
+  { key: "ALPHA_EXCHANGE_PHONE_VERIFICATION_ENABLED", required: false, description: "Local fixture switch; production phone verification is always enabled" },
+  { key: "ALPHA_EXCHANGE_PHONE_VERIFICATION_REQUIRED", required: false, description: "Local fixture switch; production buyer and seller phone verification is mandatory" },
+  { key: "ALPHA_EXCHANGE_PHONE_VERIFICATION_PROVIDER", required: false, description: "Phone verification transport: twilio SMS; WhatsApp is currently unavailable" },
+  { key: "ALPHA_EXCHANGE_WHATSAPP_PROVIDER", required: false, description: "WhatsApp delivery provider: meta (default) or twilio" },
+  { key: "TWILIO_WHATSAPP_FROM", required: false, description: "Registered Twilio WhatsApp E.164 sender, optionally prefixed with whatsapp:" },
+  { key: "TWILIO_WHATSAPP_CONTENT_SIDS", required: false, description: "JSON mapping enabled WhatsApp template names to approved en and ar Twilio Content SIDs" },
   { key: "ALPHA_EXCHANGE_WHATSAPP_CONSENT_UI_ENABLED", required: false, description: "Expose explicit WhatsApp notification consent controls after Meta policy clearance" },
-  { key: "ALPHA_EXCHANGE_WHATSAPP_SEND_ENABLED", required: false, description: "Enable approved WhatsApp Cloud API template delivery" },
-  { key: "ALPHA_EXCHANGE_WHATSAPP_AUTH_SEND_ENABLED", required: false, description: "Enable direct Meta WhatsApp authentication-template phone verification" },
+  { key: "ALPHA_EXCHANGE_WHATSAPP_SEND_ENABLED", required: false, description: "Enable approved WhatsApp Utility template delivery through the selected provider" },
+  { key: "ALPHA_EXCHANGE_WHATSAPP_AUTH_SEND_ENABLED", required: false, description: "Enable WhatsApp authentication-template phone verification through the selected provider" },
   { key: "ALPHA_EXCHANGE_WHATSAPP_AUTH_TEMPLATE_APPROVED", required: false, description: "Confirm Meta approved the fixed WhatsApp authentication template" },
   { key: "ALPHA_EXCHANGE_WHATSAPP_POLICY_APPROVED", required: false, description: "Explicit operator acknowledgement that Meta provided written policy clearance" },
   { key: "ALPHA_EXCHANGE_WHATSAPP_POLICY_APPROVAL_REFERENCE", required: false, description: "Internal reference for Meta's written WhatsApp policy clearance" },
@@ -128,17 +140,15 @@ const DISCORD_MARKETPLACE_RELAY_ENV_VARS = [
   "DISCORD_MARKETPLACE_WEBHOOK_SECRET",
 ] as const;
 
-const WHATSAPP_OUTBOUND_REQUIRED_ENV_VARS = [
-  "ALPHA_EXCHANGE_WHATSAPP_POLICY_APPROVAL_REFERENCE",
+const META_WHATSAPP_OUTBOUND_REQUIRED_ENV_VARS = [
   "META_WHATSAPP_WABA_ID",
   "META_WHATSAPP_PHONE_NUMBER_ID",
   "META_WHATSAPP_ACCESS_TOKEN",
   "META_WHATSAPP_GRAPH_VERSION",
 ] as const;
 
-const WHATSAPP_NOTIFICATION_REQUIRED_ENV_VARS = [
-  ...WHATSAPP_OUTBOUND_REQUIRED_ENV_VARS,
-  "ALPHA_EXCHANGE_WHATSAPP_PHONE_FINGERPRINT_SECRET",
+const META_WHATSAPP_NOTIFICATION_REQUIRED_ENV_VARS = [
+  ...META_WHATSAPP_OUTBOUND_REQUIRED_ENV_VARS,
   "META_WHATSAPP_APP_SECRET",
   "META_WHATSAPP_WEBHOOK_VERIFY_TOKEN",
 ] as const;
@@ -156,6 +166,28 @@ export function validateEnv(): { warnings: string[]; errors: string[] } {
   const errors: string[] = [];
   const isProduction = process.env.NODE_ENV === "production";
 
+  const networkMode = process.env.ALPHA_NETWORK_ACCESS_MODE?.trim() || "off";
+  const networkProvider = process.env.ALPHA_NETWORK_ACCESS_PROVIDER?.trim() || "proxycheck";
+  if (!["proxycheck", "ipregistry"].includes(networkProvider)) {
+    errors.push("ALPHA_NETWORK_ACCESS_PROVIDER must be proxycheck or ipregistry.");
+  }
+  if (!["off", "monitor", "tor-only", "vpn-tor", "enforce"].includes(networkMode)) {
+    errors.push("ALPHA_NETWORK_ACCESS_MODE must be off, monitor, tor-only, vpn-tor, or enforce.");
+  } else if (networkMode !== "off") {
+    if (networkProvider === "proxycheck" && !process.env.PROXYCHECK_API_KEY?.trim()) {
+      errors.push("PROXYCHECK_API_KEY is required when network access checks are enabled.");
+    }
+    if (networkProvider === "ipregistry" && !process.env.IPREGISTRY_API_KEY?.trim()) {
+      errors.push("IPREGISTRY_API_KEY is required when ipregistry network access checks are enabled.");
+    }
+  }
+  if (process.env.NEXT_PUBLIC_PROXYCHECK_API_KEY) {
+    errors.push("SECURITY: PROXYCHECK_API_KEY must be server-only, never NEXT_PUBLIC.");
+  }
+  if (process.env.NEXT_PUBLIC_IPREGISTRY_API_KEY) {
+    errors.push("SECURITY: IPREGISTRY_API_KEY must be server-only, never NEXT_PUBLIC.");
+  }
+
   for (const envVar of ENV_VARS) {
     const value = process.env[envVar.key];
     if (envVar.required && !value) {
@@ -164,6 +196,7 @@ export function validateEnv(): { warnings: string[]; errors: string[] } {
   }
 
   if (isProduction) {
+    if (isProductionSecurityRuntime()) errors.push(...validateUsdtReleaseConfig(process.env));
     if (process.env.SUPABASE_DB_SSL === "false") {
       errors.push(
         "SECURITY: SUPABASE_DB_SSL=false is forbidden in production because PostgreSQL TLS identity verification is required.",
@@ -178,6 +211,24 @@ export function validateEnv(): { warnings: string[]; errors: string[] } {
       errors.push(
         "Missing required environment variable: SUPABASE_SERVICE_ROLE_KEY — admin media uploads require object storage credentials in production.",
       );
+    }
+    const cardlessCredentialSecret = process.env.ALPHA_EXCHANGE_CARDLESS_CREDENTIAL_SECRET?.trim();
+    if (cardlessCredentialSecret && cardlessCredentialSecret.length < 32) {
+      errors.push(
+        "SECURITY: ALPHA_EXCHANGE_CARDLESS_CREDENTIAL_SECRET must contain at least 32 characters.",
+      );
+    } else if (!cardlessCredentialSecret) {
+      warnings.push(
+        "ALPHA_EXCHANGE_CARDLESS_CREDENTIAL_SECRET is not set. Cardless ATM credentials will use existing server-only key material until a dedicated stable secret is configured.",
+      );
+    }
+    const previousCardlessSecret = process.env.ALPHA_EXCHANGE_CARDLESS_CREDENTIAL_PREVIOUS_SECRET?.trim();
+    if (previousCardlessSecret && previousCardlessSecret.length < 32) {
+      errors.push("SECURITY: ALPHA_EXCHANGE_CARDLESS_CREDENTIAL_PREVIOUS_SECRET must contain at least 32 characters.");
+    }
+    const cardlessActivation = process.env.ALPHA_EXCHANGE_CARDLESS_CREDENTIAL_ACTIVATE_AT?.trim();
+    if (cardlessActivation && (!cardlessCredentialSecret || !Number.isFinite(Date.parse(cardlessActivation)))) {
+      errors.push("SECURITY: ALPHA_EXCHANGE_CARDLESS_CREDENTIAL_ACTIVATE_AT requires a dedicated secret and a valid activation date.");
     }
     if (!process.env.NEXT_PUBLIC_SITE_URL) {
       warnings.push(
@@ -215,24 +266,35 @@ export function validateEnv(): { warnings: string[]; errors: string[] } {
     const whatsappAuthTemplateApproved = isExplicitlyEnabled(process.env.ALPHA_EXCHANGE_WHATSAPP_AUTH_TEMPLATE_APPROVED);
     const whatsappPolicyApproved = isExplicitlyEnabled(process.env.ALPHA_EXCHANGE_WHATSAPP_POLICY_APPROVED);
     const twilioSendEnabled = isExplicitlyEnabled(process.env.ALPHA_EXCHANGE_TWILIO_SEND_ENABLED);
+    const twilioOtpSendEnabled = isExplicitlyEnabled(process.env.ALPHA_EXCHANGE_TWILIO_OTP_SEND_ENABLED);
     const phoneVerificationEnabled = isExplicitlyEnabled(process.env.ALPHA_EXCHANGE_PHONE_VERIFICATION_ENABLED);
+    if (isExplicitlyEnabled(process.env.ALPHA_EXCHANGE_PHONE_VERIFICATION_REQUIRED) && !phoneVerificationEnabled) {
+      errors.push("Mandatory phone verification requires ALPHA_EXCHANGE_PHONE_VERIFICATION_ENABLED=true.");
+    }
     const phoneVerificationProvider = process.env.ALPHA_EXCHANGE_PHONE_VERIFICATION_PROVIDER?.trim().toLowerCase() || "disabled";
     const whatsappPhoneVerificationSelected = phoneVerificationProvider === "whatsapp";
     if (!["disabled", "twilio", "whatsapp"].includes(phoneVerificationProvider)) {
       errors.push("ALPHA_EXCHANGE_PHONE_VERIFICATION_PROVIDER must be disabled, twilio, or whatsapp.");
     }
-    if (twilioSendEnabled) {
-      const missingTwilio = ["TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_PHONE_NUMBER"]
+    const whatsappProvider = process.env.ALPHA_EXCHANGE_WHATSAPP_PROVIDER?.trim().toLowerCase() || "meta";
+    if (!["meta", "twilio"].includes(whatsappProvider)) {
+      errors.push("ALPHA_EXCHANGE_WHATSAPP_PROVIDER must be meta or twilio.");
+    }
+    if (twilioSendEnabled || twilioOtpSendEnabled) {
+      const missingTwilio = ["TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN"]
         .filter((key) => !process.env[key]?.trim());
       if (missingTwilio.length > 0) {
         errors.push(`Missing required Twilio environment variable(s): ${missingTwilio.join(", ")}.`);
+      }
+      if (!getTwilioSmsSender()) {
+        errors.push("Twilio SMS requires a valid TWILIO_SMS_MESSAGING_SERVICE_SID, TWILIO_SMS_FROM, or TWILIO_PHONE_NUMBER, respecting explicit sender precedence.");
       }
     }
     if (phoneVerificationEnabled && phoneVerificationProvider === "disabled") {
       errors.push("Phone verification requires an explicit twilio or whatsapp provider.");
     }
-    if (phoneVerificationEnabled && phoneVerificationProvider === "twilio" && !twilioSendEnabled) {
-      errors.push("Twilio phone verification requires ALPHA_EXCHANGE_TWILIO_SEND_ENABLED=true.");
+    if (phoneVerificationEnabled && phoneVerificationProvider === "twilio" && !twilioSendEnabled && !twilioOtpSendEnabled) {
+      errors.push("Twilio phone verification requires ALPHA_EXCHANGE_TWILIO_SEND_ENABLED=true or ALPHA_EXCHANGE_TWILIO_OTP_SEND_ENABLED=true.");
     }
     if (phoneVerificationEnabled && whatsappPhoneVerificationSelected && !whatsappAuthSendEnabled) {
       errors.push(
@@ -247,12 +309,42 @@ export function validateEnv(): { warnings: string[]; errors: string[] } {
       );
     }
     if (whatsappNotificationConfigured || whatsappAuthenticationConfigured) {
-      const required = new Set<string>();
+      const required = new Set<string>(["ALPHA_EXCHANGE_WHATSAPP_POLICY_APPROVAL_REFERENCE"]);
       if (whatsappNotificationConfigured) {
-        for (const key of WHATSAPP_NOTIFICATION_REQUIRED_ENV_VARS) required.add(key);
+        required.add("ALPHA_EXCHANGE_WHATSAPP_PHONE_FINGERPRINT_SECRET");
       }
-      if (whatsappAuthenticationConfigured) {
-        for (const key of WHATSAPP_OUTBOUND_REQUIRED_ENV_VARS) required.add(key);
+      if (whatsappProvider === "twilio") {
+        const templateNames = [
+          ...(whatsappAuthenticationConfigured ? [WHATSAPP_AUTHENTICATION_TEMPLATE_NAME] : []),
+          ...(whatsappNotificationConfigured ? Object.values(WHATSAPP_EVENT_TEMPLATES).map(template => template.name) : []),
+        ];
+        const configuration = getTwilioWhatsAppConfigurationStatus(process.env, templateNames);
+        if (!configuration.credentialsConfigured) {
+          errors.push("Twilio WhatsApp requires a valid TWILIO_ACCOUNT_SID and a nonempty TWILIO_AUTH_TOKEN.");
+        }
+        if (!configuration.senderConfigured) {
+          errors.push("TWILIO_WHATSAPP_FROM must contain a registered WhatsApp sender in valid E.164 format.");
+        }
+        if (!configuration.templatesConfigured) {
+          errors.push("TWILIO_WHATSAPP_CONTENT_SIDS must map each enabled WhatsApp template to valid en and ar HX Content SIDs.");
+        }
+      } else {
+        if (whatsappNotificationConfigured) {
+          for (const key of META_WHATSAPP_NOTIFICATION_REQUIRED_ENV_VARS) required.add(key);
+        }
+        if (whatsappAuthenticationConfigured) {
+          for (const key of META_WHATSAPP_OUTBOUND_REQUIRED_ENV_VARS) required.add(key);
+        }
+        const graphVersion = process.env.META_WHATSAPP_GRAPH_VERSION?.trim() ?? "";
+        if (graphVersion && !/^v\d+\.\d+$/.test(graphVersion)) {
+          errors.push("META_WHATSAPP_GRAPH_VERSION must be pinned in vNN.N format.");
+        }
+        for (const key of ["META_WHATSAPP_WABA_ID", "META_WHATSAPP_PHONE_NUMBER_ID"] as const) {
+          const value = process.env[key]?.trim() ?? "";
+          if (value && !/^\d+$/.test(value)) {
+            errors.push(`${key} must contain digits only.`);
+          }
+        }
       }
       const missing = [...required].filter((key) => !process.env[key]?.trim());
       if (!whatsappPolicyApproved) {
@@ -262,18 +354,8 @@ export function validateEnv(): { warnings: string[]; errors: string[] } {
       }
       if (missing.length > 0) {
         errors.push(
-          `Missing required WhatsApp Cloud API environment variable(s): ${missing.join(", ")}.`,
+          `Missing required ${whatsappProvider === "twilio" ? "Twilio WhatsApp" : "WhatsApp Cloud API"} environment variable(s): ${missing.join(", ")}.`,
         );
-      }
-      const graphVersion = process.env.META_WHATSAPP_GRAPH_VERSION?.trim() ?? "";
-      if (graphVersion && !/^v\d+\.\d+$/.test(graphVersion)) {
-        errors.push("META_WHATSAPP_GRAPH_VERSION must be pinned in vNN.N format.");
-      }
-      for (const key of ["META_WHATSAPP_WABA_ID", "META_WHATSAPP_PHONE_NUMBER_ID"] as const) {
-        const value = process.env[key]?.trim() ?? "";
-        if (value && !/^\d+$/.test(value)) {
-          errors.push(`${key} must contain digits only.`);
-        }
       }
       const fingerprintSecret = process.env.ALPHA_EXCHANGE_WHATSAPP_PHONE_FINGERPRINT_SECRET?.trim() ?? "";
       if (whatsappNotificationConfigured && fingerprintSecret && fingerprintSecret.length < 32) {
@@ -299,13 +381,19 @@ export function runEnvValidation(): void {
   }
 
   if (errors.length > 0) {
-    for (const error of errors) {
-      console.error("[env-validation] FATAL:", error);
-    }
     const isLocalBuild = process.env.NEXT_PHASE === "phase-production-build"
       && !process.env.VERCEL
       && !process.env.VERCEL_ENV;
-    if (isProductionSecurityRuntime() && !isLocalBuild) {
+    const shouldFailRuntime = isProductionSecurityRuntime() && !isLocalBuild;
+
+    for (const error of errors) {
+      if (shouldFailRuntime) {
+        console.error("[env-validation] FATAL:", error);
+      } else {
+        console.warn("[env-validation] NON-BLOCKING:", error);
+      }
+    }
+    if (shouldFailRuntime) {
       throw new Error(
         `Environment validation failed with ${errors.length} error(s). See logs above.`,
       );

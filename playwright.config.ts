@@ -1,24 +1,41 @@
 import { defineConfig, devices } from "@playwright/test";
-import { E2E_BASE_URL, E2E_PORT } from "./e2e/support/base-url";
+import { E2E_BASE_URL, E2E_CRON_SECRET, E2E_PORT } from "./e2e/support/base-url";
 
 export default defineConfig({
   testDir: "./e2e",
+  // These suites require their own server capabilities and fixtures. The Wise
+  // config runs both files against its network-blocked offline launcher; the
+  // ordinary server must never be reset by that isolated fixture.
+  testIgnore: [
+    "**/phone-verification-gate.spec.ts",
+    "**/wise-usd-draft.spec.ts",
+    "**/wise-usd-layout.spec.ts",
+  ],
   globalSetup: "./e2e/global-setup.ts",
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
+  // Retries collect diagnostics; an intermittent failure must still block release.
+  failOnFlakyTests: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
   workers: 1,
   reporter: "list",
   use: {
     baseURL: E2E_BASE_URL,
-    trace: "on-first-retry",
+    // Keep the original failure, not only the subsequent retry that may pass.
+    trace: "retain-on-failure",
     headless: true,
   },
   webServer: {
-    command: `npm run clean && npm run build && npm run start -- -H 127.0.0.1 -p ${E2E_PORT}`,
+    // APIRequestContext pools HTTP connections while browser actions run.
+    // Keep the loopback server's idle sockets alive across those interactions;
+    // reducing exposure to idle-close races after CI1089's ECONNRESET failures.
+    // This does not extend request/test deadlines or retry financial actions.
+    command: `npm run clean && npm run build && npm run start -- -H 127.0.0.1 -p ${E2E_PORT} --keepAliveTimeout 65000`,
     url: E2E_BASE_URL,
     reuseExistingServer: false,
     timeout: 600_000,
+    stdout: "pipe",
+    stderr: "pipe",
     env: {
       ...process.env,
       NODE_ENV: "production",
@@ -28,6 +45,9 @@ export default defineConfig({
       ALPHA_E2E_TEST_SUPPORT: "1",
       ALPHA_E2E_LOOPBACK_ONLY: "1",
       ALPHA_EXCHANGE_FORCE_INMEMORY_REPOSITORY: "1",
+      // This key protects synthetic credentials inside the loopback-only fixture.
+      ALPHA_EXCHANGE_CARDLESS_CREDENTIAL_SECRET: "alpha-exchange-loopback-e2e-cardless-key-only",
+      CRON_SECRET: E2E_CRON_SECRET,
     },
   },
   projects: [

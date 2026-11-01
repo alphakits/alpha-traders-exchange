@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { approveSellerApplicationByAdmin } from "@/lib/alpha-exchange-store";
-import { requireApiAdmin } from "@/lib/api-auth";
+import { requireApiOwner } from "@/lib/api-auth";
 import { logEvent } from "@/lib/structured-logging";
 
 type RouteContext = {
@@ -8,17 +8,21 @@ type RouteContext = {
 };
 
 export async function POST(request: NextRequest, context: RouteContext) {
-  const { user, unauthorized } = await requireApiAdmin();
+  const { user, unauthorized } = await requireApiOwner();
   if (!user) return unauthorized;
 
   try {
     const { applicationId } = await context.params;
-    const body = await request.json() as { reason?: string };
+    const body = await request.json() as { reason?: string; verification?: unknown };
     const reason = String(body.reason ?? "").trim();
     if (!reason) {
       return NextResponse.json({ error: "Reason is required." }, { status: 400 });
     }
-    const application = await approveSellerApplicationByAdmin(applicationId, user.id, reason);
+    const application = await approveSellerApplicationByAdmin(
+      applicationId,
+      user.id,
+      reason,
+    );
     logEvent("info", { event: "seller_application_approve", actorUserId: user.id, actorRole: user.role, resourceId: applicationId, outcome: "success" });
     return NextResponse.json({ application });
   } catch (error) {

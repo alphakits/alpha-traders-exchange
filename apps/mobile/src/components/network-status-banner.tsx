@@ -1,4 +1,5 @@
-import { StyleSheet, Text, View } from "react-native";
+import { BrandedText as Text } from "./branded-text";
+import { StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors, spacing, typography } from "@alpha-traders/design-tokens";
 import { useLocale } from "../i18n/locale-context";

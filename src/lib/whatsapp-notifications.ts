@@ -1,4 +1,5 @@
 import "server-only";
+import { rollbackFailedTransaction } from "@/lib/postgres-transaction";
 
 import { createHash, createHmac, randomUUID } from "node:crypto";
 import { after } from "next/server";
@@ -212,10 +213,6 @@ async function ensureWhatsAppSchema(pool: Pool) {
     });
   }
   await schemaPromise;
-}
-
-function rollbackQuietly(client: PoolClient) {
-  return client.query("rollback").catch(() => undefined);
 }
 
 function subscriptionFromRow(row: PersistedSubscriptionRow): WhatsAppSubscription {
@@ -437,6 +434,7 @@ export async function updateWhatsAppSubscription(input: {
   const pool = requireWhatsAppPool();
   await ensureWhatsAppSchema(pool);
   const client = await pool.connect();
+  let destroy = false;
   try {
     await client.query("begin");
     const userResult = await client.query<{ payload: unknown }>(
@@ -567,10 +565,10 @@ export async function updateWhatsAppSubscription(input: {
     }
     await client.query("commit");
   } catch (error) {
-    await rollbackQuietly(client);
+    destroy = await rollbackFailedTransaction(client, error);
     throw error;
   } finally {
-    client.release();
+    client.release(destroy);
   }
   return getWhatsAppChannelStatus(userId);
 }
@@ -589,7 +587,7 @@ export function whatsappNotificationRevision(notification: AlphaExchangeNotifica
 export function classifyWhatsAppNotification(
   notification: AlphaExchangeNotification,
 ): WhatsAppEventType | null {
-  if (notification.category !== "trade") return null;
+  if (notification.category !== "trade" && notification.category !== "dispute") return null;
   if (!notification.relatedRequestId && !notification.relatedTradeId) return null;
   const event = notification.whatsappEvent;
   return event && isWhatsAppEventType(event) ? event : null;
@@ -618,7 +616,11 @@ export function isWhatsAppEventApplicableToRequest(event: WhatsAppEventType, req
     "usdt_sent",
   ]);
   if (event === "new_request") return request.status === "pending";
-  if (event === "request_accepted" || event === "trade_update") {
+  if (event === "trade_update") {
+    return activeStatuses.has(request.status)
+      || (request.status === "pending" && Boolean(request.termsProposal));
+  }
+  if (event === "request_accepted") {
     return activeStatuses.has(request.status);
   }
   if (event === "trade_room_message" || event === "trade_room_reminder") {
@@ -735,6 +737,7 @@ async function claimDelivery(
     recipientUserId: context.notification.userId,
   });
   const client = await pool.connect();
+  let destroy = false;
   try {
     await client.query("begin");
     if (event === "trade_room_message") {
@@ -822,10 +825,10 @@ async function claimDelivery(
     const claimed = result.rows[0];
     return claimed ? { id: claimed.id, leaseToken, attemptCount: claimed.attempt_count } : null;
   } catch (error) {
-    await rollbackQuietly(client);
+    destroy = await rollbackFailedTransaction(client, error);
     throw error;
   } finally {
-    client.release();
+    client.release(destroy);
   }
 }
 
@@ -945,6 +948,7 @@ async function suppressExistingDelivery(
 
 async function deactivateChangedPhoneConsent(pool: Pool, userId: string, observedPhoneFingerprint: string) {
   const client = await pool.connect();
+  let destroy = false;
   try {
     await client.query("begin");
     await client.query("select id from alpha_exchange.users where id = $1 for update", [userId]);
@@ -982,10 +986,10 @@ async function deactivateChangedPhoneConsent(pool: Pool, userId: string, observe
     });
     await client.query("commit");
   } catch (error) {
-    await rollbackQuietly(client);
+    destroy = await rollbackFailedTransaction(client, error);
     throw error;
   } finally {
-    client.release();
+    client.release(destroy);
   }
 }
 
@@ -1195,10 +1199,10 @@ export async function runWhatsAppDeliverySweep() {
       and subscription.active = true
       and subscription.consent_version = $1
      join alpha_exchange.users recipient on recipient.id = notification.user_id
-     where notification.category = 'trade'
+     where notification.category in ('trade', 'dispute')
        and notification.payload ->> 'whatsappEvent' = any($4::text[])
        and notification.payload ->> 'whatsappEventAt'
-             ~ '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$'
+             ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}[.][0-9]{3}Z$'
        and notification.payload ->> 'whatsappEventKey'
              ~ '^wae-[0-9a-fA-F-]{36}$'
        and notification.payload ->> 'whatsappEventAt' >= $2
@@ -1370,8 +1374,9 @@ export async function applyWhatsAppWebhookStatuses(
   statuses: readonly WhatsAppDeliveryStatusUpdate[],
 ) {
   if (statuses.length === 0) return 0;
-  const pool = getRuntimePostgresPool();
-  if (!pool) return 0;
+  // An actionable callback must not receive a success acknowledgement when
+  // its durable update could not run. The route reports a retryable failure.
+  const pool = requireWhatsAppPool();
   await ensureWhatsAppSchema(pool);
   let updatedCount = 0;
   for (const update of statuses) {
@@ -1414,13 +1419,15 @@ export async function revokeWhatsAppConsentByPhone(input: {
   messageId: string;
   occurredAt?: string;
 }) {
-  const fingerprint = phoneFingerprint(input.phone);
+  const phone = normalizeWhatsAppE164(input.phone);
   const messageId = input.messageId.trim();
-  if (!fingerprint || !messageId) return 0;
-  const pool = getRuntimePostgresPool();
-  if (!pool) return 0;
+  if (!phone || !messageId) return 0;
+  const fingerprint = phoneFingerprint(phone);
+  if (!fingerprint) throw new Error("WhatsApp phone fingerprint configuration is unavailable.");
+  const pool = requireWhatsAppPool();
   await ensureWhatsAppSchema(pool);
   const client = await pool.connect();
+  let destroy = false;
   try {
     await client.query("begin");
     const occurredAt = toIso(input.occurredAt) ?? new Date().toISOString();
@@ -1474,10 +1481,10 @@ export async function revokeWhatsAppConsentByPhone(input: {
     await client.query("commit");
     return result.rows.length;
   } catch (error) {
-    await rollbackQuietly(client);
+    destroy = await rollbackFailedTransaction(client, error);
     throw error;
   } finally {
-    client.release();
+    client.release(destroy);
   }
 }
 

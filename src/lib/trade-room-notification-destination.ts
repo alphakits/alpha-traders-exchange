@@ -1,34 +1,32 @@
 import type { AlphaExchangeNotification } from "@/types/alpha-exchange";
+import { parseInternalAppUrl } from "@/lib/internal-app-url";
 
 const TRADE_ROOM_CONVERSATION_REASONS = new Set([
   "trade_room_message",
   "trade_room_poke",
 ]);
 
-function extractRequestIdFromTradeRoomHref(href: string | null | undefined) {
-  if (!href) return null;
+export function extractRequestIdFromTradeRoomHref(href: string | null | undefined) {
+  const parsed = parseInternalAppUrl(href);
+  if (!parsed) return null;
   try {
-    const parsed = new URL(href, "https://www.alphatraders.co.il");
-    const match = parsed.pathname.match(/\/trade-room\/([^/?#]+)/i);
-    if (match?.[1]) return decodeURIComponent(match[1]);
+    const match = parsed.pathname.match(/^\/(?:en\/|ar\/)?trade-room\/([^/]+)\/?$/i);
+    if (match?.[1]) return decodeURIComponent(match[1]).trim() || null;
     const fromQuery = parsed.searchParams.get("requestId")?.trim();
     return fromQuery || null;
   } catch {
-    const match = href.match(/\/trade-room\/([^/?#]+)/i);
-    if (match?.[1]) return decodeURIComponent(match[1]);
-    const queryMatch = href.match(/[?&]requestId=([^&#]+)/i);
-    return queryMatch?.[1] ? decodeURIComponent(queryMatch[1]) : null;
+    return null;
   }
 }
 
+export function extractTradeRoomHrefFromRelatedHref(href: string | null | undefined) {
+  const requestId = extractRequestIdFromTradeRoomHref(href);
+  return requestId ? `/trade-room/${encodeURIComponent(requestId)}` : null;
+}
+
 function isExplicitTradeRoomChatHref(href: string | null | undefined) {
-  if (!href) return false;
-  try {
-    const parsed = new URL(href, "https://www.alphatraders.co.il");
-    return /\/trade-room\/[^/?#]+$/i.test(parsed.pathname) && parsed.hash === "#chat";
-  } catch {
-    return /\/trade-room\/[^/?#]+(?:\?[^#]*)?#chat$/i.test(href);
-  }
+  const parsed = parseInternalAppUrl(href);
+  return Boolean(parsed && /^\/(?:en\/|ar\/)?trade-room\/[^/]+\/?$/i.test(parsed.pathname) && parsed.hash === "#chat");
 }
 
 export function isTradeRoomConversationNotification(

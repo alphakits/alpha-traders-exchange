@@ -1,10 +1,62 @@
 "use client";
 
-import { useEffect, useState, type FormEvent } from "react";
+import { fetchClientJson, runClientRequest } from "@/lib/client-request-deadline";
+import { clientResponseMessage } from "@/lib/client-response-message";
+
+
+import { brandText, currencyText } from "@/components/ui/currency-text";
+import { ActionFeedback, useActionFeedbackState } from "@/components/ui/action-feedback";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Link } from "@/i18n/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { appendLoginJourneyServerTimeline, appendLoginJourneyStep, beginLoginJourney, noteLoginJourneyRedirectStart } from "@/lib/login-journey-trace";
+import { useOptionalCanonicalSession } from "@/components/auth/canonical-session-provider";
+import { ArrowLeftRight, Bell, BookOpen, ChartNoAxesCombined, Eye, EyeOff, GraduationCap, UserRound } from "lucide-react";
+import { LoginAtmosphere } from "./login-atmosphere";
+import { AppLoginNetwork } from "./app-login-network";
+import styles from "./login-atmosphere.module.css";
+import appStyles from "./app-login-network.module.css";
+import { requestAppRememberedLogin } from "@/lib/app-remembered-login";
+import { isExchangePage } from "@/lib/protected-page";
+import { isAcademyEntry, isMentorshipEntry } from "@/lib/academy-entry";
+import { getInterfacePageDestination } from "@alpha-traders/contracts";
+import { isTradeRoomEntryPath } from "@/lib/trade-room-entry-path";
+
+const REMEMBER_ME_PREFERENCE = "alpha.auth.remember-me.v1";
+const benefitIcons = [GraduationCap, BookOpen, ArrowLeftRight, Bell, UserRound, ChartNoAxesCombined];
+
+type RedirectUser = { role?: string; roles?: string[]; sellerStatus?: string; sellerApprovalVerified?: boolean; onboardingSelection?: string; onboardingCompletedAt?: string } | null | undefined;
+
+function loginDestination(locale: "ar" | "en", rawRedirect: string | undefined, user: RedirectUser) {
+  // URL fragments never reach middleware. Browsers carry them onto the login
+  // redirect, so restore the requested section before completing the handoff.
+  if (rawRedirect && !rawRedirect.includes("#") && window.location.hash) {
+    rawRedirect += window.location.hash;
+  }
+  const roles = user?.roles ?? [];
+  const owner = roles.includes("owner") || user?.role === "owner";
+  const admin = roles.includes("admin") || user?.role === "admin";
+  const needsOnboarding = !user?.onboardingSelection && !user?.onboardingCompletedAt
+    && ((roles.length === 1 && roles[0] === "guest") || user?.role === "guest");
+  const fallback = owner ? "/" : admin ? "/admin/alpha-exchange"
+    : user?.sellerStatus === "approved_seller" && user.sellerApprovalVerified === true ? "/dashboard/seller" : "/usdt-exchange";
+  const candidate = rawRedirect?.startsWith("/") && !rawRedirect.startsWith("//") && !/[\\\u0000-\u0020]/.test(rawRedirect)
+    && !/^\/(?:ar\/|en\/)?(?:login|register)(?:[/?#]|$)/.test(rawRedirect) ? rawRedirect : null;
+  // Let the room check actual participation before onboarding/profile guards.
+  // This preserves both restored sessions and freshly completed logins.
+  if (isTradeRoomEntryPath(candidate)) {
+    return `/${locale}${candidate!.replace(/^\/(?:ar|en)(?=\/)/, "")}`;
+  }
+  if (needsOnboarding && candidate) {
+    try { sessionStorage.setItem("post_onboarding_redirect", candidate.replace(/^\/(ar|en)(?=\/|$)/, "") || "/"); } catch { /* Storage can be unavailable. */ }
+  }
+  const path = needsOnboarding ? "/onboarding" : candidate ?? fallback;
+  const destination = /^\/(ar|en)(?=\/|[?#]|$)/.test(path)
+    ? path.replace(/^\/(ar|en)(?=\/|[?#]|$)/, `/${locale}`)
+    : path === "/" ? `/${locale}` : `/${locale}${path}`;
+  return user ? getInterfacePageDestination({ ...user, role: user.role ?? "" }, destination, locale) ?? destination : destination;
+}
 
 export function LoginForm({
   locale,
@@ -18,8 +70,18 @@ export function LoginForm({
   sessionExpired?: boolean;
 }) {
   const isAr = locale === "ar";
+  const canonicalSession = useOptionalCanonicalSession();
+  const recoveredUser = canonicalSession && !canonicalSession.isResolving && !canonicalSession.error ? canonicalSession.user : null;
+  const redirectStartedRef = useRef(false);
   const [form, setForm] = useState({ email: "", password: "", rememberMe: true });
-  const [statusMessage, setStatusMessage] = useState<string | null>(
+  const [showPassword, setShowPassword] = useState(false);
+  const [isNativeApp, setIsNativeApp] = useState(false);
+  const rememberedLoginSupported = useRef(false);
+  const rememberedLoginReady = useRef<ReturnType<typeof requestAppRememberedLogin> | null>(null);
+  const rememberedLoginController = useRef<AbortController | null>(null);
+  const editedCredentials = useRef(false);
+  const [needsRememberedLoginUpdate, setNeedsRememberedLoginUpdate] = useState(false);
+  const [statusMessage, setStatusMessage, statusMessageFeedbackKey] = useActionFeedbackState<string | null>(
     sessionExpired
       ? (isAr ? "انتهت جلستك. يُرجى تسجيل الدخول مرة أخرى." : "Your session expired. Please sign in again.")
       : passwordResetSuccess
@@ -28,107 +90,113 @@ export function LoginForm({
         : "Your password has been updated successfully. Please sign in.")
       : null,
   );
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage, errorMessageFeedbackKey] = useActionFeedbackState<string | null>(null);
   const [isLoginSubmitting, setIsLoginSubmitting] = useState(false);
   const [isResendVerificationSubmitting, setIsResendVerificationSubmitting] = useState(false);
   const [requiresEmailVerification, setRequiresEmailVerification] = useState(false);
+  // Server HTML must not accept credentials before React can capture edits
+  // and prevent native submission. Native disabled controls also let browser
+  // automation wait for the same readiness that users need.
   const [hydrated, setHydrated] = useState(false);
-  useEffect(() => { setHydrated(true); }, []);
-  const defaultRedirectByRole = (
-    user: { role?: string; roles?: string[]; sellerStatus?: string; onboardingSelection?: string; onboardingCompletedAt?: string } | null | undefined,
-  ) => {
-    const roles = user?.roles ?? [];
-    const isOwner = roles.includes("owner") || user?.role === "owner";
-    const isAdmin = roles.includes("admin") || user?.role === "admin";
-    if (isOwner) return "/";
-    if (isAdmin) return "/admin/alpha-exchange";
-    const hasOnboardingChoice = Boolean(user?.onboardingSelection || user?.onboardingCompletedAt);
-    if (!hasOnboardingChoice && ((roles.length === 1 && roles[0] === "guest") || (roles.length === 0 && user?.role === "guest"))) return "/onboarding";
-    if (!isAdmin && user?.sellerStatus === "approved_seller") return "/dashboard/seller";
-    return "/usdt-exchange";
-  };
-
-  function resolveLoginRedirectTarget(
-    rawRedirect: string | undefined,
-    user: { role?: string; roles?: string[]; sellerStatus?: string; onboardingSelection?: string; onboardingCompletedAt?: string } | null | undefined,
-  ) {
-    const fallback = defaultRedirectByRole(user);
-    const roles = user?.roles ?? [];
-    const needsOnboarding = !user?.onboardingSelection && !user?.onboardingCompletedAt && ((roles.length === 1 && roles[0] === "guest") || user?.role === "guest");
-    if (needsOnboarding) {
-      // Preserve the intended destination through onboarding via sessionStorage
-      const intendedPath = normalizeRedirectPath(rawRedirect);
-      if (intendedPath) {
-        try { sessionStorage.setItem("post_onboarding_redirect", intendedPath); } catch { /* ignore */ }
+  useEffect(() => {
+    // Appearance only: a phone browser keeps the website layout. The installed
+    // app provides this bridge before the document loads through its WebView.
+    setIsNativeApp(typeof window.ReactNativeWebView?.postMessage === "function");
+    // Browser storage holds only the checkbox. Installed apps keep remembered
+    // credentials in native secure storage, separate from the HttpOnly session.
+    try {
+      const saved = localStorage.getItem(REMEMBER_ME_PREFERENCE);
+      if (saved === "true" || saved === "false") {
+        setForm((previous) => ({ ...previous, rememberMe: saved === "true" }));
       }
-      return "/onboarding";
-    }
-    if (!rawRedirect) return fallback;
-    return normalizeRedirectPath(rawRedirect) ?? fallback;
-  }
-
-  function normalizeRedirectPath(rawRedirect: string | undefined): string | null {
-    if (!rawRedirect) return null;
-    if (!rawRedirect.startsWith("/") || rawRedirect.startsWith("//")) return null;
-    if (rawRedirect === `/${locale}`) return "/";
-    if (rawRedirect.startsWith(`/${locale}/`)) {
-      const localePath = rawRedirect.slice(`/${locale}`.length);
-      return localePath || "/";
-    }
-    if (/^\/(ar|en)\/(?:login|register)(?:\/|$)/.test(rawRedirect)) return null;
-    return rawRedirect;
-  }
-
-  function toLocaleHref(path: string) {
-    if (/^\/(ar|en)(?:\/|$)/.test(path)) return path;
-    if (path === "/") return `/${locale}`;
-    return `/${locale}${path}`;
-  }
+    } catch { /* Private/restricted storage must not prevent sign-in. */ }
+    setHydrated(true);
+    const hidePassword = () => { if (document.hidden) setShowPassword(false); };
+    document.addEventListener("visibilitychange", hidePassword);
+    return () => document.removeEventListener("visibilitychange", hidePassword);
+  }, []);
+  useEffect(() => {
+    if (!window.ReactNativeWebView?.postMessage) return;
+    let cancelled = false;
+    const controller = new AbortController();
+    rememberedLoginController.current = controller;
+    let optedOut = false;
+    try { optedOut = localStorage.getItem(REMEMBER_ME_PREFERENCE) === "false"; } catch { /* Optional preference storage. */ }
+    const ready = requestAppRememberedLogin(optedOut || passwordResetSuccess ? "clear" : "load", undefined, controller.signal);
+    rememberedLoginReady.current = ready;
+    void ready.then(response => {
+      if (cancelled) return;
+      if (response) rememberedLoginSupported.current = true;
+      setNeedsRememberedLoginUpdate(!response && !rememberedLoginSupported.current);
+      if (response?.status !== "ok" || !response.credentials || editedCredentials.current) return;
+      const credentials = response.credentials;
+      setForm(previous => previous.rememberMe && !previous.email && !previous.password
+        ? { ...previous, ...credentials } : previous);
+    });
+    return () => {
+      cancelled = true;
+      controller.abort();
+      if (rememberedLoginController.current === controller) rememberedLoginController.current = null;
+    };
+  }, [passwordResetSuccess]);
+  useEffect(() => {
+    // A restored phone document can still show Login even though its HttpOnly
+    // cookie is valid. Return only after a fresh server session check succeeds.
+    if (!recoveredUser || isLoginSubmitting || redirectStartedRef.current) return;
+    redirectStartedRef.current = true;
+    window.location.replace(loginDestination(locale, redirectTo, recoveredUser));
+  }, [isLoginSubmitting, locale, recoveredUser, redirectTo]);
 
   async function handleLoginSubmit(event: FormEvent<HTMLFormElement>) {
     const clickStartedAt = Date.now();
+    const rememberedLoginSignal = rememberedLoginController.current?.signal;
     event.preventDefault();
     setStatusMessage(null);
     setErrorMessage(null);
     setRequiresEmailVerification(false);
-    if (isLoginSubmitting) return;
+    if (!hydrated || isLoginSubmitting) return;
+    setShowPassword(false);
     setIsLoginSubmitting(true);
     beginLoginJourney();
     appendLoginJourneyStep("User clicks Login", clickStartedAt, Date.now());
     try {
       const loginFetchStartedAt = Date.now();
-      const response = await fetch("/api/auth/login", {
-        method: "POST",
-        cache: "no-store",
-        credentials: "include",
-        headers: { "Content-Type": "application/json", "X-Locale": locale },
-        body: JSON.stringify(form),
-      });
-      appendLoginJourneyStep("HTTP response returned", loginFetchStartedAt, Date.now(), {
-        endpoint: "/api/auth/login",
-        status: response.status,
-      });
-      appendLoginJourneyServerTimeline(response.headers?.get?.("X-Auth-Login-Timeline") ?? null);
-      let payload: {
-        error?: string;
-        user?: { role?: string; roles?: string[]; sellerStatus?: string; onboardingSelection?: string; onboardingCompletedAt?: string };
-        requiresEmailVerification?: boolean;
-      } | null = null;
-      try {
-        payload = (await response.json()) as {
-          error?: string;
+      const { response, payload } = await runClientRequest(new AbortController(), 30_000, async (signal) => {
+        const response = await fetch("/api/auth/login", {
+          method: "POST",
+          cache: "no-store",
+          credentials: "include",
+          signal,
+          headers: { "Content-Type": "application/json", "X-Locale": locale },
+          body: JSON.stringify(form),
+        });
+        appendLoginJourneyStep("HTTP response returned", loginFetchStartedAt, Date.now(), {
+          endpoint: "/api/auth/login",
+          status: response.status,
+        });
+        appendLoginJourneyServerTimeline(response.headers?.get?.("X-Auth-Login-Timeline") ?? null);
+        let payload: {
+          error?: unknown;
           user?: { role?: string; roles?: string[]; sellerStatus?: string; onboardingSelection?: string; onboardingCompletedAt?: string };
           requiresEmailVerification?: boolean;
-        };
-      } catch {
-        payload = null;
-      }
+        } | null = null;
+        try {
+          payload = (await response.json()) as {
+            error?: unknown;
+            user?: { role?: string; roles?: string[]; sellerStatus?: string; onboardingSelection?: string; onboardingCompletedAt?: string };
+            requiresEmailVerification?: boolean;
+          };
+        } catch {
+          payload = null;
+        }
+        return { response, payload };
+      });
       if (!response.ok) {
         const needsVerification = payload?.requiresEmailVerification === true;
         setRequiresEmailVerification(needsVerification);
         setErrorMessage(isAr
           ? (needsVerification ? "يجب تأكيد بريدك الإلكتروني قبل تسجيل الدخول." : "تعذر تسجيل الدخول. تحقق من البريد الإلكتروني وكلمة المرور.")
-          : (payload?.error ?? "Login failed."));
+          : clientResponseMessage(payload?.error, "Login failed."));
         return;
       }
 
@@ -142,10 +210,25 @@ export function LoginForm({
         return;
       }
 
-      const target = resolveLoginRedirectTarget(redirectTo, userForRedirect);
+      // Persist only credentials that the server has just accepted. Wait for
+      // the native write before replacing the login document. Older apps keep
+      // their existing cookie/session behavior until their native update.
+      // Fast autofill/submit can finish before the initial native capability
+      // check. Let that bounded request settle before deciding whether to save.
+      await rememberedLoginReady.current;
+      if (rememberedLoginSignal?.aborted) return;
+      if (rememberedLoginSupported.current) {
+        await requestAppRememberedLogin(form.rememberMe ? "save" : "clear", { email: form.email, password: form.password }, rememberedLoginSignal);
+      }
+      if (rememberedLoginSignal?.aborted) return;
+
+      // The public entry defaults to English. Keep the language the learner
+      // selected on the login page, including the destination after sign-in.
+      const target = loginDestination(locale, redirectTo, userForRedirect);
       noteLoginJourneyRedirectStart(Date.now());
       window.dispatchEvent(new Event("alpha-auth-changed"));
-      window.location.replace(toLocaleHref(target));
+      redirectStartedRef.current = true;
+      window.location.replace(target);
     } catch {
       setErrorMessage(isAr ? "تعذر الاتصال بالخادم. حاول مرة أخرى." : "Unable to reach the server. Please try again.");
     } finally {
@@ -159,20 +242,19 @@ export function LoginForm({
     if (isResendVerificationSubmitting) return;
     setIsResendVerificationSubmitting(true);
     try {
-      const response = await fetch("/api/auth/verify-email/resend", {
+      const { response, payload } = await fetchClientJson<{ error?: unknown; message?: unknown } | null>("/api/auth/verify-email/resend", {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-Locale": locale },
         body: JSON.stringify({ email: form.email }),
-      });
-      const payload = (await response.json()) as { error?: string; message?: string };
+      }, 30_000);
       if (!response.ok) {
-        setErrorMessage(isAr ? "فشل إرسال بريد التحقق." : (payload.error ?? "Failed to resend verification email."));
+        setErrorMessage(isAr ? "فشل إرسال بريد التحقق." : clientResponseMessage(payload?.error, "Failed to resend verification email."));
         return;
       }
       setStatusMessage(
         isAr
           ? "إذا كان الحساب موجودًا وغير موثق، تم إرسال رسالة تحقق جديدة."
-          : (payload.message ?? "If the account exists and is unverified, a new verification email has been sent."),
+          : clientResponseMessage(payload?.message, "If the account exists and is unverified, a new verification email has been sent."),
       );
     } catch {
       setErrorMessage(isAr ? "تعذر الاتصال بالخادم. حاول مرة أخرى." : "Unable to reach the server. Please try again.");
@@ -181,27 +263,32 @@ export function LoginForm({
     }
   }
 
+  if (recoveredUser && !isLoginSubmitting) {
+    return <section className="section-container py-16 text-center" aria-busy="true">
+      <p role="status">{isAr ? "أنت مسجّل الدخول. جارٍ فتح حسابك…" : "You are signed in. Opening your account…"}</p>
+    </section>;
+  }
+
   return (
-    <section className="section-container py-8 md:py-12">
-      <div className="mx-auto grid w-full max-w-6xl overflow-hidden rounded-[2rem] border border-white/10 bg-[#070707]/95 shadow-[0_32px_90px_rgba(0,0,0,0.55)] lg:grid-cols-[1.05fr_0.95fr]">
-        <div className="relative hidden overflow-hidden border-r border-white/10 bg-[radial-gradient(circle_at_22%_20%,rgba(201,162,39,0.2),transparent_34%),radial-gradient(circle_at_80%_22%,rgba(147,197,253,0.16),transparent_28%),linear-gradient(160deg,#050505,#0b0b0b_52%,#111827)] p-10 lg:flex lg:flex-col">
+    <section className={`${styles.page} ${isNativeApp ? appStyles.page : ""}`} data-login-surface={isNativeApp ? "app" : "web"}>
+      <LoginAtmosphere />
+      <div className={`${styles.card} ${isNativeApp ? appStyles.card : ""} mx-auto grid w-full max-w-6xl overflow-hidden rounded-[2rem] border lg:grid-cols-[1.05fr_0.95fr]`}>
+        <div className={`${styles.promo} relative hidden overflow-hidden border-r border-white/10 bg-[radial-gradient(circle_at_22%_20%,rgba(201,162,39,0.2),transparent_34%),radial-gradient(circle_at_80%_22%,rgba(147,197,253,0.16),transparent_28%),linear-gradient(160deg,#050505,#0b0b0b_52%,#111827)] p-10 lg:flex lg:flex-col`}>
           <div className="absolute inset-0 opacity-40">
             <div className="absolute left-14 top-16 h-40 w-40 rounded-full bg-[#C9A227]/10 blur-3xl" />
             <div className="absolute right-14 top-28 h-32 w-32 rounded-full bg-[#93C5FD]/10 blur-3xl" />
             <div className="absolute bottom-16 left-20 h-48 w-48 rounded-full bg-[#C9A227]/8 blur-3xl" />
           </div>
           <div className="relative z-10">
-            <p className="inline-flex items-center gap-2 rounded-full border border-[#C9A227]/30 bg-[#C9A227]/10 px-3 py-1 text-xs uppercase tracking-[0.18em] text-[#D4AF37]">
-              Alpha Traders
-            </p>
+            <p className="inline-flex items-center gap-2 rounded-full border border-[#C9A227]/30 bg-[#C9A227]/10 px-3 py-1 text-xs uppercase tracking-[0.18em] text-[#D4AF37]">{brandText("Alpha Traders")}</p>
             <h2 className="mt-6 max-w-md text-4xl font-semibold leading-tight text-white">
               {isAr ? "دخول احترافي إلى Alpha Academy و Alpha Exchange." : "Premium access to Alpha Academy and Alpha Exchange."}
             </h2>
             <p className="mt-4 max-w-lg text-sm leading-7 text-[#D1D5DB]">
-              {isAr ? "تجربة تسجيل دخول مصممة لبيئة تداول احترافية: سرعة، وضوح، وثقة في كل خطوة." : "A modern black-and-gold financial login experience built for clarity, trust, and fast access to your trading workspace."}
+              {isAr ? "دوراتك وصفقاتك في حساب واحد." : "Your courses and trades, in one account."}
             </p>
           </div>
-          <div className="relative z-10 mt-8 grid gap-3">
+          <div className={`${styles.promoFeatures} relative z-10 mt-8 grid gap-3`}>
             {[
               isAr ? "حفظ تقدّمك في الأكاديمية" : "Save Academy progress",
               isAr ? "الوصول إلى دوراتك وصفقاتك" : "Access your courses and active trades",
@@ -209,71 +296,106 @@ export function LoginForm({
               isAr ? "استلام الإشعارات والتحديثات" : "Stay in sync with notifications and updates",
             ].map((item) => (
               <div key={item} className="rounded-2xl border border-white/10 bg-black/25 px-4 py-3 text-sm text-[#E5E7EB] backdrop-blur">
-                {item}
+                {currencyText(item)}
               </div>
             ))}
           </div>
-          <div className="relative z-10 mt-auto grid gap-3 pt-8">
+          <div className={`${styles.promoWorkspace} relative z-10 mt-auto grid gap-3 pt-8`}>
             <div className="rounded-2xl border border-white/10 bg-black/25 p-4">
               <p className="text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "لوحة التداول" : "Trading Workspace"}</p>
               <div className="mt-3 grid grid-cols-2 gap-3">
                 <div className="rounded-xl border border-white/10 bg-black/30 p-3">
-                  <p className="text-xs text-[#9CA3AF]">USDT / ILS</p>
+                  <p className="text-xs text-[#9CA3AF]">{currencyText("USDT / ILS")}</p>
                   <p className="mt-1 text-lg font-semibold text-white">{isAr ? "مباشر" : "LIVE"}</p>
                 </div>
                 <div className="rounded-xl border border-white/10 bg-black/30 p-3">
                   <p className="text-xs text-[#9CA3AF]">{isAr ? "أمان الحساب" : "Account Security"}</p>
-                  <p className="mt-1 text-lg font-semibold text-white">24/7</p>
+                  <p className="mt-1 text-lg font-semibold text-white">{isAr ? "محمي" : "PROTECTED"}</p>
                 </div>
               </div>
             </div>
           </div>
         </div>
 
-        <div className="relative p-6 sm:p-8 lg:p-10">
+        <div className={`${styles.panel} relative ${isNativeApp ? appStyles.panel : "p-5"} sm:p-8 lg:p-10`}>
           <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(201,162,39,0.08),transparent_36%)]" />
           <div className="relative z-10 mx-auto w-full max-w-xl">
-            <p className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.03] px-3 py-1 text-xs uppercase tracking-[0.18em] text-[#9CA3AF]">
-              {isAr ? "تجربة دخول مميزة" : "Premium Sign In"}
-            </p>
-            <h1 className="mt-5 text-3xl font-semibold tracking-tight text-white md:text-4xl">{isAr ? "تسجيل الدخول" : "Login"}</h1>
-            <p className="mt-3 max-w-lg text-sm leading-7 text-[#9CA3AF]">
-              {isAr ? "أنشئ حساب Alpha Traders للوصول إلى Alpha Academy و Alpha Exchange." : "Create your Alpha Traders account to access Alpha Academy and Alpha Exchange."}
+            <div className={isNativeApp ? appStyles.heading : styles.heading}>
+              <p className={`${isNativeApp ? appStyles.badge : ""} inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.03] px-3 py-1 text-xs uppercase tracking-[0.18em] text-[#9CA3AF]`}>
+                {isAr ? "تجربة دخول مميزة" : "Premium Sign In"}
+              </p>
+              <h1 className="mt-5 text-3xl font-semibold tracking-tight text-white md:text-4xl">{isAr ? "تسجيل الدخول" : "Login"}</h1>
+            </div>
+            <p className={`${isNativeApp ? appStyles.intro : styles.intro} mt-3 max-w-lg text-sm leading-7 text-[#9CA3AF]`}>
+              {brandText(isExchangePage(redirectTo ?? "")
+                ? (isAr ? "سجّل الدخول لتصفّح عروض USDT." : "Sign in to browse USDT listings.")
+                : isNativeApp
+                ? (isAr ? "سجّل الدخول لدوراتك وصفقاتك." : "Sign in to your courses and trades.")
+                : (isAr ? "سجّل الدخول للمتابعة." : "Sign in to continue."))}
             </p>
 
-            <div className="mt-6 grid gap-3 rounded-2xl border border-[#C9A227]/20 bg-[#C9A227]/8 p-4 text-sm text-[#E5E7EB] sm:grid-cols-2">
+            <div className={isNativeApp ? appStyles.benefits : `${styles.benefits} mt-6 hidden gap-3 rounded-2xl border border-[#C9A227]/20 bg-[#C9A227]/8 p-4 text-sm text-[#E5E7EB] sm:grid sm:grid-cols-2`}>
               {(isAr
                 ? ["حفظ تقدّمك في الأكاديمية", "الوصول إلى دوراتك", "شراء وبيع USDT بأمان", "استلام الإشعارات", "بناء ملفك كمتداول", "تتبّع رحلتك في التداول"]
                 : ["Save Academy progress", "Access your courses", "Buy & sell USDT securely", "Receive notifications", "Build your trader profile", "Track your trading journey"]
-              ).map((item) => (
-                <div key={item} className="rounded-xl border border-white/10 bg-black/20 px-3 py-2">{item}</div>
-              ))}
+              ).slice(0, 2).map((item, index) => {
+                const Icon = benefitIcons[index];
+                return <div key={item} className={isNativeApp ? appStyles.benefit : "rounded-xl border border-white/10 bg-black/20 px-3 py-2"}>
+                  {isNativeApp && Icon ? <Icon size={17} strokeWidth={1.5} aria-hidden="true" /> : null}
+                  <span>{currencyText(item)}</span>
+                </div>;
+              })}
             </div>
 
-            <form className="mt-6 grid gap-4" onSubmit={handleLoginSubmit} data-hydrated={hydrated ? "true" : "false"}>
-              <div className="grid gap-2">
-                <label className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "البريد الإلكتروني" : "Email"}</label>
-                <Input aria-label={isAr ? "البريد الإلكتروني" : "Email"} placeholder={isAr ? "you@example.com" : "you@example.com"} type="email" autoComplete="email" required value={form.email} onChange={(event) => setForm((prev) => ({ ...prev, email: event.target.value }))} className="h-12 rounded-2xl border-white/15 bg-black/30 text-white placeholder:text-[#6B7280] focus-visible:border-[#C9A227]" />
+            <form className={`${isNativeApp ? appStyles.form : styles.form} mt-6 grid gap-4`} method="post" onSubmit={handleLoginSubmit} data-hydrated={hydrated ? "true" : "false"} aria-busy={!hydrated || undefined}>
+              <div className={`${isNativeApp ? appStyles.field : styles.field} grid gap-2`}>
+                <label htmlFor="login-email" className="text-sm text-[#B7B7B7]">{isAr ? "البريد الإلكتروني" : "Email"}</label>
+                <Input id="login-email" name="email" aria-label={isAr ? "البريد الإلكتروني" : "Email"} placeholder="you@example.com" type="email" dir="ltr" autoComplete="username" autoCapitalize="none" spellCheck={false} required disabled={!hydrated || (isNativeApp && isLoginSubmitting)} value={form.email} onChange={(event) => { editedCredentials.current = true; setForm((prev) => ({ ...prev, email: event.target.value })); }} className="h-12 rounded-2xl border-white/15 bg-black/30 text-base text-white placeholder:text-[#6B7280] focus-visible:border-[#C9A227]" />
               </div>
-              <div className="grid gap-2">
-                <label className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "كلمة المرور" : "Password"}</label>
-                <Input aria-label={isAr ? "كلمة المرور" : "Password"} placeholder={isAr ? "••••••••" : "••••••••"} type="password" autoComplete="current-password" required value={form.password} onChange={(event) => setForm((prev) => ({ ...prev, password: event.target.value }))} className="h-12 rounded-2xl border-white/15 bg-black/30 text-white placeholder:text-[#6B7280] focus-visible:border-[#C9A227]" />
+              <div className={`${isNativeApp ? appStyles.field : styles.field} grid gap-2`}>
+                <label htmlFor="login-password" className="text-sm text-[#B7B7B7]">{isAr ? "كلمة المرور" : "Password"}</label>
+                <div className="relative">
+                  <Input id="login-password" name="password" aria-label={isAr ? "كلمة المرور" : "Password"} placeholder="••••••••" type={showPassword ? "text" : "password"} dir="ltr" autoComplete="current-password" autoCapitalize="none" spellCheck={false} required disabled={!hydrated || (isNativeApp && isLoginSubmitting)} value={form.password} onChange={(event) => { editedCredentials.current = true; setForm((prev) => ({ ...prev, password: event.target.value })); }} className="h-12 rounded-2xl border-white/15 bg-black/30 pr-14 text-base text-white placeholder:text-[#6B7280] focus-visible:border-[#C9A227]" />
+                  <button
+                    type="button"
+                    disabled={!hydrated}
+                    aria-label={showPassword ? (isAr ? "إخفاء كلمة المرور" : "Hide password") : (isAr ? "إظهار كلمة المرور" : "Show password")}
+                    aria-pressed={showPassword}
+                    aria-controls="login-password"
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => setShowPassword((visible) => !visible)}
+                    className="absolute right-0.5 top-0.5 flex h-11 w-11 items-center justify-center rounded-xl text-[#D4AF37] transition hover:bg-white/5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#D4AF37]"
+                  >
+                    {showPassword ? <EyeOff aria-hidden="true" size={20} /> : <Eye aria-hidden="true" size={20} />}
+                  </button>
+                </div>
               </div>
-              <div className={`flex items-center justify-between text-sm ${isAr ? "flex-row-reverse" : ""}`}>
-                <label className={`inline-flex items-center gap-2 text-[#D1D5DB] ${isAr ? "flex-row-reverse" : ""}`}>
-                  <input type="checkbox" checked={form.rememberMe} onChange={(event) => setForm((prev) => ({ ...prev, rememberMe: event.target.checked }))} className="h-4 w-4 rounded border-white/30 bg-transparent accent-[#C9A227]" />
+              <div className={`${isNativeApp ? appStyles.options : styles.options} flex flex-wrap items-center justify-between gap-x-3 text-sm`}>
+                <label className="inline-flex min-h-11 cursor-pointer items-center gap-2 text-[#D1D5DB]">
+                  <input name="rememberMe" type="checkbox" disabled={!hydrated || (isNativeApp && isLoginSubmitting)} checked={form.rememberMe} onChange={(event) => {
+                    const checked = event.target.checked;
+                    setForm((prev) => ({ ...prev, rememberMe: checked }));
+                    try { localStorage.setItem(REMEMBER_ME_PREFERENCE, String(checked)); } catch { /* Storage is optional. */ }
+                    if (!checked && isNativeApp) {
+                      const signal = rememberedLoginController.current?.signal;
+                      void requestAppRememberedLogin("clear", undefined, signal).then(response => {
+                        if (response && !signal?.aborted) { rememberedLoginSupported.current = true; setNeedsRememberedLoginUpdate(false); }
+                      });
+                    }
+                  }} className="h-5 w-5 rounded border-white/30 bg-transparent accent-[#C9A227]" />
                   {isAr ? "تذكرني" : "Remember Me"}
                 </label>
                 <Link href="/forgot-password" className="inline-flex min-h-11 items-center rounded-md px-1 text-[#C9A227] transition hover:text-[#F4D87A] hover:underline">
                   {isAr ? "هل نسيت كلمة المرور؟" : "Forgot your password?"}
                 </Link>
               </div>
-              <Button type="submit" className="h-12 text-base" loading={isLoginSubmitting} loadingLabel={isAr ? "جاري تسجيل الدخول..." : "Logging in..."}>
+              {isNativeApp && needsRememberedLoginUpdate && form.rememberMe ? <p className="text-xs text-[#D1D5DB]" role="status">{isAr ? "حدّث التطبيق لحفظ بريدك وكلمة مرورك على هذا الهاتف." : "Update the app to remember your email and password on this phone."}</p> : null}
+              <Button type="submit" disabled={!hydrated} className="h-12 text-base" loading={isLoginSubmitting} loadingLabel={isAr ? "جاري تسجيل الدخول..." : "Logging in..."}>
                 {isAr ? "تسجيل الدخول" : "Login"}
               </Button>
             </form>
 
-            {errorMessage ? <p className="mt-4 rounded-2xl border border-rose-500/25 bg-rose-500/10 px-4 py-3 text-sm text-rose-200" role="status" aria-live="polite">{errorMessage}</p> : null}
+            {errorMessage ? <ActionFeedback revealKey={errorMessageFeedbackKey} as="p" role="alert" className="mt-4 rounded-2xl border border-rose-500/25 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">{currencyText(errorMessage)}</ActionFeedback> : null}
             {requiresEmailVerification ? (
               <Button
                 type="button"
@@ -286,17 +408,18 @@ export function LoginForm({
                 {isAr ? "إعادة إرسال بريد التحقق" : "Resend verification email"}
               </Button>
             ) : null}
-            {statusMessage ? <p className="mt-4 rounded-2xl border border-emerald-500/25 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200" role="status" aria-live="polite">{statusMessage}</p> : null}
+            {statusMessage ? <ActionFeedback revealKey={statusMessageFeedbackKey} as="p" className="mt-4 rounded-2xl border border-emerald-500/25 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200" role="status" aria-live="polite">{currencyText(statusMessage)}</ActionFeedback> : null}
 
-            <p className="mt-6 text-sm text-[#9CA3AF]">
+            <p className={`${isNativeApp ? appStyles.register : styles.register} mt-6 text-sm text-[#9CA3AF]`}>
               {isAr ? "ليس لديك حساب؟" : "Don’t have an account?"}{" "}
-              <Link href="/register" className="inline-flex min-h-11 items-center rounded-md px-1 text-[#C9A227] transition hover:text-[#F4D87A] hover:underline">
+              <Link href={isMentorshipEntry(redirectTo) ? "/register?intent=mentorship" : isAcademyEntry(redirectTo) ? "/register?intent=learn" : "/register"} className="inline-flex min-h-11 items-center rounded-md px-1 text-[#C9A227] transition hover:text-[#F4D87A] hover:underline">
                 {isAr ? "أنشئ حسابًا" : "Create Account"}
               </Link>
             </p>
           </div>
         </div>
       </div>
+      {isNativeApp ? <AppLoginNetwork /> : null}
     </section>
   );
 }

@@ -1,6 +1,7 @@
 import { randomBytes, scrypt as scryptCallback } from "node:crypto";
 import { promisify } from "node:util";
 import { E2E_BASE_URL } from "./base-url";
+import { createE2eSellerApprovalVerification } from "./seller-verification";
 
 const TEST_SUPPORT_HEADERS = {
   "content-type": "application/json",
@@ -12,6 +13,7 @@ const FIXTURE_BUYER_EMAIL = "e2e-buyer-fixture@example.test";
 const FIXTURE_BUYER_PASSWORD = "E2eBuyer!Launch2026";
 const FIXTURE_SELLER_ID = "e2e-buyer-fixture-seller";
 const FIXTURE_LISTING_ID = "e2e-buyer-fixture-listing";
+const FIXTURE_BANK_ACCOUNT_ID = "bank-e2e-buyer-fixture-seller";
 
 export type BuyerFixture = {
   email: string;
@@ -36,12 +38,12 @@ function isBuyerAccount(user: Record<string, unknown>) {
   return role === "buyer" || sellerStatus === "buyer" || roles.includes("buyer");
 }
 
-async function canLogin(email: string, password: string) {
+async function canLogin(email: string, password: string, clientIp: string) {
   if (!email || !password) return false;
   for (let attempt = 0; attempt < 4; attempt += 1) {
     const response = await fetch(`${E2E_BASE_URL}/api/auth/login`, {
       method: "POST",
-      headers: { "content-type": "application/json", "x-forwarded-for": "198.51.100.10" },
+      headers: { "content-type": "application/json", "x-forwarded-for": clientIp },
       body: JSON.stringify({ email, password, rememberMe: false }),
     });
     if (response.ok) return true;
@@ -144,6 +146,7 @@ function seedEligibleListing(db: Record<string, unknown>, now: string) {
       role: "approved_seller",
       roles: ["approved_seller"],
       sellerStatus: "approved_seller",
+      sellerApprovalVerification: createE2eSellerApprovalVerification(now),
       whatsappNumber: "+972500000098",
       preferredNetworks: ["TRC20"],
       preferredPaymentMethods: ["Bank Transfer"],
@@ -160,6 +163,18 @@ function seedEligibleListing(db: Record<string, unknown>, now: string) {
       onlineStatus: "online",
       availabilityStatus: "available",
       isProfileHidden: false,
+      sellerBankAccounts: [{
+        id: FIXTURE_BANK_ACCOUNT_ID,
+        sellerId,
+        accountHolderName: "E2E Marketplace Seller",
+        bankName: "Bank Hapoalim",
+        branchNumber: "123",
+        accountNumber: "9000000098",
+        accountLast4: "0098",
+        isDefault: true,
+        createdAt: now,
+        updatedAt: now,
+      }],
     },
   ];
   const listings = Array.isArray(db.marketplaceListings)
@@ -185,6 +200,7 @@ function seedEligibleListing(db: Record<string, unknown>, now: string) {
       network: "TRC20",
       paymentMethod: "Bank Transfer",
       paymentMethods: ["Bank Transfer"],
+      bankAccountId: FIXTURE_BANK_ACCOUNT_ID,
       bankName: "Bank Hapoalim",
       minimumTrade: "100",
       maximumTrade: "1000",
@@ -201,8 +217,12 @@ function seedEligibleListing(db: Record<string, unknown>, now: string) {
 }
 
 export async function resolveBuyerFixture(configuredEmail: string, configuredPassword: string): Promise<BuyerFixture> {
+  // Independent fixture setup must not consume another suite's login budget.
+  // Each setup uses a unique documentation-range client address while all
+  // production rate limits remain enabled and unchanged.
+  const clientIp = "2001:db8::" + randomBytes(8).toString("hex").match(/.{4}/g)!.join(":");
   const normalizedEmail = configuredEmail.trim().toLowerCase();
-  if (await canLogin(normalizedEmail, configuredPassword)) {
+  if (await canLogin(normalizedEmail, configuredPassword, clientIp)) {
     const db = await readRuntimeDb();
     const users = Array.isArray(db.users) ? db.users : [];
     const configuredUser = users.find((entry) => {
@@ -273,14 +293,14 @@ export async function resolveBuyerFixture(configuredEmail: string, configuredPas
     ];
     seededListing = seedEligibleListing(db, now);
     await writeRuntimeDb(db);
-    if (await canLogin(email, password)) {
+    if (await canLogin(email, password, clientIp)) {
       await waitForEligibleListing(seededListing.listingId);
       break;
     }
     if (attempt < 3) await new Promise((resolve) => setTimeout(resolve, 500));
   }
 
-  if (!seededListing || !(await canLogin(email, password))) {
+  if (!seededListing || !(await canLogin(email, password, clientIp))) {
     throw new Error("Provisioned E2E buyer could not authenticate.");
   }
   const cleanupIds = [userId, email, ...seededListing.cleanupIds];

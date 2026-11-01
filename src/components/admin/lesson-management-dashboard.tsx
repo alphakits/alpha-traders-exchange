@@ -1,5 +1,7 @@
 "use client";
 
+import { createQueuedAutosave } from "@/lib/queued-autosave";
+import { ActionFeedback, useActionFeedbackState } from "@/components/ui/action-feedback";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import { AlertCircle, CheckCircle2, Download, FileUp, GripVertical, Loader2, Plus, Save, Search, Trash2, Upload } from "lucide-react";
@@ -18,6 +20,15 @@ type BootstrapPayload = {
   versions: LessonVersion[];
   analytics: AdminAnalytics;
 };
+class EditorSaveConflict extends Error {
+  constructor(readonly currentLesson: Lesson) { super("This lesson changed in another tab. Choose which version to keep."); }
+}
+
+function newestLessonVersion(current: Lesson, acknowledged?: Lesson) {
+  // API versions are canonical ISO timestamps; a refresh can be newer than
+  // this editor's last acknowledged save.
+  return acknowledged && (acknowledged.updatedAt ?? "") >= (current.updatedAt ?? "") ? acknowledged : current;
+}
 
 const pageSize = 10;
 
@@ -129,6 +140,8 @@ export function LessonManagementDashboard() {
   const [adminKey, setAdminKey] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [saveFailed, setSaveFailed] = useState(false);
+  const [saveConflicts, setSaveConflicts] = useState<Record<string, Lesson>>({});
   const [dirty, setDirty] = useState(false);
   const [lessons, setLessons] = useState<Lesson[]>([]);
   const [media, setMedia] = useState<MediaItem[]>([]);
@@ -140,10 +153,10 @@ export function LessonManagementDashboard() {
   const [categoryFilter, setCategoryFilter] = useState<LessonCategory | "all">("all");
   const [statusFilter, setStatusFilter] = useState<LessonStatus | "all">("all");
   const [page, setPage] = useState(1);
-  const [toast, setToast] = useState<string>("");
+  const [toast, setToast, toastFeedbackKey] = useActionFeedbackState<string>("");
   const [dragLessonId, setDragLessonId] = useState<string | null>(null);
   const [importContentLocale, setImportContentLocale] = useState<"en" | "ar">(isAr ? "ar" : "en");
-  const autosaveRef = useRef<number | null>(null);
+  const autosaveRef = useRef<ReturnType<typeof createQueuedAutosave<Lesson>> | null>(null);
   const toastTimerRef = useRef<number | null>(null);
   const importInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -178,6 +191,42 @@ export function LessonManagementDashboard() {
     return headers;
   }, [adminKey, role]);
 
+  const autosaveConfigRef = useRef({ authHeaders, isAr, setToast });
+  autosaveConfigRef.current = { authHeaders, isAr, setToast };
+  useEffect(() => {
+    const queue = createQueuedAutosave<Lesson>({
+      save: async (lesson, signal) => {
+        const config = autosaveConfigRef.current;
+        const response = await fetch(`/api/admin/lessons/${lesson.id}`, { method: "PUT", signal,
+          headers: { ...config.authHeaders(), "content-type": "application/json" }, body: JSON.stringify({ lesson }) });
+        const payload = await response.json() as { lesson?: Lesson; currentLesson?: Lesson; error?: string };
+        if (response.status === 409 && payload.currentLesson) throw new EditorSaveConflict(payload.currentLesson);
+        if (!response.ok || !payload.lesson) throw new Error(adminError(config.isAr, "Failed to save lesson. Your changes are still here.", "تعذّر حفظ الدرس. ما زالت تغييراتك محفوظة هنا.", payload.error));
+        return payload.lesson;
+      },
+      rebase: (pending, saved) => ({ ...pending, updatedAt: saved.updatedAt }),
+      onAcknowledged: lesson => {
+        setLessons(current => current.map(value => value.id === lesson.id ? { ...value, updatedAt: newestLessonVersion(value, lesson).updatedAt } : value));
+        setSaveConflicts(current => { const next = { ...current }; delete next[lesson.id]; return next; });
+      },
+      onSaved: lesson => {
+        setLessons(current => current.map(value => value.id === lesson.id ? queue.getDraft(lesson.id) ?? newestLessonVersion(value, queue.getAcknowledged(lesson.id) ?? lesson) : value));
+        const config = autosaveConfigRef.current;
+        config.setToast(config.isAr ? "✓ تم الحفظ تلقائياً" : "✓ Saved");
+        if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
+        toastTimerRef.current = window.setTimeout(() => config.setToast(""), 1600);
+      },
+      onError: error => {
+        const config = autosaveConfigRef.current;
+        if (error instanceof EditorSaveConflict) setSaveConflicts(current => ({ ...current, [error.currentLesson.id]: error.currentLesson }));
+        config.setToast(config.isAr ? "تعذّر الحفظ. ما زالت تغييراتك هنا. أعد المحاولة." : error instanceof Error ? error.message : "Save failed. Your changes are still here; retry saving.");
+      },
+      onState: state => { setSaving(state.saving); setDirty(state.dirty); setSaveFailed(state.failed); },
+    });
+    autosaveRef.current = queue;
+    return () => { queue.dispose(); if (autosaveRef.current === queue) autosaveRef.current = null; };
+  }, []);
+
   const fetchBootstrap = useCallback(async () => {
     setLoading(true);
     const response = await fetch("/api/admin/bootstrap", {
@@ -188,7 +237,7 @@ export function LessonManagementDashboard() {
     if (!response.ok) {
       throw new Error(adminError(isAr, "Failed to load admin data.", "تعذّر تحميل بيانات لوحة الإدارة.", payload.error));
     }
-    setLessons(payload.lessons);
+    setLessons(() => autosaveRef.current?.merge(payload.lessons) ?? payload.lessons);
     setMedia(payload.media);
     setVersions(payload.versions);
     setAnalytics(payload.analytics);
@@ -202,7 +251,7 @@ export function LessonManagementDashboard() {
       setToast(isAr ? "تعذّر تحميل بيانات لوحة الإدارة." : error instanceof Error ? error.message : "Failed to load.");
       setLoading(false);
     });
-  }, [fetchBootstrap, isAr]);
+  }, [fetchBootstrap, isAr, setToast]);
 
   useEffect(() => {
     if (!dirty) return;
@@ -220,63 +269,23 @@ export function LessonManagementDashboard() {
     importInputRef.current.setAttribute("directory", "");
   }, []);
 
-  function patchSelectedLesson(patch: Partial<Lesson>) {
-    if (!selectedLessonId) return;
-    setLessons((current) =>
-      current.map((lesson) => {
-        if (lesson.id !== selectedLessonId) return lesson;
-        return {
-          ...lesson,
-          ...patch,
-          assets: {
-            ...lesson.assets,
-            ...(patch.assets || {}),
-          },
-        };
-      }),
-    );
-    setDirty(true);
+  function getCurrentSelectedLesson() {
+    if (!selectedLesson) return null;
+    const queue = autosaveRef.current;
+    return queue?.getDraft(selectedLesson.id)
+      ?? newestLessonVersion(selectedLesson, queue?.getAcknowledged(selectedLesson.id));
   }
 
-  const persistLesson = useCallback(async (nextLesson: Lesson) => {
-    setSaving(true);
-    const response = await fetch(`/api/admin/lessons/${nextLesson.id}`, {
-      method: "PUT",
-      headers: {
-        ...authHeaders(),
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({ lesson: nextLesson }),
-    });
-    const payload = (await response.json()) as { lesson?: Lesson; error?: string };
-    if (!response.ok || !payload.lesson) {
-      setSaving(false);
-      throw new Error(adminError(isAr, "Failed to save lesson.", "تعذّر حفظ الدرس.", payload.error));
-    }
-    setLessons((current) => current.map((lesson) => (lesson.id === payload.lesson!.id ? payload.lesson! : lesson)));
-    setSaving(false);
-    setDirty(false);
-    setToast(isAr ? "✓ تم الحفظ تلقائياً" : "✓ Saved");
-    if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
-    toastTimerRef.current = window.setTimeout(() => setToast(""), 1600);
-  }, [authHeaders, isAr]);
-
-  useEffect(() => {
-    if (!selectedLesson || !dirty) return;
-    if (autosaveRef.current) {
-      window.clearTimeout(autosaveRef.current);
-    }
-    autosaveRef.current = window.setTimeout(() => {
-      void persistLesson(selectedLesson).catch((error) => {
-        setToast(isAr ? "تعذّر حفظ الدرس." : error instanceof Error ? error.message : "Save failed.");
-      });
-    }, 900);
-    return () => {
-      if (autosaveRef.current) {
-        window.clearTimeout(autosaveRef.current);
-      }
-    };
-  }, [dirty, isAr, persistLesson, selectedLesson]);
+  function patchSelectedLesson(patch: Partial<Lesson>) {
+    const current = getCurrentSelectedLesson();
+    if (!current || !autosaveRef.current) return;
+    // Register the complete next draft in the queue in the input event itself.
+    // A deferred effect from an earlier save must not consume this edit marker
+    // while it still sees the previous render's draft/status.
+    const next = { ...current, ...patch, assets: { ...current.assets, ...(patch.assets || {}) } };
+    autosaveRef.current.enqueue(next);
+    setLessons(values => values.map(value => value.id === next.id ? autosaveRef.current?.getDraft(next.id) ?? newestLessonVersion(value, autosaveRef.current?.getAcknowledged(next.id) ?? next) : value));
+  }
 
   async function createNewLesson() {
     const category: LessonCategory = "beginner";
@@ -323,6 +332,7 @@ export function LessonManagementDashboard() {
       setToast(adminError(isAr, "Delete failed.", "تعذّر حذف الدرس.", payload.error));
       return;
     }
+    autosaveRef.current?.remove(lessonId);
     setLessons((current) => current.filter((lesson) => lesson.id !== lessonId));
     if (selectedLessonId === lessonId) {
       setSelectedLessonId((current) => (current === lessonId ? null : current));
@@ -344,29 +354,31 @@ export function LessonManagementDashboard() {
     setSelectedLessonId(payload.lesson.id);
   }
 
-  async function setPublishState(status: LessonStatus) {
-    if (!selectedLesson) return;
+  function setPublishState(status: LessonStatus) {
+    const current = getCurrentSelectedLesson();
+    if (!current) return;
     if (status === "published") {
-      const validationError = lessonPublishReadinessError(selectedLesson, isAr);
+      const validationError = lessonPublishReadinessError(current, isAr);
       if (validationError) {
         setToast(validationError);
         return;
       }
     }
-    const response = await fetch(`/api/admin/lessons/${selectedLesson.id}`, {
-      method: "PUT",
-      headers: {
-        ...authHeaders(),
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({ lesson: { status } }),
-    });
-    const payload = (await response.json()) as { lesson?: Lesson; error?: string };
-    if (!response.ok || !payload.lesson) {
-      setToast(adminError(isAr, "Publish update failed.", "تعذّر تحديث حالة النشر. راجع جميع حقول الإنجليزية والعربية.", payload.error));
-      return;
+    // Publish the current draft through the same queue as its text edits.
+    // A separate status request could replace a newer unsaved draft.
+    patchSelectedLesson({ status });
+  }
+
+  function resolveSaveConflict(keepDraft: boolean) {
+    if (!selectedLesson) return;
+    const saved = saveConflicts[selectedLesson.id];
+    if (!saved) return;
+    if (keepDraft) patchSelectedLesson({ updatedAt: saved.updatedAt });
+    else {
+      autosaveRef.current?.remove(saved.id);
+      setLessons(current => current.map(lesson => lesson.id === saved.id ? saved : lesson));
     }
-    setLessons((current) => current.map((lesson) => (lesson.id === payload.lesson!.id ? payload.lesson! : lesson)));
+    setSaveConflicts(current => { const next = { ...current }; delete next[saved.id]; return next; });
   }
 
   async function saveReorder(nextLessons: Lesson[]) {
@@ -542,8 +554,8 @@ export function LessonManagementDashboard() {
         </div>
       ) : null}
 
-      <div className="mt-6 grid gap-4 xl:grid-cols-[360px_1fr]">
-        <Card className="h-fit">
+      <div className="mt-6 grid min-w-0 grid-cols-1 gap-4 xl:grid-cols-[360px_minmax(0,1fr)]">
+        <Card className="h-fit min-w-0">
           <CardHeader>
             <CardTitle className="text-lg">{isAr ? "إدارة الدروس" : "Lesson Management"}</CardTitle>
             <CardDescription>{isAr ? "بحث، فلترة، سحب وإفلات، نشر." : "Search, filter, drag & drop, publish."}</CardDescription>
@@ -603,7 +615,7 @@ export function LessonManagementDashboard() {
 
             <div className="space-y-2 rounded-xl border border-white/10 p-3 text-xs">
               <p className="text-[#9CA3AF]">{isAr ? "منظم الدورات (سحب بين الأقسام)" : "Course Organizer (move between sections)"}</p>
-              <div className="grid grid-cols-3 gap-1">
+              <div className="grid grid-cols-1 gap-1 sm:grid-cols-3">
                 {(["beginner", "intermediate", "advanced"] as LessonCategory[]).map((category) => (
                   <div
                     key={category}
@@ -621,7 +633,7 @@ export function LessonManagementDashboard() {
           </CardContent>
         </Card>
 
-        <div className="space-y-4">
+        <div className="min-w-0 space-y-4">
           {selectedLesson ? (
             <>
               <Card>
@@ -629,15 +641,24 @@ export function LessonManagementDashboard() {
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div>
                       <CardTitle className="text-lg">{isAr ? "تفاصيل الدرس" : "Lesson Details"}</CardTitle>
-                      <CardDescription>{dirty ? (isAr ? "توجد تغييرات غير محفوظة" : "Unsaved changes") : saving ? (isAr ? "جاري الحفظ..." : "Auto saving...") : isAr ? "✓ محفوظ" : "✓ Saved"}</CardDescription>
+                      <CardDescription>{(selectedLesson && autosaveRef.current?.hasDraft(selectedLesson.id)) ? (isAr ? "توجد تغييرات غير محفوظة" : "Unsaved changes") : saving ? (isAr ? "جاري الحفظ..." : "Auto saving...") : isAr ? "✓ محفوظ" : "✓ Saved"}</CardDescription>
+                      {saveFailed && !saveConflicts[selectedLesson.id] ? <Button type="button" variant="outline" size="sm" disabled={saving} onClick={() => autosaveRef.current?.retry()}>{isAr ? "إعادة محاولة الحفظ" : "Retry saving"}</Button> : null}
                     </div>
-                    <div className="flex gap-2">
+                    <div className="flex flex-wrap gap-2">
                       <Button size="sm" variant="secondary" onClick={() => setPublishState("draft")}>{isAr ? "إلغاء النشر" : "Unpublish"}</Button>
                       <Button size="sm" onClick={() => setPublishState("published")}>{isAr ? "نشر" : "Publish"}</Button>
                     </div>
                   </div>
                 </CardHeader>
                 <CardContent className="space-y-4">
+                  {saveConflicts[selectedLesson.id] ? <div role="alert" className="space-y-2 rounded-xl border border-amber-400/40 p-3 text-sm">
+                    <p>{isAr ? "تغيّر هذا الدرس في نافذة أخرى. تغييراتك ما زالت في الحقول أدناه. اختر النسخة التي تريد حفظها." : "This lesson changed in another tab. Your edits remain in the fields below. Choose which version to keep."}</p>
+                    <p>{isAr ? "العنوان المحفوظ: " : "Saved title: "}{isAr ? saveConflicts[selectedLesson.id].titleAr : saveConflicts[selectedLesson.id].title}</p>
+                    <div className="flex flex-wrap gap-2">
+                      <Button type="button" size="sm" variant="secondary" onClick={() => resolveSaveConflict(false)}>{isAr ? "استخدام النسخة المحفوظة" : "Use saved version"}</Button>
+                      <Button type="button" size="sm" onClick={() => resolveSaveConflict(true)}>{isAr ? "حفظ نسختي بدلاً منها" : "Save my version instead"}</Button>
+                    </div>
+                  </div> : null}
                   <div className="grid gap-3 md:grid-cols-2">
                     <div className="space-y-1">
                       <label className="block text-xs text-[#9CA3AF]" htmlFor="lesson-title-en">{isAr ? "العنوان بالإنجليزية" : "English title"}</label>
@@ -1035,12 +1056,10 @@ export function LessonManagementDashboard() {
       </div>
 
       {toast ? (
-        <div className="fixed bottom-6 end-6 z-50 rounded-full border border-white/20 bg-[#0B0B0B] px-4 py-2 text-sm shadow-xl">
-          <div className="flex items-center gap-2">
+        <ActionFeedback floating autoReveal={toast !== (isAr ? "✓ تم الحفظ تلقائياً" : "✓ Saved")} revealKey={toastFeedbackKey} className="fixed bottom-6 end-6 z-50 flex items-center gap-2 rounded-full border border-white/20 bg-[#0B0B0B] px-4 py-2 text-sm shadow-xl">
             {toast.startsWith("✓") ? <CheckCircle2 className="h-4 w-4 text-emerald-300" /> : <AlertCircle className="h-4 w-4 text-amber-300" />}
             {toast}
-          </div>
-        </div>
+          </ActionFeedback>
       ) : null}
 
       {saving ? (

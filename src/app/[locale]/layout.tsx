@@ -1,19 +1,34 @@
-import type { ReactNode } from "react";
-import { notFound } from "next/navigation";
+import { Suspense, type ReactNode } from "react";
+import { notFound, redirect, unstable_rethrow } from "next/navigation";
+import { headers } from "next/headers";
 import { NextIntlClientProvider, hasLocale } from "next-intl";
 import { getMessages } from "next-intl/server";
 import { Inter, IBM_Plex_Sans_Arabic } from "next/font/google";
 import { localeDirection, routing, type AppLocale } from "@/i18n/routing";
+import { RouteActionFeedback } from "@/components/ui/route-action-feedback";
 import { SiteHeader } from "@/components/layout/site-header";
 import { SiteFooter } from "@/components/layout/site-footer";
 import { MobileBottomNavigation } from "@/components/layout/mobile-bottom-navigation";
+import { PageSectionNavigation } from "@/components/layout/page-section-navigation";
 import { HtmlAttributesSetter } from "@/components/layout/html-attributes-setter";
 import { OfflineBanner } from "@/components/pwa/offline-banner";
 import { PwaInstallPrompt } from "@/components/pwa/pwa-install-prompt";
 import { CanonicalSessionProvider } from "@/components/auth/canonical-session-provider";
+import { ProtectedPageBoundary } from "@/components/auth/protected-page-boundary";
+import { BuyerContactPrompt } from "@/components/auth/buyer-contact-prompt";
 import { getCurrentSessionUser } from "@/lib/auth";
 import { toClientSessionUser } from "@/lib/client-session-user";
+import { UserActivityTracker } from "@/components/auth/user-activity-tracker";
+import { TrafficAnalyticsTracker } from "@/components/analytics/traffic-analytics-tracker";
+import { BrowserPushPrompt } from "@/components/notifications/browser-push-prompt";
 import { NativeAppBridge } from "@/components/mobile/native-app-bridge";
+import { SessionUnavailable } from "@/components/auth/session-unavailable";
+import { logEvent } from "@/lib/structured-logging";
+import { APP_PAGE_PATH_HEADER, getSignedOutPageDestination, isProtectedPage } from "@/lib/protected-page";
+import { isMarketplacePhoneVerificationRequired, marketplacePhoneVerificationDestination } from "@/lib/phone-verification";
+import { isAdultConfirmationRequired } from "@/lib/age-eligibility";
+import { getInterfacePageDestination } from "@alpha-traders/contracts";
+import { isTradeRoomEntryPath } from "@/lib/trade-room-entry-path";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -48,9 +63,46 @@ export default async function LocaleLayout({
     notFound();
   }
 
-  const messages = await getMessages();
   const appLocale = locale as AppLocale;
-  const sessionUser = await getCurrentSessionUser();
+  // Translation and session resolution are independent. Starting both here
+  // removes a serial database round trip from every authenticated navigation.
+  const [messages, sessionResult] = await Promise.all([
+    getMessages(),
+    getCurrentSessionUser().then(
+      (user) => ({ available: true as const, user }),
+      (error: unknown) => {
+        // Preserve Next's redirect/dynamic-rendering control flow. A failed
+        // database read is not an anonymous session and must not clear cookies.
+        unstable_rethrow(error);
+        logEvent("error", {
+          event: "layout_session_unavailable",
+          outcome: "failed",
+          reason: "session_read_failed",
+          metadata: { errorName: error instanceof Error ? error.name : typeof error },
+        });
+        return { available: false as const };
+      },
+    ),
+  ]);
+
+  if (!sessionResult.available) {
+    // Errors in this layout bypass [locale]/error.tsx. Keep a minimal recovery
+    // surface alive without rendering protected children or guessing a user.
+    return <SessionUnavailable locale={appLocale} />;
+  }
+  const sessionUser = sessionResult.user;
+  const pagePath = (await headers()).get(APP_PAGE_PATH_HEADER) ?? "";
+  if (!sessionUser) {
+    if (isProtectedPage(pagePath)) redirect(getSignedOutPageDestination(pagePath));
+  }
+  // Room routes authorize existing participants even when their profile still
+  // carries a guest/student role. Do not preempt that check in the layout.
+  if (sessionUser && !isTradeRoomEntryPath(pagePath)) {
+    const roleDestination = getInterfacePageDestination(sessionUser, pagePath, appLocale);
+    if (roleDestination) redirect(roleDestination);
+  }
+  const phoneVerificationDestination = marketplacePhoneVerificationDestination(sessionUser, pagePath, appLocale);
+  if (phoneVerificationDestination) redirect(phoneVerificationDestination);
 
   return (
     <NextIntlClientProvider messages={messages}>
@@ -58,14 +110,18 @@ export default async function LocaleLayout({
       <OfflineBanner locale={appLocale} />
       <PwaInstallPrompt locale={appLocale} />
       <div
-        className={`${inter.variable} ${plexArabic.variable} min-h-screen text-white ${
-          appLocale === "ar" ? "font-[var(--font-plex-arabic)]" : "font-[var(--font-inter)]"
+        className={`${inter.variable} ${plexArabic.variable} alpha-interface min-h-screen text-white ${
+          appLocale === "ar" ? "alpha-interface--ar" : ""
         }`}
       >
         <CanonicalSessionProvider initialSessionUser={toClientSessionUser(sessionUser)} locale={appLocale}>
+          <Suspense fallback={null}><PageSectionNavigation /></Suspense>
           <NativeAppBridge locale={appLocale} />
+          <UserActivityTracker />
+          <TrafficAnalyticsTracker />
+          <BuyerContactPrompt locale={appLocale} />
           <SiteHeader locale={appLocale} sessionUser={sessionUser} />
-          <main className="min-h-[calc(100vh-9rem)]">{children}</main>
+          <main className="min-h-[calc(100vh-9rem)]"><BrowserPushPrompt locale={appLocale} /><RouteActionFeedback locale={appLocale} /><ProtectedPageBoundary locale={appLocale} phoneVerificationRequired={isMarketplacePhoneVerificationRequired()} adultConfirmationRequired={isAdultConfirmationRequired()}>{children}</ProtectedPageBoundary></main>
           <SiteFooter locale={appLocale} />
           <MobileBottomNavigation locale={appLocale} />
         </CanonicalSessionProvider>

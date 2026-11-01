@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AlphaExchangeDb, AlphaExchangeUser } from "@/types/alpha-exchange";
 
@@ -88,6 +89,73 @@ function currentSnapshot() {
 }
 
 describe("manual seller commission assignment", () => {
+  it("returns one obligation and notification for the same owner operation across concurrent retries", async () => {
+    const command = { sellerId: SELLER_ID, actorUserId: OWNER_ID, commissionAmount: 7.25,
+      reason: "One explicit owner adjustment.", clientOperationId: "124b41aa-e9e6-4581-b26e-7ad5a64606f0" };
+    const [first, second] = await Promise.all([issueSellerCommissionByAdmin(command), issueSellerCommissionByAdmin(command)]);
+    invalidateAlphaExchangeStoreCache();
+    const retried = await issueSellerCommissionByAdmin(command);
+    expect(second.id).toBe(first.id);
+    expect(retried.id).toBe(first.id);
+    expect(currentSnapshot().commissionRecords).toHaveLength(1);
+    expect(currentSnapshot().auditLogs.filter(row => row.action === "commission_recorded")).toHaveLength(1);
+    expect(currentSnapshot().notifications.filter(row => row.reason === "commission_payment_due")).toHaveLength(1);
+    expect(mocks.publishRealtimeEvent).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects a changed command reusing the same owner operation", async () => {
+    const command = { sellerId: SELLER_ID, actorUserId: OWNER_ID, commissionAmount: 7.25,
+      reason: "One explicit owner adjustment.", clientOperationId: "124b41aa-e9e6-4581-b26e-7ad5a64606f0" };
+    await issueSellerCommissionByAdmin(command);
+    await expect(issueSellerCommissionByAdmin({ ...command, commissionAmount: 8 })).rejects.toMatchObject({ code: "manual-commission-operation-conflict" });
+    expect(currentSnapshot().commissionRecords).toHaveLength(1);
+    expect(currentSnapshot().commissionRecords[0].commissionAmount).toBe(7.25);
+  });
+
+  it("does not reopen a paid obligation when its original operation is retried", async () => {
+    const command = { sellerId: SELLER_ID, actorUserId: OWNER_ID, commissionAmount: 7.25,
+      reason: "One explicit owner adjustment.", clientOperationId: randomUUID() };
+    await issueSellerCommissionByAdmin(command);
+    currentSnapshot().commissionRecords[0].paymentStatus = "paid";
+    invalidateAlphaExchangeStoreCache();
+    expect((await issueSellerCommissionByAdmin(command)).paymentStatus).toBe("paid");
+    expect(currentSnapshot().commissionRecords).toHaveLength(1);
+    expect(mocks.publishRealtimeEvent).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns the original obligation when a delayed retry arrives after its due date", async () => {
+    const now = Date.now();
+    const command = { sellerId: SELLER_ID, actorUserId: OWNER_ID, commissionAmount: 7.25,
+      reason: "One explicit owner adjustment.", clientOperationId: randomUUID(), dueAt: new Date(now + 60_000).toISOString() };
+    const original = await issueSellerCommissionByAdmin(command);
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(now + 120_000);
+      invalidateAlphaExchangeStoreCache();
+      const retried = await issueSellerCommissionByAdmin(command);
+      expect(retried.id).toBe(original.id);
+      expect(retried.dueAt).toBe(original.dueAt);
+      expect(currentSnapshot().commissionRecords).toHaveLength(1);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it("checks current owner permission before returning an existing operation", async () => {
+    const command = { sellerId: SELLER_ID, actorUserId: OWNER_ID, commissionAmount: 7.25,
+      reason: "One explicit owner adjustment.", clientOperationId: randomUUID() };
+    await issueSellerCommissionByAdmin(command);
+    const actor = currentSnapshot().users.find(row => row.id === OWNER_ID)!;
+    actor.role = "buyer"; actor.roles = ["buyer"];
+    invalidateAlphaExchangeStoreCache();
+    await expect(issueSellerCommissionByAdmin(command)).rejects.toThrow("Only an admin");
+    expect(currentSnapshot().commissionRecords).toHaveLength(1);
+  });
+
+  it.each(["", "not-a-uuid"])("rejects unsafe operation identity %j before creating an obligation", async clientOperationId => {
+    await expect(issueSellerCommissionByAdmin({ sellerId: SELLER_ID, actorUserId: OWNER_ID,
+      commissionAmount: 7.25, reason: "Missing operation.", clientOperationId })).rejects.toThrow("operation ID");
+    expect(currentSnapshot().commissionRecords).toHaveLength(0);
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     globalThis.__alphaExchangeMemorySnapshot = seedDb() as never;
@@ -106,6 +174,7 @@ describe("manual seller commission assignment", () => {
 
   it("creates a payable exact-amount TRC20 commission without fake trade linkage", async () => {
     const commission = await issueSellerCommissionByAdmin({
+      clientOperationId: randomUUID(),
       sellerId: SELLER_ID,
       actorUserId: OWNER_ID,
       commissionAmount: 7.25,
@@ -176,12 +245,14 @@ describe("manual seller commission assignment", () => {
   it("allocates distinct payment amounts to simultaneous manual assignments", async () => {
     const [first, second] = await Promise.all([
       issueSellerCommissionByAdmin({
+      clientOperationId: randomUUID(),
         sellerId: SELLER_ID,
         actorUserId: OWNER_ID,
         commissionAmount: 5,
         reason: "First manual commission.",
       }),
       issueSellerCommissionByAdmin({
+      clientOperationId: randomUUID(),
         sellerId: SELLER_ID,
         actorUserId: OWNER_ID,
         commissionAmount: 5,
@@ -219,6 +290,7 @@ describe("manual seller commission assignment", () => {
     invalidateAlphaExchangeStoreCache();
 
     const commission = await issueSellerCommissionByAdmin({
+      clientOperationId: randomUUID(),
       sellerId: SELLER_ID,
       actorUserId: OWNER_ID,
       commissionAmount: 6,
@@ -237,6 +309,7 @@ describe("manual seller commission assignment", () => {
 
   it("clears the seller lock when the manual commission is settled", async () => {
     const commission = await issueSellerCommissionByAdmin({
+      clientOperationId: randomUUID(),
       sellerId: SELLER_ID,
       actorUserId: OWNER_ID,
       commissionAmount: 3,
@@ -259,6 +332,7 @@ describe("manual seller commission assignment", () => {
 
   it("verifies official USDT on TRON and unlocks a trade-less manual commission", async () => {
     const commission = await issueSellerCommissionByAdmin({
+      clientOperationId: randomUUID(),
       sellerId: SELLER_ID,
       actorUserId: OWNER_ID,
       commissionAmount: 4.2,
@@ -316,6 +390,7 @@ describe("manual seller commission assignment", () => {
 
   it("rejects invalid targets and amounts before creating debt", async () => {
     await expect(issueSellerCommissionByAdmin({
+      clientOperationId: randomUUID(),
       sellerId: "missing-seller",
       actorUserId: OWNER_ID,
       commissionAmount: 5,
@@ -323,6 +398,7 @@ describe("manual seller commission assignment", () => {
     })).rejects.toThrow("Seller not found");
 
     await expect(issueSellerCommissionByAdmin({
+      clientOperationId: randomUUID(),
       sellerId: SELLER_ID,
       actorUserId: OWNER_ID,
       commissionAmount: 0,

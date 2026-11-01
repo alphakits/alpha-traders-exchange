@@ -1,5 +1,6 @@
-import { useState } from "react";
-import { Alert, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { BrandedText as Text } from "../src/components/branded-text";
+import { useEffect, useState } from "react";
+import { Alert, Pressable, StyleSheet, TextInput, View } from "react-native";
 import { Redirect, useRouter } from "expo-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { MobileNotificationPreferencesUpdateRequest } from "@alpha-traders/contracts";
@@ -48,6 +49,14 @@ export default function SettingsScreen() {
   const queryClient = useQueryClient();
   const [phone, setPhone] = useState("");
   const [phoneCode, setPhoneCode] = useState("");
+  const [phoneChannel, setPhoneChannel] = useState<"sms" | "whatsapp">("sms");
+  const [phoneSentTo, setPhoneSentTo] = useState<string | null>(null);
+  const [phoneCooldown, setPhoneCooldown] = useState(0);
+  useEffect(() => {
+    if (phoneCooldown <= 0) return;
+    const timer = setTimeout(() => setPhoneCooldown(value => Math.max(0, value - 1)), 1000);
+    return () => clearTimeout(timer);
+  }, [phoneCooldown]);
   const [phoneMessage, setPhoneMessage] = useState<string | null>(null);
   const [phoneMessageIsError, setPhoneMessageIsError] = useState(false);
   const notificationKey = ["mobile-notification-preferences", user?.id ?? "anonymous", locale] as const;
@@ -69,9 +78,12 @@ export default function SettingsScreen() {
     ),
   });
   const phoneSendMutation = useMutation({
-    mutationFn: (value: string) => requestWithSession((tokens, requestLocale) =>
-      sendMobilePhoneVerificationCode(tokens, requestLocale, value)),
-    onSuccess: (response) => {
+    mutationFn: (input: { phone: string; channel: "sms" | "whatsapp" }) => requestWithSession((tokens, requestLocale) =>
+      sendMobilePhoneVerificationCode(tokens, requestLocale, input.phone, input.channel)),
+    onSuccess: (response, input) => {
+      setPhoneSentTo(input.phone);
+      setPhoneCode("");
+      setPhoneCooldown(60);
       setPhoneMessageIsError(false);
       setPhoneMessage(response.message || (isAr ? "تم إرسال رمز التحقق." : "Verification code sent."));
     },
@@ -88,6 +100,7 @@ export default function SettingsScreen() {
     onSuccess: async (response) => {
       syncSessionUser(response.user);
       setPhoneCode("");
+      setPhoneSentTo(null);
       setPhoneMessageIsError(false);
       setPhoneMessage(isAr ? "تم توثيق رقم الهاتف." : "Phone number verified.");
       await notificationQuery.refetch();
@@ -166,16 +179,23 @@ export default function SettingsScreen() {
                   editable={!phoneSendMutation.isPending && !phoneVerifyMutation.isPending}
                   inputMode="tel"
                   maxLength={30}
-                  onChangeText={setPhone}
+                  onChangeText={value => { setPhone(value); setPhoneCode(""); setPhoneSentTo(null); setPhoneMessage(null); }}
                   placeholder={isAr ? "رقم الهاتف، مثال: ‎+972501234567" : "Phone, e.g. +972501234567"}
                   placeholderTextColor={colors.textMuted}
                   style={[styles.input, isRTL && styles.rtlText]}
                   textContentType="telephoneNumber"
                   value={phone}
                 />
+                <View style={[styles.phoneActions, isRTL && styles.rowReverse]}>
+                  {(["sms", "whatsapp"] as const).map(channel => (
+                    <GoldButton key={channel} accessibilityLabel={channel === "sms" ? "SMS" : "WhatsApp"} accessibilityState={{ selected: phoneChannel === channel }} disabled={channel === "whatsapp" || phoneSendMutation.isPending || phoneVerifyMutation.isPending || notificationQuery.data?.capabilities.phoneVerificationChannels?.[channel] === false} variant={phoneChannel === channel ? "gold" : "outline"} onPress={() => setPhoneChannel(channel)} style={styles.phoneAction}>
+                      {channel === "sms" ? "SMS" : isAr ? "WhatsApp (غير متاح حاليًا)" : "WhatsApp (currently unavailable)"}
+                    </GoldButton>
+                  ))}
+                </View>
                 <TextInput
                   accessibilityLabel={isAr ? "رمز التحقق المكوّن من 6 أرقام" : "6-digit verification code"}
-                  editable={!phoneSendMutation.isPending && !phoneVerifyMutation.isPending}
+                  editable={Boolean(phoneSentTo) && !phoneSendMutation.isPending && !phoneVerifyMutation.isPending}
                   inputMode="numeric"
                   keyboardType="number-pad"
                   maxLength={6}
@@ -188,23 +208,23 @@ export default function SettingsScreen() {
                 />
                 <View style={[styles.phoneActions, isRTL && styles.rowReverse]}>
                   <GoldButton
-                    disabled={!phone.trim() || phoneVerifyMutation.isPending}
+                    disabled={!phone.trim() || phoneVerifyMutation.isPending || phoneCooldown > 0 || notificationQuery.data.capabilities.phoneVerificationChannels?.[phoneChannel] === false}
                     loading={phoneSendMutation.isPending}
                     onPress={() => {
                       setPhoneMessage(null);
-                      phoneSendMutation.mutate(phone.trim());
+                      phoneSendMutation.mutate({ phone: phone.trim(), channel: phoneChannel });
                     }}
                     style={styles.phoneAction}
                     variant="outline"
                   >
-                    {isAr ? "إرسال الرمز" : "Send code"}
+                    {phoneCooldown > 0 ? (isAr ? `أعد الإرسال بعد ${phoneCooldown} ثانية` : `Resend in ${phoneCooldown}s`) : (isAr ? "إرسال الرمز" : "Send code")}
                   </GoldButton>
                   <GoldButton
-                    disabled={!phone.trim() || phoneCode.length !== 6 || phoneSendMutation.isPending}
+                    disabled={!phoneSentTo || phoneSentTo !== phone.trim() || phoneCode.length !== 6 || phoneSendMutation.isPending}
                     loading={phoneVerifyMutation.isPending}
                     onPress={() => {
                       setPhoneMessage(null);
-                      phoneVerifyMutation.mutate({ phone: phone.trim(), code: phoneCode });
+                      if (phoneSentTo) phoneVerifyMutation.mutate({ phone: phoneSentTo, code: phoneCode });
                     }}
                     style={styles.phoneAction}
                   >

@@ -78,4 +78,17 @@ describe("notification action-required classification", () => {
       state: "archived",
     }))).toBe(false);
   });
+  it.each(["Bank Transfer", "Cardless ATM Withdrawal", "Face-to-Face (Meet in Person)"])("uses current seller-only completion to classify %s notices", (paymentMethod) => {
+    const snapshot = { requestId: "request-1", currentStage: "usdt_sent", sellerId: "seller-1", buyerId: "buyer-1", paymentMethod, counterpartyName: "AT-TEST", usdtAmount: "100", fiatAmount: "313.10", currency: "ILS", requiredAction: "Check trade" };
+    expect(isNotificationActionRequired(notification({ userId: "buyer-1", category: "trade", title: "Action required: confirm USDT receipt", tradeSnapshot: snapshot }))).toBe(false);
+    expect(isNotificationActionRequired(notification({ userId: "seller-1", category: "trade", title: "USDT sent", tradeSnapshot: snapshot }))).toBe(true);
+  });
+
+  it("keeps trade conversation messages out of the lifecycle action queue", () => {
+    expect(isNotificationActionRequired(notification({
+      userId: "seller-1", category: "trade", reason: "trade_room_message", title: "New trade message",
+      tradeSnapshot: { requestId: "request-1", currentStage: "usdt_sent", sellerId: "seller-1", buyerId: "buyer-1", paymentMethod: "Bank Transfer", counterpartyName: "AT-TEST", usdtAmount: "100", fiatAmount: "313.10", currency: "ILS", requiredAction: "Open chat" },
+    }))).toBe(false);
+  });
+
 });

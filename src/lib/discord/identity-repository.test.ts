@@ -2,6 +2,7 @@
 
 import type { Pool, PoolClient, QueryResult, QueryResultRow } from "pg";
 import { describe, expect, it, vi } from "vitest";
+import { createTestSellerApprovalVerification } from "@/test-utils/seller-verification";
 
 vi.mock("server-only", () => ({}));
 
@@ -53,7 +54,10 @@ describe("Discord identity repository", () => {
       if (sql === "begin" || sql === "rollback") return result([]);
       if (sql.includes("from alpha_exchange.discord_identities")) return result([]);
       if (sql.includes("select seller_status")) {
-        return result([{ seller_status: "approved_seller" }]);
+        return result([{
+          seller_status: "approved_seller",
+          payload: { sellerApprovalVerification: createTestSellerApprovalVerification() },
+        }]);
       }
       if (sql.includes("insert into alpha_exchange.discord_identities")) {
         throw uniqueViolation;
@@ -80,7 +84,10 @@ describe("Discord identity repository", () => {
     const query = vi.fn(async (sql: string) => {
       statements.push(sql);
       if (sql.includes("select seller_status")) {
-        return result([{ seller_status: "approved_seller" }]);
+        return result([{
+          seller_status: "approved_seller",
+          payload: { sellerApprovalVerification: createTestSellerApprovalVerification() },
+        }]);
       }
       if (sql.includes("from alpha_exchange.discord_identities")) return result([]);
       return result([]);
@@ -104,6 +111,34 @@ describe("Discord identity repository", () => {
       sql.includes("from alpha_exchange.discord_identities"));
     expect(userLock).toBeGreaterThan(-1);
     expect(userLock).toBeLessThan(identityRead);
+  });
+
+  it("retains the Approved Seller Discord role for an owner-approved seller without extra metadata", async () => {
+    const calls: Array<{ sql: string; values?: unknown[] }> = [];
+    const query = vi.fn(async (sql: string, values?: unknown[]) => {
+      calls.push({ sql, values });
+      if (sql.includes("select seller_status")) {
+        return result([{ seller_status: "approved_seller", payload: {} }]);
+      }
+      if (sql.includes("from alpha_exchange.discord_identities")) return result([]);
+      return result([]);
+    });
+    const client = { query, release: vi.fn() } as unknown as PoolClient;
+    const pool = { connect: vi.fn(async () => client) } as unknown as Pool;
+
+    await linkDiscordIdentity({
+      platformUserId: "legacy-seller",
+      profile: {
+        id: "987654321098765432",
+        username: "legacy",
+        globalName: "Legacy",
+      },
+      pool,
+    });
+
+    const outbox = calls.find(({ sql }) =>
+      sql.includes("insert into alpha_exchange.discord_role_sync_outbox"));
+    expect(outbox?.values?.[2]).toBe("approved");
   });
 
   it("deletes the identity transactionally so the database revocation trigger can queue removal", async () => {

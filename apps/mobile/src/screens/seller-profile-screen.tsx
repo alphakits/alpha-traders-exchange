@@ -1,3 +1,5 @@
+import { deriveUserPresence, formatMeasuredResponseTime, sellerRatingDisplay, sellerScoreDisplay } from "@alpha-traders/contracts";
+import { BrandedText as Text } from "../components/branded-text";
 import { useCallback } from "react";
 import {
   ActivityIndicator,
@@ -5,7 +7,6 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
-  Text,
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -15,6 +16,7 @@ import type { MobileSellerBadge, MobileSellerProfile } from "@alpha-traders/cont
 import { colors, radius, spacing, typography } from "@alpha-traders/design-tokens";
 import { getMobileSellerProfile } from "../api/mobile-api";
 import { useAuth } from "../auth/auth-context";
+import { SellerRankIdentity, SELLER_PROFILE_TONES } from "../components/seller-rank-identity";
 import { GoldButton } from "../components/gold-button";
 import { useLocale } from "../i18n/locale-context";
 import { safeRemoteImageUrl } from "../media/safe-media-url";
@@ -73,6 +75,7 @@ export function SellerProfileScreen({ listingId }: { listingId: string }) {
           getMobileSellerProfile(listingId, requestLocale, signal, tokens))
       : getMobileSellerProfile(listingId, locale, signal),
     staleTime: 15_000,
+    refetchInterval: 15_000,
   });
 
   const goBack = useCallback(() => {
@@ -120,10 +123,11 @@ export function SellerProfileScreen({ listingId }: { listingId: string }) {
   }
 
   const seller = query.data.seller;
+  const tone = SELLER_PROFILE_TONES[seller.isOwner ? "owner" : seller.level];
   const joinedYear = memberYear(seller.memberSince, locale);
   const profilePhotoUrl = safeRemoteImageUrl(seller.profilePhotoUrl);
-  const averageRating = finiteMetric(seller.averageRating);
-  const rating = averageRating > 0 ? averageRating.toFixed(1) : "—";
+  const rating = sellerRatingDisplay(seller, locale === "ar");
+  const score = sellerScoreDisplay(seller, locale === "ar");
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -135,8 +139,9 @@ export function SellerProfileScreen({ listingId }: { listingId: string }) {
           <Text style={styles.screenLabel}>{t("sellerProfile")}</Text>
         </View>
 
-        <View style={[styles.heroCard, isRTL && styles.rowReverse]}>
-          <View accessible={false} style={styles.avatar}>
+        <SellerRankIdentity rank={seller.level} owner={seller.isOwner} />
+        <View style={[styles.heroCard, { borderColor: tone.border }, isRTL && styles.rowReverse]}>
+          <View accessible={false} style={[styles.avatar, { borderColor: tone.accent }]}>
             <Text accessible={false} style={styles.avatarFallback}>{seller.displayName.trim().slice(0, 1).toUpperCase() || "A"}</Text>
             {profilePhotoUrl ? (
               <Image accessible={false} alt="" source={{ uri: profilePhotoUrl }} style={styles.avatarImage} />
@@ -148,27 +153,33 @@ export function SellerProfileScreen({ listingId }: { listingId: string }) {
               {seller.isEmailVerified ? <Text style={styles.verified}>✓</Text> : null}
             </View>
             <View style={[styles.statusRow, isRTL && styles.rowReverse]}>
-              <View style={[styles.statusDot, seller.onlineStatus === "online" && styles.statusOnline]} />
-              <Text style={styles.statusText}>{seller.onlineStatus === "online" ? t("online") : t("offline")}</Text>
-              <Text style={styles.levelBadge}>{levelLabel(seller.level, t)}</Text>
+              <View style={[styles.statusDot, deriveUserPresence(seller).online && styles.statusOnline]} />
+              <Text style={styles.statusText}>{locale === "ar" ? deriveUserPresence(seller).labelAr : deriveUserPresence(seller).label}</Text>
+              <Text style={[styles.levelBadge, { borderColor: tone.border, color: tone.accent, backgroundColor: tone.soft }]}>{levelLabel(seller.level, t)}</Text>
             </View>
             <Text style={[styles.memberSince, isRTL && styles.rtlText]}>{t("memberSince")} {joinedYear}</Text>
           </View>
         </View>
 
+        {seller.isEmailVerified || seller.isPhoneVerified ? (
+          <View style={[styles.badges, isRTL && styles.rowReverse]}>
+            {seller.isEmailVerified ? <Text style={styles.verificationBadge}>✓ {locale === "ar" ? "بريد موثّق" : "Verified Email"}</Text> : null}
+            {seller.isPhoneVerified === true ? <Text style={styles.verificationBadge}>✓ {locale === "ar" ? "هاتف موثّق" : "Verified Phone"}</Text> : null}
+          </View>
+        ) : null}
+
         <View style={styles.metricsGrid}>
-          <Metric isRTL={isRTL} label={t("trustedVolume")} value={seller.publicVolumeRange} />
           <Metric isRTL={isRTL} label={t("completedTrades")} value={formatCount(Math.round(finiteMetric(seller.completedTrades)))} />
-          <Metric isRTL={isRTL} label={t("rating")} value={`${rating} ★`} />
-          <Metric isRTL={isRTL} label={t("responseTime")} value={`${Math.round(finiteMetric(seller.responseTimeMinutes))} ${t("minutesShort")}`} />
+          <Metric isRTL={isRTL} label={rating.label} value={rating.value} />
+          <Metric isRTL={isRTL} label={t("responseTime")} value={formatMeasuredResponseTime(seller.responseTimeMinutes, locale === "ar", seller.responseSampleCount)} />
           <Metric isRTL={isRTL} label={t("completionRate")} value={`${Math.round(Math.min(100, finiteMetric(seller.completionRate)))}%`} />
-          <Metric isRTL={isRTL} label={t("trustScore")} value={String(Math.round(Math.min(100, finiteMetric(seller.trustScore))))} />
+          <Metric isRTL={isRTL} label={score.label} value={score.value} />
         </View>
 
         {seller.badges.length ? (
           <View style={[styles.badges, isRTL && styles.rowReverse]}>
             {seller.badges.map((badge) => (
-              <Text key={badge} style={styles.badge}>◆ {badgeLabel(badge, t)}</Text>
+              <Text key={badge} style={[styles.badge, { borderColor: tone.border, color: tone.accent, backgroundColor: tone.soft }]}>◆ {badgeLabel(badge, t)}</Text>
             ))}
           </View>
         ) : null}
@@ -250,6 +261,7 @@ const styles = StyleSheet.create({
   metricValue: { color: colors.goldBright, fontSize: typography.section, fontWeight: "900" },
   metricLabel: { color: colors.textMuted, fontSize: typography.caption, lineHeight: 15 },
   badges: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
+  verificationBadge: { color: "#6ee7b7", borderColor: "rgba(16,185,129,0.35)", backgroundColor: "rgba(16,185,129,0.10)", borderWidth: 1, borderRadius: radius.pill, fontSize: typography.caption, paddingHorizontal: spacing.md, paddingVertical: spacing.sm },
   badge: { backgroundColor: "rgba(216, 180, 74, 0.10)", borderColor: colors.borderGold, borderRadius: radius.pill, borderWidth: 1, color: colors.goldBright, fontSize: typography.caption, fontWeight: "800", overflow: "hidden", paddingHorizontal: spacing.md, paddingVertical: spacing.sm },
   section: { backgroundColor: colors.surface, borderColor: colors.border, borderRadius: radius.lg, borderWidth: 1, gap: spacing.md, padding: spacing.lg },
   sectionTitle: { color: colors.text, fontSize: typography.section, fontWeight: "900" },

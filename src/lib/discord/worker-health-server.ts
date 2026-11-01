@@ -8,6 +8,7 @@ import {
 } from "node:http";
 
 import type { DiscordService } from "@/lib/discord/service";
+import type { ProductionHealthWorker } from "@/lib/production-health-worker";
 import type {
   DiscordListingDiagnostics,
   DiscordMarketIntelligenceDiagnostics,
@@ -55,6 +56,7 @@ export type DiscordWorkerHealthServerDependencies = {
   healthSecret: string;
   now?: () => number;
   deployment?: DiscordDeploymentDiagnostics;
+  productionHealth?: Pick<ProductionHealthWorker, "getSnapshot">;
 };
 
 function headerValue(
@@ -91,6 +93,7 @@ export function createDiscordWorkerHealthServer({
   healthSecret,
   now,
   deployment = readDiscordDeploymentDiagnostics(),
+  productionHealth,
 }: DiscordWorkerHealthServerDependencies): Server {
   const authVerifier = new DiscordWorkerAuthVerifier(now);
 
@@ -99,6 +102,14 @@ export function createDiscordWorkerHealthServer({
 
     if (request.method === "GET" && url.pathname === "/health/live") {
       sendJson(response, 200, { status: "alive" });
+      return;
+    }
+
+    // Cached public-site evidence only. Requests never start a probe, reveal
+    // worker credentials or affect the worker's own liveness/readiness.
+    if (request.method === "GET" && url.pathname === "/health/public-production" && productionHealth) {
+      const snapshot = productionHealth.getSnapshot();
+      sendJson(response, snapshot.status === "healthy" ? 200 : 503, snapshot);
       return;
     }
 

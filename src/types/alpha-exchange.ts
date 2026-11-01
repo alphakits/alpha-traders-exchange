@@ -1,3 +1,6 @@
+import type { SellerMetricEvidence } from "@alpha-traders/contracts";
+import type { BankTransferProvider, WiseUsdAccount, WiseUsdAccountSnapshot } from "@/types/wise";
+
 export type UserRole =
   | "guest"
   | "student"
@@ -90,7 +93,6 @@ export interface SellerHallOfFameEntry {
   sellerId: string;
   sellerName: string;
   rank: SellerLevel;
-  prestigeVolumeUsdt: number;
   achievements: SellerAchievement[];
   promotedAt: string;
   publicVolumeRange: string;
@@ -99,6 +101,7 @@ export interface SellerHallOfFameEntry {
 export interface AlphaExchangeUser {
   id: string;
   fullName: string;
+  profileNameChangedAt?: string;
   email: string;
   passwordHash: string;
   whatsappNumber: string;
@@ -117,6 +120,8 @@ export interface AlphaExchangeUser {
   onlineStatus: SellerOnlineStatus;
   availabilityStatus: SellerAvailabilityStatus;
   lastActiveAt?: string;
+  lastSeenAt?: string;
+  presenceHidden?: boolean;
   isFeaturedSeller?: boolean;
   isProfileHidden?: boolean;
   showTradeStats?: boolean;
@@ -128,9 +133,13 @@ export interface AlphaExchangeUser {
   /** Accounts this user has blocked from future marketplace interactions. */
   blockedUserIds?: string[];
   notificationPreferences?: NotificationPreferences;
+  /** Private, opt-in marketplace notification filter. Never included in public profiles. */
+  marketplacePriceAlert?: import("@/lib/marketplace-price-alert").MarketplacePriceAlert;
   role: UserRole;
   roles?: UserRole[];
   sellerStatus: SellerStatus;
+  /** Optional historical identity-review metadata; canonical sellerStatus controls seller access. */
+  sellerApprovalVerification?: SellerApprovalVerification;
   emailVerified?: boolean;
   emailVerifiedAt?: string;
   emailVerificationTokenHash?: string;
@@ -141,11 +150,17 @@ export interface AlphaExchangeUser {
   registeredViaInviteCodeId?: string;
   verifiedPhone?: string;
   phoneVerifiedAt?: string;
+  /** Private server-recorded adult confirmation; never inferred from roles or provider metadata. */
+  ageEligibility?: import("@/lib/age-eligibility").AdultEligibility;
   phoneOtpHash?: string;
   phoneOtpSalt?: string;
   phoneOtpExpiresAt?: string;
   phoneOtpAttempts?: number;
   phoneOtpPhone?: string;
+  phoneOtpChannel?: "sms" | "whatsapp";
+  phoneOtpRequestedAt?: string;
+  phoneOtpSendsDate?: string;
+  phoneOtpSendsToday?: number;
   buyerVerificationStatus?: "not_started" | "otp_sent" | "verified";
   buyerVerificationAttempts?: number;
   buyerVerificationWindowStartedAt?: string;
@@ -164,6 +179,8 @@ export interface AlphaExchangeUser {
   sellerAchievements?: SellerAchievement[];
   ownerSettings?: OwnerSettings;
   sellerBankAccounts?: SellerBankAccount[];
+  /** Private local-draft account records; never include in session or public DTOs. */
+  wiseUsdAccounts?: WiseUsdAccount[];
   disabled?: boolean;
   createdAt: string;
   updatedAt: string;
@@ -221,6 +238,16 @@ export interface NotificationTradeSnapshot {
 
 export type SellerApplicationStatus = "pending" | "approved" | "rejected";
 
+export interface SellerApprovalVerification {
+  method: "manual_authorized_reviewer_v1";
+  identityDocumentReviewed: true;
+  liveIdentityVideoReviewed: true;
+  contactOwnershipConfirmed: true;
+  marketplaceRulesAccepted: true;
+  verifiedAt: string;
+  verifiedByUserId: string;
+}
+
 export interface SellerApplication {
   id: string;
   userId: string;
@@ -231,6 +258,11 @@ export interface SellerApplication {
   expectedMonthlyTradingVolume: string;
   additionalNotes: string;
   status: SellerApplicationStatus;
+  /**
+   * A minimal approval attestation. Raw identity documents and videos are
+   * intentionally not stored in the Exchange application record.
+   */
+  verification?: SellerApprovalVerification;
   displayNumber?: number;
   createdAt: string;
   updatedAt: string;
@@ -266,6 +298,7 @@ export interface SellerPublicProfile {
   sellerStatus?: SellerStatus;
   allowDirectMessages?: boolean;
   isEmailVerified?: boolean;
+  isPhoneVerified?: boolean;
   contact?: {
     email: string;
     phone: string;
@@ -273,6 +306,8 @@ export interface SellerPublicProfile {
   onlineStatus: SellerOnlineStatus;
   availabilityStatus: SellerAvailabilityStatus;
   lastActiveAt?: string;
+  lastSeenAt?: string;
+  presenceHidden?: boolean;
   emailVerified?: boolean;
 }
 
@@ -303,6 +338,7 @@ export interface SellerProfileReviewEntry {
   buyerId: string;
   buyerName: string;
   verifiedPurchase: boolean;
+  hidden?: boolean;
   sellerResponse?: TradeReviewResponse;
 }
 
@@ -327,21 +363,21 @@ export interface SellerOwnerToolData {
   };
 }
 
-export interface PremiumSellerProfileData {
+export interface PremiumSellerProfileData extends SellerMetricEvidence {
   sellerId: string;
   profile: SellerPublicProfile;
   sellerLevel: SellerLevel;
   nextRank?: SellerLevel;
-  progressToNextRankPercent: number;
-  amountToNextRankUsdt: number;
+  progressToNextRankPercent?: number;
+  amountToNextRankUsdt?: number;
   publicVolumeRange: string;
-  lifetimeCompletedVolumeUsdt: number;
+  lifetimeCompletedVolumeUsdt?: number;
   trustScore: number;
   completedTrades: number;
   tradeVolume?: number;
   exactTradeVolume?: number;
-  commissionPaid: number;
-  averageTradeSize: number;
+  commissionPaid?: number;
+  averageTradeSize?: number;
   averageRating: number;
   responseTimeMinutes: number;
   completionRate: number;
@@ -351,7 +387,7 @@ export interface PremiumSellerProfileData {
   badges: SellerBadge[];
   promotionHistory: SellerPromotionHistoryEntry[];
   achievements: SellerAchievement[];
-  prestigeVolumeUsdt: number;
+  prestigeVolumeUsdt?: number;
   prestigeVolumePublicLabel: string;
   hallOfFameEligible: boolean;
   latestReviews: SellerProfileReviewEntry[];
@@ -359,7 +395,7 @@ export interface PremiumSellerProfileData {
   ownerTools?: SellerOwnerToolData;
 }
 
-export interface SellerReputationSnapshot {
+export interface SellerReputationSnapshot extends SellerMetricEvidence {
   sellerId: string;
   trustScore: number;
   reliabilityScore: number;
@@ -377,21 +413,24 @@ export interface SellerReputationSnapshot {
   cancellationRate: number;
   completionRate: number;
   responseTimeMinutes: number;
-  customerSatisfaction: number;
+  customerSatisfaction?: number;
   recentActivityScore: number;
   accountAgeDays: number;
   profileCompletion: number;
   verificationScore: number;
-  disputesLost: number;
+  /** Unavailable until a dispute records an adjudicated losing party. */
+  disputesLost?: number;
+  accountSuspended?: boolean;
   marketplaceViolations: number;
   listingQualityScore: number;
-  profileViews: number;
-  listingViews: number;
+  profileViews?: number;
+  listingViews?: number;
   tradeRequests: number;
-  monthlyGrowthPercent: number;
+  monthlyGrowthPercent?: number;
   estimatedCommissionPaid: number;
   revenueGenerated: number;
   repeatBuyers: number;
+  /** Average completed trade amount in USDT, independent of settlement currency. */
   averageTradeSize: number;
   publicVolumeRange?: string;
   nextRank?: SellerLevel;
@@ -402,7 +441,42 @@ export interface SellerReputationSnapshot {
   isRankOverridden?: boolean;
 }
 
+export type PublicSellerReputationSnapshot = Omit<SellerReputationSnapshot,
+  "totalUsdtVolume" | "estimatedCommissionPaid" | "revenueGenerated" | "averageTradeSize" | "publicVolumeRange" | "remainingVolumeToNextRank" | "prestigeProgressPercent" | "lifetimeCompletedVolumeUsdt" | "prestigeVolumeUsdt" | "profileViews" | "listingViews" | "monthlyGrowthPercent" | "customerSatisfaction">;
+
+/** Server-owned provenance for an explicitly attested historical correction. */
+export interface HistoricalOwnerAttestation {
+  source: "owner_attestation";
+  operationId: string;
+  inputFingerprint: string;
+  recordedAt: string;
+  recordedByUserId: string;
+  reason: string;
+}
+
+export interface HistoricalTradeCompletion extends HistoricalOwnerAttestation {
+  offlineCompletionConfirmed: true;
+  originalTerms: { status: PurchaseRequestStatus; usdtAmount: string; fiatAmount: string; pricePerUsdt: string };
+  reconciledUsdtAmount: string;
+  reconstructedFiatAmount: string;
+  /** A saved quote calculation, not evidence of the cash amount received. */
+  fiatAmountBasis: "saved_quote_reconstruction";
+  listingTotalUsdt: string;
+  preservedCompletedRequestIds: string[];
+  stateHash: string;
+  planHash: string;
+}
+
+/** Owner-attested buyer recognition; never changes settlement, inventory or fees. */
+export interface BuyerVolumeCredit extends HistoricalOwnerAttestation {
+  requestId: string;
+  buyerId: string;
+  settledUsdtAmount: string;
+  creditedUsdtAmount: string;
+}
+
 export interface MarketplaceListing {
+  historicalCompletionReconciliation?: HistoricalOwnerAttestation & { requestId: string };
   id: string;
   sellerId: string;
   sellerDisplayName: string;
@@ -416,6 +490,8 @@ export interface MarketplaceListing {
   paymentMethod: string;
   paymentMethods: string[];
   bankAccountId?: string;
+  bankTransferProvider?: BankTransferProvider;
+  wiseAccountId?: string;
   bankName?: string;
   minimumTrade: string;
   maximumTrade: string;
@@ -430,6 +506,8 @@ export interface MarketplaceListing {
   status: ListingStatus;
   approvalStatus?: ListingApprovalStatus;
   activeTradeRequestId?: string;
+  sellerActiveTradeCount?: number;
+  newRequestBlockReason?: "commission_due" | "trade_limit" | "inventory_reserved";
   lockedAt?: string;
   ownerReviewReason?: string;
   ownerReviewedAt?: string;
@@ -441,7 +519,7 @@ export interface MarketplaceListing {
   createdAt: string;
   updatedAt: string;
   sellerProfile?: SellerPublicProfile;
-  sellerReputation?: SellerReputationSnapshot;
+  sellerReputation?: PublicSellerReputationSnapshot;
 }
 
 export type PurchaseRequestStatus =
@@ -464,6 +542,7 @@ export type TradeTimelineEventType =
   | "price_offer_accepted"
   | "payment_sent"
   | "seller_confirmed_funds"
+  | "buyer_confirmed_funds"
   | "usdt_release_started"
   | "usdt_sent"
   | "trade_completed"
@@ -471,6 +550,7 @@ export type TradeTimelineEventType =
   | "trade_locked"
   | "review_unlocked"
   | "dispute_opened"
+  | "dispute_resolved"
   | "commission_recorded"
   | "commission_paid"
   | "buyer_evidence_uploaded"
@@ -526,11 +606,16 @@ export interface TradeEvidenceFile {
 
 export interface TradeChatMessage {
   id: string;
+  /** Opaque send-attempt ID for matching a live snapshot before POST acknowledgement. */
+  clientMessageId?: string;
   purchaseRequestId: string;
   kind: "user" | "system";
   senderUserId: string;
   senderRole: UserRole;
   message: string;
+  credentialKind?: "cardless_code";
+  confidential?: boolean;
+  payloadHash?: string;
   imageUrl?: string;
   imageName?: string;
   imageMimeType?: string;
@@ -593,6 +678,7 @@ export type WhatsAppNotificationEvent =
   | "trade_cancelled";
 
 export interface AlphaExchangeNotification {
+  demandEmail?: { demandId: string; offerId?: string; revision: number; state: "pending" | "queued" | "suppressed" };
   id: string;
   userId: string;
   category: NotificationCategory;
@@ -676,6 +762,9 @@ export interface TradeDisputeCase {
   buyerEvidenceId?: string;
   sellerEvidenceId?: string;
   status: "open" | "resolved";
+  resolvedAt?: string;
+  resolvedByUserId?: string;
+  resolutionNotes?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -806,6 +895,26 @@ export interface AdminAnnouncementRun {
 }
 
 export interface PurchaseRequest {
+  /** Server-owned receipt committed atomically with successful completion. */
+  completionReceipt?: import("@alpha-traders/contracts").TradeCompletionReceipt;
+  buyerVolumeCredit?: BuyerVolumeCredit;
+  /** Safe participant-facing provenance, without private owner audit details. */
+  buyerVolumeCreditSummary?: { source: "owner_attestation"; recordedAt: string; creditedUsdtAmount: string };
+  historicalCompletion?: HistoricalTradeCompletion;
+  /** Safe display provenance, derived server-side from the private marker. */
+  historicalCompletionSummary?: { source: "owner_attestation"; recordedAt: string; fiatAmountBasis: "saved_quote_reconstruction" };
+  usdtDemandId?: string;
+  usdtDemandOfferId?: string;
+  feePolicyVersion?: "buyer_seller_1pct_v1";
+  /** Set by the server when submitted; legacy requests retain their existing rounding. */
+  commissionCalculationVersion?: "usdt_6dp_v2";
+  /** Server-owned count of submitted financial proposals; never refunded. */
+  amountAdjustmentCount?: number;
+  /** Durable, server-owned follow-up committed with a terminal trade transition. */
+  trustReconciliation?: { requestedAt: string; requestedByUserId: string; reconciledAt?: string };
+  /** First recorded seller terms proposal for measuring time to respond. */
+  firstSellerResponseAt?: string;
+  termsProposal?: import("@alpha-traders/contracts").TradeTermsProposal;
   id: string;
   tradeId?: string;
   displayNumber?: number;
@@ -813,6 +922,8 @@ export interface PurchaseRequest {
   listingId: string;
   sellerId: string;
   buyerName: string;
+  /** Canonical public owner identity, derived server-side. */
+  buyerIsOwner?: boolean;
   // Legacy admin-audit fields. They are intentionally never included in
   // Buyer/Seller trade DTOs and new requests do not persist them.
   buyerWhatsapp?: string;
@@ -833,10 +944,28 @@ export interface PurchaseRequest {
   buyerSafetyAcknowledged?: boolean;
   sellerSafetyAcknowledged?: boolean;
   sellerBankAccountId?: string;
+  bankTransferProvider?: BankTransferProvider;
+  sellerWiseAccountId?: string;
+  buyerWiseAccountId?: string;
+  sellerWiseAccountSnapshot?: WiseUsdAccountSnapshot;
+  buyerWiseAccountSnapshot?: WiseUsdAccountSnapshot;
+  /** Server-only immutable payment instructions captured with the request. */
+  sellerBankAccountSnapshot?: {
+    accountHolderName: string;
+    bankName: string;
+    branchNumber: string;
+    accountNumber: string;
+    accountLast4: string;
+  };
   bankName?: string;
   timeline: TradeTimelineEntry[];
   tradeCreatedAt?: string;
   paymentSentAt?: string;
+  /** First sensitive payment-detail disclosure, retained for audit and redaction decisions. */
+  sensitivePaymentSharedAt?: string;
+  sensitivePaymentKind?: "bank_details" | "cardless_code";
+  /** Prepared credentials remain private after acceptance until the buyer confirms sending. */
+  cardlessCodeAwaitingBuyerConfirmation?: boolean;
   fundsReceivedAt?: string;
   usdtReleaseStartedAt?: string;
   usdtReleaseDeadlineAt?: string;
@@ -851,6 +980,7 @@ export interface PurchaseRequest {
   buyerEvidence?: TradeEvidenceFile;
   sellerEvidence?: TradeEvidenceFile;
   buyerReview?: TradeReview;
+  sellerBuyerReview?: TradeReview;
   sellerResponse?: TradeReviewResponse;
   closedAt?: string;
   closedByUserId?: string;
@@ -867,7 +997,11 @@ export interface PurchaseRequest {
 export type CommissionPaymentStatus = "pending" | "paid" | "overdue";
 
 export interface CommissionRecord {
+  /** Paid according to the named owner's attestation; never provider proof. */
+  ownerSettlementAttestation?: HistoricalOwnerAttestation;
   id: string;
+  /** Immutable calculation boundary copied from the originating request. */
+  commissionCalculationVersion?: "usdt_6dp_v2";
   /**
    * Trade-backed commissions keep these linkage fields. Manual commissions
    * deliberately omit them instead of inventing marketplace entity IDs.
@@ -878,12 +1012,24 @@ export interface CommissionRecord {
   listingId?: string;
   sellerId: string;
   buyerId?: string;
-  source?: "trade" | "admin_manual";
+  source?: "trade" | "admin_manual" | "tolerance_carry_forward";
   issuedByUserId?: string;
+  /** Immutable identity/fingerprint for safe manual-assignment retries. */
+  issueOperationId?: string;
+  issueRequestHash?: string;
   /** Seller-visible explanation supplied by the admin who issued it. */
   issueReason?: string;
   rate: number;
   grossAmount: number;
+  /** Original fiat settlement currency; commissionAmount remains denominated in USDT. */
+  grossCurrency?: string;
+  /** Identifies trades created under the explicit buyer+seller fee schedule. */
+  feePolicyVersion?: "buyer_seller_1pct_v1";
+  /** Seller's own 1% marketplace fee in USDT. */
+  sellerFeeAmount?: number;
+  /** Buyer's 1% share due to Alpha through the seller; seller covers any collection shortfall. */
+  buyerFeeCollectedAmount?: number;
+  /** Total payable to Alpha. Legacy records contain seller-only commission here. */
   commissionAmount: number;
   paymentStatus: CommissionPaymentStatus;
   paymentProvider?: "phantom" | "crypto_wallet" | "qa_reset";
@@ -893,6 +1039,8 @@ export interface CommissionRecord {
   paymentSignature?: string;
   paymentVerificationStatus?: "pending_verification" | "verified" | "failed";
   paymentVerificationNotes?: string;
+  /** Timestamp of an actual payment verification result, not a workspace refresh. */
+  paymentLastCheckedAt?: string;
   /**
    * Exact six-decimal TRC20 amount assigned to this unpaid commission.
    * The tiny unique suffix binds an incoming transfer to one commission when
@@ -906,6 +1054,14 @@ export interface CommissionRecord {
   /** Superseded issued amounts that remain reserved and can never be assigned again. */
   paymentReservedExpectedAmounts?: number[];
   paymentSubmittedAt?: string;
+  /** Persisted with settlement until its idempotent confirmation email is queued. */
+  paymentConfirmationEmailPending?: {
+    id: string;
+    requestedAt: string;
+    lastAttemptAt?: string;
+    amountDueUsdt: number;
+    remainingCommissions: Array<{ id: string; displayNumber?: number }>;
+  };
   dueAt?: string;
   paidAt?: string;
   overdueNotifiedAt?: string;
@@ -994,6 +1150,7 @@ export interface MarketplaceEnforcementAuditEntry {
 
 export type AuditAction =
   | "seller_approved"
+  | "seller_verification_recorded"
   | "seller_rejected"
   | "seller_suspended"
   | "seller_reactivated"
@@ -1038,6 +1195,7 @@ export type AuditAction =
   | "trade_evidence_viewed_by_owner"
   | "trade_evidence_viewed_by_moderator"
   | "trade_evidence_downloaded"
+  | "marketplace_compliance_evidence_downloaded"
   | "seller_prestige_promoted"
   | "seller_prestige_overridden"
   | "marketplace_enforcement_fee_issued"
@@ -1047,9 +1205,13 @@ export type AuditAction =
   | "seller_bank_account_added"
   | "seller_bank_account_updated"
   | "seller_bank_account_deleted"
+  | "wise_account_saved"
+  | "wise_account_deleted"
+  | "wise_account_reviewed"
   | "trade_closed_manually"
   | "trade_inactivity_warning_sent"
-  | "trade_bank_details_revealed";
+  | "trade_bank_details_revealed"
+  | "trade_dispute_resolved";
 
 export interface AuditLogEntry {
   id: string;
@@ -1070,6 +1232,7 @@ export interface AuthSession {
   userId: string;
   createdAt: string;
   expiresAt: string;
+  deviceLabel?: string;
 }
 
 export interface PasswordResetToken {
@@ -1091,6 +1254,7 @@ export interface TrustScoreChangeLog {
   sellerId: string;
   oldScore: number;
   newScore: number;
+  alphaChange?: { from: number; to: number };
   reason: string;
   triggeredBy: string;
   createdAt: string;
@@ -1128,6 +1292,7 @@ export interface SmsDeliveryRecord {
 }
 
 export interface AlphaExchangeDb {
+  usdtDemands?: import("./usdt-demand").UsdtDemand[];
   users: AlphaExchangeUser[];
   sellerApplications: SellerApplication[];
   marketplaceListings: MarketplaceListing[];
@@ -1182,11 +1347,12 @@ export interface OwnerBusinessDashboardMetrics {
     fastestGrowingSeller: string;
     highestTrustScoreIncrease: string;
     averageResponseTimeMinutes: number;
+    responseSampleCount?: number;
     averageTradeCompletionTimeMinutes: number;
     averageBuyerRating: number;
     repeatBuyersPercent: number;
   };
-  sellerLeaderboard: Array<{
+  sellerLeaderboard: Array<SellerMetricEvidence & {
     sellerId: string;
     sellerName: string;
     trustScore: number;

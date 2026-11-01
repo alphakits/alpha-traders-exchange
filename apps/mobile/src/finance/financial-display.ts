@@ -33,7 +33,12 @@ export function formatCount(value: FinancialValue) {
   return formatFinancialNumber(value, { maximumFractionDigits: 0 });
 }
 
-export function formatUsdt(value: FinancialValue, maximumFractionDigits = 6) {
+export function formatWholeUsdtNumber(value: FinancialValue) {
+  return Math.trunc(financialNumber(value)).toLocaleString("en-US");
+}
+
+export function formatUsdt(value: FinancialValue, maximumFractionDigits = 0) {
+  if (maximumFractionDigits === 0) return `${formatWholeUsdtNumber(value)} USDT`;
   return `${formatFinancialNumber(value, { maximumFractionDigits })} USDT`;
 }
 
@@ -64,6 +69,21 @@ export function usdAmountToCurrency(
   const normalizedCurrency = String(currency ?? "USD").trim().toUpperCase();
   if (normalizedCurrency === "ILS") return amount * validUsdIlsRate(usdIlsRate);
   return amount;
+}
+
+/**
+ * Converts a user-entered USD price to the two-decimal settlement price used by
+ * the Exchange engine. Returning a canonical string keeps validation and the
+ * submitted payload on the same cent instead of comparing an unrounded float.
+ */
+export function currencyPriceFromUsdInput(
+  value: FinancialValue,
+  currency: string | null | undefined,
+  usdIlsRate: FinancialValue,
+) {
+  const converted = usdAmountToCurrency(value, currency, usdIlsRate);
+  const cents = Math.round((converted + Number.EPSILON) * 100);
+  return (Math.max(0, cents) / 100).toFixed(2);
 }
 
 export function formatUsd(value: FinancialValue, maximumFractionDigits = 2) {

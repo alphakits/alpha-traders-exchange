@@ -13,6 +13,7 @@ import {
 } from "@/lib/mobile-api";
 import type { PremiumSellerProfileData } from "@/types/alpha-exchange";
 import { safeMobileMediaUrl } from "@/lib/mobile-safe-media-url";
+import { getVisibleSellerReviews, publicReviewBuyerId } from "@/lib/reviews";
 
 type RouteContext = {
   params: Promise<{ listingId: string }>;
@@ -36,8 +37,12 @@ function toMobileSellerProfile(
     languages: [...profile.profile.languages],
     country: profile.profile.country ?? "",
     onlineStatus: profile.profile.onlineStatus,
+    lastActiveAt: profile.profile.lastActiveAt,
+    lastSeenAt: profile.profile.lastSeenAt,
+    presenceHidden: profile.profile.presenceHidden,
     availabilityStatus: profile.profile.availabilityStatus,
     isEmailVerified: profile.profile.isEmailVerified === true || profile.profile.emailVerified === true,
+    isPhoneVerified: profile.profile.isPhoneVerified === true,
     isOwner: profile.profile.isOwner === true,
     isFoundingMember: profile.profile.isFoundingMember === true,
     isFoundingSeller: profile.profile.isFoundingSeller === true,
@@ -49,16 +54,18 @@ function toMobileSellerProfile(
     completedTrades: profile.completedTrades,
     averageRating: profile.averageRating,
     responseTimeMinutes: profile.responseTimeMinutes,
+    responseSampleCount: profile.responseSampleCount,
+    alphaScore: profile.alphaScore,
     completionRate: profile.completionRate,
     repeatBuyersPercent: profile.repeatBuyersPercent,
     totalReviews: profile.totalReviews,
-    publicVolumeRange: profile.publicVolumeRange,
+    publicVolumeRange: "",
     badges: [...profile.badges],
-    latestReviews: profile.latestReviews.map((review) => ({
+    latestReviews: getVisibleSellerReviews(profile.latestReviews).map((review) => ({
       rating: review.rating,
       comment: review.comment,
       createdAt: review.createdAt,
-      buyerDisplayName: review.buyerName,
+      buyerDisplayName: publicReviewBuyerId(review),
       verifiedPurchase: review.verifiedPurchase,
       ...(review.sellerResponse
         ? {
@@ -94,7 +101,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
     }
     const listing = (await getMarketplaceListings("active", undefined, viewerUserId))
       .find((candidate) => candidate.id === listingId);
-    if (!listing) return mobileError("NOT_FOUND", requestId, locale, 404);
+    if (!listing || listing.bankTransferProvider === "wise") return mobileError("NOT_FOUND", requestId, locale, 404);
 
     const profile = await getPremiumSellerProfile({ sellerId: listing.sellerId });
     if (!profile) return mobileError("NOT_FOUND", requestId, locale, 404);

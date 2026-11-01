@@ -1,0 +1,55 @@
+# Commission payment automation
+
+The protected `/api/cron/commission-payment-verification` job runs every minute in production. It reads persisted exact payment intents, discovers deposits, and passes every match through the existing receipt verifier and atomic commission settlement. Website and native app share this backend. No customer funds are moved by this job.
+
+The separate `/api/cron/commission-checkout` job handles seller-issued checkout tolerance. A received amount added after settlement is not a permanent claim on every later transfer of that amount. A distinct verified transaction can repeat it only after all members of the earlier checkout were paid before the new receipt. Original exact references remain exclusive; transaction IDs remain permanently single-use. A rounded whole-number option may match a later independently verified payment only if every member of the old group was verified paid before the new checkout was issued. Missing, invalid, partial or later payment closure still blocks attribution. This includes owner-confirmed paid groups; it does not invent a receipt for them. Historical amount reservations are retained to prevent assigning them as new exact instructions. Both application and database enforce these checks. Monitor this checkout job as well as the legacy verification job; `review > 0` returns HTTP 503 and includes `reviewReasons` instead of reporting successful automation.
+
+## Supported discovery
+
+| Payment | Discovery | Receipt verification |
+| --- | --- | --- |
+| Public USDT TRC20 | TronGrid account history, official Tether contract | SolidityNode solidified receipt |
+| Public USDT BEP20 | Etherscan V2, or authenticated Binance receiving-account deposit history | BSC mainnet RPC, canonical block and at least 15 confirmations |
+| Binance internal deposit | Optional signed receiving-account deposit history | Re-read credited USDT internal deposit, canonical destination, network, issue time and exact amount |
+
+Discovery scans up to five pages of 200 entries with a shared 12-second deadline per provider. Incomplete history is reported as degraded, not as an empty/successful full scan. Larger historical backlogs require a separate bounded backfill. Provider errors do not stop the other providers or submitted-payment retries. The same payment signature cannot settle two records; failed unique-intent submissions can recover automatically when the actual payment appears. Original legacy submissions retain their original TxID binding.
+
+Discovery and final receipt verification share the same five-minute timestamp tolerance. New receipts and replacement references are processed before previously rejected references; rejected references remain retryable and rotate by their last attempt so delayed provider history can recover without blocking other payments.
+
+The seller website refreshes unpaid commissions every 30 seconds and when the page regains focus, including payments without a submitted TxID. A settled commission closes its payment panel before another commission can be selected. The server also publishes an explicit `commission_payment_verified` notification when the final outstanding commission settles.
+
+Overdue commissions remain payable through the same checkout and legacy payment paths. Crossing the due date does not expire issued payment instructions or stop automatic verification. A pending-verification flag without either a saved payment reference or a submission timestamp is an old unpaid-reset artifact, not a submitted payment. Reads and owner status updates normalize that state. For existing durable records, `scripts/repair-unsubmitted-commission-verification.sql` clears only that flag under the repository lock, records the repair, and increments the runtime version; amounts, due dates, paid records, and submitted payments remain unchanged. The repair is idempotent. Actual submitted payments retain their verification state and duplicate-payment safeguards.
+
+An exact six-decimal amount remains the legacy payment reference for the shared recipient wallet. Seller-created automatic checkouts also accept actual receipts up to 2 USDT below or above the combined base commission total, including an unselected underpayment. This allowance is applied once to the whole group, and the original commission plus actual received, waived and excess amounts are retained. It is not an additional discount on a previously adjusted amount.
+
+Tolerance settlement requires an issued checkout on the matching network, a positive receipt after issuance, independent receiving-account/chain verification, and unambiguous attribution. A collision suffix keeps the exact payment reference unique without disabling the approved tolerance. Suffixed checkouts participate in the same receipt-time ambiguity checks as other checkouts. Historical fee bases are not separate exact references when a different legacy reference was issued. Only another checkout that could accept the receipt and was still open when it arrived competes for its tolerance amount. A checkout closes only when all its commissions have a recorded payment time strictly before that receipt; missing times and later settlements remain contenders. Exact-only legacy invoices reserve their actual payment references, not a +/-2 range around their base fee. Previously reserved amounts, conflicting deposit aliases, or multiple plausible receipts still prevent automatic credit and leave a diagnostic for review. Receipt and amount reservations prevent duplicate use across checkout and legacy flows. Wrong recipients/assets/networks and pre-checkout transfers remain rejected. Never tell a seller to pay twice or add a top-up while an original payment is being checked.
+
+## Configuration
+
+- `CRON_SECRET`: existing production secret, at least 32 characters.
+- `ALPHA_EXCHANGE_TRONGRID_API_KEY`: recommended for authenticated TronGrid quota. Public access remains supported.
+- `ALPHA_EXCHANGE_ETHERSCAN_API_KEY`: existing key must include BSC chain 56 history access. Failures distinguish `bep20_index_plan_unsupported`, `bep20_index_key_invalid`, `bep20_index_rate_limited` and `bep20_index_unavailable`. Submitted BEP20 TxID verification remains independent of this index.
+- `ALPHA_EXCHANGE_BSC_RPC_URL`: optional synced BSC mainnet RPC override.
+- `ALPHA_EXCHANGE_BINANCE_READ_API_KEY` and `ALPHA_EXCHANGE_BINANCE_READ_API_SECRET`: optional **read-only** credentials on the account receiving commission deposits. Keep trading, withdrawals and transfers disabled. Save only as server secrets; never in source, chat, logs or `NEXT_PUBLIC` variables. Use the owner's secure settings flow and obtain authorization before creating new account access.
+
+The Binance adapter only calls `GET https://api.binance.com/sapi/v1/capital/deposit/hisrec`. Configure credentials from the account that owns the canonical receiving addresses. It does not support Binance Pay, UID/email transfers without a canonical deposit address, or uncredited/Travel Rule held deposits. Public blockchain deposits retain their original chain TxID and stay on the chain verifiers; an internal ID alias cannot credit the same public payment twice. Missing Binance credentials are explicitly reported as `providers.BINANCE_DEPOSITS.configured=false`. Do not claim internal deposits are live until configured and verified against a genuine incoming record.
+
+A complete authenticated Binance history scan can cover BEP20 discovery when the Etherscan plan lacks chain 56 access. The explorer's error remains visible with `fallback: BINANCE_DEPOSITS`; incomplete or failed Binance scans never hide the explorer failure. Connecting the receiving account can therefore support both on-chain and internal deposits without a paid BEP20 explorer plan.
+
+## Monitoring
+
+Inspect `commission_payment_verification_cron` in production runtime logs. Summaries include provider configuration, page completeness, candidate and transfer counts, matches, verified/pending/rejected results, skipped used references, ambiguous matches, and `baseAmountOnly` for deposits equal to the base fee rather than the assigned payment amount. Diagnostics exclude credentials and customer identities.
+
+`providerHealth` is a serialized summary so runtime console truncation does not hide provider results as `[Object]`. Individual failures also emit `commission_deposit_discovery` with a fixed reason code and provider name.
+
+Commission settlement persists pending confirmation-email work in the same write as payment. The existing idempotent email outbox handles provider delivery; the commission job recovers interrupted enqueue work within a bounded remaining runtime budget. Inspect `emailRecovery` for checked, queued, pending, errors and exhausted-budget counts. Recovery applies only to explicit pending markers, not every historical paid commission.
+
+HTTP 401 = unauthorized caller. HTTP 503 = missing scheduler secret or degraded scan/retry. HTTP 500 = pending sweep failure. HTTP 200 alone is not proof a payment was received: inspect `verified` and `autoReconciliation.verified`.
+
+After release, verify the deployed commit, scheduler authorization, each provider's status and a real credited commission. No live customer payment should be fabricated for a test. Native instructions in this change require a new native build; the server automation applies immediately to existing app clients.
+
+## Provider references
+
+- https://developers.tron.network/reference/get-trc20-transaction-info-by-account-address
+- https://docs.etherscan.io/api-reference/endpoint/tokentx
+- https://developers.binance.com/en/docs/catalog/core-trading-wallet/api/rest-api/capital

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { validateLessonPayload } from "@/lib/admin-store";
+import { toCsv, validateLessonPayload } from "@/lib/admin-store";
 import type { Lesson } from "@/types/academy";
 
 function lessonFixture(overrides: Partial<Lesson> = {}): Lesson {
@@ -98,5 +98,13 @@ describe("admin lesson bilingual publishing", () => {
     });
 
     expect(() => validateLessonPayload(lesson, [], "update")).not.toThrow();
+  });
+});
+
+
+describe("owner CSV output", () => {
+  it("keeps formula-like lesson titles inert in spreadsheet exports", () => {
+    const csv = toCsv([lessonFixture({ title: '=HYPERLINK("https://example.test", "Synthetic")' })]);
+    expect(csv).toContain('"\t=HYPERLINK(""https://example.test"", ""Synthetic"")"');
   });
 });

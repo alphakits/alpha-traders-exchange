@@ -1,4 +1,5 @@
-import { Alert, ImageBackground, Linking, StyleSheet, Text, View } from "react-native";
+import { BrandedText as Text } from "../src/components/branded-text";
+import { Alert, ImageBackground, Linking, StyleSheet, View } from "react-native";
 import { colors, radius, spacing, typography } from "@alpha-traders/design-tokens";
 import heroImage from "../../../public/images/hero/hero-trading-office.webp";
 import { GoldButton } from "../src/components/gold-button";

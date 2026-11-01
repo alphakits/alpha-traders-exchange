@@ -1,4 +1,5 @@
 export const ALPHA_TRADERS_WEB_ORIGIN = "https://www.alphatraders.co.il";
+export const MAX_WEBSITE_NAVIGATION_URL_LENGTH = 4_096;
 
 const ALPHA_TRADERS_WEB_HOSTS = new Set([
   "alphatraders.co.il",
@@ -19,7 +20,14 @@ const EXTERNAL_SCHEMES = new Set([
 
 export type WebsiteNavigationDecision = "allow" | "external" | "block";
 
+export type WebsiteNavigationRequest = {
+  url: string;
+  isTopFrame?: boolean;
+  navigationType?: string;
+};
+
 export function isTrustedWebsiteDocumentUrl(rawUrl: string) {
+  if (rawUrl.length > MAX_WEBSITE_NAVIGATION_URL_LENGTH) return false;
   try {
     const parsed = new URL(rawUrl);
     return parsed.protocol === "https:"
@@ -38,6 +46,7 @@ function isTrustedWebsiteBlobUrl(rawUrl: string) {
 }
 
 export function websiteNavigationDecision(rawUrl: string): WebsiteNavigationDecision {
+  if (rawUrl.length > MAX_WEBSITE_NAVIGATION_URL_LENGTH) return "block";
   const value = rawUrl.trim();
   if (!value) return "block";
   if (value === "about:blank") return "allow";
@@ -56,14 +65,32 @@ export function websiteNavigationDecision(rawUrl: string): WebsiteNavigationDeci
   if (EXTERNAL_SCHEMES.has(parsed.protocol)) return "external";
   if (parsed.protocol !== "https:") return "block";
   if (parsed.username || parsed.password || parsed.port) return "block";
+  // Charts are rendered by Alpha Traders. Never hand old chart links to a
+  // browser, including target=_blank requests and Android's metadata-free path.
+  if (parsed.hostname === "tradingview.com" || parsed.hostname.endsWith(".tradingview.com")) return "block";
   if (isTrustedWebsiteDocumentUrl(value)) return "allow";
   if (EMBEDDED_AUTH_HOSTS.has(parsed.hostname)) return "allow";
   return "external";
 }
 
+/** Subframe loads must never launch another app or become a trusted document. */
+export function websiteRequestNavigationDecision(request: WebsiteNavigationRequest): WebsiteNavigationDecision {
+  const decision = websiteNavigationDecision(request.url);
+  if (request.isTopFrame === false) {
+    if (decision === "allow") return "allow";
+    if (decision === "block") return "block";
+    return "block";
+  }
+  // iOS reports navigation type; Android reports neither it nor isTopFrame.
+  // Keep explicit external links working, without opening automatic redirects.
+  if (decision === "external" && request.navigationType && request.navigationType !== "click") return "block";
+  return decision;
+}
+
 export function trustedWebsiteResumeUrl(rawUrl: string | null | undefined, locale: "ar" | "en") {
   const fallback = `${ALPHA_TRADERS_WEB_ORIGIN}/${locale}`;
   if (!rawUrl) return fallback;
+  if (rawUrl.length > MAX_WEBSITE_NAVIGATION_URL_LENGTH) return fallback;
 
   try {
     const parsed = new URL(rawUrl, ALPHA_TRADERS_WEB_ORIGIN);
@@ -77,6 +104,7 @@ export function trustedWebsiteResumeUrl(rawUrl: string | null | undefined, local
 }
 
 export function trustedWebsiteReturnPath(rawUrl: string) {
+  if (rawUrl.length > MAX_WEBSITE_NAVIGATION_URL_LENGTH) return null;
   try {
     const parsed = new URL(rawUrl);
     if (!isTrustedWebsiteDocumentUrl(parsed.toString())) return null;
@@ -86,3 +114,11 @@ export function trustedWebsiteReturnPath(rawUrl: string) {
     return null;
   }
 }
+
+/** Keep native refresh gestures from taking over the Trade Room chat scroller. */
+export function isTrustedWebsiteTradeRoomUrl(rawUrl: string | null | undefined) {
+  if (!rawUrl || !isTrustedWebsiteDocumentUrl(rawUrl)) return false;
+  const pathname = new URL(rawUrl).pathname;
+  return /^\/(?:ar|en)\/trade-room(?:\/[^/]+)?\/?$/.test(pathname);
+}
+

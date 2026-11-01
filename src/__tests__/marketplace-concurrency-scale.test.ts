@@ -1,5 +1,9 @@
+// Synthetic quote for lifecycle tests; feed failures and price boundaries have separate coverage.
+vi.mock("@/lib/market-service", () => ({ DEFAULT_USD_ILS_RATE: 3.05, getUsdtIlsReferenceRate: async () => 4 }));
+
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AlphaExchangeDb, AlphaExchangeUser, MarketplaceListing, SellerStatus, UserRole } from "@/types/alpha-exchange";
+import { createTestSellerApprovalVerification } from "@/test-utils/seller-verification";
 
 const mocks = vi.hoisted(() => ({
   checkSharedRateLimit: vi.fn(),
@@ -34,8 +38,8 @@ import {
 } from "@/lib/alpha-exchange-store";
 
 const OWNER_ID = "scale-owner";
-const SELLER_IDS = Array.from({ length: 10 }, (_, index) => `scale-seller-${index + 1}`);
-const BUYER_IDS = Array.from({ length: 10 }, (_, index) => `scale-buyer-${index + 1}`);
+const SELLER_IDS = Array.from({ length: 15 }, (_, index) => `scale-seller-${index + 1}`);
+const BUYER_IDS = Array.from({ length: 75 }, (_, index) => `scale-buyer-${index + 1}`);
 const WALLET = "TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE";
 const PNG_BASE64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO9Wl8cAAAAASUVORK5CYII=";
 
@@ -49,6 +53,8 @@ function createUser(id: string, role: "owner" | "buyer" | "approved_seller"): Al
   const now = new Date().toISOString();
   const roles: UserRole[] = role === "owner" ? ["owner", "admin"] : [role];
   const sellerStatus: SellerStatus = role === "approved_seller" ? "approved_seller" : "buyer";
+  const sellerSequence = Number(id.match(/\d+$/)?.[0] ?? "1");
+  const accountNumber = String(1_000_000_000 + sellerSequence);
   return {
     id,
     fullName: id,
@@ -58,6 +64,9 @@ function createUser(id: string, role: "owner" | "buyer" | "approved_seller"): Al
     role,
     roles,
     sellerStatus,
+    sellerApprovalVerification: role === "approved_seller"
+      ? createTestSellerApprovalVerification(now, OWNER_ID)
+      : undefined,
     availabilityStatus: "available",
     onlineStatus: "online",
     createdAt: now,
@@ -86,6 +95,18 @@ function createUser(id: string, role: "owner" | "buyer" | "approved_seller"): Al
     sellerRankOverride: undefined,
     sellerPromotionHistory: [],
     sellerAchievements: [],
+    sellerBankAccounts: role === "approved_seller" ? [{
+      id: `seller-bank-${id}-hapoalim`,
+      sellerId: id,
+      accountHolderName: `Scale Seller ${sellerSequence}`,
+      bankName: "Bank Hapoalim",
+      branchNumber: "123",
+      accountNumber,
+      accountLast4: accountNumber.slice(-4),
+      isDefault: true,
+      createdAt: now,
+      updatedAt: now,
+    }] : undefined,
   };
 }
 
@@ -157,7 +178,7 @@ function submitPurchase(listingId: string, buyerId: string, index: number) {
   });
 }
 
-describe("marketplace concurrency at ten-seller scale", () => {
+describe("marketplace concurrency at fifteen-seller scale", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     globalThis.__alphaExchangeMemorySnapshot = seedDb() as never;
@@ -167,7 +188,7 @@ describe("marketplace concurrency at ten-seller scale", () => {
     mocks.checkSharedRateLimit.mockResolvedValue({ allowed: true, retryAfterSeconds: 0, reason: null });
   });
 
-  it("preserves ten concurrent seller-buyer trade openings and every linked notification", async () => {
+  it("preserves fifteen concurrent seller-buyer trade openings and every linked notification", async () => {
     const listings: MarketplaceListing[] = [];
     for (const [index, sellerId] of SELLER_IDS.entries()) {
       listings.push(await createApprovedListing(sellerId, index));
@@ -185,7 +206,7 @@ describe("marketplace concurrency at ten-seller scale", () => {
       })),
     );
 
-    expect(acceptances).toHaveLength(10);
+    expect(acceptances).toHaveLength(SELLER_IDS.length);
     expect(acceptances.every((result) => result.request.status === "accepted")).toBe(true);
 
     invalidateAlphaExchangeStoreCache();
@@ -194,11 +215,11 @@ describe("marketplace concurrency at ten-seller scale", () => {
     const committedRequests = snapshot.purchaseRequests.filter((request) => requestIds.has(request.id));
     const committedListings = snapshot.marketplaceListings.filter((listing) => listings.some((created) => created.id === listing.id));
 
-    expect(committedRequests).toHaveLength(10);
-    expect(new Set(committedRequests.map((request) => request.id)).size).toBe(10);
-    expect(new Set(committedRequests.map((request) => request.tradeId)).size).toBe(10);
+    expect(committedRequests).toHaveLength(SELLER_IDS.length);
+    expect(new Set(committedRequests.map((request) => request.id)).size).toBe(SELLER_IDS.length);
+    expect(new Set(committedRequests.map((request) => request.tradeId)).size).toBe(SELLER_IDS.length);
     expect(committedRequests.every((request) => request.status === "accepted")).toBe(true);
-    expect(committedListings).toHaveLength(10);
+    expect(committedListings).toHaveLength(SELLER_IDS.length);
     expect(committedListings.every((listing) => listing.status === "matched")).toBe(true);
     for (const listing of committedListings) {
       const request = committedRequests.find((candidate) => candidate.listingId === listing.id);
@@ -208,7 +229,7 @@ describe("marketplace concurrency at ten-seller scale", () => {
       entry.action === "listing_matched"
       && Boolean(entry.purchaseRequestId)
       && requestIds.has(entry.purchaseRequestId!),
-    )).toHaveLength(10);
+    )).toHaveLength(SELLER_IDS.length);
 
     for (const [index, submission] of submissions.entries()) {
       const requestId = submission.request.id;
@@ -232,7 +253,7 @@ describe("marketplace concurrency at ten-seller scale", () => {
     }
   }, 30_000);
 
-  it("commits one winner when ten buyers race to have their request accepted", async () => {
+  it("commits at most three active trades when seventy-five buyers race for acceptance", async () => {
     const listing = await createApprovedListing(SELLER_IDS[0]!, 0);
     const submissions = await Promise.all(
       BUYER_IDS.map((buyerId, index) => submitPurchase(listing.id, buyerId, index)),
@@ -254,9 +275,10 @@ describe("marketplace concurrency at ten-seller scale", () => {
     const declined = requests.filter((request) => request.status === "declined");
     const committedListing = snapshot.marketplaceListings.find((candidate) => candidate.id === listing.id);
 
-    expect(requests).toHaveLength(10);
-    expect(accepted).toHaveLength(1);
-    expect(declined).toHaveLength(9);
+    expect(requests).toHaveLength(BUYER_IDS.length);
+    expect(accepted).toHaveLength(3);
+    expect(declined).toHaveLength(0);
+    expect(requests.filter(request => request.status === "pending")).toHaveLength(BUYER_IDS.length - 3);
     expect(committedListing).toMatchObject({
       status: "matched",
       activeTradeRequestId: accepted[0]?.id,
@@ -275,7 +297,7 @@ describe("marketplace concurrency at ten-seller scale", () => {
     }
   }, 30_000);
 
-  it("preserves ten simultaneous complete trade lifecycles, reviews, commissions, and reopened listings", async () => {
+  it("preserves fifteen simultaneous complete trade lifecycles, reviews, commissions, and reopened listings", async () => {
     const listings: MarketplaceListing[] = [];
     for (const [index, sellerId] of SELLER_IDS.entries()) {
       listings.push(await createApprovedListing(sellerId, index));
@@ -357,9 +379,10 @@ describe("marketplace concurrency at ten-seller scale", () => {
     const completions = await Promise.all(
       submissions.map((submission, index) => updatePurchaseRequestStatus({
         requestId: submission.request.id,
-        actorUserId: BUYER_IDS[index]!,
-        actorRole: "buyer",
+        actorUserId: SELLER_IDS[index]!,
+        actorRole: "approved_seller",
         nextStatus: "completed",
+        completionMode: "seller",
       })),
     );
     expect(completions.every((result) => result.request.status === "review_open")).toBe(true);
@@ -392,18 +415,18 @@ describe("marketplace concurrency at ten-seller scale", () => {
       record.purchaseRequestId ? requestIds.has(record.purchaseRequestId) : false
     ));
 
-    expect(completedRequests).toHaveLength(10);
+    expect(completedRequests).toHaveLength(SELLER_IDS.length);
     expect(completedRequests.every((request) => request.status === "review_open")).toBe(true);
-    expect(completedListings).toHaveLength(10);
+    expect(completedListings).toHaveLength(SELLER_IDS.length);
     expect(completedListings.every((listing) => (
       listing.status === "active"
       && listing.activeTradeRequestId === undefined
       && listing.availableAmount === "400"
     ))).toBe(true);
-    expect(commissions).toHaveLength(10);
+    expect(commissions).toHaveLength(SELLER_IDS.length);
     expect(new Set(commissions.map((record) => record.purchaseRequestId))).toEqual(requestIds);
     expect(commissions.every((record) => record.paymentStatus === "pending" && record.commissionAmount === 1)).toBe(true);
-    expect(new Set(commissions.map((record) => record.paymentExpectedAmount)).size).toBe(10);
+    expect(new Set(commissions.map((record) => record.paymentExpectedAmount)).size).toBe(SELLER_IDS.length);
     expect(commissions.every((record) => (
       record.paymentExpectedAmountMode === "unique_v1"
       && typeof record.paymentExpectedAmountAssignedAt === "string"

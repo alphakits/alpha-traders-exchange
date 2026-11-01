@@ -74,8 +74,17 @@ beforeEach(() => {
 });
 
 describe("web WhatsApp notification preferences", () => {
+  it("rejects stale account-scoped notification settings reads and saves", async () => {
+    const read = new NextRequest("https://www.alphatraders.co.il/api/alpha-exchange/notification-preferences", { headers: { "x-alpha-expected-user-id": "previous-user" } });
+    const write = patch({ inApp: true });
+    write.headers.set("x-alpha-expected-user-id", "previous-user");
+    expect((await GET(read)).status).toBe(409);
+    expect((await PATCH(write)).status).toBe(409);
+    expect(mocks.updateNotificationPreferences).not.toHaveBeenCalled();
+    expect(mocks.updateWhatsAppSubscription).not.toHaveBeenCalled();
+  });
   it("returns a masked verified phone and dormant channel state", async () => {
-    const response = await GET();
+    const response = await GET(new NextRequest("https://www.alphatraders.co.il/api/alpha-exchange/notification-preferences"));
     const payload = await response.json();
 
     expect(response.status).toBe(200);

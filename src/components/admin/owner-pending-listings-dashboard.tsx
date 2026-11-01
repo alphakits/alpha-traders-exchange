@@ -1,5 +1,10 @@
 "use client";
 
+import { sellerRatingDisplay, sellerScoreDisplay } from "@alpha-traders/contracts";
+import { currencyText } from "@/components/ui/currency-text";
+import { UserPresence } from "@/components/ui/user-presence";
+
+import { ActionFeedback, useActionFeedbackState } from "@/components/ui/action-feedback";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, BadgeCheck, Clock3, History, ShieldCheck, Star } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -25,17 +30,13 @@ export function OwnerPendingListingsDashboard({ locale = "en" }: { locale?: "ar"
     if (!isArabic) return value;
     return ({ bronze: "برونزي", silver: "فضي", gold: "ذهبي", diamond: "ماسي", elite: "نخبة" } as Record<string, string>)[value] ?? value;
   }, [isArabic]);
-  const sellerStatusLabel = useCallback((value: string) => {
-    if (!isArabic) return value;
-    return ({ online: "متصل", offline: "غير متصل", away: "غير متاح مؤقتًا" } as Record<string, string>)[value] ?? value;
-  }, [isArabic]);
   const listingPaymentMethodsLabel = useCallback((listing: MarketplaceListing) => {
     const labels = marketplacePaymentMethodLabelsForLocale(listing.paymentMethods, listing.paymentMethod, locale);
     return labels.length ? labels.join(isArabic ? "، " : ", ") : t("Not provided", "غير مذكور");
   }, [isArabic, locale, t]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [toast, setToast] = useState<string | null>(null);
+  const [error, setError, errorFeedbackKey] = useActionFeedbackState<string | null>(null);
+  const [toast, setToast, toastFeedbackKey] = useActionFeedbackState<string | null>(null);
   const [data, setData] = useState<Payload>({ pendingListings: [], allListings: [], purchaseRequests: [] });
   const [reasonByListingId, setReasonByListingId] = useState<Record<string, string>>({});
   const [selectedSellerId, setSelectedSellerId] = useState<string | null>(null);
@@ -50,7 +51,7 @@ export function OwnerPendingListingsDashboard({ locale = "en" }: { locale?: "ar"
       setToast(null);
       toastTimeoutRef.current = null;
     }, 1800);
-  }, []);
+  }, [setToast]);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -65,7 +66,7 @@ export function OwnerPendingListingsDashboard({ locale = "en" }: { locale?: "ar"
     } finally {
       setLoading(false);
     }
-  }, [isArabic]);
+  }, [isArabic, setError]);
 
   useEffect(() => {
     void fetchData();
@@ -121,7 +122,7 @@ export function OwnerPendingListingsDashboard({ locale = "en" }: { locale?: "ar"
         <CardContent className="space-y-4">
           {loading ? <p className="text-sm text-[#9CA3AF]">{t("Loading pending listings...", "جارٍ تحميل العروض المعلّقة...")}</p> : null}
           {error ? (
-            <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-[#FDE68A]">{error}</div>
+            <ActionFeedback revealKey={errorFeedbackKey} role="alert" className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-[#FDE68A]">{error}</ActionFeedback>
           ) : null}
           {!loading && !error && data.pendingListings.length === 0 ? (
             <div className="rounded-xl border border-white/10 bg-black/20 p-4 text-sm text-[#9CA3AF]">{t("No pending listings to review.", "لا توجد عروض معلّقة للمراجعة.")}</div>
@@ -133,12 +134,12 @@ export function OwnerPendingListingsDashboard({ locale = "en" }: { locale?: "ar"
                 <div className="grid gap-3 md:grid-cols-2">
                   <div className="space-y-2 text-sm text-[#D1D5DB]">
                     <p className="text-base font-semibold text-white">{listing.sellerDisplayName}</p>
-                    <p className="inline-flex items-center gap-2"><Star className="h-4 w-4 text-[#C9A227]" /> {t("Seller Rating:", "تقييم البائع:")} <span className="text-white">{listing.sellerReputation?.rating.toFixed(2) ?? "—"}</span></p>
-                    <p>{t("Seller Trust Score:", "درجة ثقة البائع:")} <span className="text-white">{Math.round(listing.sellerReputation?.customerSatisfaction ?? 0)}%</span></p>
+                    <p className="inline-flex items-center gap-2"><Star className="h-4 w-4 text-[#C9A227]" /> {t("Seller Rating:", "تقييم البائع:")} <span className="text-white">{sellerRatingDisplay(listing.sellerReputation, isArabic).text}</span></p>
+                    <p>{sellerScoreDisplay(listing.sellerReputation, isArabic).label} <span className="text-white">{sellerScoreDisplay(listing.sellerReputation, isArabic).value}</span></p>
                     <p>{t("Seller Level:", "رتبة البائع:")} <span className="text-white capitalize">{sellerLevelLabel(listing.sellerReputation?.level ?? "bronze")}</span></p>
                     <p>{t("Lifetime Completed Trades:", "إجمالي الصفقات المكتملة:")} <span className="text-white">{(listing.sellerReputation?.completedTrades ?? 0).toLocaleString(isArabic ? "ar-IL" : "en-IL")}</span></p>
-                    <p>{t("Amount:", "الكمية:")} <bdi dir="ltr" className="text-white">{listing.availableAmount}</bdi></p>
-                    <p>{t("Price:", "السعر:")} <bdi dir="ltr" className="text-white">{listing.price}</bdi></p>
+                    <p>{t("Amount:", "الكمية:")} <bdi dir="ltr" className="text-white">{currencyText(`${listing.availableAmount} USDT`)}</bdi></p>
+                    <p>{t("Price:", "السعر:")} <bdi dir="ltr" className="text-white">{currencyText(`${listing.price} ${listing.currency}`)}</bdi></p>
                     <p>{t("Currency:", "العملة:")} <bdi dir="ltr" className="text-white">{listing.currency || "ILS"}</bdi></p>
                     <p>{t("Network:", "الشبكة:")} <bdi dir="ltr" className="text-white">{listing.network}</bdi></p>
                     <p>{t("Payment Methods:", "طرق الدفع:")} <bdi dir="auto" className="text-white">{listingPaymentMethodsLabel(listing)}</bdi></p>
@@ -178,7 +179,7 @@ export function OwnerPendingListingsDashboard({ locale = "en" }: { locale?: "ar"
               <CardContent className="grid gap-3 text-sm text-[#D1D5DB] md:grid-cols-2">
                 <p>{t("Seller:", "البائع:")} <span className="text-white">{sellerHistory.listing?.sellerDisplayName ?? "—"}</span></p>
                 <p>{t("Member Since:", "عضو منذ:")} <span className="text-white">{sellerHistory.listing?.sellerProfile?.memberSince ? new Date(sellerHistory.listing.sellerProfile.memberSince).getFullYear() : "—"}</span></p>
-                <p>{t("Online Status:", "حالة الاتصال:")} <span className="text-white">{sellerStatusLabel(sellerHistory.listing?.sellerProfile?.onlineStatus ?? "offline")}</span></p>
+                <p>{t("Online Status:", "حالة الاتصال:")} <span className="text-white">{sellerHistory.listing && <UserPresence userId={sellerHistory.listing.sellerId} initial={sellerHistory.listing.sellerProfile} isAr={isArabic} />}</span></p>
                 <p>{t("Languages:", "اللغات:")} <bdi dir="auto" className="text-white">{sellerHistory.listing?.sellerProfile?.languages.map((language) => spokenLanguageLabelForLocale(language, locale)).join(isArabic ? "، " : ", ") || "—"}</bdi></p>
                 <p>{t("Total Listings:", "إجمالي العروض:")} <span className="text-white">{sellerHistory.sellerListings.length}</span></p>
                 <p>{t("Completed Trades:", "الصفقات المكتملة:")} <span className="text-white">{sellerHistory.completedTrades}</span></p>
@@ -189,7 +190,7 @@ export function OwnerPendingListingsDashboard({ locale = "en" }: { locale?: "ar"
         </CardContent>
       </Card>
       {toast ? (
-        <div className="fixed bottom-4 end-4 rounded-full border border-[#C9A227]/35 bg-[#0B0B0B]/95 px-4 py-2 text-sm text-[#F3D98B] shadow-xl">{toast}</div>
+        <ActionFeedback floating revealKey={toastFeedbackKey} className="fixed bottom-4 end-4 rounded-full border border-[#C9A227]/35 bg-[#0B0B0B]/95 px-4 py-2 text-sm text-[#F3D98B] shadow-xl">{toast}</ActionFeedback>
       ) : null}
     </section>
   );

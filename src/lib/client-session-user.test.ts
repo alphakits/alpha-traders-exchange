@@ -1,8 +1,16 @@
+import { publicAccountId } from "./public-account-identity";
 import { describe, expect, it } from "vitest";
 import { toAdminSellerSummary, toAdminUserSummary, toClientSessionUser } from "@/lib/client-session-user";
 import type { AlphaExchangeUser } from "@/types/alpha-exchange";
 
 describe("toClientSessionUser", () => {
+  it("does not exempt an unrelated account or fabricate a verified phone", () => {
+    const account = { id: "exempt", role: "buyer", sellerStatus: "buyer", email: "Alphatradersai@gmail.com" } as AlphaExchangeUser;
+    expect(toClientSessionUser(account)).toMatchObject({ phoneVerificationExempt: false, isPhotoVerified: false });
+    const ordinary = { ...account, email: "other@example.test", role: "admin" as const };
+    expect(toClientSessionUser(ordinary)).toMatchObject({ phoneVerificationExempt: false, isPhotoVerified: false });
+    expect(JSON.stringify(toClientSessionUser(ordinary))).not.toContain("alphatradersai@gmail.com");
+  });
   it("runtime-allowlists the client session and excludes present and future persistence-only fields", () => {
     const user = {
       id: "user-1", fullName: "Buyer", email: "buyer@example.test", passwordHash: "secret-password-hash", whatsappNumber: "+972500000000",
@@ -24,6 +32,7 @@ describe("toClientSessionUser", () => {
       email: "buyer@example.test",
       role: "buyer",
       sellerStatus: "buyer",
+      sellerApprovalVerified: false,
       preferredNetworks: ["TRC20"],
       preferredLocale: "en",
       emailVerified: false,
@@ -53,19 +62,23 @@ describe("toClientSessionUser", () => {
       sellerBankAccounts: [{ accountNumber: "secret-account-number", id: "bank-1" }], futureSecret: "future-secret-value",
     } as unknown as AlphaExchangeUser;
 
-    const summary = toAdminUserSummary(user) as Record<string, unknown>;
+    const summary = toAdminUserSummary(user, true) as Record<string, unknown>;
     expect(summary).toEqual({
       id: "admin-user",
-      fullName: "Admin User",
+      fullName: `${publicAccountId(user)} (Admin User)`,
       email: "admin@example.test",
+      whatsappNumber: "+972500000000",
       role: "admin",
       roles: ["admin"],
       disabled: false,
+      sellerStatus: "buyer",
       createdAt: "2026-01-01",
     });
     expect(JSON.stringify(summary)).not.toContain("secret-");
     expect(summary).not.toHaveProperty("verifiedPhone");
     expect(summary).not.toHaveProperty("sellerBankAccounts");
+    expect(toAdminUserSummary(user)).toMatchObject({ email: "", whatsappNumber: "" });
+    expect(toAdminUserSummary(user).fullName).toMatch(/^AT-/);
   });
 
   it("runtime-allowlists admin seller-management records", () => {
@@ -73,6 +86,7 @@ describe("toClientSessionUser", () => {
       id: "seller-1", fullName: "Seller User", email: "seller@example.test", passwordHash: "secret-password-hash", whatsappNumber: "+972500000000",
       preferredNetworks: ["TRC20"], profilePhotoUrl: "", languages: [], bio: "", onlineStatus: "online", availabilityStatus: "available",
       role: "approved_seller", roles: ["buyer", "approved_seller"], sellerStatus: "approved_seller", createdAt: "2026-01-01", updatedAt: "2026-01-02",
+      sellerApprovalVerification: { method: "manual_authorized_reviewer_v1", identityDocumentReviewed: true, liveIdentityVideoReviewed: true, contactOwnershipConfirmed: true, marketplaceRulesAccepted: true, verifiedAt: "2026-01-02", verifiedByUserId: "admin-1" },
       lifetimeCompletedVolumeUsdt: 2500, sellerPrestigeRank: "gold", sellerRankOverride: { rank: "gold", reason: "Manual review", setAt: "2026-01-02", setByUserId: "admin-1" },
       phoneOtpHash: "secret-otp-hash", phoneOtpSalt: "secret-otp-salt", verifiedPhone: "+972522222222", phoneVerifiedAt: "2026-01-02",
       emailVerificationTokenHash: "secret-email-token-hash", sellerBankAccounts: [{ accountNumber: "secret-account-number", id: "bank-1" }],
@@ -80,17 +94,20 @@ describe("toClientSessionUser", () => {
       ownerSettings: { future: "secret-owner-setting" }, futureSecret: "future-secret-value",
     } as unknown as AlphaExchangeUser;
 
-    const summary = toAdminSellerSummary(user) as Record<string, unknown>;
+    const summary = toAdminSellerSummary(user, true) as Record<string, unknown>;
     const serialized = JSON.stringify(summary);
+    expect(toAdminSellerSummary(user)).toMatchObject({ email: "", whatsappNumber: "" });
+    expect(toAdminSellerSummary(user).fullName).toMatch(/^AT-/);
 
     expect(summary).toMatchObject({
       id: "seller-1",
-      fullName: "Seller User",
+      fullName: `${publicAccountId(user)} (Seller User)`,
       email: "seller@example.test",
       whatsappNumber: "+972500000000",
       role: "approved_seller",
       roles: ["buyer", "approved_seller"],
       sellerStatus: "approved_seller",
+      sellerApprovalVerified: true,
       availabilityStatus: "available",
       sellerPrestigeRank: "gold",
     });

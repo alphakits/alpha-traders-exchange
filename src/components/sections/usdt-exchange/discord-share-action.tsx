@@ -1,5 +1,6 @@
 "use client";
 
+import { currencyText } from "@/components/ui/currency-text";
 import { memo, useMemo, useSyncExternalStore } from "react";
 import { Loader2, MessageCircle } from "lucide-react";
 
@@ -164,14 +165,14 @@ export const DiscordShareAction = memo(function DiscordShareAction({
         {busy || mapping?.state === "queued" || mapping?.state === "publishing" || mapping?.state === "update_pending"
           ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
           : <MessageCircle className="h-4 w-4" aria-hidden="true" />}
-        {label}
+        {currencyText(label)}
       </Button>
       <p
         className="mt-2 text-xs leading-5 text-[#D1D5DB]"
         role={cooldownLabel ? "timer" : "status"}
         aria-live="polite"
       >
-        {detail}
+        {currencyText(detail)}
       </p>
     </div>
   );

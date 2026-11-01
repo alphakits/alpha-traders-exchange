@@ -1,11 +1,21 @@
 "use client";
+import { AccountSessionsPanel } from "@/components/settings/account-sessions-panel";
+import { WiseAccountsPanel } from "@/components/settings/wise-accounts-panel";
 
+import { brandText } from "@/components/ui/currency-text";
+
+import { ActionFeedback, useActionFeedbackState } from "@/components/ui/action-feedback";
 import { useEffect, useRef, useState } from "react";
 import { Link } from "@/i18n/navigation";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { getIsraeliBankDisplayName, getIsraeliBankOptions } from "@/lib/israeli-banks";
+import { PhoneVerificationChannelPicker } from "@/components/auth/phone-verification-channel-picker";
+import type { PhoneVerificationChannel, PhoneVerificationChannels } from "@/lib/phone-verification-channel";
+import { useOptionalCanonicalSession } from "@/components/auth/canonical-session-provider";
+import { getInterfaceAccess } from "@alpha-traders/contracts";
+import { ClientRequestTimeoutError, fetchClientJson, runClientRequest } from "@/lib/client-request-deadline";
 
 type Tab = "profile" | "security" | "notifications" | "privacy" | "account";
 
@@ -82,6 +92,18 @@ type DiscordConnection = {
   lastSyncedAt: string | null;
 };
 
+function isDiscordIdentity(value: unknown): value is { connection: DiscordConnection | null } {
+  if (typeof value !== "object" || value === null || !("connection" in value)) return false;
+  const connection = value.connection;
+  if (connection === null) return true;
+  return typeof connection === "object"
+    && "discordUserId" in connection && typeof connection.discordUserId === "string" && connection.discordUserId.length > 0
+    && "username" in connection && typeof connection.username === "string" && connection.username.length > 0
+    && "globalName" in connection && (connection.globalName === null || typeof connection.globalName === "string")
+    && "linkedAt" in connection && typeof connection.linkedAt === "string"
+    && "lastSyncedAt" in connection && (connection.lastSyncedAt === null || typeof connection.lastSyncedAt === "string");
+}
+
 type SellerBankAccount = {
   id: string;
   accountHolderName: string;
@@ -138,43 +160,59 @@ function PillToggle({ checked, disabled = false, onChange }: { checked: boolean;
 export function AccountSettingsPanel({
   locale,
   phoneVerificationEnabled,
+  phoneVerificationChannels,
   smsDeliveryEnabled = false,
   initialTab,
   initialSellerBankAccess,
 }: {
   locale: "ar" | "en";
   phoneVerificationEnabled: boolean;
+  phoneVerificationChannels?: PhoneVerificationChannels;
   smsDeliveryEnabled?: boolean;
   initialTab?: Tab;
   initialSellerBankAccess?: boolean;
 }) {
   const isAr = locale === "ar";
+  const canonicalSession = useOptionalCanonicalSession();
+  const interfaceAccess = getInterfaceAccess(canonicalSession?.user);
   const [activeTab, setActiveTab] = useState<Tab>(initialTab ?? "security");
   const [userId, setUserId] = useState<string | null>(null);
-  const [sellerStatus, setSellerStatus] = useState<string>("buyer");
-  const [userRole, setUserRole] = useState<string>("buyer");
   const [notifPrefs, setNotifPrefs] = useState<NotificationPrefs>(defaultNotifications());
   const [notifChannels, setNotifChannels] = useState({ inApp: true, email: false, sms: false });
   const [whatsappChannel, setWhatsappChannel] = useState<WhatsAppChannelState>(DEFAULT_WHATSAPP_CHANNEL);
   const [whatsappBusy, setWhatsappBusy] = useState(false);
-  const [whatsappMessage, setWhatsappMessage] = useState<string | null>(null);
+  const [whatsappMessage, setWhatsappMessage, whatsappMessageFeedbackKey] = useActionFeedbackState<string | null>(null);
   const [phone, setPhone] = useState("");
   const [phoneCode, setPhoneCode] = useState("");
+  const [phoneChannel, setPhoneChannel] = useState<PhoneVerificationChannel>("sms");
+  const [phoneBusy, setPhoneBusy] = useState<"send" | "verify" | null>(null);
+  const phoneBusyRef = useRef(false);
+  const [phoneSentTo, setPhoneSentTo] = useState<string | null>(null);
+  const [phoneCooldown, setPhoneCooldown] = useState(0);
+  useEffect(() => {
+    if (phoneCooldown <= 0) return;
+    const timer = window.setTimeout(() => setPhoneCooldown(value => Math.max(0, value - 1)), 1000);
+    return () => window.clearTimeout(timer);
+  }, [phoneCooldown]);
   const [phoneVerified, setPhoneVerified] = useState(false);
-  const [phoneMessage, setPhoneMessage] = useState<string | null>(null);
+  const [phoneVerificationEditing, setPhoneVerificationEditing] = useState(false);
+  const [phoneMessage, setPhoneMessage, phoneMessageFeedbackKey] = useActionFeedbackState<string | null>(null);
   const [notifChannelsLoaded, setNotifChannelsLoaded] = useState(false);
   const [privacyPrefs, setPrivacyPrefs] = useState<PrivacyPrefs>(defaultPrivacy());
-  const [privacyMessage, setPrivacyMessage] = useState<string | null>(null);
-  const [exportMessage, setExportMessage] = useState<string | null>(null);
+  const [privacyMessage, setPrivacyMessage, privacyMessageFeedbackKey] = useActionFeedbackState<string | null>(null);
+  const [exportMessage, setExportMessage, exportMessageFeedbackKey] = useActionFeedbackState<string | null>(null);
   const [discordConnection, setDiscordConnection] = useState<DiscordConnection | null>(null);
-  const [discordLoaded, setDiscordLoaded] = useState(false);
+  const [discordStatus, setDiscordStatus] = useState<"loading" | "ready" | "unavailable">("loading");
+  const [discordStatusRevision, setDiscordStatusRevision] = useState(0);
+  const [discordNeedsVerification, setDiscordNeedsVerification] = useState(false);
   const [discordBusy, setDiscordBusy] = useState(false);
-  const [discordMessage, setDiscordMessage] = useState<string | null>(null);
+  const discordActionRef = useRef<AbortController | null>(null);
+  const [discordMessage, setDiscordMessage, discordMessageFeedbackKey] = useActionFeedbackState<string | null>(null);
   const [showDiscordUnlink, setShowDiscordUnlink] = useState(false);
   const [bankAccounts, setBankAccounts] = useState<SellerBankAccount[]>([]);
   const [bankAccountsLoaded, setBankAccountsLoaded] = useState(false);
   const [bankAccountsBusy, setBankAccountsBusy] = useState(false);
-  const [bankAccountsMessage, setBankAccountsMessage] = useState<string | null>(null);
+  const [bankAccountsMessage, setBankAccountsMessage, bankAccountsMessageFeedbackKey] = useActionFeedbackState<string | null>(null);
   const [editingBankAccountId, setEditingBankAccountId] = useState<string | null>(null);
   const [bankForm, setBankForm] = useState({
     accountHolderName: "",
@@ -195,8 +233,6 @@ export function AccountSettingsPanel({
       const data = (await res.json()) as {
         profile?: {
           id?: string;
-          roles?: string[];
-          sellerStatus?: string;
           isProfileHidden?: boolean;
           showTradeStats?: boolean;
           showLastActive?: boolean;
@@ -208,10 +244,6 @@ export function AccountSettingsPanel({
       };
       const id = data.profile?.id ?? "unknown";
       setUserId(id);
-      setSellerStatus(data.profile?.sellerStatus ?? "buyer");
-      setUserRole(
-        data.profile?.roles?.find((role) => role === "approved_seller" || role === "admin" || role === "owner") ?? "buyer",
-      );
       if (window.location.hash === "#seller-bank-accounts") {
         setActiveTab("profile");
       }
@@ -262,15 +294,6 @@ export function AccountSettingsPanel({
       }
     })();
 
-    void (async () => {
-      const response = await fetch("/api/discord/identity", { cache: "no-store" });
-      if (response.ok) {
-        const data = await response.json() as { connection?: DiscordConnection | null };
-        setDiscordConnection(data.connection ?? null);
-      }
-      setDiscordLoaded(true);
-    })();
-
     const result = new URLSearchParams(window.location.search).get("discord");
     if (result) {
       setActiveTab("account");
@@ -303,13 +326,39 @@ export function AccountSettingsPanel({
       const message = messages[result];
       if (message) setDiscordMessage(isAr ? message.ar : message.en);
     }
-  }, [initialTab, isAr]);
+  }, [initialTab, isAr, setDiscordMessage]);
 
+  useEffect(() => {
+    const controller = new AbortController();
+    setDiscordStatus("loading");
+    void (async () => {
+      try {
+        const { response, payload } = await fetchClientJson<unknown>("/api/discord/identity", {
+          cache: "no-store",
+          signal: controller.signal,
+        });
+        if (controller.signal.aborted) return;
+        if (!response.ok || !isDiscordIdentity(payload)) throw new Error("Discord identity unavailable");
+        setDiscordConnection(payload.connection);
+        setDiscordNeedsVerification(false);
+        setShowDiscordUnlink(false);
+        setDiscordStatus("ready");
+      } catch {
+        if (!controller.signal.aborted) setDiscordStatus("unavailable");
+      }
+    })();
+    return () => controller.abort();
+  }, [discordStatusRevision]);
+
+  useEffect(() => () => {
+    discordActionRef.current?.abort();
+    discordActionRef.current = null;
+  }, []);
+
+  // The server computes this from the seller's canonical approval and access policy.
+  // Do not infer access again from a client-visible role or status.
   const canManageSellerBankAccounts = initialSellerBankAccess === true
-    || sellerStatus === "approved_seller"
-    || userRole === "approved_seller"
-    || userRole === "admin"
-    || userRole === "owner";
+    && (!canonicalSession || interfaceAccess.sellerWorkspace || interfaceAccess.administration);
   const hasMaxBankAccounts = bankAccounts.length >= 2;
   const bankOptions = getIsraeliBankOptions();
   const selectedBankIsKnown = bankOptions.some((option) => option.name === bankForm.bankName);
@@ -453,8 +502,8 @@ export function AccountSettingsPanel({
             showLastActive: prefs.show_last_active,
             allowDirectMessages: prefs.allow_messages,
             allowProfileSearch: prefs.search_visibility,
-            showPhonePublic: prefs.show_phone,
-            showEmailPublic: prefs.show_email,
+            showPhonePublic: false,
+            showEmailPublic: false,
           }),
         });
         if (!response.ok) {
@@ -539,25 +588,57 @@ export function AccountSettingsPanel({
   }
 
   async function sendPhoneCode() {
-    const response = await fetch("/api/alpha-exchange/phone/send-code", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Locale": isAr ? "ar" : "en" },
-      body: JSON.stringify({ phone, locale: isAr ? "ar" : "en" }),
-    });
-    const data = await response.json().catch(() => ({})) as { error?: string; message?: string };
-    setPhoneMessage(response.ok
-      ? (data.message ?? (isAr ? "تم إرسال رمز التحقق إلى هاتفك." : "Verification code sent to your phone."))
-      : (isAr ? "تعذر إرسال الرمز." : (data.error ?? "Unable to send code.")));
+    if (phoneBusyRef.current || phoneCooldown > 0 || !phone.trim() || phoneVerificationChannels?.[phoneChannel] === false) return;
+    phoneBusyRef.current = true;
+    setPhoneBusy("send");
+    setPhoneMessage(null);
+    try {
+      const requestedPhone = phone.trim();
+      const response = await fetch("/api/alpha-exchange/phone/send-code", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Locale": isAr ? "ar" : "en" },
+        body: JSON.stringify({ phone: requestedPhone, channel: phoneChannel, locale: isAr ? "ar" : "en" }),
+      });
+      const data = await response.json().catch(() => ({})) as { error?: string; message?: string };
+      setPhoneMessage(response.ok
+        ? (data.message ?? (isAr ? "تم إرسال رمز التحقق إلى هاتفك." : "Verification code sent to your phone."))
+        : (isAr ? "تعذر إرسال الرمز." : (data.error ?? "Unable to send code.")));
+      if (response.ok) {
+        setPhoneSentTo(requestedPhone);
+        setPhoneCode("");
+        setPhoneCooldown(60);
+      }
+    } catch {
+      setPhoneMessage(isAr ? "تعذر الاتصال. يرجى المحاولة مرة أخرى." : "Could not connect. Please try again.");
+    } finally {
+      phoneBusyRef.current = false;
+      setPhoneBusy(null);
+    }
   }
 
   async function verifyPhoneCode() {
-    const response = await fetch("/api/alpha-exchange/phone/verify-code", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ phone, code: phoneCode }) });
-    const data = await response.json().catch(() => ({}));
-    if (response.ok) {
-      setPhoneVerified(true);
-      setPhoneMessage(isAr ? "تم توثيق رقم الهاتف. يمكنك الآن تفعيل قنوات الهاتف المتاحة." : "Phone verified. You can now enable available phone notification channels.");
-    } else {
-      setPhoneMessage(isAr ? "تعذر التحقق من الرمز." : (data.error ?? "Unable to verify code."));
+    if (phoneBusyRef.current || !phoneSentTo || phoneSentTo !== phone.trim() || !/^\d{6}$/.test(phoneCode)) return;
+    phoneBusyRef.current = true;
+    setPhoneBusy("verify");
+    setPhoneMessage(null);
+    try {
+      const response = await fetch("/api/alpha-exchange/phone/verify-code", { method: "POST", headers: { "Content-Type": "application/json", "X-Locale": isAr ? "ar" : "en" }, body: JSON.stringify({ phone: phoneSentTo, code: phoneCode }) });
+      const data = await response.json().catch(() => ({}));
+      if (response.ok) {
+        setPhoneVerified(true);
+        window.dispatchEvent(new Event("alpha-auth-changed"));
+        setPhoneVerificationEditing(false);
+        setPhoneCode("");
+        setPhoneSentTo(null);
+        setPhoneMessage(isAr ? "تم توثيق رقم الهاتف. يمكنك الآن تفعيل قنوات الهاتف المتاحة." : "Phone verified. You can now enable available phone notification channels.");
+      } else {
+        setPhoneMessage(isAr ? "تعذر التحقق من الرمز." : (data.error ?? "Unable to verify code."));
+      }
+    } catch {
+      setPhoneMessage(isAr ? "تعذر الاتصال. يرجى المحاولة مرة أخرى." : "Could not connect. Please try again.");
+    } finally {
+      phoneBusyRef.current = false;
+      setPhoneBusy(null);
     }
   }
 
@@ -624,82 +705,98 @@ export function AccountSettingsPanel({
   };
 
   async function handleDiscordConnect() {
+    if (discordActionRef.current || discordStatus !== "ready" || discordNeedsVerification) return;
+    const controller = new AbortController();
+    discordActionRef.current = controller;
     setDiscordBusy(true);
     setDiscordMessage(null);
     try {
-      const response = await fetch("/api/discord/oauth/start", {
+      const { response, payload: data } = await fetchClientJson<unknown>("/api/discord/oauth/start", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ locale }),
+        signal: controller.signal,
       });
-      const data = await response.json() as { authorizationUrl?: string; error?: string };
-      if (!response.ok || !data.authorizationUrl) {
+      if (discordActionRef.current !== controller) return;
+      if (!response.ok || typeof data !== "object" || data === null
+        || !("authorizationUrl" in data) || typeof data.authorizationUrl !== "string" || !data.authorizationUrl) {
+        const error = typeof data === "object" && data !== null && "error" in data && typeof data.error === "string"
+          ? data.error : "Could not start Discord connection.";
         setDiscordMessage(
-          isAr ? "تعذر بدء ربط Discord." : (data.error ?? "Could not start Discord connection."),
+          isAr ? "تعذر بدء ربط Discord." : error,
         );
         return;
       }
       window.location.assign(data.authorizationUrl);
-    } catch {
-      setDiscordMessage(isAr ? "تعذر بدء ربط Discord." : "Could not start Discord connection.");
+    } catch (error) {
+      if (discordActionRef.current !== controller) return;
+      setDiscordMessage(error instanceof ClientRequestTimeoutError
+        ? (isAr ? "استغرق بدء ربط Discord وقتًا أطول من المتوقع. حاول مرة أخرى." : "Starting Discord connection took too long. Please try again.")
+        : (isAr ? "تعذر بدء ربط Discord." : "Could not start Discord connection."));
     } finally {
-      setDiscordBusy(false);
+      if (discordActionRef.current === controller) {
+        discordActionRef.current = null;
+        setDiscordBusy(false);
+      }
     }
   }
 
   async function handleDiscordUnlink() {
+    if (discordActionRef.current || discordStatus !== "ready" || discordNeedsVerification) return;
+    const controller = new AbortController();
+    discordActionRef.current = controller;
     setDiscordBusy(true);
     setDiscordMessage(null);
     try {
-      const response = await fetch("/api/discord/identity", { method: "DELETE" });
-      const data: unknown = await response.json();
-      if (
-        !response.ok
-        || typeof data !== "object"
-        || data === null
-        || !("unlinked" in data)
-        || data.unlinked !== true
-      ) {
-        const error = typeof data === "object"
-          && data !== null
-          && "error" in data
-          && typeof data.error === "string"
-          ? data.error
-          : null;
-        setDiscordMessage(
-          isAr ? "تعذر فصل Discord." : (error ?? "Could not disconnect Discord."),
-        );
-        return;
-      }
-      const confirmationResponse = await fetch("/api/discord/identity", {
-        cache: "no-store",
-      });
-      const confirmation: unknown = await confirmationResponse.json();
-      if (
-        !confirmationResponse.ok
-        || typeof confirmation !== "object"
-        || confirmation === null
-        || !("connection" in confirmation)
-        || confirmation.connection !== null
-      ) {
-        setDiscordMessage(
-          isAr
+      // One deadline includes the mutation, both response bodies, and read-back.
+      // Never retry a mutation that the server may already have committed.
+      const failure = await runClientRequest(controller, 15_000, async (signal) => {
+        const response = await fetch("/api/discord/identity", { method: "DELETE", signal });
+        signal.throwIfAborted();
+        const data: unknown = await response.json();
+        signal.throwIfAborted();
+        if (!response.ok || typeof data !== "object" || data === null || !("unlinked" in data) || data.unlinked !== true) {
+          const error = typeof data === "object" && data !== null && "error" in data && typeof data.error === "string"
+            ? data.error : "Could not disconnect Discord.";
+          return isAr ? "تعذر فصل Discord." : error;
+        }
+        const confirmationResponse = await fetch("/api/discord/identity", { cache: "no-store", signal });
+        signal.throwIfAborted();
+        const confirmation: unknown = await confirmationResponse.json();
+        signal.throwIfAborted();
+        if (!confirmationResponse.ok || !isDiscordIdentity(confirmation) || confirmation.connection !== null) {
+          return isAr
             ? "تم إرسال طلب الفصل، لكن تعذر تأكيده. حدّث الصفحة للتحقق."
-            : "Disconnect was requested but could not be confirmed. Refresh to verify.",
-        );
+            : "Disconnect was requested but could not be confirmed. Refresh to verify.";
+        }
+        return null;
+      });
+      if (discordActionRef.current !== controller) return;
+      if (failure) {
+        setDiscordNeedsVerification(true);
+        setShowDiscordUnlink(false);
+        setDiscordMessage(failure);
         return;
       }
       setDiscordConnection(null);
       setShowDiscordUnlink(false);
       setDiscordMessage(
         isAr
-          ? "تم فصل Discord. ستتم إزالة أدوار البائع المُدارة في الخلفية."
-          : "Discord disconnected. Managed seller roles will be removed in the background.",
+          ? "تم فصل Discord. ستتم إزالة أدوار المجتمع المُدارة في الخلفية."
+          : "Discord disconnected. Managed community roles will be removed in the background.",
       );
-    } catch {
-      setDiscordMessage(isAr ? "تعذر فصل Discord." : "Could not disconnect Discord.");
+    } catch (error) {
+      if (discordActionRef.current !== controller) return;
+      setDiscordNeedsVerification(true);
+      setShowDiscordUnlink(false);
+      setDiscordMessage(error instanceof ClientRequestTimeoutError
+        ? (isAr ? "تعذر تأكيد الفصل في الوقت المحدد. أعد التحقق من حالة الاتصال قبل المحاولة مجددًا." : "Disconnect could not be confirmed in time. Check connection status before trying again.")
+        : (isAr ? "تعذر تأكيد فصل Discord. أعد التحقق من حالة الاتصال." : "Could not confirm Discord disconnect. Check connection status."));
     } finally {
-      setDiscordBusy(false);
+      if (discordActionRef.current === controller) {
+        discordActionRef.current = null;
+        setDiscordBusy(false);
+      }
     }
   }
 
@@ -740,13 +837,17 @@ export function AccountSettingsPanel({
               <p className="font-medium text-white">Discord</p>
               <p className="mt-1 text-sm text-[#9CA3AF]">
                 {isAr
-                  ? "اربط هويتك على Discord لمزامنة دور البائع الخاص بك."
-                  : "Link your Discord identity to synchronize your seller role."}
+                  ? "اربط حساب Discord بمجتمع Alpha Traders لمزامنة الأدوار المناسبة لحسابك."
+                  : "Connect Discord to the Alpha Traders community and synchronize your eligible roles."}
               </p>
             </div>
-            {!discordLoaded ? (
+            {discordStatus === "loading" ? (
               <p className="text-sm text-[#9CA3AF]" role="status">
                 {isAr ? "جارٍ تحميل حالة الاتصال..." : "Loading connection status..."}
+              </p>
+            ) : discordStatus === "unavailable" ? (
+              <p className="text-sm text-amber-100" role="status">
+                {isAr ? "تعذر التحقق من حالة اتصال Discord حاليًا." : "Discord connection status is currently unavailable."}
               </p>
             ) : discordConnection ? (
               <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -762,14 +863,16 @@ export function AccountSettingsPanel({
                       @{discordConnection.username}
                     </p>
                     <p className="mt-1 text-xs text-emerald-300">
-                      {isAr ? "متصل" : "Connected"}
+                      {discordNeedsVerification
+                        ? (isAr ? "آخر اتصال مؤكد — يلزم التحقق" : "Last confirmed connection — verification required")
+                        : (isAr ? "متصل" : "Connected")}
                     </p>
                   </div>
                 </div>
                 {!showDiscordUnlink ? (
                   <Button
                     variant="secondary"
-                    disabled={discordBusy}
+                    disabled={discordBusy || discordNeedsVerification}
                     onClick={() => setShowDiscordUnlink(true)}
                   >
                     {isAr ? "فصل Discord" : "Disconnect"}
@@ -778,13 +881,13 @@ export function AccountSettingsPanel({
                   <div className="space-y-2 rounded-xl border border-amber-400/25 bg-amber-500/10 p-3">
                     <p className="max-w-sm text-xs text-amber-100">
                       {isAr
-                        ? "سيؤدي الفصل إلى إزالة أدوار البائع المُدارة. يمكنك إعادة الربط لاحقًا."
-                        : "Disconnecting removes managed seller roles. You can reconnect later."}
+                        ? "سيؤدي الفصل إلى إزالة أدوار المجتمع المرتبطة بحسابك. يمكنك إعادة الربط لاحقًا."
+                        : "Disconnecting removes your managed community roles. You can reconnect later."}
                     </p>
                     <div className="flex gap-2">
                       <Button
                         variant="destructive"
-                        disabled={discordBusy}
+                        disabled={discordBusy || discordNeedsVerification}
                         onClick={() => void handleDiscordUnlink()}
                       >
                         {isAr ? "تأكيد الفصل" : "Confirm disconnect"}
@@ -804,8 +907,8 @@ export function AccountSettingsPanel({
               <div className="space-y-3">
                 <p className="text-sm text-[#D1D5DB]">
                   {isAr
-                    ? "اربط حساب Discord لتلقي دور البائع المطابق لحالة حسابك. نطلب إذن التعريف فقط."
-                    : "Connect Discord to receive the seller role matching your account status. We request identity access only."}
+                    ? "اربط حساب Discord لتلقي الأدوار المناسبة لحسابك في مجتمع Alpha Traders. نطلب إذن التعريف فقط."
+                    : "Connect Discord to receive your eligible Alpha Traders community roles. We request identity access only."}
                 </p>
                 <Button
                   disabled={discordBusy}
@@ -818,13 +921,25 @@ export function AccountSettingsPanel({
                 </Button>
               </div>
             )}
+            {discordStatus === "unavailable" || (discordStatus === "ready" && discordNeedsVerification) ? (
+              <Button
+                variant="secondary"
+                disabled={discordBusy}
+                onClick={() => {
+                  setDiscordMessage(null);
+                  setDiscordStatusRevision((revision) => revision + 1);
+                }}
+              >
+                {isAr ? "إعادة التحقق من حالة الاتصال" : "Retry connection status"}
+              </Button>
+            ) : null}
             {discordMessage ? (
-              <p
+              <ActionFeedback revealKey={discordMessageFeedbackKey} as="p"
                 className="rounded-xl border border-white/10 bg-white/[0.03] p-3 text-sm text-[#D1D5DB]"
                 role="status"
               >
                 {discordMessage}
-              </p>
+              </ActionFeedback>
             ) : null}
           </CardContent>
         </Card>
@@ -844,6 +959,8 @@ export function AccountSettingsPanel({
               <Link href="/profile" className={buttonVariants({ variant: "default" })}>
                 {isAr ? "انتقل إلى الملف الشخصي" : "Go to Profile"}
               </Link>
+
+              <WiseAccountsPanel key={canonicalSession?.user?.id ?? userId ?? "signed-out"} locale={locale} actorId={canonicalSession?.user?.id ?? userId ?? undefined} canReview={canonicalSession?.user?.role === "admin" || canonicalSession?.user?.role === "owner"} />
 
               {canManageSellerBankAccounts ? (
                 <div id="seller-bank-accounts" className="space-y-3 rounded-2xl border border-white/10 bg-black/20 p-4">
@@ -956,7 +1073,7 @@ export function AccountSettingsPanel({
                   {hasMaxBankAccounts && !editingBankAccountId ? (
                     <p className="text-xs text-amber-300">{isAr ? "وصلت إلى الحد الأقصى (حسابان بنكيان). احذف حسابًا قبل إضافة آخر." : "You reached the maximum (2 bank accounts). Delete one before adding another."}</p>
                   ) : null}
-                  {bankAccountsMessage ? <p className="text-xs text-[#FDE68A]">{bankAccountsMessage}</p> : null}
+                  {bankAccountsMessage ? <ActionFeedback revealKey={bankAccountsMessageFeedbackKey} as="p" className="text-xs text-[#FDE68A]">{bankAccountsMessage}</ActionFeedback> : null}
                 </div>
               ) : null}
             </CardContent>
@@ -970,6 +1087,7 @@ export function AccountSettingsPanel({
               <CardTitle>{isAr ? "الأمان" : "Security"}</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
+              {userId ? <AccountSessionsPanel key={userId} userId={userId} isAr={isAr} /> : null}
               {!phoneVerificationEnabled ? (
                 <div className="rounded-xl border border-sky-400/25 bg-sky-500/10 p-4 text-sm text-sky-100">
                   {isAr
@@ -982,13 +1100,12 @@ export function AccountSettingsPanel({
                   {isAr ? "كيفية تغيير كلمة المرور:" : "To change your password:"}
                 </p>
                 <ol className="space-y-1 text-sm text-[#D1D5DB]" style={{ listStyleType: "decimal", paddingInlineStart: "1.25rem" }}>
-                  <li>{isAr ? "تسجيل الخروج" : "Log out"}</li>
-                  <li>{isAr ? 'انقر على "نسيت كلمة المرور" في صفحة الدخول' : 'Click "Forgot Password" on the login page'}</li>
+                  <li>{isAr ? 'اضغط "إعادة تعيين كلمة المرور" أدناه' : 'Select "Reset password" below'}</li>
                   <li>{isAr ? "أدخل بريدك الإلكتروني لاستلام رابط إعادة التعيين" : "Enter your email to receive a reset link"}</li>
                 </ol>
               </div>
-              <Link href="/login" className={buttonVariants({ variant: "secondary" })}>
-                {isAr ? "انتقل إلى تسجيل الدخول" : "Go to Login"}
+              <Link href="/forgot-password" className={buttonVariants({ variant: "secondary" })}>
+                {isAr ? "إعادة تعيين كلمة المرور" : "Reset password"}
               </Link>
             </CardContent>
           </Card>
@@ -1035,14 +1152,18 @@ export function AccountSettingsPanel({
                   />
                 </div> : null}
                 {phoneVerificationEnabled ? <div className="rounded-xl border border-white/10 bg-white/[0.02] p-4 space-y-2">
-                  <p className="text-sm text-[#D1D5DB]">{phoneVerified ? (isAr ? "رقم الهاتف موثّق لخدمات الهاتف وWhatsApp." : "Phone verified for phone and WhatsApp services.") : (isAr ? "وثّق رقم هاتف بالصيغة الدولية لتفعيل خدمات الهاتف المتاحة." : "Verify an E.164 phone number to enable available phone services.")}</p>
-                  {!phoneVerified && <div className="flex flex-wrap gap-2">
-                    <Input value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="+15551234567" className="max-w-xs" />
-                    <Button type="button" variant="secondary" onClick={() => void sendPhoneCode()}>{isAr ? "إرسال الرمز" : "Send code"}</Button>
-                    <Input value={phoneCode} onChange={(event) => setPhoneCode(event.target.value)} placeholder={isAr ? "رمز من 6 أرقام" : "6-digit code"} className="max-w-36" />
-                    <Button type="button" onClick={() => void verifyPhoneCode()}>{isAr ? "تحقق" : "Verify"}</Button>
+                  <p className="text-sm text-[#D1D5DB]">{phoneVerified ? (isAr ? "رقم الهاتف موثّق لخدمات الهاتف وWhatsApp." : "Phone verified for phone and WhatsApp services.") : (isAr ? "وثّق رقم هاتفك مع رمز الدولة." : "Verify your phone number, including its country code.")}</p>
+                  {phoneVerified && !phoneVerificationEditing ? <Button type="button" variant="secondary" onClick={() => { setPhoneVerificationEditing(true); setPhone(""); setPhoneCode(""); setPhoneMessage(null); }}>{isAr ? "إعادة التحقق من الهاتف" : "Reverify phone"}</Button> : null}
+                  {(!phoneVerified || phoneVerificationEditing) && <div className="space-y-3">
+                    <PhoneVerificationChannelPicker locale={isAr ? "ar" : "en"} value={phoneChannel} onChange={setPhoneChannel} disabled={Boolean(phoneBusy)} channels={phoneVerificationChannels} />
+                    <div className="flex flex-wrap gap-2">
+                    <Input type="tel" autoComplete="tel" dir="ltr" maxLength={30} disabled={Boolean(phoneBusy)} aria-label={isAr ? "رقم الهاتف" : "Phone number"} value={phone} onChange={(event) => { setPhone(event.target.value); setPhoneCode(""); setPhoneSentTo(null); setPhoneMessage(null); }} placeholder="+972 50 123 4567" className="max-w-xs" />
+                    <Button type="button" variant="secondary" loading={phoneBusy === "send"} disabled={Boolean(phoneBusy) || !phone.trim() || phoneCooldown > 0 || phoneVerificationChannels?.[phoneChannel] === false} onClick={() => void sendPhoneCode()}>{phoneCooldown > 0 ? (isAr ? `أعد الإرسال بعد ${phoneCooldown} ثانية` : `Resend in ${phoneCooldown}s`) : (isAr ? "إرسال الرمز" : "Send code")}</Button>
+                    <Input type="text" inputMode="numeric" dir="ltr" autoComplete="one-time-code" maxLength={6} disabled={!phoneSentTo || Boolean(phoneBusy)} aria-label={isAr ? "رمز التحقق" : "Verification code"} value={phoneCode} onChange={(event) => setPhoneCode(event.target.value.replace(/\D/g, "").slice(0, 6))} placeholder={isAr ? "رمز من 6 أرقام" : "6-digit code"} className="max-w-36" />
+                    <Button type="button" loading={phoneBusy === "verify"} disabled={Boolean(phoneBusy) || !phoneSentTo || !/^\d{6}$/.test(phoneCode)} onClick={() => void verifyPhoneCode()}>{isAr ? "تحقق" : "Verify"}</Button>
+                    </div>
                   </div>}
-                  {phoneMessage && <p className="text-xs text-[#C9A227]">{phoneMessage}</p>}
+                  {phoneMessage && <ActionFeedback revealKey={phoneMessageFeedbackKey} as="p" className="text-sm text-[#C9A227]">{phoneMessage}</ActionFeedback>}
                 </div> : (
                   <div className="rounded-xl border border-sky-400/25 bg-sky-500/10 p-4 text-sm text-sky-100">
                     {isAr
@@ -1050,12 +1171,12 @@ export function AccountSettingsPanel({
                       : "Email verification is the only verification method currently enabled. Phone verification and SMS are off."}
                   </div>
                 )}
-                <div className="space-y-3 rounded-xl border border-emerald-400/20 bg-emerald-500/[0.04] p-4">
+                {!canonicalSession || interfaceAccess.trading ? <div className="space-y-3 rounded-xl border border-emerald-400/20 bg-emerald-500/[0.04] p-4">
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div>
                       <p className="text-sm font-semibold text-white">WhatsApp Business</p>
                       <p className="mt-1 text-xs text-[#9CA3AF]">
-                        {whatsAppAvailabilityMessage(whatsappChannel.status, isAr)}
+                        {brandText(whatsAppAvailabilityMessage(whatsappChannel.status, isAr))}
                       </p>
                     </div>
                     <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${whatsappChannel.sendingEnabled ? "bg-emerald-500/15 text-emerald-300" : "bg-amber-500/15 text-amber-200"}`}>
@@ -1081,9 +1202,9 @@ export function AccountSettingsPanel({
                     />
                   </div>
                   <p className="text-xs leading-5 text-[#9CA3AF]">
-                    {whatsappChannel.consentText ?? (isAr
+                    {brandText(whatsappChannel.consentText ?? (isAr
                       ? "عند التفعيل، أوافق على استلام تنبيهات Alpha Traders على رقم WhatsApp الموثّق. لا تتضمن الرسائل نص المحادثة أو تفاصيل المعاملة، ويمكنني إيقافها من الإعدادات أو بالرد STOP."
-                      : "By enabling, I agree to receive Alpha Traders alerts on my verified WhatsApp number. Messages do not include chat text or transaction details, and I can opt out in Settings or by replying STOP.")}
+                      : "By enabling, I agree to receive Alpha Traders alerts on my verified WhatsApp number. Messages do not include chat text or transaction details, and I can opt out in Settings or by replying STOP."))}
                   </p>
                   {whatsappChannel.consented ? (
                     <Button
@@ -1095,11 +1216,14 @@ export function AccountSettingsPanel({
                       {isAr ? "إيقاف جميع إشعارات WhatsApp" : "Turn off all WhatsApp notifications"}
                     </Button>
                   ) : null}
-                  {whatsappMessage ? <p role="status" className="text-xs text-[#C9A227]">{whatsappMessage}</p> : null}
-                </div>
+                  {whatsappMessage ? <ActionFeedback revealKey={whatsappMessageFeedbackKey} as="p" role="status" className="text-xs text-[#C9A227]">{whatsappMessage}</ActionFeedback> : null}
+                </div> : null}
               </div>
               <div className="space-y-3">
-                {NOTIFICATION_KEYS.map((key) => (
+                {NOTIFICATION_KEYS.filter((key) => !canonicalSession || key === "admin_announcements"
+                  || (key === "seller_application" ? interfaceAccess.canApplyToSell || interfaceAccess.pendingSeller
+                    : key === "purchase_requests" || key === "listing_updates" ? interfaceAccess.sellerWorkspace || interfaceAccess.administration
+                      : interfaceAccess.trading)).map((key) => (
                   <div key={key} className="flex items-center justify-between rounded-xl border border-white/10 bg-white/[0.02] p-4">
                     <span className="text-sm text-[#D1D5DB]">
                       {isAr ? notifLabels[key].ar : notifLabels[key].en}
@@ -1112,9 +1236,9 @@ export function AccountSettingsPanel({
                 ))}
               </div>
               {privacyMessage ? (
-                <p role="alert" className="rounded-xl border border-red-500/30 bg-red-950/20 p-3 text-sm text-red-300">
+                <ActionFeedback revealKey={privacyMessageFeedbackKey} as="p" role="alert" className="rounded-xl border border-red-500/30 bg-red-950/20 p-3 text-sm text-red-300">
                   {privacyMessage}
-                </p>
+                </ActionFeedback>
               ) : null}
             </CardContent>
           </Card>
@@ -1129,11 +1253,12 @@ export function AccountSettingsPanel({
             <CardContent className="space-y-4">
               <div className="rounded-xl border border-white/10 bg-white/[0.02] p-3 text-xs text-[#9CA3AF]">
                 {isAr
-                  ? "يتم تطبيق تفضيلات الخصوصية هذه عبر المنصة. قد تتطلب بعض الإعدادات إعادة تحميل الصفحة."
-                  : "These privacy preferences are applied across the platform. Some settings may require a page reload to take effect."}
+                  ? "تظهر هويتك بمعرّف AT فقط. اسمك الشخصي ورقم هاتفك وبريدك الإلكتروني خاصة."
+                  : "Your public identity uses your AT ID. Your personal name, phone and email stay private."}
               </div>
               <div className="space-y-3">
-                {PRIVACY_KEYS.map((key) => (
+                {PRIVACY_KEYS.filter(key => key !== "show_phone" && key !== "show_email"
+                  && (key !== "show_trade_stats" || !canonicalSession || interfaceAccess.trading)).map((key) => (
                   <div key={key} className="flex items-start justify-between gap-4 rounded-xl border border-white/10 bg-white/[0.02] p-4">
                     <div>
                       <p className="text-sm font-medium text-[#D1D5DB]">
@@ -1174,9 +1299,9 @@ export function AccountSettingsPanel({
                   {isAr ? "تصدير بيانات الحساب" : "Export Account Data"}
                 </Button>
                 {exportMessage && (
-                  <p className="rounded-xl border border-[#C9A227]/25 bg-[#C9A227]/5 p-3 text-sm text-[#C9A227]">
+                  <ActionFeedback revealKey={exportMessageFeedbackKey} as="p" className="rounded-xl border border-[#C9A227]/25 bg-[#C9A227]/5 p-3 text-sm text-[#C9A227]">
                     {exportMessage}
-                  </p>
+                  </ActionFeedback>
                 )}
               </CardContent>
             </Card>

@@ -1,5 +1,6 @@
+import { BrandedText as Text } from "../../src/components/branded-text";
 import { useState } from "react";
-import { Alert, Pressable, StyleSheet, Switch, Text, TextInput, View } from "react-native";
+import { Alert, Pressable, StyleSheet, Switch, TextInput, View } from "react-native";
 import { Redirect } from "expo-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { colors, radius, spacing, typography } from "@alpha-traders/design-tokens";
@@ -9,6 +10,7 @@ import {
   getMobileSellerBankAccounts,
 } from "../../src/api/mobile-api";
 import { useAuth } from "../../src/auth/auth-context";
+import { canUseSellerTools } from "../../src/auth/seller-access";
 import { GoldButton } from "../../src/components/gold-button";
 import { NativePageShell } from "../../src/components/native-page-shell";
 import { useLocale } from "../../src/i18n/locale-context";
@@ -31,8 +33,7 @@ export default function SellerBankAccountsScreen() {
   const { status, user, requestWithSession } = useAuth();
   const { locale, isRTL } = useLocale();
   const isAr = locale === "ar";
-  const canSell = user?.sellerStatus === "approved_seller"
-    || user?.roles.some((role) => role === "approved_seller" || role === "admin" || role === "owner") === true;
+  const canSell = canUseSellerTools(user);
   const queryKey = ["mobile-seller-bank-accounts", user?.id ?? "anonymous", locale] as const;
   const [showForm, setShowForm] = useState(false);
   const [holder, setHolder] = useState(user?.fullName ?? "");

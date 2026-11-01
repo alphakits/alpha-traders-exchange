@@ -1,6 +1,7 @@
 import "server-only";
+import { rollbackFailedTransaction } from "@/lib/postgres-transaction";
 
-import type { Pool, PoolClient } from "pg";
+import type { Pool } from "pg";
 
 import { DISCORD_COMMUNITY_COMMAND_NAMES } from "@/lib/discord/community-commands";
 import type { DiscordDiagnostics } from "@/lib/discord/diagnostics";
@@ -402,17 +403,6 @@ export async function readDiscordManagementDatabaseDiagnostics(
   };
 }
 
-async function rollback(client: PoolClient, cause: unknown): Promise<void> {
-  try {
-    await client.query("rollback");
-  } catch (rollbackError) {
-    throw new AggregateError(
-      [cause, rollbackError],
-      "Discord operator request rollback failed.",
-    );
-  }
-}
-
 export async function enqueueDiscordOperatorReconciliation(input: {
   actorUserId: string;
   idempotencyKey: string;
@@ -425,6 +415,7 @@ export async function enqueueDiscordOperatorReconciliation(input: {
 }> {
   const pool = requirePool(input.pool);
   const client = await pool.connect();
+  let destroy = false;
   try {
     await client.query("begin");
     await client.query(
@@ -519,10 +510,10 @@ export async function enqueueDiscordOperatorReconciliation(input: {
       resultCode: null,
     };
   } catch (error) {
-    await rollback(client, error);
+    destroy = await rollbackFailedTransaction(client, error);
     throw error;
   } finally {
-    client.release();
+    client.release(destroy);
   }
 }
 

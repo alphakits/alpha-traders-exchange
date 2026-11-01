@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createPrivateBetaInvite, getOwnerPrivateBetaDashboardData } from "@/lib/alpha-exchange-store";
-import { requireApiAdmin } from "@/lib/api-auth";
+import { requireApiOwner } from "@/lib/api-auth";
 
 export async function GET() {
-  const { user, unauthorized } = await requireApiAdmin();
+  const { user, unauthorized } = await requireApiOwner();
   if (!user) return unauthorized;
   const payload = await getOwnerPrivateBetaDashboardData();
   return NextResponse.json({
@@ -14,7 +14,7 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
-  const { user, unauthorized } = await requireApiAdmin();
+  const { user, unauthorized } = await requireApiOwner();
   if (!user) return unauthorized;
   try {
     const body = await request.json();

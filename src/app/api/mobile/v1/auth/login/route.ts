@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { authenticateMobileCredentials } from "@/lib/mobile-credentials";
 import { mobileAuthService, hashMobileSecret } from "@/lib/mobile-auth";
+import { MobileAccountDisabledError, MobileAccountUnavailableError } from "@/lib/mobile-auth-store";
 import {
   createMobileRequestId,
   mobileClientVersionError,
@@ -13,6 +14,7 @@ import {
 import { toMobileSessionUser } from "@/lib/mobile-session-user";
 import { checkSharedRateLimit, resolveClientIp } from "@/lib/rate-limit";
 import { logEvent } from "@/lib/structured-logging";
+import { isAuthProviderRateLimitError } from "@/lib/auth-provider-errors";
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -27,7 +29,7 @@ export async function POST(request: NextRequest) {
   const body = await readMobileJsonBody(request);
   const email = String(body?.email ?? "").trim().toLowerCase();
   const password = String(body?.password ?? "");
-  if (!EMAIL_PATTERN.test(email) || password.length < 8 || password.length > 256) {
+  if (email.length > 254 || !EMAIL_PATTERN.test(email) || password.length < 8 || password.length > 256) {
     return mobileError("INVALID_REQUEST", requestId, locale, 400);
   }
 
@@ -93,6 +95,15 @@ export async function POST(request: NextRequest) {
       tokens: issued.tokens,
     }, requestId);
   } catch (error) {
+    if (error instanceof Error && isAuthProviderRateLimitError(error)) {
+      return mobileError("RATE_LIMITED", requestId, locale, 429, { retryAfterSeconds: 60 });
+    }
+    if (error instanceof MobileAccountDisabledError) {
+      return mobileError("ACCOUNT_DISABLED", requestId, locale, 403);
+    }
+    if (error instanceof MobileAccountUnavailableError) {
+      return mobileError("SESSION_REVOKED", requestId, locale, 401);
+    }
     logEvent("error", {
       event: "mobile_auth_login",
       outcome: "failed",

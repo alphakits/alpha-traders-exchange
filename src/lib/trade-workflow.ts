@@ -3,15 +3,16 @@ import type { PurchaseRequestStatus, UserRole } from "@/types/alpha-exchange";
 export function getPurchaseRequestStatusTransitionOptions(currentStatus: PurchaseRequestStatus, actorType: "seller" | "buyer") {
   if (actorType === "seller") {
     if (currentStatus === "pending") return ["accepted", "declined"] as const;
+    if (currentStatus === "accepted") return ["cancelled"] as const;
     if (currentStatus === "payment_sent") return ["funds_received"] as const;
     if (currentStatus === "funds_received") return ["usdt_release_pending"] as const;
     if (currentStatus === "usdt_release_pending") return ["usdt_sent"] as const;
+    if (currentStatus === "usdt_sent") return ["completed"] as const;
     return [] as const;
   }
 
   if (currentStatus === "pending") return ["cancelled"] as const;
   if (currentStatus === "accepted") return ["payment_sent", "cancelled"] as const;
-  if (currentStatus === "usdt_sent") return ["completed"] as const;
   return [] as const;
 }
 

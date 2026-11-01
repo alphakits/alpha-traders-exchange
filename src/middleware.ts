@@ -1,16 +1,20 @@
 import createMiddleware from "next-intl/middleware";
 import { NextResponse } from "next/server";
 import { routing } from "@/i18n/routing";
-import { AUTH_COOKIE_NAME, AUTH_PHONE_VERIFIED_COOKIE_NAME, AUTH_VERIFIED_COOKIE_NAME } from "@/lib/auth-constants";
-import { isMarketplacePhoneVerificationEnabled } from "@/lib/phone-verification";
+import { LOCALE_CHOICE_COOKIE } from "@/i18n/locale-preference";
+import { AUTH_COOKIE_NAME, AUTH_VERIFIED_COOKIE_NAME } from "@/lib/auth-constants";
 import { hasTrustedSameOrigin } from "@/lib/request-origin";
 import { allowsLocalTestSupportRequest } from "@/lib/runtime-safety";
+import { APP_PAGE_PATH_HEADER, getSignedOutPageDestination, isProtectedPage } from "@/lib/protected-page";
+import { enforceNetworkAccess } from "@/lib/network-access";
 
 const intlMiddleware = createMiddleware(routing);
 const STATE_CHANGING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 const EXTERNAL_CALLBACK_PATHS = new Set([
   "/api/discord/marketplace-events",
   "/api/twilio/status",
+  "/api/twilio/whatsapp/webhook",
+  "/api/meta/whatsapp/webhook",
 ]);
 
 function isExternalCallbackPath(pathname: string) {
@@ -43,7 +47,7 @@ function rejectUntrustedApiMutation() {
   );
 }
 
-export default function middleware(request: Parameters<typeof intlMiddleware>[0]) {
+export default async function middleware(request: Parameters<typeof intlMiddleware>[0]) {
   const { pathname } = request.nextUrl;
   const isApiRoute = pathname.startsWith("/api/");
 
@@ -61,24 +65,45 @@ export default function middleware(request: Parameters<typeof intlMiddleware>[0]
     ) {
       return rejectUntrustedApiMutation();
     }
-    return NextResponse.next();
+    const networkDenied = await enforceNetworkAccess(request);
+    return networkDenied ?? NextResponse.next();
   }
 
-  const isProtectedRoute = /^\/(ar|en)\/(?:academy|lessons|usdt-exchange|trade-room|dashboard|profile|settings|admin)(?:\/|$)/.test(pathname);
+  const networkDenied = await enforceNetworkAccess(request);
+  if (networkDenied) return networkDenied;
+
+  // The bilingual recovery page is a root route, outside the locale layout.
+  if (pathname === "/offline") return NextResponse.next();
+
+  if (!/^\/(ar|en)(?:\/|$)/i.test(pathname)) {
+    // This cookie is written only by the explicit language switcher. Honour
+    // the choice while exploring and while signed in; never infer from locale.
+    const choice = request.cookies.get(LOCALE_CHOICE_COOKIE)?.value;
+    const locale = choice === "ar" || choice === "en" ? choice : routing.defaultLocale;
+    const localizedUrl = request.nextUrl.clone();
+    localizedUrl.pathname = `/${locale}${pathname === "/" ? "" : pathname}`;
+    const response = NextResponse.redirect(localizedUrl);
+    response.headers.set("Cache-Control", "private, no-store");
+    response.headers.set("Vary", "Cookie");
+    return response;
+  }
+
+  const isProtectedRoute = isProtectedPage(pathname);
+  const requiresVerifiedEmail = /^\/(ar|en)\/(?:academy|lessons|usdt-exchange|trade-room|trades|dashboard|profile|settings|admin)(?:\/|$)/.test(pathname);
   const isSellerWorkspaceRoute = /^\/(ar|en)\/dashboard\/seller(?:\/|$)/.test(pathname);
   const isTradeRoomRoute = /^\/(ar|en)\/trade-room(?:\/|$)/.test(pathname);
   const hasSession = Boolean(request.cookies.get(AUTH_COOKIE_NAME)?.value);
   const hasVerifiedEmail = request.cookies.get(AUTH_VERIFIED_COOKIE_NAME)?.value === "1";
-  const phoneVerificationRequired = isMarketplacePhoneVerificationEnabled();
-  const hasVerifiedPhone = request.cookies.get(AUTH_PHONE_VERIFIED_COOKIE_NAME)?.value === "1";
 
   if (isProtectedRoute && !hasSession) {
-    const locale = pathname.startsWith("/ar/") ? "ar" : "en";
-    const loginUrl = new URL(`/${locale}/login`, request.url);
-    loginUrl.searchParams.set("redirectTo", `${pathname}${request.nextUrl.search}`);
-    return NextResponse.redirect(loginUrl);
+    const response = NextResponse.redirect(new URL(getSignedOutPageDestination(`${pathname}${request.nextUrl.search}`), request.url));
+    response.headers.set("Cache-Control", "private, no-store");
+    response.headers.set("Vary", "Cookie");
+    return response;
   }
-  if (isSellerWorkspaceRoute && hasSession && (!hasVerifiedEmail || (phoneVerificationRequired && !hasVerifiedPhone))) {
+  // Phone enforcement happens in the server layout using canonical user data,
+  // so stale or forged cookies cannot bypass it or cause an owner redirect loop.
+  if (isSellerWorkspaceRoute && hasSession && !hasVerifiedEmail) {
     const locale = pathname.startsWith("/ar/") ? "ar" : "en";
     const verifyAccountUrl = new URL(`/${locale}/verify-account`, request.url);
     verifyAccountUrl.searchParams.set("redirectTo", `${pathname}${request.nextUrl.search}`);
@@ -90,13 +115,18 @@ export default function middleware(request: Parameters<typeof intlMiddleware>[0]
     verifyAccountUrl.searchParams.set("redirectTo", `${pathname}${request.nextUrl.search}`);
     return NextResponse.redirect(verifyAccountUrl);
   }
-  if (isProtectedRoute && hasSession && !hasVerifiedEmail) {
+  if (requiresVerifiedEmail && hasSession && !hasVerifiedEmail) {
     const locale = pathname.startsWith("/ar/") ? "ar" : "en";
     const verifyUrl = new URL(`/${locale}/verify-email`, request.url);
     return NextResponse.redirect(verifyUrl);
   }
 
-  return intlMiddleware(request);
+  // Always overwrite the caller's value. The server layout uses this trusted
+  // path to reject invalid sessions before streaming any account page.
+  request.headers.set(APP_PAGE_PATH_HEADER, `${pathname}${request.nextUrl.search}`);
+  const response = intlMiddleware(request);
+  if (isProtectedRoute) response.headers.set("Cache-Control", "private, no-store");
+  return response;
 }
 
 export const config = {

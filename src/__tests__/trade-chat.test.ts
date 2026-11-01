@@ -18,6 +18,8 @@ vi.mock("@/lib/realtime", () => ({
   publishRealtimeEvent: mocks.publishRealtimeEvent,
 }));
 
+vi.mock("@/lib/browser-push", () => ({ scheduleBrowserPushDelivery: vi.fn() }));
+
 import {
   getMyPurchaseRequests,
   getTradeRoomData,
@@ -26,6 +28,10 @@ import {
   postTradeRoomPoke,
 } from "@/lib/alpha-exchange-store";
 import { DIRECT_CONTACT_CONTENT_ERROR } from "@/lib/privacy-redaction";
+import { publicAccountId } from "@/lib/public-account-identity";
+import { OWNER_TRADE_CHAT_MESSAGE_MAX_LENGTH } from "@alpha-traders/contracts";
+import { getAlphaExchangeRepository } from "@/lib/alpha-exchange-repository";
+import { encryptCardlessCredential } from "@/lib/cardless-credential-crypto";
 
 const BUYER_ID = "buyer-1";
 const SELLER_ID = "seller-1";
@@ -101,6 +107,7 @@ function seedDb(requests = [trade("trade-1")]): AlphaExchangeDb & { __runtimeVer
       user(SELLER_ID, "approved_seller"),
       user(OUTSIDER_ID, "buyer"),
       user(ADMIN_ID, "admin"),
+      user("owner-1", "owner"),
     ],
     sellerApplications: [],
     marketplaceListings: [],
@@ -141,6 +148,21 @@ describe("Trade Room participant communication", () => {
     mocks.checkSharedRateLimit.mockResolvedValue({ allowed: true, retryAfterSeconds: 0, reason: null });
   });
 
+  it("lets the canonical owner address both participants without changing trade terms or status", async () => {
+    const before = { ...snapshot().purchaseRequests[0] };
+    const input = { purchaseRequestId: "trade-1", actorUserId: "owner-1", message: "Please confirm the next step here.", clientMessageId: "abcdefabcdefabcdefabcdefabcdefab" };
+    const result = await postTradeRoomMessage(input);
+    expect(result.message.senderRole).toBe("owner");
+    expect(result.message.senderUserId).toBe("owner-1");
+    expect(snapshot().notifications.map(n => n.userId).sort()).toEqual([BUYER_ID, SELLER_ID].sort());
+    const after = snapshot().purchaseRequests[0];
+    expect(after.status).toBe(before.status);
+    expect(after.usdtAmount).toBe(before.usdtAmount);
+
+    expect((await postTradeRoomMessage(input)).created).toBe(false);
+    expect(snapshot().notifications).toHaveLength(2);
+  });
+
   it("persists a Buyer message with one generic, recipient-only Seller notification", async () => {
     const posted = await postTradeRoomMessage({
       purchaseRequestId: "trade-1",
@@ -163,6 +185,150 @@ describe("Trade Room participant communication", () => {
     expect(saved.notifications.some((entry) => entry.userId === BUYER_ID)).toBe(false);
     expect(mocks.publishRealtimeEvent).toHaveBeenCalledWith(expect.objectContaining({ type: "trade.message_created" }));
     expect(mocks.publishRealtimeEvent).toHaveBeenCalledWith(expect.objectContaining({ type: "notification.created" }));
+  });
+
+  it("preserves verified Owner contact details on both participant reads without putting them in alerts", async () => {
+    const message = "Call 050-123-4567, email support@example.test, WhatsApp https://wa.me/972501234567 or https://example.test/help.";
+    await postTradeRoomMessage({ purchaseRequestId: "trade-1", actorUserId: "owner-1", message });
+    for (const [actorUserId, actorRole] of [[BUYER_ID, "buyer"], [SELLER_ID, "approved_seller"]] as const) {
+      const room = await getTradeRoomData({ purchaseRequestId: "trade-1", actorUserId, actorRole, markMessagesRead: false });
+      expect(room.messages[0]?.message).toBe(message);
+      expect(room.request.messages?.[0]?.message).toBe(message);
+    }
+    expect(snapshot().notifications).toHaveLength(2);
+    expect(JSON.stringify(snapshot().notifications)).not.toContain("050-123-4567");
+    expect(JSON.stringify(snapshot().notifications)).not.toContain("wa.me");
+  });
+
+  it("keeps participant message bounds while allowing a bounded long Owner message", async () => {
+    for (const actorUserId of [BUYER_ID, SELLER_ID]) {
+      await expect(postTradeRoomMessage({ purchaseRequestId: "trade-1", actorUserId, message: "a".repeat(1201) })).rejects.toThrow("Message is too long.");
+    }
+    const message = "a".repeat(OWNER_TRADE_CHAT_MESSAGE_MAX_LENGTH);
+    expect((await postTradeRoomMessage({ purchaseRequestId: "trade-1", actorUserId: "owner-1", message })).message.message).toBe(message);
+    await expect(postTradeRoomMessage({ purchaseRequestId: "trade-1", actorUserId: "owner-1", message: message + "a" })).rejects.toThrow("Message is too long.");
+  });
+
+  it("does not grant the Owner exemption to an admin participant or disabled Owner", async () => {
+    const saved = snapshot();
+    saved.users.find(user => user.id === BUYER_ID)!.role = "admin";
+    saved.users.find(user => user.id === "owner-1")!.disabled = true;
+    invalidateAlphaExchangeStoreCache();
+    await expect(postTradeRoomMessage({ purchaseRequestId: "trade-1", actorUserId: BUYER_ID, message: "Call 050-123-4567" })).rejects.toThrow(DIRECT_CONTACT_CONTENT_ERROR);
+    await expect(postTradeRoomMessage({ purchaseRequestId: "trade-1", actorUserId: "owner-1", message: "Call 050-123-4567" })).rejects.toThrow("not allowed");
+    expect(snapshot().purchaseRequests[0]?.messages).toHaveLength(0);
+  });
+
+  it("rechecks Owner authority when it is revoked before the canonical message commit", async () => {
+    snapshot().users.find(user => user.id === BUYER_ID)!.roles = ["buyer", "owner"];
+    invalidateAlphaExchangeStoreCache();
+    const repository = await getAlphaExchangeRepository();
+    const save = repository.saveSnapshot.bind(repository);
+    const intercepted = vi.spyOn(repository, "saveSnapshot").mockImplementationOnce(async (db, options) => {
+      const actor = snapshot().users.find(user => user.id === BUYER_ID)!;
+      actor.role = "buyer";
+      actor.roles = ["buyer"];
+      (snapshot() as AlphaExchangeDb & { __runtimeVersion: number }).__runtimeVersion += 1;
+      return save(db, options);
+    });
+    try {
+      await expect(postTradeRoomMessage({ purchaseRequestId: "trade-1", actorUserId: BUYER_ID, message: "Call 050-123-4567" })).rejects.toThrow(DIRECT_CONTACT_CONTENT_ERROR);
+      expect(snapshot().purchaseRequests[0]?.messages).toHaveLength(0);
+      expect(snapshot().notifications).toHaveLength(0);
+      expect(mocks.publishRealtimeEvent).not.toHaveBeenCalled();
+    } finally { intercepted.mockRestore(); }
+  });
+
+  it("lets an Owner who is also a buyer send ordinary contact messages without sharing ATM credentials", async () => {
+    const saved = snapshot();
+    saved.users.find(user => user.id === BUYER_ID)!.roles = ["buyer", "owner"];
+    saved.purchaseRequests[0]!.paymentMethod = "Cardless ATM Withdrawal";
+    invalidateAlphaExchangeStoreCache();
+    const message = "WhatsApp https://wa.me/972501234567 or call 050-123-4567";
+    const posted = await postTradeRoomMessage({ purchaseRequestId: "trade-1", actorUserId: BUYER_ID, message });
+    expect(posted.message.senderRole).toBe("owner");
+    expect(snapshot().purchaseRequests[0]?.status).toBe("accepted");
+    for (const actorUserId of [BUYER_ID, "owner-1"]) {
+      for (const unsafe of ["Code 123-456", "Code ١٢٣٤٥٦", message + " code 12 34 56"]) {
+        await expect(postTradeRoomMessage({ purchaseRequestId: "trade-1", actorUserId, message: unsafe })).rejects.toMatchObject({ code: "cardless-code-chat-blocked" });
+      }
+    }
+    const room = await getTradeRoomData({ purchaseRequestId: "trade-1", actorUserId: SELLER_ID, actorRole: "approved_seller", markMessagesRead: false });
+    expect(room.messages[0]?.message).toBe(message);
+  });
+
+  it.each([
+    "Withdrawal code: 0501234567",
+    "Withdrawal code: +0501234567",
+    "Withdrawal code: + (050)1234567",
+    "The code is: 050-123-4567",
+    "Withdrawal code: (050)1234567",
+    "0501234567 is the withdrawal code",
+    "رمز السحب: 0501234567",
+    "رمز السحب: +٠٥٠١٢٣٤٥٦٧",
+    "كود السحب هو ٠٥٠١٢٣٤٥٦٧",
+    "رمز السحب: https://wa.me/0501234567",
+  ])("blocks an Owner's explicit ATM credential even when it resembles contact information: %s", async (message) => {
+    snapshot().purchaseRequests[0]!.paymentMethod = "Cardless ATM Withdrawal";
+    snapshot().users.find(user => user.id === BUYER_ID)!.roles = ["buyer", "owner"];
+    invalidateAlphaExchangeStoreCache();
+    for (const actorUserId of ["owner-1", BUYER_ID]) {
+      await expect(postTradeRoomMessage({ purchaseRequestId: "trade-1", actorUserId, message }))
+        .rejects.toMatchObject({ code: "cardless-code-chat-blocked" });
+    }
+    expect(snapshot().purchaseRequests[0]?.messages).toHaveLength(0);
+    expect(snapshot().notifications).toHaveLength(0);
+    expect(mocks.publishRealtimeEvent).not.toHaveBeenCalled();
+  });
+
+  it.each(["legacy", "details"])("blocks an Owner's known protected ATM code in contact text (%s payload)", async (format) => {
+    const request = snapshot().purchaseRequests[0]!;
+    request.paymentMethod = "Cardless ATM Withdrawal";
+    request.status = "payment_sent";
+    const messageId = "protected-code";
+    const payload = format === "legacy" ? "0501234567" : JSON.stringify({
+      withdrawalCode: "0501234567", verificationKind: "id_number", verificationValue: "123456789",
+    });
+    request.messages = [{ id: messageId, purchaseRequestId: request.id, kind: "user", senderUserId: BUYER_ID,
+      senderRole: "buyer", credentialKind: "cardless_code", confidential: true,
+      message: encryptCardlessCredential(payload, request.id, messageId), createdAt: request.createdAt, readByUserIds: [BUYER_ID] }];
+    invalidateAlphaExchangeStoreCache();
+    for (const message of ["Call 0501234567", "WhatsApp https://wa.me/0501234567", "Call 050-123-4567", "Call (050)1234567", "Call 0501234567 1"]) {
+      await expect(postTradeRoomMessage({ purchaseRequestId: request.id, actorUserId: "owner-1", message }))
+        .rejects.toMatchObject({ code: "cardless-code-chat-blocked" });
+    }
+    expect(snapshot().purchaseRequests[0]?.messages).toHaveLength(1);
+    expect(snapshot().notifications).toHaveLength(0);
+    expect(mocks.publishRealtimeEvent).not.toHaveBeenCalled();
+  });
+
+  it("keeps ordinary Owner phone, email and link sharing available in ATM trades", async () => {
+    snapshot().purchaseRequests[0]!.paymentMethod = "Cardless ATM Withdrawal";
+    invalidateAlphaExchangeStoreCache();
+    const message = "Use the protected withdrawal code action. Call +0501234567, email support@example.test, or WhatsApp https://wa.me/972501234567. Help: https://example.test/help";
+    const posted = await postTradeRoomMessage({ purchaseRequestId: "trade-1", actorUserId: "owner-1", message });
+    expect(posted.message.message).toBe(message);
+    for (const actorUserId of [BUYER_ID, SELLER_ID]) {
+      await expect(postTradeRoomMessage({ purchaseRequestId: "trade-1", actorUserId, message }))
+        .rejects.toThrow(DIRECT_CONTACT_CONTENT_ERROR);
+    }
+    expect(snapshot().purchaseRequests[0]?.messages).toHaveLength(1);
+    expect(snapshot().purchaseRequests[0]?.status).toBe("accepted");
+  });
+
+  it("keeps closed-trade and attachment validation in force for the Owner", async () => {
+    await expect(postTradeRoomMessage({ purchaseRequestId: "trade-1", actorUserId: "owner-1", message: "Contact", imageUrl: "https://wa.me/972501234567" })).rejects.toThrow("attachments must be");
+    snapshot().purchaseRequests[0]!.closedAt = new Date().toISOString();
+    invalidateAlphaExchangeStoreCache();
+    await expect(postTradeRoomMessage({ purchaseRequestId: "trade-1", actorUserId: "owner-1", message: "Call 050-123-4567" })).rejects.toMatchObject({ code: "trade-chat-closed" });
+    expect(snapshot().purchaseRequests[0]?.messages).toHaveLength(0);
+  });
+
+  it("does not unredact contact details in a forged legacy Owner message", async () => {
+    snapshot().purchaseRequests[0]!.messages = [{ id: "forged", purchaseRequestId: "trade-1", kind: "user", senderUserId: BUYER_ID, senderRole: "owner", message: "Call 050-123-4567", createdAt: new Date().toISOString(), readByUserIds: [] }];
+    invalidateAlphaExchangeStoreCache();
+    const room = await getTradeRoomData({ purchaseRequestId: "trade-1", actorUserId: SELLER_ID, actorRole: "approved_seller", markMessagesRead: false });
+    expect(JSON.stringify(room)).not.toContain("050-123-4567");
   });
 
   it("delivers the reverse Seller-to-Buyer alert even when in-app preferences are disabled", async () => {
@@ -265,6 +431,29 @@ describe("Trade Room participant communication", () => {
     expect(mocks.publishRealtimeEvent).not.toHaveBeenCalled();
   });
 
+  it("marks only displayed message IDs, preserving unread messages and ordinary room reads", async () => {
+    const first = await postTradeRoomMessage({ purchaseRequestId: "trade-1", actorUserId: BUYER_ID, message: "First message" });
+    const second = await postTradeRoomMessage({ purchaseRequestId: "trade-1", actorUserId: BUYER_ID, message: "Newer message" });
+    const before = await getTradeRoomData({ purchaseRequestId: "trade-1", actorUserId: SELLER_ID, actorRole: "approved_seller", markMessagesRead: false });
+    expect(before.messages.every(message => !message.seenAt)).toBe(true);
+    const room = await getTradeRoomData({ purchaseRequestId: "trade-1", actorUserId: SELLER_ID, actorRole: "approved_seller", markMessagesRead: true, readMessageIds: [first.message.id, "message-in-another-trade"], strongConsistency: true });
+    expect(room.messages.find(message => message.id === first.message.id)?.readByUserIds).toContain(SELLER_ID);
+    expect(room.messages.find(message => message.id === second.message.id)?.readByUserIds).not.toContain(SELLER_ID);
+    expect(snapshot().purchaseRequests[0].messages).toHaveLength(2);
+  });
+
+  it("provides canonical public chat IDs even for sellers trading as buyers", async () => {
+    const buyer = snapshot().users.find(user => user.id === BUYER_ID)!;
+    buyer.fullName = "Private Buyer Name"; buyer.sellerStatus = "approved_seller";
+    const seller = snapshot().users.find(user => user.id === SELLER_ID)!;
+    seller.fullName = "Private Seller Name";
+    const room = await getTradeRoomData({ purchaseRequestId: "trade-1", actorUserId: SELLER_ID, actorRole: "approved_seller", markMessagesRead: false });
+    expect(room.counterpart.buyerPublicId).toBe(publicAccountId(buyer));
+    expect(room.counterpart.sellerPublicId).toBe(publicAccountId(seller));
+    expect(JSON.stringify(room.counterpart)).not.toContain("Private");
+    expect(JSON.stringify(room.counterpart)).not.toContain("972500000000");
+  });
+
   it("persists one exact message and notification when an uncertain request is retried", async () => {
     const input = {
       purchaseRequestId: "trade-1",
@@ -279,6 +468,10 @@ describe("Trade Room participant communication", () => {
     expect(first.created).toBe(true);
     expect(replay.created).toBe(false);
     expect(replay.message.id).toBe(first.message.id);
+    expect(first.message.clientMessageId).toBe(input.clientMessageId);
+    expect(replay.message.clientMessageId).toBe(input.clientMessageId);
+    const roomBeforeAcknowledgement = await getTradeRoomData({ purchaseRequestId: "trade-1", actorUserId: BUYER_ID, actorRole: "buyer" });
+    expect(roomBeforeAcknowledgement.messages[0]?.clientMessageId).toBe(input.clientMessageId);
     expect(snapshot().purchaseRequests[0]?.messages).toHaveLength(1);
     expect(snapshot().notifications).toHaveLength(1);
     expect(mocks.publishRealtimeEvent.mock.calls.map(([event]) => event.type)).toEqual([
@@ -395,6 +588,61 @@ describe("Trade Room participant communication", () => {
 
     expect(posted.message.message).toContain("250 USDT");
     expect(snapshot().purchaseRequests[0]?.messages).toHaveLength(1);
+  });
+
+  it("blocks obfuscated Cardless ATM codes from ordinary chat for both participants", async () => {
+    const saved = snapshot();
+    saved.purchaseRequests[0]!.paymentMethod = "Cardless ATM";
+    saved.purchaseRequests[0]!.status = "payment_sent";
+    globalThis.__alphaExchangeMemorySnapshot = saved as never;
+    invalidateAlphaExchangeStoreCache();
+
+    for (const message of [
+      "12 34 56",
+      "123-456",
+      "١٢٣٤٥٦",
+      "۱۲۳۴۵۶",
+      "１２３４５６",
+      "12\u200B34\u206056",
+    ]) {
+      await expect(postTradeRoomMessage({
+        purchaseRequestId: "trade-1",
+        actorUserId: BUYER_ID,
+        message,
+      })).rejects.toMatchObject({ code: "cardless-code-chat-blocked" });
+    }
+
+    await expect(postTradeRoomMessage({
+      purchaseRequestId: "trade-1",
+      actorUserId: SELLER_ID,
+      message: "Code received: 987-654",
+    })).rejects.toMatchObject({ code: "cardless-code-chat-blocked" });
+
+    expect(snapshot().purchaseRequests[0]?.messages).toHaveLength(0);
+    expect(snapshot().notifications).toHaveLength(0);
+  });
+
+  it("blocks chat photos for both participants in every cash-trade method", async () => {
+    for (const paymentMethod of ["Cardless ATM Withdrawal", "Face-to-Face (Meet in Person)"]) {
+      const saved = snapshot();
+      saved.purchaseRequests[0]!.paymentMethod = paymentMethod;
+      saved.purchaseRequests[0]!.status = "payment_sent";
+      globalThis.__alphaExchangeMemorySnapshot = saved as never;
+      invalidateAlphaExchangeStoreCache();
+
+      for (const actorUserId of [BUYER_ID, SELLER_ID]) {
+        await expect(postTradeRoomMessage({
+          purchaseRequestId: "trade-1",
+          actorUserId,
+          message: "Photo",
+          imageUrl: `data:image/png;base64,${TINY_PNG_BASE64}`,
+          imageMimeType: "image/png",
+        })).rejects.toMatchObject({ code: "cash-trade-chat-image-blocked" });
+      }
+    }
+
+    expect(snapshot().purchaseRequests[0]?.messages).toHaveLength(0);
+    expect(snapshot().notifications).toHaveLength(0);
   });
 
   it("replaces user-supplied Trade Room attachment names and refuses external contact URLs", async () => {

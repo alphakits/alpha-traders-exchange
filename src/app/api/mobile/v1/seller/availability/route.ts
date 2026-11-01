@@ -32,6 +32,7 @@ export async function PATCH(request: NextRequest) {
     const rate = await checkSharedRateLimit({
       headers: request.headers,
       key: "mobile:seller-availability",
+      identifier: auth.user.id,
       maxRequests: 12,
       windowMs: 60_000,
     });

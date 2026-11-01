@@ -25,6 +25,8 @@ import { getSiteUrl } from "@/lib/site-url";
 import { DiscordOperatorReconciliationWorker } from "@/lib/discord/operator-reconciliation";
 import { DiscordOnboardingContentSync } from "@/lib/discord/onboarding-content-sync";
 import { getOfficialOwnerWhatsAppUrl } from "@/lib/official-contact";
+import { ProductionHealthWorker } from "@/lib/production-health-worker";
+import { PostgresProductionHealthHistory } from "@/lib/production-health-history";
 
 async function main(): Promise<void> {
   let runtime: DiscordWorkerRuntime | null = null;
@@ -62,6 +64,7 @@ async function main(): Promise<void> {
     runtime = new DiscordWorkerRuntime({
       config,
       service: getDiscordService(),
+      productionHealth: new ProductionHealthWorker({ historyStore: new PostgresProductionHealthHistory(pool) }),
       roleSync: createDiscordRoleSyncWorker(),
       resourceSync,
       listingSync,

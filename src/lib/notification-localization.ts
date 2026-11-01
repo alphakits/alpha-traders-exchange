@@ -1,7 +1,10 @@
 import type { AppLocale } from "@/i18n/routing";
+import { isNewListingBroadcastNotification } from "@/lib/listing-notification";
 import type { AlphaExchangeActivityLogEntry, AlphaExchangeNotification } from "@/types/alpha-exchange";
 
 const ARABIC_TITLE_BY_ENGLISH: Record<string, string> = {
+  "buyer confirmed cash received": "أكد المشتري استلام البائع للنقد",
+  "trade ready to complete": "الصفقة جاهزة للإكمال",
   "listing expired": "انتهت صلاحية العرض",
   "congratulations on your new seller rank": "تهانينا على رتبة البائع الجديدة",
   "commission overdue": "عمولة متأخرة",
@@ -13,6 +16,7 @@ const ARABIC_TITLE_BY_ENGLISH: Record<string, string> = {
   "trade overdue": "الصفقة متأخرة",
   "usdt release overdue": "تأخر إرسال USDT",
   "trade overdue alert": "تنبيه بتأخر الصفقة",
+  "alpha score increased": "ارتفعت نقاط ألفا",
   "trust score increased": "ارتفعت درجة الثقة",
   "prestige rank updated": "تم تحديث رتبة البائع",
   "prestige override removed": "تمت إزالة التعديل الإداري للرتبة",
@@ -50,6 +54,7 @@ const ARABIC_TITLE_BY_ENGLISH: Record<string, string> = {
   "availability updated": "تم تحديث حالة التوفر",
   "seller entered vacation mode": "دخل البائع في وضع الإجازة",
   "trade cancelled": "تم إلغاء الصفقة",
+  "trade cancelled by owner": "ألغى المالك الصفقة",
   "listing expiration extended": "تم تمديد صلاحية العرض",
   "listing force closed": "تم إغلاق العرض إدارياً",
   "🟢 new usdt listing available": "🟢 عرض USDT جديد متاح",
@@ -102,6 +107,8 @@ const ARABIC_ACTION_BY_ENGLISH: Record<string, string> = {
   "open seller listings": "فتح عروض البائع",
   "view seller insights": "عرض إحصاءات البائع",
   "manage listing": "إدارة العرض",
+  "view listing": "عرض الإعلان",
+  "view usdt request": "عرض طلب USDT",
   "review listing": "مراجعة العرض",
   "pay commission": "دفع العمولة",
   "review commission": "مراجعة العمولة",
@@ -149,6 +156,15 @@ const ARABIC_ACTION_BY_ENGLISH: Record<string, string> = {
 };
 
 const ARABIC_MESSAGE_BY_ENGLISH: Record<string, string> = {
+  "buyer confirmed handing the full cash total to you. verify the cash, send usdt to the revealed wallet, then complete the trade.": "أكد المشتري تسليم كامل النقد لك. تحقق من النقد، ثم أرسل USDT إلى المحفظة الظاهرة وأكمل الصفقة.",
+  "seller marked usdt as sent and will complete the trade. check your receiving wallet.": "أكد البائع إرسال USDT وسيكمل الصفقة. تحقق من محفظة الاستلام.",
+  "seller marked usdt as sent. the seller can now complete the trade without waiting for buyer confirmation.": "أكد البائع إرسال USDT. يمكنه الآن إكمال الصفقة دون انتظار تأكيد المشتري.",
+  "seller confirmed trade completed": "أكد البائع اكتمال الصفقة",
+  "seller confirmed usdt delivery and completed the trade. the trade has moved to history and review, and the seller commission is due.": "أكد البائع تسليم USDT وأكمل الصفقة. انتقلت الصفقة إلى السجل والتقييم وأصبحت عمولة البائع مستحقة.",
+  "seller marked usdt as sent and can complete the trade. check your receiving wallet; you may also confirm receipt.": "أكد البائع إرسال USDT ويمكنه إكمال الصفقة. تحقق من محفظتك؛ يمكنك أيضًا تأكيد الاستلام.",
+  "you confirmed usdt was sent. complete the trade now; no buyer confirmation is required.": "لقد أكدت إرسال USDT. أكمل الصفقة الآن دون انتظار تأكيد المشتري.",
+  "you completed the trade. check your commission due.": "أكملت الصفقة. راجع العمولة المستحقة عليك.",
+
   "your seller account is approved and now active.": "تمت الموافقة على حساب البائع الخاص بك، وهو نشط الآن.",
   "your seller application was rejected.": "تم رفض طلبك للانضمام كبائع.",
   "your marketplace recovery fee payment was submitted and is awaiting owner verification.":
@@ -183,6 +199,9 @@ const ARABIC_MESSAGE_BY_ENGLISH: Record<string, string> = {
     "تم تجهيز موعد اللقاء. راجع إرشادات الأمان قبل المقابلة.",
   "your meeting is ready. after handing over the cash, confirm it in the trade room. no photo is required.":
     "موعد اللقاء جاهز. بعد تسليم النقد، أكد ذلك في غرفة الصفقة. لا يلزم رفع صورة.",
+  "the seller accepted and can now collect your prepared atm withdrawal. your wallet remains hidden until cash collection is confirmed.": "قبل البائع الطلب ويمكنه الآن سحب النقد. تبقى محفظتك مخفية حتى يؤكد استلام النقد.",
+  "prepared withdrawal details shared after seller acceptance": "تمت مشاركة بيانات السحب المجهّزة بعد قبول البائع",
+  "seller accepted the cardless atm trade. the prepared withdrawal details are now available. collect the atm cash and confirm receipt to reveal the buyer wallet.": "قبل البائع صفقة السحب دون بطاقة. بيانات السحب المجهّزة متاحة الآن. اسحب النقد ثم أكد الاستلام لإظهار محفظة المشتري.",
   "your cardless atm trade is active. send the withdrawal code, then confirm it in the trade room. no photo is required.":
     "صفقة السحب دون بطاقة نشطة. أرسل رمز السحب ثم أكد ذلك في غرفة الصفقة. لا يلزم رفع صورة.",
   "buyer sent the cardless withdrawal code. collect the atm cash, then confirm receipt in the trade room.":
@@ -197,6 +216,7 @@ const ARABIC_MESSAGE_BY_ENGLISH: Record<string, string> = {
     "قبل البائع طلب الصفقة. يمكنك الآن رفع إيصال الدفع.",
   "your trade request was declined by the seller.": "رفض البائع طلب الصفقة الخاص بك.",
   "the buyer cancelled this trade request.": "ألغى المشتري طلب الصفقة هذا.",
+  "the owner reviewed and cancelled this trade. its history remains available.": "راجع المالك الصفقة وألغاها. يبقى سجلها متاحًا.",
   "seller verified the bank transfer and confirmed funds received.":
     "تحقّق البائع من التحويل البنكي وأكد استلام الأموال.",
   "seller confirmed cash was collected from the cardless atm.": "أكد البائع استلام النقد من الصراف الآلي دون بطاقة.",
@@ -321,6 +341,10 @@ const ARABIC_MESSAGE_TEMPLATES: NotificationMessageTemplate[] = [
   {
     pattern: /^Trade (.+?) exceeded the 45-minute USDT release SLA\.$/i,
     translate: ([trade]) => `تجاوزت الصفقة ${entityReference(trade)} مهلة إرسال USDT البالغة 45 دقيقة.`,
+  },
+  {
+    pattern: /^Your Alpha Score increased from (.+?) to (.+?)\.$/i,
+    translate: ([oldScore, newScore]) => `ارتفعت نقاط ألفا لديك من ${oldScore} إلى ${newScore}.`,
   },
   {
     pattern: /^Your trust score increased from (.+?) to (.+?)\.$/i,
@@ -526,6 +550,10 @@ const ARABIC_ACTIVITY_DETAILS_TEMPLATES: NotificationMessageTemplate[] = [
     translate: ([trade, price]) => `تم إرسال عرض السعر للصفقة ${entityReference(trade)} بقيمة ₪${price} لكل USDT.`,
   },
   {
+    pattern: /^Alpha Score improved to (.+?)\.$/i,
+    translate: ([score]) => `تحسّنت نقاط ألفا إلى ${score}.`,
+  },
+  {
     pattern: /^Trust score improved to (.+?)\.$/i,
     translate: ([score]) => `تحسّنت درجة الثقة إلى ${score}.`,
   },
@@ -710,14 +738,15 @@ export function localizeActivityCopy(entry: AlphaExchangeActivityLogEntry, local
 export function localizeNotificationActionLabel(
   label: string | null | undefined,
   locale: AppLocale,
-  notification: Pick<AlphaExchangeNotification, "category">,
+  notification: Pick<AlphaExchangeNotification, "category"> & Partial<Pick<AlphaExchangeNotification, "title" | "reason">>,
 ) {
+  if (isNewListingBroadcastNotification(notification)) return locale === "ar" ? "عرض الإعلان" : "View listing";
   const normalized = label?.trim();
   if (locale !== "ar") return normalized || "Open";
   if (normalized && containsArabicText(normalized)) return normalized;
   if (normalized && ARABIC_ACTION_BY_ENGLISH[normalized.toLowerCase()]) return ARABIC_ACTION_BY_ENGLISH[normalized.toLowerCase()];
   if (notification.category === "trade") return "متابعة الصفقة";
-  if (notification.category === "listing") return "إدارة العرض";
+  if (notification.category === "listing") return "عرض الإعلان";
   if (notification.category === "application") return "مراجعة الطلب";
   return "عرض التفاصيل";
 }

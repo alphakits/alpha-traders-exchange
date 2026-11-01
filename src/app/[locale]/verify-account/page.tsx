@@ -1,8 +1,10 @@
 import { redirect } from "next/navigation";
 import { AccountVerificationGate } from "@/components/auth/account-verification-gate";
 import { getCurrentSessionUser } from "@/lib/auth";
-import { isMarketplacePhoneVerificationEnabled } from "@/lib/phone-verification";
+import { isMarketplacePhoneVerificationEnabled, needsMarketplacePhoneVerification } from "@/lib/phone-verification";
 import { buildPageMetadata } from "@/lib/seo";
+import { getPhoneVerificationChannels } from "@/lib/phone-verification-delivery";
+import { isAdultConfirmationRequired } from "@/lib/age-eligibility";
 
 export const dynamic = "force-dynamic";
 
@@ -13,8 +15,8 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
     locale: locale as "ar" | "en",
     title: isAr ? "تأكيد الحساب" : "Verify your account",
     description: isAr
-      ? "أكمل التحقق من البريد الإلكتروني للوصول إلى Alpha Exchange. التحقق من الهاتف متوقف."
-      : "Complete email verification to access Alpha Exchange. Phone verification is off.",
+      ? "أكمل خطوات التحقق المطلوبة للوصول إلى Alpha Exchange."
+      : "Complete the required verification steps to access Alpha Exchange.",
     path: "/verify-account",
   });
 }
@@ -39,7 +41,11 @@ export default async function VerifyAccountPage({
       redirectTo={typeof redirectTo === "string" ? redirectTo : undefined}
       initialEmail={user.email}
       initialName={user.fullName}
+      initialPhone={user.whatsappNumber}
       phoneVerificationEnabled={isMarketplacePhoneVerificationEnabled()}
+      phoneVerificationChannels={getPhoneVerificationChannels()}
+      phoneVerificationRequired={needsMarketplacePhoneVerification(user)}
+      adultConfirmationRequired={isAdultConfirmationRequired()}
     />
   );
 }

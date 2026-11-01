@@ -11,7 +11,7 @@ describe("israeli bank helpers", () => {
   });
 
   it("supports the full Israeli bank roster required by the experience", () => {
-    const options = ["Bank Leumi", "Bank Hapoalim", "Mizrahi-Tefahot", "Discount", "First International", "Yahav", "Mercantile", "Massad", "Jerusalem", "ONE ZERO"];
+    const options = ["Bank Leumi", "Bank Hapoalim", "Mizrahi-Tefahot", "Discount", "First International", "Yahav", "Mercantile", "Massad", "Jerusalem", "ONE ZERO", "Esh"];
     for (const optionName of options) {
       expect(getIsraeliBankOption(optionName).name).toBe(optionName);
     }

@@ -1,8 +1,26 @@
 "use client";
+import { formatMeasuredResponseTime, sellerRatingDisplay, sellerScoreDisplay } from "@alpha-traders/contracts";
+import { csvRow } from "@/lib/csv";
+import { OwnerAttentionQueue } from "@/components/admin/owner-attention-queue";
+import { TradeEvidenceViewer } from "@/components/sections/trade-room/trade-evidence-viewer";
+
+import { currencyText, moneyText } from "@/components/ui/currency-text";
+import { ActionFeedback, useActionFeedbackState } from "@/components/ui/action-feedback";
+import { normalizeRegistrationWhatsApp, formatCommissionAmount, commissionAmountInput } from "@alpha-traders/contracts";
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { AlertTriangle, BarChart3, CheckCircle2, Coins, FileClock, FileSearch, ListChecks, Megaphone, MessageSquareText, Search, Settings, ShieldCheck, Star, Store, TrendingUp, Trophy, Users, Users2, WalletCards, X, Zap } from "lucide-react";
+import { useAdminActionDialog } from "@/components/admin/use-admin-action-dialog";
+import { isProtectedOwnerTarget, type OwnerAccountTarget } from "@/lib/owner-account-command";
+import { readOwnerDashboardJson } from "@/lib/owner-dashboard-read";
+import { publicAccountId } from "@/lib/public-account-identity";
+import { executeOwnerDashboardAction, prepareOwnerDashboardAction, type OwnerDashboardRequest } from "@/lib/owner-dashboard-action";
+import { isOwnerDashboardSnapshot } from "@/lib/owner-dashboard-snapshot";
+import { executeOwnerRankBatch, planOwnerRankBatch, type OwnerRankBatchResult } from "@/lib/owner-rank-batch";
+import { beginOwnerPendingOperation, finishOwnerPendingOperation, readOwnerPendingOperations, OWNER_OPERATION_EVENT, type OwnerPendingOperation } from "@/lib/owner-pending-operation";
+import { OwnerAccountControls } from "@/components/admin/owner-account-controls";
+import { TradeOwnerActions } from "@/components/admin/trade-owner-actions";
 import { AdminAnnouncementsPanel } from "@/components/admin/admin-announcements-panel";
 import { MarketplaceEnforcementOwnerPanel } from "@/components/sections/seller/marketplace-enforcement-owner-panel";
 import { Button } from "@/components/ui/button";
@@ -11,9 +29,10 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { createExchangeDisplayLookup, replaceExchangeEntityIds } from "@/lib/alpha-exchange-display";
 import { parseAdminDashboardDestination, type AdminDashboardSection } from "@/lib/action-destinations";
+import { isActiveOwnerTrade, isCompletedOwnerTrade } from "@/lib/owner-active-trades";
 import { formatCommissionId, formatListingId, formatRequestId, formatTradeId } from "@/lib/format-id";
 import { RoleBadge } from "@/components/ui/role-badge";
-import { SELLER_LEVELS, normalizeSellerLevel, type AlphaExchangeActivityLogEntry, type AlphaExchangeNotification, type AuditLogEntry, type BetaAnnouncement, type BetaAnnouncementType, type BetaFeedbackCategory, type CommissionRecord, type MarketplaceEnforcementRecord, type MarketplaceListing, type OwnerBusinessDashboardMetrics, type OwnerPrivateBetaDashboardData, type PurchaseRequest, type SellerApplication, type SellerAvailabilityStatus, type SellerLevel, type SellerReviewRecord, type SmsDeliveryRecord, type SupportedNetwork } from "@/types/alpha-exchange";
+import { SELLER_LEVELS, normalizeSellerLevel, type AlphaExchangeActivityLogEntry, type AlphaExchangeNotification, type AuditLogEntry, type BetaAnnouncement, type BetaAnnouncementType, type BetaFeedbackCategory, type CommissionRecord, type MarketplaceEnforcementRecord, type MarketplaceListing, type OwnerBusinessDashboardMetrics, type OwnerPrivateBetaDashboardData, type PurchaseRequest, type SellerApplication, type SellerAvailabilityStatus, type SellerLevel, type SellerReviewRecord, type SmsDeliveryRecord, type SupportedNetwork, type TradeDisputeCase } from "@/types/alpha-exchange";
 import type { PremiumSellerProfileData } from "@/types/alpha-exchange";
 import { formatNotificationRelativeTime } from "@/lib/notification-time";
 import { sortNotificationsNewestFirst } from "@/lib/notification-sort";
@@ -30,10 +49,10 @@ import type {
 import { isMarketplaceSmokeTestListing } from "@/lib/marketplace-smoke-test";
 
 const RANK_BADGE_COLOR: Record<SellerLevel, string> = {
-  bronze: "border-[#CD7F32]/30 bg-[#CD7F32]/10 text-[#E8A96A]",
-  silver: "border-[#C0C0C0]/30 bg-[#C0C0C0]/10 text-[#C9CED9]",
-  gold: "border-[#C9A227]/30 bg-[#C9A227]/10 text-[#FDE68A]",
-  diamond: "border-[#7CC9FF]/30 bg-[#7CC9FF]/10 text-[#7CC9FF]",
+  bronze: "rank-tone rank-tone--bronze",
+  silver: "rank-tone rank-tone--silver",
+  gold: "rank-tone rank-tone--gold",
+  diamond: "rank-tone rank-tone--diamond",
   elite: "border-[#F8E7A0]/30 bg-[#F8E7A0]/10 text-[#F8E7A0]",
 };
 
@@ -57,6 +76,8 @@ type AdminSeller = {
   role: "guest" | "student" | "buyer" | "pending_seller_approval" | "approved_seller" | "admin" | "owner";
   roles?: Array<"guest" | "student" | "buyer" | "pending_seller_approval" | "approved_seller" | "admin" | "owner">;
   sellerStatus: "buyer" | "pending_seller_approval" | "approved_seller" | "rejected" | "suspended";
+  sellerApprovalVerified: boolean;
+  disabled?: boolean;
   availabilityStatus?: SellerAvailabilityStatus;
   lifetimeCompletedVolumeUsdt?: number;
   sellerPrestigeRank?: SellerLevel;
@@ -81,11 +102,13 @@ type AdminPayload = {
   approvedSellers: AdminSeller[];
   listings: MarketplaceListing[];
   purchaseRequests: PurchaseRequest[];
+  disputes: TradeDisputeCase[];
   commissionRecords: CommissionRecord[];
   auditLogs: AuditLogEntry[];
   notifications: AlphaExchangeNotification[];
   activityLog: AlphaExchangeActivityLogEntry[];
   ownerBusiness: OwnerBusinessDashboardMetrics;
+  operations?: MarketplaceOperationalSnapshot;
   trustEngine: {
     highestTrustSellers: Array<{ sellerId: string; sellerName: string; trustScore: number; level: string; summary: string }>;
     lowestTrustSellers: Array<{ sellerId: string; sellerName: string; trustScore: number; level: string; summary: string }>;
@@ -101,7 +124,7 @@ type AdminPayload = {
     };
   };
   privateBeta: OwnerPrivateBetaDashboardData;
-  users: Array<{ id: string; fullName: string; email: string; role: string; roles?: string[]; disabled?: boolean; createdAt: string }>;
+  users: Array<{ id: string; fullName: string; email: string; whatsappNumber: string; role: string; roles?: string[]; disabled?: boolean; sellerStatus?: string; createdAt: string }>;
   sellerReviews: SellerReviewRecord[];
   listingReliability: ListingReliabilityReport[];
   smsDeliveries: AdminSmsDelivery[];
@@ -151,6 +174,19 @@ type ListingReliabilityReport = {
 type AdminSmsDelivery = Omit<SmsDeliveryRecord, "recipientPhone" | "body"> & {
   recipientPhoneMasked: string;
 };
+
+function isAdminSmsDeliveryArray(value: unknown): value is AdminSmsDelivery[] {
+  return Array.isArray(value) && value.every((entry: unknown) => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) return false;
+    const row = entry as Record<string, unknown>;
+    return ["id", "eventKey", "eventType", "recipientUserId", "recipientPhoneMasked"].every(key => typeof row[key] === "string" && row[key].trim().length > 0)
+      && ["queued", "sent", "delivered", "failed"].includes(String(row.status))
+      && Number.isInteger(row.retryCount) && Number(row.retryCount) >= 0
+      && ["createdAt", "updatedAt"].every(key => typeof row[key] === "string" && Number.isFinite(Date.parse(row[key])))
+      && ["sentAt", "deliveredAt", "failedAt"].every(key => row[key] === undefined || (typeof row[key] === "string" && Number.isFinite(Date.parse(row[key]))))
+      && ["twilioMessageSid", "providerStatus", "lastError"].every(key => row[key] === undefined || typeof row[key] === "string");
+  });
+}
 
 type SystemHealthSnapshot = {
   status: "healthy" | "degraded";
@@ -215,16 +251,19 @@ function toNumber(value: string | number | null | undefined) {
   return Number(String(value ?? "").replace(/[^\d.]/g, "")) || 0;
 }
 
-function formatCurrency(value: number) {
-  return `₪${value.toLocaleString("en-IL", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+function formatCurrency(value: number, currency: string) {
+  return `${value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`;
 }
 
 function formatUsdt(value: number) {
-  return `${value.toLocaleString("en-IL", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDT`;
+  return `${formatCommissionAmount(value)} USDT`;
 }
 
 function formatExactUsdt(value: number) {
-  return `${value.toLocaleString("en-IL", { minimumFractionDigits: 2, maximumFractionDigits: 6 })} USDT`;
+  return `${value.toLocaleString("en-US", {
+    minimumFractionDigits: 6,
+    maximumFractionDigits: 6,
+  })} USDT`;
 }
 
 function formatPercent(value: number) {
@@ -238,6 +277,7 @@ function operationalIncidentLabel(kind: MarketplaceOperationalIncidentKind, isAr
     stalled_trade: { en: "Trade still idle after buyer reminder", ar: "الصفقة ما زالت متوقفة بعد تذكير المشتري" },
     orphaned_listing_lock: { en: "Listing lock has no active trade", ar: "قفل العرض غير مرتبط بصفقة نشطة" },
     unlinked_active_trade: { en: "Active trade is not linked to its listing", ar: "الصفقة النشطة غير مرتبطة بعرضها" },
+    pending_trade_trust: { en: "Trade reputation update is delayed", ar: "تأخر تحديث سمعة الصفقة" },
   };
   return isArabic ? labels[kind].ar : labels[kind].en;
 }
@@ -308,6 +348,7 @@ function paginate<T>(items: T[], page: number) {
   const start = (safePage - 1) * pageSize;
   return {
     rows: items.slice(start, start + pageSize),
+    allRows: items,
     totalPages,
     safePage,
   };
@@ -315,7 +356,9 @@ function paginate<T>(items: T[], page: number) {
 
 export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: { locale?: "ar" | "en"; isOwner?: boolean }) {
   const searchParams = useSearchParams();
+  const router = useRouter();
   const isArabic = locale === "ar";
+  const { confirmAction, promptAction, actionDialog } = useAdminActionDialog(isArabic);
   const t = useCallback((english: string, arabic: string) => isArabic ? arabic : english, [isArabic]);
   const statusLabel = useCallback((value: string | null | undefined) => {
     const status = value ?? "";
@@ -461,9 +504,10 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
     if (!isArabic) return event.message;
     const labels: Record<PurchaseRequest["timeline"][number]["type"], string> = {
       request_submitted: "تم إرسال طلب الشراء", price_offer_submitted: "تم إرسال عرض السعر", request_accepted: "وافق البائع على الطلب", price_offer_accepted: "وافق البائع على عرض السعر", payment_sent: "أكد المشتري إرسال الدفعة",
+      buyer_confirmed_funds: "أكد المشتري استلام البائع للنقد",
       seller_confirmed_funds: "أكد البائع استلام الدفعة", usdt_release_started: "بدأ البائع إرسال USDT", usdt_sent: "أكد البائع إرسال USDT",
       trade_completed: "اكتملت الصفقة بنجاح", trade_timed_out: "انتهت مهلة الصفقة", trade_locked: "تم إغلاق الصفقة",
-      review_unlocked: "أصبح التقييم متاحًا", dispute_opened: "تم فتح نزاع للصفقة", commission_recorded: "تم تسجيل عمولة الصفقة",
+      review_unlocked: "أصبح التقييم متاحًا", dispute_opened: "تم فتح نزاع للصفقة", dispute_resolved: "تم حل نزاع الصفقة", commission_recorded: "تم تسجيل عمولة الصفقة",
       commission_paid: "تم دفع عمولة الصفقة", buyer_evidence_uploaded: "رفع المشتري إثبات الدفع", seller_evidence_uploaded: "رفع البائع إثبات إرسال USDT",
       request_declined: "رفض البائع الطلب", price_offer_declined: "رفض البائع عرض السعر", request_cancelled: "تم إلغاء الطلب", buyer_confirmed_receipt: "أكد المشتري استلام USDT",
       buyer_confirmation_overdue: "تأخر تأكيد المشتري", trade_closed_manually: "تم إغلاق الصفقة يدويًا",
@@ -477,16 +521,42 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
   const [activeSection, setActiveSection] = useState<SectionKey>("overview");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [toast, setToast] = useState<string | null>(null);
+  const [toast, setToast, toastFeedbackKey] = useActionFeedbackState<string | null>(null);
   const [data, setData] = useState<AdminPayload | null>(null);
+  const dashboardReadEpoch = useRef(0);
+  const smsReadEpoch = useRef(0);
+  const [smsHistoryState, setSmsHistoryState] = useState<"loading" | "ready" | "error">("loading");
+  const dashboardMounted = useRef(true);
+  const dashboardActionInFlight = useRef(false);
+  const [ownerAccountTarget, setOwnerAccountTarget] = useState<OwnerAccountTarget | null>(null);
+  const ownerAccountTargetRef = useRef<OwnerAccountTarget | null>(null);
+  const [ownerRankBatchResult, setOwnerRankBatchResult] = useState<OwnerRankBatchResult | null>(null);
+  const [pendingOwnerOperations, setPendingOwnerOperations] = useState<OwnerPendingOperation[]>([]);
+  useEffect(() => {
+    dashboardMounted.current = true;
+    const epoch = dashboardReadEpoch;
+    return () => { dashboardMounted.current = false; epoch.current++; };
+  }, []);
+  useEffect(() => {
+
+    const update = () => { try { setPendingOwnerOperations(readOwnerPendingOperations()); } catch { /* New commands fail closed if recovery storage is unavailable. */ } };
+    update(); window.addEventListener(OWNER_OPERATION_EVENT, update);
+    return () => window.removeEventListener(OWNER_OPERATION_EVENT, update);
+  }, [isOwner]);
+  function openOwnerAccount(target: OwnerAccountTarget) {
+    if (!isOwner || isProtectedOwnerTarget(target) || ownerAccountTargetRef.current || bulkRankInFlight.current) return;
+    ownerAccountTargetRef.current = target; setOwnerAccountTarget(target);
+  }
   const [systemHealth, setSystemHealth] = useState<SystemHealthSnapshot | null>(null);
   const [systemHealthLoading, setSystemHealthLoading] = useState(false);
   const [systemHealthError, setSystemHealthError] = useState<string | null>(null);
+  const systemHealthReadEpoch = useRef(0);
 
   const [applicationsQuery, setApplicationsQuery] = useState("");
   const [applicationsStatus, setApplicationsStatus] = useState<"all" | "pending" | "approved" | "rejected">("all");
   const [applicationsSort, setApplicationsSort] = useState<"newest" | "oldest" | "name">("newest");
   const [applicationsPage, setApplicationsPage] = useState(1);
+  const [approvalEmailSendingId, setApprovalEmailSendingId] = useState<string | null>(null);
 
   const [sellersQuery, setSellersQuery] = useState("");
   const [sellersStatus, setSellersStatus] = useState<"all" | "approved_seller" | "suspended">("all");
@@ -503,7 +573,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
   const [listingsPage, setListingsPage] = useState(1);
 
   const [requestsQuery, setRequestsQuery] = useState("");
-  const [requestsStatus, setRequestsStatus] = useState<"all" | PurchaseRequest["status"]>("all");
+  const [requestsStatus, setRequestsStatus] = useState<"all" | "active" | PurchaseRequest["status"]>("all");
   const [requestsSort, setRequestsSort] = useState<"newest" | "oldest">("newest");
   const [requestsPage, setRequestsPage] = useState(1);
   const [selectedRequest, setSelectedRequest] = useState<PurchaseRequest | null>(null);
@@ -523,7 +593,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
   } | null>(null);
   const [commissionPaidReason, setCommissionPaidReason] = useState("");
   const [commissionPaidSaving, setCommissionPaidSaving] = useState(false);
-  const [commissionPaidError, setCommissionPaidError] = useState<string | null>(null);
+  const [commissionPaidError, setCommissionPaidError, commissionPaidErrorFeedbackKey] = useActionFeedbackState<string | null>(null);
 
   const [auditQuery, setAuditQuery] = useState("");
   const [auditAction, setAuditAction] = useState<"all" | AuditLogEntry["action"]>("all");
@@ -543,6 +613,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
   const [announcementMessageAr, setAnnouncementMessageAr] = useState("");
   const toastTimeoutRef = useRef<number | null>(null);
   const lastFocusedDeepLinkRef = useRef<string | null>(null);
+  const lastOpenedPurchaseRef = useRef<string | null>(null);
   const [deepLinkTargetElement, setDeepLinkTargetElement] = useState<HTMLElement | null>(null);
   const setSellerApplicationRow = useCallback((element: HTMLTableRowElement | null) => setDeepLinkTargetElement(element), []);
   const setMarketplaceListingRow = useCallback((element: HTMLTableRowElement | null) => setDeepLinkTargetElement(element), []);
@@ -553,6 +624,20 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
     () => parseAdminDashboardDestination(new URLSearchParams(searchParamsKey)),
     [searchParamsKey],
   );
+  const returnToPurchaseDetails = searchParams.get("details") === "1";
+
+  useEffect(() => {
+    const requestId = adminDestination.purchaseRequestId;
+    if (!isOwner || !returnToPurchaseDetails || !requestId) {
+      lastOpenedPurchaseRef.current = null;
+      return;
+    }
+    if (loading || !data || lastOpenedPurchaseRef.current === requestId) return;
+    const request = data.purchaseRequests.find((item) => item.id === requestId);
+    if (!request) return;
+    lastOpenedPurchaseRef.current = requestId;
+    setSelectedRequest(request);
+  }, [adminDestination.purchaseRequestId, data, isOwner, loading, returnToPurchaseDetails]);
 
   useEffect(() => {
     let cancelled = false;
@@ -569,7 +654,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
 
     void (async () => {
       try {
-        const response = await fetch(`/api/alpha-exchange/sellers/${selectedSeller.id}/profile`, { cache: "no-store" });
+        const response = await fetch(`/api/alpha-exchange/admin/sellers/${selectedSeller.id}/profile`, { cache: "no-store" });
         const payload = await response.json() as { profile?: PremiumSellerProfileData; error?: string };
         if (!response.ok || !payload.profile) {
           if (!cancelled) setSelectedSellerProfile(null);
@@ -602,6 +687,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
   const [rankMgmtSearch, setRankMgmtSearch] = useState("");
   const [rankMgmtFilter, setRankMgmtFilter] = useState<"all" | SellerLevel>("all");
   const [rankMgmtSelected, setRankMgmtSelected] = useState<Set<string>>(new Set());
+  const bulkRankInFlight = useRef(false);
   const [rankMgmtSaving, setRankMgmtSaving] = useState<Set<string>>(new Set());
   const [rankMgmtBulkRank, setRankMgmtBulkRank] = useState<SellerLevel>("bronze");
   const [rankConfirmPending, setRankConfirmPending] = useState<{ sellerId: string; sellerName: string; fromRank: SellerLevel; toRank: SellerLevel } | null>(null);
@@ -635,54 +721,115 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
       window.removeEventListener("keydown", onKeyDown);
       document.body.style.overflow = previousOverflow;
     };
-  }, [commissionPaidPending, commissionPaidSaving, rankConfirmPending, selectedRequest, selectedSeller]);
+  }, [commissionPaidPending, commissionPaidSaving, rankConfirmPending, selectedRequest, selectedSeller, setCommissionPaidError]);
 
   const sectionItemsByKey = useMemo(() => new Map(sectionItems.map((item) => [item.key, item])), []);
 
-  const fetchData = useCallback(async (options: { silent?: boolean } = {}) => {
+  const clearOwnerReadData = useCallback(() => {
+    // Ignore any earlier successful read that completes after access is lost.
+    dashboardReadEpoch.current++;
+    smsReadEpoch.current++;
+    systemHealthReadEpoch.current++;
+    setData(null);
+    setSmsHistoryState("error");
+    setSystemHealth(null);
+    setSelectedSeller(null);
+    setSelectedSellerProfile(null);
+    setSelectedRequest(null);
+    setOwnerRankBatchResult(null);
+    ownerAccountTargetRef.current = null;
+    setOwnerAccountTarget(null);
+    setLoading(false);
+    setSystemHealthLoading(false);
+  }, []);
+
+  const fetchSmsDeliveries = useCallback(async () => {
+    const dashboardEpoch = dashboardReadEpoch.current;
+    const epoch = ++smsReadEpoch.current;
+    const current = () => dashboardMounted.current && dashboardEpoch === dashboardReadEpoch.current && epoch === smsReadEpoch.current;
+    setSmsHistoryState("loading");
+    try {
+      const response = await readOwnerDashboardJson("/api/alpha-exchange/admin/sms-deliveries");
+      if (!current()) return;
+      if (response.status === 401 || response.status === 403) {
+        clearOwnerReadData();
+        router.refresh();
+        return;
+      }
+      const payload = response.payload as { deliveries?: unknown } | null;
+      if (!response.ok || !isAdminSmsDeliveryArray(payload?.deliveries)) throw new Error("SMS history read unconfirmed");
+      const deliveries = payload.deliveries;
+      setData(previous => previous ? { ...previous, smsDeliveries: deliveries } : previous);
+      setSmsHistoryState("ready");
+    } catch {
+      if (current()) setSmsHistoryState("error");
+    }
+  }, [clearOwnerReadData, router]);
+
+  const fetchData = useCallback(async (options: { silent?: boolean } = {}): Promise<AdminPayload | null> => {
+    const epoch = ++dashboardReadEpoch.current;
+    const current = () => dashboardMounted.current && epoch === dashboardReadEpoch.current;
     if (!options.silent) setLoading(true);
     setError(null);
+    setSmsHistoryState("loading");
     try {
-      const [response, smsDeliveries] = await Promise.all([
-        fetch("/api/alpha-exchange/admin-prep", { cache: "no-store" }),
-        fetch("/api/alpha-exchange/admin/sms-deliveries", { cache: "no-store" })
-          .then(async (smsResponse) => {
-            if (!smsResponse.ok) return [];
-            const smsPayload = (await smsResponse.json()) as { deliveries?: AdminSmsDelivery[] };
-            return smsPayload.deliveries ?? [];
-          })
-          .catch(() => [] as AdminSmsDelivery[]),
-      ]);
-      const payload = (await response.json()) as Omit<AdminPayload, "smsDeliveries"> & { error?: string };
-      if (!response.ok) throw new Error(safeAdminError("load", locale));
-      setData({ ...payload, smsDeliveries });
+      const response = await readOwnerDashboardJson("/api/alpha-exchange/admin-prep");
+      if (!current()) return null;
+      if (response.status === 401 || response.status === 403) {
+        clearOwnerReadData();
+        // The server chooses the canonical sign-in or access-denied destination.
+        // A temporary service failure must never revoke a valid session.
+        router.refresh();
+        return null;
+      }
+      if (!response.ok || !isOwnerDashboardSnapshot(response.payload)) throw new Error(safeAdminError("load", locale));
+      const payload = response.payload as Omit<AdminPayload, "smsDeliveries">;
+      const fresh: AdminPayload = { ...payload, smsDeliveries: [] };
+      setData(fresh);
+      setSelectedRequest(previous => previous ? payload.purchaseRequests.find(row => row.id === previous.id) ?? null : null);
+      setSelectedSeller(previous => previous ? payload.approvedSellers.find(row => row.id === previous.id) ?? null : null);
+      // Optional delivery history never holds up core account readback.
+      void fetchSmsDeliveries();
+      return fresh;
     } catch (requestError) {
-      setError(isArabic ? safeAdminError("load", locale) : requestError instanceof Error ? requestError.message : safeAdminError("load", locale));
+      if (current()) {
+        setError(isArabic ? safeAdminError("load", locale) : requestError instanceof Error ? requestError.message : safeAdminError("load", locale));
+        setSmsHistoryState("error");
+      }
+      return null;
     } finally {
-      if (!options.silent) setLoading(false);
+      if (current()) setLoading(false);
     }
-  }, [isArabic, locale]);
+  }, [clearOwnerReadData, fetchSmsDeliveries, isArabic, locale, router]);
 
   useEffect(() => {
     void fetchData();
   }, [fetchData]);
 
   const fetchSystemHealth = useCallback(async () => {
+    const epoch = ++systemHealthReadEpoch.current;
+    const current = () => dashboardMounted.current && epoch === systemHealthReadEpoch.current;
     setSystemHealthLoading(true);
     setSystemHealthError(null);
     try {
-      const response = await fetch("/api/admin/system-health", { cache: "no-store" });
-      const payload = await response.json() as SystemHealthSnapshot & { error?: string };
-      if (!response.ok || !Array.isArray(payload.checks)) {
+      const response = await readOwnerDashboardJson("/api/admin/system-health");
+      if (!current()) return;
+      if (response.status === 401 || response.status === 403) {
+        clearOwnerReadData();
+        router.refresh();
+        return;
+      }
+      const payload = response.payload as SystemHealthSnapshot | null;
+      if (!response.ok || !payload || !Array.isArray(payload.checks)) {
         throw new Error("health_check_failed");
       }
       setSystemHealth(payload);
     } catch {
-      setSystemHealthError(t("Website health could not be loaded. Try again.", "تعذر تحميل حالة الموقع. حاول مرة أخرى."));
+      if (current()) setSystemHealthError(t("Website health could not be loaded. Try again.", "تعذر تحميل حالة الموقع. حاول مرة أخرى."));
     } finally {
-      setSystemHealthLoading(false);
+      if (current()) setSystemHealthLoading(false);
     }
-  }, [t]);
+  }, [clearOwnerReadData, router, t]);
 
   const openOperationalIncident = useCallback((incident: MarketplaceOperationalIncident) => {
     if (incident.requestId) {
@@ -731,7 +878,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
     }
     if (adminDestination.section === "purchase-requests") {
       setRequestsQuery(adminDestination.purchaseRequestId ?? "");
-      setRequestsStatus("all");
+      setRequestsStatus(adminDestination.purchaseRequestFilter ?? "all");
       setRequestsPage(1);
     }
     if (adminDestination.section === "commissions") {
@@ -751,8 +898,8 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
     }, 1800);
   }
 
-  function requestReason(promptText: string, defaultValue = "") {
-    const reason = window.prompt(promptText, defaultValue);
+  async function requestReason(promptText: string, defaultValue = "") {
+    const reason = (await promptAction(promptText, defaultValue));
     return reason ? reason.trim() : "";
   }
 
@@ -771,6 +918,13 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
     }
     return map;
   }, [data?.approvedSellers]);
+
+  // Include buyers, suspended sellers and other accounts, not only approved sellers.
+  const accountLabels = useMemo(() => new Map([
+    ...(data?.approvedSellers ?? []).map(user => [user.id, user.fullName] as const),
+    ...(data?.users ?? []).map(user => [user.id, user.fullName] as const),
+  ]), [data?.approvedSellers, data?.users]);
+  const accountLabel = useCallback((id: string) => accountLabels.get(id) ?? publicAccountId({ id }), [accountLabels]);
 
   const listingById = useMemo(() => {
     const map = new Map<string, MarketplaceListing>();
@@ -855,12 +1009,15 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
 
   const requestsRows = useMemo(() => {
     const items = (data?.purchaseRequests ?? []).filter((request) => {
-      if (requestsStatus !== "all" && request.status !== requestsStatus) return false;
+      if (requestsStatus === "active") {
+        if (!isActiveOwnerTrade(request)) return false;
+      } else if (requestsStatus === "completed") {
+        if (!isCompletedOwnerTrade(request)) return false;
+      } else if (requestsStatus !== "all" && request.status !== requestsStatus) return false;
       const query = requestsQuery.trim().toLowerCase();
       if (!query) return true;
       const listing = listingById.get(request.listingId);
-      const seller = sellersById.get(request.sellerId);
-      const haystack = `${request.id} ${request.tradeId ?? request.id} ${displayTradeId(request)} ${request.buyerName} ${request.buyerWhatsapp} ${seller?.fullName ?? request.sellerId} ${listing?.id ?? request.listingId} ${displayListingId(listing, request.listingId)}`.toLowerCase();
+      const haystack = `${request.id} ${request.tradeId ?? request.id} ${displayTradeId(request)} ${request.buyerName} ${request.buyerWhatsapp} ${accountLabel(request.sellerId)} ${listing?.id ?? request.listingId} ${displayListingId(listing, request.listingId)}`.toLowerCase();
       return haystack.includes(query);
     });
     const sorted = [...items].sort((a, b) => {
@@ -868,18 +1025,17 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
       return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
     });
     return paginate(sorted, requestsPage);
-  }, [data?.purchaseRequests, listingById, requestsPage, requestsQuery, requestsSort, requestsStatus, sellersById]);
+  }, [data?.purchaseRequests, listingById, requestsPage, requestsQuery, requestsSort, requestsStatus, accountLabel]);
 
   const commissionsRows = useMemo(() => {
     const items = (data?.commissionRecords ?? []).filter((record) => {
       const request = record.purchaseRequestId ? requestsById.get(record.purchaseRequestId) : undefined;
-      const seller = sellersById.get(record.sellerId);
       const query = commissionsQuery.trim().toLowerCase();
       if (!query) return true;
       const tradeId = request?.tradeId ?? record.tradeId ?? record.purchaseRequestId ?? "";
       const tradeLabel = request || tradeId ? displayTradeId(request, tradeId) : "";
-      const sourceLabel = record.source === "admin_manual" ? "admin-issued manual commission" : "trade commission";
-      const haystack = `${record.id} ${displayCommissionId(record)} ${tradeId} ${tradeLabel} ${request?.buyerName ?? record.buyerId ?? ""} ${seller?.fullName ?? record.sellerId} ${sourceLabel} ${record.issueReason ?? ""}`.toLowerCase();
+      const sourceLabel = record.source === "tolerance_carry_forward" ? "carried commission balance" : record.source === "admin_manual" ? "admin-issued manual commission" : "trade commission";
+      const haystack = `${record.id} ${displayCommissionId(record)} ${tradeId} ${tradeLabel} ${request?.buyerName ?? record.buyerId ?? ""} ${accountLabel(record.sellerId)} ${sourceLabel} ${record.issueReason ?? ""}`.toLowerCase();
       return haystack.includes(query);
     });
     const sorted = [...items].sort((a, b) => {
@@ -888,7 +1044,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
       return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
     });
     return paginate(sorted, commissionsPage);
-  }, [commissionsPage, commissionsQuery, commissionsSort, data?.commissionRecords, requestsById, sellersById]);
+  }, [commissionsPage, commissionsQuery, commissionsSort, data?.commissionRecords, requestsById, accountLabel]);
 
   const deepLinkTarget = useMemo(() => {
     if (adminDestination.sellerApplicationId) return { kind: "sellerApplication" as const, id: adminDestination.sellerApplicationId };
@@ -974,7 +1130,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
       if (auditAction !== "all" && entry.action !== auditAction) return false;
       const query = auditQuery.trim().toLowerCase();
       if (!query) return true;
-      const actor = sellersById.get(entry.actorUserId)?.fullName ?? entry.actorUserId;
+      const actor = accountLabels.get(entry.actorUserId) ?? publicAccountId({ id: entry.actorUserId });
       const tradeId = entry.purchaseRequestId ? (requestsById.get(entry.purchaseRequestId)?.tradeId ?? entry.purchaseRequestId) : "";
       const haystack = `${entry.action} ${entry.details ?? ""} ${replaceExchangeEntityIds(entry.details ?? "", displayLookup)} ${actor} ${entry.listingId ?? ""} ${entry.listingId ? displayListingId(listingById.get(entry.listingId), entry.listingId) : ""} ${tradeId}`.toLowerCase();
       return haystack.includes(query);
@@ -984,18 +1140,18 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
       return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
     });
     return paginate(sorted, auditPage);
-  }, [auditAction, auditPage, auditQuery, auditSort, data?.auditLogs, displayLookup, listingById, requestsById, sellersById]);
+  }, [auditAction, auditPage, auditQuery, auditSort, data?.auditLogs, displayLookup, listingById, requestsById, accountLabels]);
 
   const notificationRows = useMemo(() => {
     const items = (data?.notifications ?? []).filter((entry) => {
       const query = notificationQuery.trim().toLowerCase();
       if (!query) return true;
-      const seller = sellersById.get(entry.userId);
-      const haystack = `${entry.title} ${entry.message} ${replaceExchangeEntityIds(entry.title, displayLookup)} ${replaceExchangeEntityIds(entry.message, displayLookup)} ${entry.category} ${seller?.fullName ?? entry.userId} ${entry.relatedTradeId ?? ""} ${entry.relatedListingId ?? ""}`.toLowerCase();
+      const recipient = accountLabels.get(entry.userId) ?? publicAccountId({ id: entry.userId });
+      const haystack = `${entry.title} ${entry.message} ${replaceExchangeEntityIds(entry.title, displayLookup)} ${replaceExchangeEntityIds(entry.message, displayLookup)} ${entry.category} ${recipient} ${entry.relatedTradeId ?? ""} ${entry.relatedListingId ?? ""}`.toLowerCase();
       return haystack.includes(query);
     });
     return paginate(sortNotificationsNewestFirst(items), notificationPage);
-  }, [data?.notifications, displayLookup, notificationPage, notificationQuery, sellersById]);
+  }, [data?.notifications, displayLookup, notificationPage, notificationQuery, accountLabels]);
 
   const smsDeliveryRows = useMemo(
     () => paginate(data?.smsDeliveries ?? [], smsDeliveriesPage),
@@ -1017,17 +1173,27 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
     [data?.purchaseRequests],
   );
 
+  const selectedOpenDispute = useMemo(
+    () => selectedRequest
+      ? (data?.disputes ?? []).find((dispute) => dispute.purchaseRequestId === selectedRequest.id && dispute.status === "open") ?? null
+      : null,
+    [data?.disputes, selectedRequest],
+  );
+
   const betaFeedbackRows = useMemo(() => {
     const items = (data?.privateBeta.feedback ?? []).filter((entry) => (betaFeedbackStatusFilter === "all" ? true : entry.status === betaFeedbackStatusFilter));
     return items.slice(0, 20);
   }, [betaFeedbackStatusFilter, data?.privateBeta.feedback]);
 
   const usersRows = useMemo(() => {
+    const query = usersQuery.trim().toLowerCase();
+    const contactQuery = normalizeRegistrationWhatsApp(query);
     const items = (data?.users ?? []).filter((user) => {
       if (usersRoleFilter !== "all" && user.role !== usersRoleFilter) return false;
-      const query = usersQuery.trim().toLowerCase();
       if (!query) return true;
-      return `${user.fullName} ${user.email} ${user.role}`.toLowerCase().includes(query);
+      const contact = user.whatsappNumber ?? "";
+      return `${user.fullName} ${user.email} ${user.role} ${contact}`.toLowerCase().includes(query)
+        || (contactQuery !== null && contactQuery === normalizeRegistrationWhatsApp(contact));
     });
     return paginate(items, usersPage);
   }, [data?.users, usersPage, usersQuery, usersRoleFilter]);
@@ -1068,28 +1234,39 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
     });
   }, [data?.approvedSellers, rankMgmtFilter, rankMgmtSearch]);
 
-  async function runAction(request: Promise<Response>, successMessage: string) {
+  async function runAction(request: OwnerDashboardRequest, successMessage: string | ((payload: Record<string, unknown>) => string), onSaved?: (payload: Record<string, unknown>) => void) {
+    if (!dashboardMounted.current || dashboardActionInFlight.current) return false;
+    dashboardActionInFlight.current = true;
     try {
-      const response = await request;
-      let payload: { error?: string } | null = null;
-      try {
-        payload = (await response.json()) as { error?: string };
-      } catch {
-        payload = null;
+      const result = await executeOwnerDashboardAction(request);
+      if (!dashboardMounted.current) return false;
+      if (result.outcome !== "saved") {
+        pushToast(result.outcome === "rejected" ? safeAdminError("action", locale) : t(
+          "This action is awaiting verification. Check the current state and audit history before trying again. No request was repeated.",
+          "هذا الإجراء بانتظار التحقق. راجع الحالة الحالية وسجل التدقيق قبل المحاولة مجددًا. لم يُكرر أي طلب.",
+        ));
+        if (result.outcome === "rejected") await fetchData({ silent: true });
+        return false;
       }
-      if (!response.ok) throw new Error(isArabic ? safeAdminError("action", locale) : payload?.error || safeAdminError("action", locale));
-      pushToast(successMessage);
-      await fetchData();
+      const fresh = await fetchData({ silent: true });
+      if (!dashboardMounted.current) return false;
+      if (!fresh) {
+        pushToast(t("The server confirmed the action, but the dashboard could not refresh. Refresh the current state; do not repeat the action.", "أكد الخادم الإجراء، لكن تعذر تحديث لوحة التحكم. حدّث الحالة الحالية دون تكرار الإجراء."));
+        return false;
+      }
+      if (result.operation) finishOwnerPendingOperation(result.operation.id, "clear");
+      onSaved?.(result.payload!);
+      pushToast(typeof successMessage === "function" ? successMessage(result.payload!) : successMessage);
       return true;
-    } catch (actionError) {
-      pushToast(isArabic ? safeAdminError("action", locale) : actionError instanceof Error ? actionError.message : safeAdminError("action", locale));
+    } catch {
+      if (dashboardMounted.current) pushToast(t("The action result needs verification. Refresh the current state before another attempt.", "تحتاج نتيجة الإجراء إلى تحقق. حدّث الحالة الحالية قبل أي محاولة أخرى."));
       return false;
-    }
+    } finally { dashboardActionInFlight.current = false; }
   }
 
   async function handleSellerAvailabilityStatus(sellerId: string, availabilityStatus: SellerAvailabilityStatus, successMessage: string, reason?: string) {
     await runAction(
-      fetch(`/api/alpha-exchange/admin/sellers/${sellerId}/profile-state`, {
+      prepareOwnerDashboardAction(`/api/alpha-exchange/admin/sellers/${sellerId}/profile-state`, {
         method: "PATCH",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ availabilityStatus, reason }),
@@ -1099,14 +1276,28 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
   }
 
   async function handleSellerPrestigeOverride(sellerId: string, rank: SellerLevel, reason: string, clearOverride = false) {
-    await runAction(
-      fetch(`/api/alpha-exchange/admin/sellers/${sellerId}/prestige`, {
-        method: "PATCH",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ rank, reason, clearOverride }),
-      }),
-      clearOverride ? t("Prestige override cleared.", "تمت إزالة تعديل الرتبة.") : t(`Seller prestige set to ${sellerLevelLabel(rank)}.`, `تم تعيين رتبة البائع إلى ${sellerLevelLabel(rank)}.`),
-    );
+    if (bulkRankInFlight.current || ownerAccountTargetRef.current) return;
+    const seller = data?.approvedSellers.find(row => row.id === sellerId);
+    if (!seller || isProtectedOwnerTarget(seller)) return;
+    bulkRankInFlight.current = true;
+    let receipt: OwnerPendingOperation | null = null;
+    try {
+      receipt = beginOwnerPendingOperation({ targetId: sellerId, command: "rank", value: clearOverride ? "automatic" : rank });
+      setRankMgmtSaving(new Set([sellerId]));
+      const result = await executeOwnerRankBatch([{ ...seller }], "set", reason, rank, {
+        clearOverride,
+        isActive: () => dashboardMounted.current,
+        refresh: async () => (await fetchData({ silent: true }))?.approvedSellers ?? null,
+      });
+      const outcome = result.items[0]?.outcome;
+      finishOwnerPendingOperation(receipt.id, outcome === "unknown" ? "unknown" : outcome === "saved_unverified" ? "saved" : "clear");
+      if (dashboardMounted.current) setOwnerRankBatchResult(result);
+    } catch {
+      if (dashboardMounted.current) pushToast(t("Verify the previous rank action before another command. No automatic retry was sent.", "تحقق من إجراء الرتبة السابق قبل أي أمر آخر. لم تتم إعادة المحاولة تلقائيًا."));
+    } finally {
+      bulkRankInFlight.current = false;
+      if (dashboardMounted.current) setRankMgmtSaving(new Set());
+    }
   }
 
   async function handleSaveComplianceRecoveryWallet() {
@@ -1116,7 +1307,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
       return;
     }
     await runAction(
-      fetch("/api/alpha-exchange/admin/compliance/recovery-wallet", {
+      prepareOwnerDashboardAction("/api/alpha-exchange/admin/compliance/recovery-wallet", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
@@ -1162,45 +1353,51 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
   }
 
   async function handleBulkRankAction(action: "promote" | "demote" | "set" | "reset", targetRank?: SellerLevel) {
-    const RANK_ORDER: readonly SellerLevel[] = SELLER_LEVELS;
-    const sellers = rankMgmtRows.filter((s) => rankMgmtSelected.has(s.id));
-    if (sellers.length === 0) { pushToast(t("No sellers selected.", "لم يتم اختيار أي بائع.")); return; }
-    const eligibleSellers = sellers.filter((s) => !(s.roles ?? []).includes("owner") && s.role !== "owner");
-    if (eligibleSellers.length === 0) { pushToast(t("Owner accounts cannot be modified.", "لا يمكن تعديل حساب المالك.")); return; }
-    const label = action === "promote" ? "promote to next rank" : action === "demote" ? "demote to previous rank" : action === "reset" ? "reset to Bronze" : `set rank to ${targetRank ?? "selected"}`;
-    if (!window.confirm(t(`Apply "${label}" to ${eligibleSellers.length} seller(s)?`, `هل تريد تطبيق الإجراء على ${eligibleSellers.length} من البائعين؟`))) return;
-    for (const seller of eligibleSellers) {
-      const current = seller.sellerPrestigeRank ?? "bronze";
-      const currentIdx = RANK_ORDER.indexOf(current);
-      let newRank: SellerLevel;
-      if (action === "promote") newRank = RANK_ORDER[Math.min(RANK_ORDER.length - 1, currentIdx + 1)];
-      else if (action === "demote") newRank = RANK_ORDER[Math.max(0, currentIdx - 1)];
-      else if (action === "reset") newRank = "bronze";
-      else newRank = targetRank ?? "bronze";
-      if (newRank === current && action !== "set" && action !== "reset") continue;
-      setRankMgmtSaving((prev) => new Set(prev).add(seller.id));
-      try {
-        const response = await fetch(`/api/alpha-exchange/admin/sellers/${seller.id}/prestige`, {
-          method: "PATCH",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ rank: newRank, reason: `Bulk admin action — ${label}` }),
-        });
-        if (!response.ok) {
-          const payload = await response.json() as { error?: string };
-          pushToast(isArabic ? safeAdminError("action", locale) : payload.error ?? "Failed for one seller.");
-        }
-      } finally {
-        setRankMgmtSaving((prev) => { const next = new Set(prev); next.delete(seller.id); return next; });
+    if (bulkRankInFlight.current || ownerAccountTargetRef.current) return;
+    const targets = rankMgmtRows.filter(seller => rankMgmtSelected.has(seller.id)).map(seller => ({ ...seller, roles: seller.roles ? [...seller.roles] : undefined }));
+    if (!targets.length) { pushToast(t("No sellers selected.", "لم يتم اختيار أي بائع.")); return; }
+    bulkRankInFlight.current = true;
+    const receipts: Array<{ id: string; targetId: string }> = [];
+    try {
+      const planned = planOwnerRankBatch(targets, action, targetRank);
+      if (!(await confirmAction(planned.map(row => `${row.fullName}: ${row.before} → ${row.after}`).join("\n")))) return;
+      const reason = await requestReason(t("Reason for these rank changes:", "سبب تغييرات الرتب:"));
+      if (!reason || !dashboardMounted.current) return;
+      const existing = readOwnerPendingOperations();
+      if (planned.some(row => row.outcome === "not_attempted" && existing.some(operation => operation.targetId === row.id))) {
+        pushToast(t("Verify the previous account actions before another rank change.", "تحقق من إجراءات الحساب السابقة قبل تغيير الرتبة.")); return;
       }
+      // Save all planned targets before any request; storage failure sends no mutations.
+      try {
+        for (const row of planned.filter(row => row.outcome === "not_attempted")) receipts.push(beginOwnerPendingOperation({ targetId: row.id, command: "rank", value: row.after }));
+      } catch {
+        for (const receipt of receipts) finishOwnerPendingOperation(receipt.id, "clear");
+        throw new Error("Recovery unavailable");
+      }
+      setRankMgmtSaving(new Set(receipts.map(row => row.targetId)));
+      const result = await executeOwnerRankBatch(targets, action, reason, targetRank, {
+        isActive: () => dashboardMounted.current,
+        refresh: async () => (await fetchData({ silent: true }))?.approvedSellers ?? null,
+      });
+      for (const item of result.items) {
+        const receipt = receipts.find(row => row.targetId === item.id);
+        if (receipt) finishOwnerPendingOperation(receipt.id, item.outcome === "unknown" ? "unknown" : item.outcome === "saved_unverified" ? "saved" : "clear");
+      }
+      if (!dashboardMounted.current) return;
+      setOwnerRankBatchResult(result);
+      const confirmed = new Set(result.items.filter(row => ["verified", "unchanged"].includes(row.outcome)).map(row => row.id));
+      setRankMgmtSelected(previous => new Set([...previous].filter(id => !confirmed.has(id))));
+    } catch {
+      if (dashboardMounted.current) pushToast(t("The rank batch could not be confirmed. Refresh account state before another command.", "تعذر تأكيد تغييرات الرتب. حدّث حالة الحساب قبل أي أمر آخر."));
+    } finally {
+      bulkRankInFlight.current = false;
+      if (dashboardMounted.current) setRankMgmtSaving(new Set());
     }
-    setRankMgmtSelected(new Set());
-    pushToast(t(`Bulk rank action applied to ${eligibleSellers.length} seller(s).`, `تم تطبيق إجراء الرتبة على ${eligibleSellers.length} من البائعين.`));
-    await fetchData();
   }
 
   async function handleAdminListingAction(listingId: string, action: "renew" | "extend" | "close" | "force_close", successMessage: string, expirationHours?: number, reason?: string) {
     await runAction(
-      fetch(`/api/alpha-exchange/admin/listings/${listingId}`, {
+      prepareOwnerDashboardAction(`/api/alpha-exchange/admin/listings/${listingId}`, {
         method: "PATCH",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ action, expirationHours, reason }),
@@ -1211,7 +1408,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
 
   async function handleCreateInvite() {
     await runAction(
-      fetch("/api/alpha-exchange/admin/private-beta/invites", {
+      prepareOwnerDashboardAction("/api/alpha-exchange/admin/private-beta/invites", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
@@ -1225,7 +1422,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
 
   async function handleInviteStatus(inviteId: string, action: "expire" | "disable") {
     await runAction(
-      fetch(`/api/alpha-exchange/admin/private-beta/invites/${inviteId}`, {
+      prepareOwnerDashboardAction(`/api/alpha-exchange/admin/private-beta/invites/${inviteId}`, {
         method: "PATCH",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ action }),
@@ -1236,7 +1433,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
 
   async function handleFeedbackStatus(feedbackId: string, status: "new" | "in_review" | "resolved") {
     await runAction(
-      fetch(`/api/alpha-exchange/admin/private-beta/feedback/${feedbackId}`, {
+      prepareOwnerDashboardAction(`/api/alpha-exchange/admin/private-beta/feedback/${feedbackId}`, {
         method: "PATCH",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ status }),
@@ -1251,7 +1448,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
       return;
     }
     const published = await runAction(
-      fetch("/api/alpha-exchange/admin/private-beta/announcements", {
+      prepareOwnerDashboardAction("/api/alpha-exchange/admin/private-beta/announcements", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
@@ -1273,7 +1470,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
 
   async function handleAnnouncementState(announcement: BetaAnnouncement, isActive: boolean) {
     await runAction(
-      fetch(`/api/alpha-exchange/admin/private-beta/announcements/${announcement.id}`, {
+      prepareOwnerDashboardAction(`/api/alpha-exchange/admin/private-beta/announcements/${announcement.id}`, {
         method: "PATCH",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ isActive }),
@@ -1282,36 +1479,6 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
     );
   }
 
-  async function handleForceComplete(requestId: string) {
-    const reason = window.prompt(t("Reason for force-completing this trade:", "سبب إكمال هذه الصفقة يدويًا:"));
-    if (!reason) return;
-    const r = await fetch(`/api/alpha-exchange/admin/purchase-requests/${requestId}/force-complete`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ reason }),
-    });
-    const p = await r.json() as { error?: string };
-    pushToast(r.ok ? t("Trade force-completed.", "تم إكمال الصفقة يدويًا.") : (isArabic ? safeAdminError("action", locale) : p.error ?? "Error"));
-    if (r.ok) { setSelectedRequest(null); await fetchData(); }
-  }
-
-  async function handleForceCancel(requestId: string) {
-    const reason = window.prompt(t("Reason for cancelling this trade:", "سبب إلغاء هذه الصفقة:"));
-    if (!reason) return;
-    const r = await fetch(`/api/alpha-exchange/admin/purchase-requests/${requestId}/force-cancel`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reason }) });
-    const p = await r.json() as { error?: string };
-    pushToast(r.ok ? t("Trade cancelled.", "تم إلغاء الصفقة.") : (isArabic ? safeAdminError("action", locale) : p.error ?? "Error"));
-    if (r.ok) { setSelectedRequest(null); await fetchData(); }
-  }
-
-  async function handleUnlockReview(requestId: string) {
-    const reason = window.prompt(t("Reason for unlocking review:", "سبب فتح التقييم:"));
-    if (!reason) return;
-    const r = await fetch(`/api/alpha-exchange/admin/purchase-requests/${requestId}/unlock-review`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reason }) });
-    const p = await r.json() as { error?: string };
-    pushToast(r.ok ? t("Review window unlocked.", "تم فتح نافذة التقييم.") : (isArabic ? safeAdminError("action", locale) : p.error ?? "Error"));
-    if (r.ok) await fetchData();
-  }
 
   function openCommissionPaidDialog(record: CommissionRecord, sellerName: string, sourceLabel: string) {
     setCommissionPaidPending({ record, sellerName, sourceLabel });
@@ -1330,7 +1497,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
   }
 
   async function handleConfirmCommissionPaid() {
-    if (!commissionPaidPending || commissionPaidSaving) return;
+    if (!commissionPaidPending || commissionPaidSaving || dashboardActionInFlight.current) return;
     const reason = commissionPaidReason.trim();
     if (!reason) {
       setCommissionPaidError(t(
@@ -1343,43 +1510,15 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
     setCommissionPaidSaving(true);
     setCommissionPaidError(null);
     try {
-      const response = await fetch(`/api/alpha-exchange/admin/commissions/${commissionPaidPending.record.id}`, {
+      const completed = await runAction(prepareOwnerDashboardAction(`/api/alpha-exchange/admin/commissions/${commissionPaidPending.record.id}`, {
         method: "PATCH",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          paymentStatus: "paid",
-          paymentVerificationStatus: "verified",
-          paymentVerificationNotes: reason,
-          reason,
-        }),
+        body: JSON.stringify({ paymentStatus: "paid", paymentVerificationStatus: "verified", paymentVerificationNotes: reason, reason }),
+      }), t("Commission marked paid.", "تم تسجيل العمولة كمدفوعة."), () => {
+        setCommissionPaidPending(null);
+        setCommissionPaidReason("");
       });
-      let payload: { commission?: CommissionRecord; error?: string } = {};
-      try {
-        payload = await response.json() as { commission?: CommissionRecord; error?: string };
-      } catch {
-        payload = {};
-      }
-      if (!response.ok || !payload.commission) {
-        throw new Error(payload.error || t(
-          "The commission could not be marked paid. Please try again.",
-          "تعذر تسجيل العمولة كمدفوعة. حاول مرة أخرى.",
-        ));
-      }
-      const updatedCommission = payload.commission;
-
-      setData((current) => current ? {
-        ...current,
-        commissionRecords: current.commissionRecords.map((record) => (
-          record.id === updatedCommission.id ? updatedCommission : record
-        )),
-      } : current);
-      setCommissionPaidPending(null);
-      setCommissionPaidReason("");
-      pushToast(t(
-        "Commission marked paid. Seller confirmation was sent.",
-        "تم تسجيل العمولة كمدفوعة وإرسال التأكيد للبائع.",
-      ));
-      await fetchData({ silent: true });
+      if (!completed && dashboardMounted.current) setCommissionPaidError(t("Payment action not confirmed. Close this dialog and verify the current state before another attempt.", "لم يتم تأكيد إجراء الدفع. أغلق النافذة وتحقق من الحالة الحالية قبل أي محاولة أخرى."));
     } catch (actionError) {
       const message = actionError instanceof Error
         ? actionError.message
@@ -1392,17 +1531,17 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
   }
 
   async function handleReverifyCommission(commissionId: string) {
-    if (!window.confirm(t("Reverify this commission against the blockchain now?", "هل تريد إعادة التحقق من هذه العمولة على blockchain الآن؟"))) return;
-    const reason = requestReason(t("Reason for reverifying this commission:", "سبب إعادة التحقق من هذه العمولة:"), t("Manual admin reverification", "إعادة تحقق يدوية من الإدارة"));
+    if (!(await confirmAction(t("Reverify this commission against the blockchain now?", "هل تريد إعادة التحقق من هذه العمولة على blockchain الآن؟")))) return;
+    const reason = (await requestReason(t("Reason for reverifying this commission:", "سبب إعادة التحقق من هذه العمولة:"), t("Manual admin reverification", "إعادة تحقق يدوية من الإدارة")));
     if (!reason) return;
-    const r = await fetch(`/api/alpha-exchange/admin/commissions/${commissionId}/reverify`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reason }) });
-    const p = await r.json() as { error?: string; notes?: string };
-    pushToast(r.ok ? t(`Reverification: ${p.notes ?? "complete"}`, "اكتملت إعادة التحقق.") : (isArabic ? safeAdminError("action", locale) : p.error ?? "Error"));
-    if (r.ok) await fetchData();
+    await runAction(prepareOwnerDashboardAction(`/api/alpha-exchange/admin/commissions/${commissionId}/reverify`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reason }) }), payload => payload.success === true
+      ? t("Commission payment verified.", "تم التحقق من دفع العمولة.")
+      : t("Verification completed; payment is not verified yet.", "اكتمل الفحص؛ لم يتم تأكيد الدفع بعد."));
   }
 
   async function handleIssueManualCommission(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (manualCommissionSubmitting || dashboardActionInFlight.current) return;
     const seller = sellersById.get(manualCommissionSellerId);
     const amount = Number(manualCommissionAmount);
     const reason = manualCommissionReason.trim();
@@ -1410,10 +1549,10 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
       pushToast(t("Select a seller, enter at least 0.01 USDT, and provide a reason.", "اختر بائعًا وأدخل 0.01 USDT على الأقل وأضف السبب."));
       return;
     }
-    if (!window.confirm(t(
+    if (!(await confirmAction(t(
       `Issue a ${amount.toFixed(2)} USDT commission to ${seller.fullName}? The seller will be marketplace-locked until it is paid.`,
       `هل تريد إصدار عمولة بقيمة ${amount.toFixed(2)} USDT للبائع ${seller.fullName}؟ سيُقفل نشاطه في السوق حتى الدفع.`,
-    ))) return;
+    )))) return;
 
     let dueAt: string | undefined;
     if (manualCommissionDueDate) {
@@ -1427,56 +1566,23 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
 
     setManualCommissionSubmitting(true);
     try {
-      const response = await fetch("/api/alpha-exchange/admin/commissions", {
+      await runAction(prepareOwnerDashboardAction("/api/alpha-exchange/admin/commissions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          sellerId: seller.id,
-          commissionAmount: amount,
-          reason,
-          ...(dueAt ? { dueAt } : {}),
-        }),
+        body: JSON.stringify({ sellerId: seller.id, commissionAmount: amount, reason, ...(dueAt ? { dueAt } : {}) }),
+      }), t("Seller commission issued.", "تم إصدار عمولة البائع."), payload => {
+        setManualCommissionSellerId("");
+        setManualCommissionAmount("");
+        setManualCommissionReason("");
+        setManualCommissionDueDate("");
+        setCommissionsQuery((payload.commission as CommissionRecord).id);
+        setCommissionsPage(1);
       });
-      const payload = await response.json() as { commission?: CommissionRecord; error?: string };
-      if (!response.ok || !payload.commission) {
-        pushToast(isArabic ? safeAdminError("action", locale) : payload.error ?? safeAdminError("action", locale));
-        return;
-      }
-      setManualCommissionSellerId("");
-      setManualCommissionAmount("");
-      setManualCommissionReason("");
-      setManualCommissionDueDate("");
-      setCommissionsQuery(payload.commission.id);
-      setCommissionsPage(1);
-      pushToast(t("Seller commission issued and payment notification sent.", "تم إصدار عمولة البائع وإرسال إشعار الدفع."));
-      await fetchData();
     } catch {
       pushToast(safeAdminError("action", locale));
     } finally {
       setManualCommissionSubmitting(false);
     }
-  }
-
-  async function handleChangeUserRole(userId: string, currentRole: string) {
-    const newRole = window.prompt(t(`Change role for user (current: ${currentRole})\nOptions: buyer, approved_seller, admin, owner`, `تغيير دور المستخدم (الحالي: ${currentRole})\nالخيارات: buyer, approved_seller, admin, owner`));
-    if (!newRole) return;
-    if (!window.confirm(t(`Change this user's role from ${currentRole} to ${newRole.trim()}?`, `هل تريد تغيير دور المستخدم من ${currentRole} إلى ${newRole.trim()}؟`))) return;
-    const reason = window.prompt(t("Reason for role change:", "سبب تغيير الدور:"));
-    if (!reason) return;
-    const r = await fetch(`/api/alpha-exchange/admin/users/${userId}/role`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ role: newRole, reason }) });
-    const p = await r.json() as { error?: string };
-    pushToast(r.ok ? t("Role updated.", "تم تحديث الدور.") : (isArabic ? safeAdminError("action", locale) : p.error ?? "Error"));
-    if (r.ok) await fetchData();
-  }
-
-  async function handleDisableUser(userId: string, disabled: boolean) {
-    if (!window.confirm(t(`${disabled ? "Disable" : "Enable"} this account?`, `هل تريد ${disabled ? "تعطيل" : "تفعيل"} هذا الحساب؟`))) return;
-    const reason = window.prompt(t(`Reason for ${disabled ? "disabling" : "enabling"} this account:`, `سبب ${disabled ? "تعطيل" : "تفعيل"} هذا الحساب:`));
-    if (!reason) return;
-    const r = await fetch(`/api/alpha-exchange/admin/users/${userId}/disable`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ disabled, reason }) });
-    const p = await r.json() as { error?: string };
-    pushToast(r.ok ? t(`Account ${disabled ? "disabled" : "enabled"}.`, `تم ${disabled ? "تعطيل" : "تفعيل"} الحساب.`) : (isArabic ? safeAdminError("action", locale) : p.error ?? "Error"));
-    if (r.ok) await fetchData();
   }
 
   async function handleModerateReview(reviewId: string, hide: boolean) {
@@ -1493,10 +1599,10 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
       pushToast(t("English and Arabic titles and bodies are required.", "العنوان والنص مطلوبان بالإنجليزية والعربية."));
       return;
     }
-    if (!window.confirm(t("Broadcast this notification to all users?", "هل تريد إرسال هذا الإشعار إلى جميع المستخدمين؟"))) return;
-    const reason = requestReason(t("Reason for this broadcast:", "سبب هذا الإرسال:"), t("Operational announcement", "إعلان تشغيلي"));
+    if (!(await confirmAction(t("Broadcast this notification to all users?", "هل تريد إرسال هذا الإشعار إلى جميع المستخدمين؟")))) return;
+    const reason = (await requestReason(t("Reason for this broadcast:", "سبب هذا الإرسال:"), t("Operational announcement", "إعلان تشغيلي")));
     if (!reason) return;
-    const r = await fetch("/api/alpha-exchange/admin/notifications/broadcast", {
+    await runAction(prepareOwnerDashboardAction("/api/alpha-exchange/admin/notifications/broadcast", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -1507,33 +1613,29 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
         type: broadcastType,
         reason,
       }),
-    });
-    const p = await r.json() as { error?: string };
-    pushToast(r.ok ? t("Broadcast sent.", "تم إرسال الإشعار.") : (isArabic ? safeAdminError("action", locale) : p.error ?? "Error"));
-    if (r.ok) {
+    }), t("Broadcast sent.", "تم إرسال الإشعار."), () => {
       setBroadcastTitleEn("");
       setBroadcastBodyEn("");
       setBroadcastTitleAr("");
       setBroadcastBodyAr("");
-    }
+    });
   }
 
   function exportCommissionsCsv() {
-    const rows = commissionsRows.rows;
+    const rows = commissionsRows.allRows;
     const csvRows = [
-      ["Source", "Trade ID", "Buyer", "Seller", "Trade Value", "Commission", "Payment Status", "Reason", "Date"].join(","),
+      csvRow(["Source", "Trade ID", "Buyer", "Seller", "Trade Value", "Trade Currency", "Commission (USDT)", "Payment Status", "Reason", "Date"]),
       ...rows.map((record) => {
         const request = record.purchaseRequestId ? requestsById.get(record.purchaseRequestId) : undefined;
-        const seller = sellersById.get(record.sellerId);
         const buyerName = request?.buyerName ?? record.buyerId ?? "";
-        const sellerName = seller?.fullName ?? record.sellerId;
+        const sellerName = accountLabel(record.sellerId);
         const tradeId = request || record.tradeId || record.purchaseRequestId
           ? displayTradeId(request, record.tradeId ?? record.purchaseRequestId)
           : "";
-        const source = record.source === "admin_manual" ? "Admin-issued" : "Trade 1%";
-        const tradeValue = record.source === "admin_manual" ? "" : record.grossAmount.toFixed(2);
-        const reason = `"${String(record.issueReason ?? "").replace(/"/g, '""')}"`;
-        return [source, tradeId, buyerName, sellerName, tradeValue, record.commissionAmount.toFixed(2), record.paymentStatus, reason, record.createdAt].join(",");
+        const source = record.source === "tolerance_carry_forward" ? "Carried balance" : record.source === "admin_manual" ? "Admin-issued" : "Trade";
+        const tradeValue = record.source === "admin_manual" || record.source === "tolerance_carry_forward" ? "" : record.grossAmount.toFixed(2);
+        const reason = record.issueReason ?? "";
+        return csvRow([source, tradeId, buyerName, sellerName, tradeValue, tradeValue ? (record.grossCurrency ?? request?.currency ?? "Currency unavailable") : "", commissionAmountInput(record.commissionAmount), record.paymentStatus, reason, record.createdAt]);
       }),
     ];
     const blob = new Blob([csvRows.join("\n")], { type: "text/csv;charset=utf-8;" });
@@ -1546,26 +1648,25 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
   }
 
   function exportTradesCsv() {
-    const rows = requestsRows.rows;
+    const rows = requestsRows.allRows;
     const csvRows = [
-      ["Trade ID", "Request ID", "Buyer", "Seller", "USDT Amount", "Fiat Amount", "Currency", "Network", "Payment Method", "Bank", "Status", "Submitted", "Completed"].join(","),
+      csvRow(["Trade ID", "Request ID", "Buyer", "Seller", "USDT Amount", "Fiat Amount", "Currency", "Network", "Payment Method", "Bank", "Status", "Submitted", "Completed"]),
       ...rows.map((request) => {
-        const seller = sellersById.get(request.sellerId);
-        return [
+        return csvRow([
           displayTradeId(request),
           displayRequestId(request),
           request.buyerName,
-          seller?.fullName ?? request.sellerId,
+          accountLabel(request.sellerId),
           request.usdtAmount,
           request.fiatAmount,
           request.currency,
           request.network,
-          `"${request.paymentMethod.replace(/"/g, '""')}"`,
-          `"${(request.bankName ?? "").replace(/"/g, '""')}"`,
+          request.paymentMethod,
+          request.bankName ?? "",
           request.status,
           request.createdAt,
           request.completedAt ?? "",
-        ].join(",");
+        ]);
       }),
     ];
     const blob = new Blob([csvRows.join("\n")], { type: "text/csv;charset=utf-8;" });
@@ -1581,7 +1682,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
     return (
       <div className="mt-4 flex items-center justify-between gap-3 border-t border-white/10 pt-4 text-sm text-[#9CA3AF]">
         <span>
-          {t(`Page ${page} of ${totalPages}`, `الصفحة ${page} من ${totalPages}`)}
+          {currencyText(t(`Page ${page} of ${totalPages}`, `الصفحة ${page} من ${totalPages}`))}
         </span>
         <div className="flex items-center gap-2">
           <Button type="button" size="sm" variant="secondary" disabled={page <= 1} onClick={() => onChange(page - 1)}>
@@ -1601,7 +1702,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
         <td colSpan={colSpan} className="px-4 py-10 text-center">
           <div className="mx-auto max-w-sm rounded-xl border border-white/10 bg-black/20 p-4">
             <AlertTriangle className="mx-auto h-4 w-4 text-[#C9A227]" />
-            <p className="mt-2 text-sm font-medium text-white">{message}</p>
+            <p className="mt-2 text-sm font-medium text-white">{currencyText(message)}</p>
             <p className="mt-1 text-xs text-[#9CA3AF]">{t("Adjust your filters or search terms to view matching results.", "غيّر الفلاتر أو كلمات البحث لعرض النتائج المناسبة.")}</p>
           </div>
         </td>
@@ -1611,8 +1712,48 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
 
   return (
     <section dir={isArabic ? "rtl" : "ltr"} lang={locale} className="section-container page-shell admin-dashboard-shell !max-w-[118rem] 2xl:!max-w-[128rem]">
+      {actionDialog}
+      {isOwner && ownerAccountTarget ? <OwnerAccountControls key={ownerAccountTarget.id} locale={locale} target={ownerAccountTarget} isOwner initiallyOpen
+        onDismiss={() => { ownerAccountTargetRef.current = null; setOwnerAccountTarget(null); }}
+        onRefresh={async () => (await fetchData({ silent: true }))?.users.find(row => row.id === ownerAccountTarget.id) ?? null} /> : null}
+      {data && pendingOwnerOperations.length > 0 ? <div role="status" className="mb-4 rounded-xl border border-amber-400/40 p-4 text-sm">
+        <p>{t("Actions awaiting verification", "إجراءات بانتظار التحقق")}</p>
+        {pendingOwnerOperations.map(operation => {
+          if (operation.command === "dashboard_action") return <div key={operation.id} className="mt-2 flex flex-wrap items-center gap-3">
+            <span>{t("Dashboard action", "إجراء لوحة التحكم")}</span>
+            <Button type="button" size="sm" variant="secondary" onClick={async () => {
+              if (dashboardActionInFlight.current) return;
+              const fresh = await fetchData({ silent: true });
+              if (!fresh || !dashboardMounted.current) return;
+              if (operation.outcome !== "saved" && !(await confirmAction(t("The earlier action has no confirmed receipt. Confirm you checked the current state and audit history before unlocking further actions. No request will be repeated.", "لا يوجد تأكيد للإجراء السابق. أكّد مراجعة الحالة الحالية وسجل التدقيق قبل السماح بإجراءات جديدة. لن يُكرر أي طلب.")))) return;
+              try { finishOwnerPendingOperation(operation.id, "clear"); }
+              catch { pushToast(t("Recovery state could not be updated. The action remains protected.", "تعذر تحديث حالة الاستعادة. ما زال الإجراء محميًا.")); return; }
+              pushToast(t("Current state refreshed. No action was repeated.", "تم تحديث الحالة الحالية دون تكرار أي إجراء."));
+            }}>{t("Verify current state", "تحقق من الحالة الحالية")}</Button>
+          </div>;
+          const target = data.users.find(row => row.id === operation.targetId);
+          return <div key={operation.id} className="mt-2 flex flex-wrap items-center gap-3"><bdi>{target?.fullName ?? t("Account unavailable", "الحساب غير متاح")}</bdi>
+            <Button type="button" size="sm" variant="secondary" disabled={!target || Boolean(ownerAccountTarget) || rankMgmtSaving.size > 0} onClick={async () => {
+              if (!target) return;
+              if (operation.command !== "rank") { openOwnerAccount(target); return; }
+              const fresh = await fetchData({ silent: true });
+              const seller = fresh?.approvedSellers.find(row => row.id === operation.targetId);
+              if (seller && (operation.value === "automatic" ? !seller.sellerRankOverride : seller.sellerPrestigeRank === operation.value)) {
+                if (operation.outcome !== "saved" && !(await confirmAction(t("The current rank matches, but the earlier command has no confirmed receipt. Confirm you checked the audit history before unlocking further actions. No command will be repeated.", "تطابق الرتبة الحالية المطلوب، لكن لا يوجد تأكيد للإجراء السابق. أكّد مراجعة سجل التدقيق قبل السماح بإجراءات جديدة. لن يُكرر أي أمر.")))) return;
+                try { finishOwnerPendingOperation(operation.id, "clear"); }
+                catch { pushToast(t("Recovery state could not be updated. The action remains protected.", "تعذر تحديث حالة الاستعادة. ما زال الإجراء محميًا.")); return; }
+                pushToast(t("Current rank verified. No rank command was repeated.", "تم التحقق من الرتبة الحالية دون تكرار الأمر."));
+              } else pushToast(t("The expected rank is not confirmed. Check the audit record before repeating an action.", "لم يتم تأكيد الرتبة المتوقعة. راجع سجل التدقيق قبل تكرار الإجراء."));
+            }}>{t("Verify current state", "تحقق من الحالة الحالية")}</Button></div>;
+        })}
+      </div> : null}
+      {ownerRankBatchResult ? <div role="status" className="mb-4 rounded-xl border border-white/20 p-4 text-sm">
+        <p className="font-semibold">{t("Seller rank action results", "نتائج إجراءات رتب البائعين")}</p>
+        <ul>{ownerRankBatchResult.items.map(item => <li key={item.id}><bdi>{item.fullName}</bdi>: {sellerLevelLabel(item.before)} → {item.automatic ? t("Automatic progression", "التقدّم التلقائي") : sellerLevelLabel(item.after)} · {({ verified: t("Verified", "مؤكد"), saved_unverified: t("Saved; refresh required", "محفوظ؛ يلزم التحديث"), unknown: t("Unknown; do not repeat", "غير مؤكد؛ لا تكرر"), rejected: t("Rejected", "مرفوض"), not_attempted: t("Not attempted", "لم ينفذ"), protected: t("Protected", "محمي"), unchanged: t("Unchanged", "دون تغيير") })[item.outcome]}</li>)}</ul>
+        <Button type="button" size="sm" variant="secondary" onClick={() => setOwnerRankBatchResult(null)}>{t("Dismiss results", "إغلاق النتائج")}</Button>
+      </div> : null}
       <div className="grid gap-6 xl:grid-cols-[290px_minmax(0,1fr)] xl:items-start">
-        <aside className="h-fit rounded-2xl border border-white/10 bg-[#0B0B0B]/90 p-5 backdrop-blur-sm xl:sticky xl:top-4">
+        <aside className="h-fit rounded-2xl border border-white/10 bg-[#0B0B0B]/90 p-5 backdrop-blur-sm xl:sticky xl:top-24 xl:max-h-[calc(100dvh-7rem)] xl:overflow-y-auto xl:overscroll-contain">
           <p className="mb-3 inline-flex items-center gap-2 rounded-full border border-[#C9A227]/35 bg-[#C9A227]/10 px-3 py-1 text-xs uppercase tracking-[0.18em] text-[#C9A227]">
             <ShieldCheck className="h-3.5 w-3.5" />
             {isOwner ? t("Owner Control Center", "مركز تحكم المالك") : t("Alpha Exchange Admin", "إدارة Alpha Exchange")}
@@ -1621,7 +1762,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
             {sectionGroups.map((group) => (
               <div key={group.title} className="space-y-1.5">
                 <p className="px-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-[#C9A227]">
-                  {isArabic ? group.titleAr : group.title}
+                  {currencyText(isArabic ? group.titleAr : group.title)}
                 </p>
                 {group.keys.map((key) => {
                   const item = sectionItemsByKey.get(key);
@@ -1637,7 +1778,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                       className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm transition ${isArabic ? "text-right" : "text-left"} ${isActive ? "border border-[#C9A227]/30 bg-[#C9A227]/10 text-white" : "text-[#9CA3AF] hover:bg-white/5 hover:text-white"}`}
                     >
                       <Icon className="h-4 w-4" />
-                      {isArabic ? item.labelAr : item.label}
+                      {currencyText(isArabic ? item.labelAr : item.label)}
                     </button>
                   );
                 })}
@@ -1648,6 +1789,14 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
 
         <div className="admin-main-panel min-w-0">
           <div key={activeSection} className="alpha-reveal-rise">
+              {isOwner && activeSection === "overview" ? <div className="mb-6 xl:mb-8">
+                <OwnerAttentionQueue isAr={isArabic} snapshotStatus={loading ? "loading" : data ? "ready" : "unavailable"}
+                  operations={data?.operations ?? null} disputes={data?.disputes ?? []} commissions={data?.commissionRecords ?? []} onOpen={item => {
+                    if (item.kind === "incident") openOperationalIncident(item.incident);
+                    else if (item.kind === "dispute") { setRequestsQuery(item.dispute.purchaseRequestId); setRequestsStatus("all"); setRequestsPage(1); setActiveSection("purchase-requests"); }
+                    else { setCommissionsQuery(item.commission.id); setCommissionsPage(1); setActiveSection("commissions"); }
+                  }} />
+              </div> : null}
               {loading ? (
                 <Card className="border-white/10 bg-[#0B0B0B]/90">
                   <CardContent className="space-y-3 p-8">
@@ -1666,7 +1815,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                 </Card>
               ) : null}
 
-              {!loading && !error && data ? (
+              {!loading && data ? (
                 <>
                   {activeSection === "overview" ? (
                     <div className="space-y-6 xl:space-y-8">
@@ -1681,15 +1830,15 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                           {[
                             { label: t("Today • Completed Trades", "اليوم • الصفقات المكتملة"), value: data.ownerBusiness.today.completedTrades, icon: CheckCircle2 },
                             { label: t("Today • Trade Volume", "اليوم • حجم التداول"), value: formatUsdt(data.ownerBusiness.today.tradeVolumeUsdt), icon: WalletCards },
-                            { label: t("Today • Estimated Commission", "اليوم • العمولة المقدّرة"), value: formatCurrency(data.ownerBusiness.today.estimatedCommission), icon: Coins },
+                            { label: t("Today • Estimated Commission", "اليوم • العمولة المقدّرة"), value: formatUsdt(data.ownerBusiness.today.estimatedCommission), icon: Coins },
                             { label: t("Today • Trades Waiting Evidence", "اليوم • صفقات تنتظر الإثبات"), value: data.ownerBusiness.today.tradesWaitingEvidence, icon: AlertTriangle },
                           ].map((stat) => {
                             const Icon = stat.icon;
                             return (
                               <Card key={stat.label} className="admin-kpi-card border-white/10 bg-[linear-gradient(140deg,rgba(16,16,16,0.95),rgba(11,11,11,0.86))]">
                                 <CardHeader className="pb-3">
-                                  <CardDescription className="text-[11px] uppercase tracking-[0.16em] text-[#9CA3AF]">{stat.label}</CardDescription>
-                                  <CardTitle className="text-2xl md:text-3xl">{stat.value}</CardTitle>
+                                  <CardDescription className="text-[11px] uppercase tracking-[0.16em] text-[#9CA3AF]">{currencyText(stat.label)}</CardDescription>
+                                  <CardTitle className="text-2xl md:text-3xl">{currencyText(stat.value)}</CardTitle>
                                 </CardHeader>
                                 <CardContent className="pt-0">
                                   <span className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-[#C9A227]/25 bg-[#C9A227]/10 text-[#C9A227]">
@@ -1730,7 +1879,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                             </div>
                             <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
                               <p className="text-[11px] uppercase tracking-[0.12em] text-[#9CA3AF]">{t("Outstanding", "مستحق")}</p>
-                              <p className="mt-1 text-lg font-semibold text-[#FDE68A]">{formatUsdt(data.enforcement.metrics.outstandingFeeAmountUsdt)}</p>
+                              <p className="mt-1 text-lg font-semibold text-[#FDE68A]">{currencyText(formatUsdt(data.enforcement.metrics.outstandingFeeAmountUsdt))}</p>
                             </div>
                           </div>
                           <Button type="button" variant="secondary" onClick={() => setActiveSection("marketplace-enforcement")}>
@@ -1747,8 +1896,8 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                           </CardHeader>
                           <CardContent className="grid gap-3 text-sm text-[#D1D5DB] md:grid-cols-2 xl:grid-cols-3">
                             <p>{t("Completed Trades:", "الصفقات المكتملة:")} <span className="text-white">{data.ownerBusiness.today.completedTrades}</span></p>
-                            <p>{t("Trade Volume:", "حجم التداول:")} <span className="text-white">{formatUsdt(data.ownerBusiness.today.tradeVolumeUsdt)}</span></p>
-                            <p>{t("Estimated Commission:", "العمولة المقدّرة:")} <span className="text-white">{formatCurrency(data.ownerBusiness.today.estimatedCommission)}</span></p>
+                            <p>{t("Trade Volume:", "حجم التداول:")} <span className="text-white">{currencyText(formatUsdt(data.ownerBusiness.today.tradeVolumeUsdt))}</span></p>
+                            <p>{t("Estimated Commission:", "العمولة المقدّرة:")} <span className="text-white">{currencyText(formatUsdt(data.ownerBusiness.today.estimatedCommission))}</span></p>
                             <p>{t("New Buyers:", "المشترون الجدد:")} <span className="text-white">{data.ownerBusiness.today.newBuyers}</span></p>
                             <p>{t("New Sellers:", "البائعون الجدد:")} <span className="text-white">{data.ownerBusiness.today.newSellers}</span></p>
                             <p>{t("New Listings:", "العروض الجديدة:")} <span className="text-white">{data.ownerBusiness.today.newListings}</span></p>
@@ -1772,15 +1921,15 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                             <CardDescription>{t("Weekly business momentum and trust movement.", "أداء الأعمال والثقة خلال الأسبوع.")}</CardDescription>
                           </CardHeader>
                           <CardContent className="grid gap-3 text-sm text-[#D1D5DB] md:grid-cols-2 xl:grid-cols-3">
-                            <p>{t("Trade Volume:", "حجم التداول:")} <span className="text-white">{formatUsdt(data.ownerBusiness.thisWeek.tradeVolumeUsdt)}</span></p>
-                            <p>{t("Revenue:", "الإيرادات:")} <span className="text-white">{formatCurrency(data.ownerBusiness.thisWeek.revenue)}</span></p>
-                            <p>{t("Top Seller:", "أفضل بائع:")} <span className="text-white">{data.ownerBusiness.thisWeek.topSeller}</span></p>
-                            <p>{t("Fastest Growing Seller:", "الأسرع نموًا:")} <span className="text-white">{data.ownerBusiness.thisWeek.fastestGrowingSeller}</span></p>
-                            <p>{t("Highest Trust Score Increase:", "أكبر ارتفاع في الثقة:")} <span className="text-white">{data.ownerBusiness.thisWeek.highestTrustScoreIncrease}</span></p>
-                            <p>{t("Avg Response Time:", "متوسط وقت الرد:")} <span className="text-white">{data.ownerBusiness.thisWeek.averageResponseTimeMinutes.toFixed(2)} {t("min", "دقيقة")}</span></p>
+                            <p>{t("Trade Volume:", "حجم التداول:")} <span className="text-white">{currencyText(formatUsdt(data.ownerBusiness.thisWeek.tradeVolumeUsdt))}</span></p>
+                            <p>{t("Estimated Commission:", "العمولة التقديرية:")} <span className="text-white">{currencyText(formatUsdt(data.ownerBusiness.thisWeek.revenue))}</span></p>
+                            <p>{t("Top Seller:", "أفضل بائع:")} <span className="text-white">{currencyText(data.ownerBusiness.thisWeek.topSeller)}</span></p>
+                            <p>{t("Fastest Growing Seller:", "الأسرع نموًا:")} <span className="text-white">{currencyText(data.ownerBusiness.thisWeek.fastestGrowingSeller)}</span></p>
+                            <p>{t("Highest Trust Score Increase:", "أكبر ارتفاع في الثقة:")} <span className="text-white">{currencyText(data.ownerBusiness.thisWeek.highestTrustScoreIncrease)}</span></p>
+                            <p>{t("Recorded Response Time (all time):", "وقت الاستجابة المسجل (كل الفترات):")} <span className="text-white">{data.ownerBusiness.thisWeek.responseSampleCount === 0 ? "—" : formatMeasuredResponseTime(data.ownerBusiness.thisWeek.averageResponseTimeMinutes, isArabic, data.ownerBusiness.thisWeek.responseSampleCount)}</span></p>
                             <p>{t("Avg Completion Time:", "متوسط وقت الإكمال:")} <span className="text-white">{data.ownerBusiness.thisWeek.averageTradeCompletionTimeMinutes.toFixed(2)} {t("min", "دقيقة")}</span></p>
                             <p>{t("Avg Buyer Rating:", "متوسط تقييم المشتري:")} <span className="text-white">{data.ownerBusiness.thisWeek.averageBuyerRating.toFixed(2)}</span></p>
-                            <p>{t("Repeat Buyers:", "المشترون المتكررون:")} <span className="text-white">{formatPercent(data.ownerBusiness.thisWeek.repeatBuyersPercent)}</span></p>
+                            <p>{t("Repeat Buyers:", "المشترون المتكررون:")} <span className="text-white">{currencyText(formatPercent(data.ownerBusiness.thisWeek.repeatBuyersPercent))}</span></p>
                           </CardContent>
                         </Card>
                       </div>
@@ -1795,13 +1944,13 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                             {data.ownerBusiness.sellerLeaderboard.slice(0, 5).map((seller, index) => (
                               <div key={seller.sellerId} className="flex items-center justify-between rounded-xl border border-white/10 bg-white/[0.02] px-3 py-2">
                                 <div>
-                                  <p className="font-medium text-white">#{index + 1} {seller.sellerName}</p>
+                                  <p className="font-medium text-white">#{index + 1} {currencyText(seller.sellerName)}</p>
                                   <p className="text-xs text-[#9CA3AF]">
-                                    {t("Trust", "الثقة")} {seller.trustScore.toFixed(1)} • {t("Volume", "الحجم")} {formatUsdt(seller.tradeVolumeUsdt)} • {t("Trades", "الصفقات")} {seller.completedTrades}
+                                    {sellerScoreDisplay(seller, isArabic).text} • {t("Volume", "الحجم")} {currencyText(formatUsdt(seller.tradeVolumeUsdt))} • {t("Trades", "الصفقات")} {seller.completedTrades}
                                   </p>
                                 </div>
                                 <p className="text-xs text-[#D1D5DB]">
-                                  {t("Rating", "التقييم")} {seller.averageRating.toFixed(2)} • {seller.responseTimeMinutes.toFixed(2)} {t("min", "دقيقة")}
+                                  {t("Rating", "التقييم")} {sellerRatingDisplay(seller, isArabic).text} • {formatMeasuredResponseTime(seller.responseTimeMinutes, isArabic, seller.responseSampleCount)}
                                 </p>
                               </div>
                             ))}
@@ -1815,9 +1964,9 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                             <CardDescription>{t("Core performance, risk, and participation indicators.", "أهم مؤشرات الأداء والمخاطر والمشاركة.")}</CardDescription>
                           </CardHeader>
                           <CardContent className="grid gap-3 text-sm text-[#D1D5DB] md:grid-cols-2 xl:grid-cols-2">
-                            <p>{t("Completion Rate:", "نسبة الإكمال:")} <span className="text-white">{formatPercent(data.ownerBusiness.marketplaceHealth.completionRatePercent)}</span></p>
-                            <p>{t("Cancellation Rate:", "نسبة الإلغاء:")} <span className="text-white">{formatPercent(data.ownerBusiness.marketplaceHealth.cancellationRatePercent)}</span></p>
-                            <p>{t("Dispute Rate:", "نسبة النزاعات:")} <span className="text-white">{formatPercent(data.ownerBusiness.marketplaceHealth.disputeRatePercent)}</span></p>
+                            <p>{t("Completion Rate:", "نسبة الإكمال:")} <span className="text-white">{currencyText(formatPercent(data.ownerBusiness.marketplaceHealth.completionRatePercent))}</span></p>
+                            <p>{t("Cancellation Rate:", "نسبة الإلغاء:")} <span className="text-white">{currencyText(formatPercent(data.ownerBusiness.marketplaceHealth.cancellationRatePercent))}</span></p>
+                            <p>{t("Dispute Rate:", "نسبة النزاعات:")} <span className="text-white">{currencyText(formatPercent(data.ownerBusiness.marketplaceHealth.disputeRatePercent))}</span></p>
                             <p>{t("Average Trust Score:", "متوسط درجة الثقة:")} <span className="text-white">{data.ownerBusiness.marketplaceHealth.averageTrustScore.toFixed(2)}</span></p>
                             <p>{t("Active Sellers:", "البائعون النشطون:")} <span className="text-white">{data.ownerBusiness.marketplaceHealth.activeSellers}</span></p>
                             <p>{t("Active Buyers:", "المشترون النشطون:")} <span className="text-white">{data.ownerBusiness.marketplaceHealth.activeBuyers}</span></p>
@@ -1834,13 +1983,13 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                             <CardDescription>{t("Commission and trade-value performance snapshot.", "ملخص أداء العمولات وقيمة الصفقات.")}</CardDescription>
                           </CardHeader>
                           <CardContent className="grid gap-3 text-sm text-[#D1D5DB] md:grid-cols-2 xl:grid-cols-2">
-                            <p>{t("Commission Today:", "عمولة اليوم:")} <span className="text-white">{formatCurrency(data.ownerBusiness.financialOverview.estimatedCommissionToday)}</span></p>
-                            <p>{t("Commission This Week:", "عمولة الأسبوع:")} <span className="text-white">{formatCurrency(data.ownerBusiness.financialOverview.estimatedCommissionThisWeek)}</span></p>
-                            <p>{t("Commission This Month:", "عمولة الشهر:")} <span className="text-white">{formatCurrency(data.ownerBusiness.financialOverview.estimatedCommissionThisMonth)}</span></p>
-                            <p>{t("Largest Trade:", "أكبر صفقة:")} <span className="text-white">{formatUsdt(data.ownerBusiness.financialOverview.largestTradeUsdt)}</span></p>
-                            <p>{t("Largest Trade ID:", "رقم أكبر صفقة:")} <span className="font-mono font-medium text-white">{replaceExchangeEntityIds(data.ownerBusiness.financialOverview.largestTradeId, displayLookup)}</span></p>
-                            <p>{t("Largest Seller:", "صاحب أكبر صفقة:")} <span className="text-white">{data.ownerBusiness.financialOverview.largestSeller}</span></p>
-                            <p>{t("Average Trade Size:", "متوسط حجم الصفقة:")} <span className="text-white">{formatUsdt(data.ownerBusiness.financialOverview.averageTradeSizeUsdt)}</span></p>
+                            <p>{t("Commission Today:", "عمولة اليوم:")} <span className="text-white">{currencyText(formatUsdt(data.ownerBusiness.financialOverview.estimatedCommissionToday))}</span></p>
+                            <p>{t("Commission This Week:", "عمولة الأسبوع:")} <span className="text-white">{currencyText(formatUsdt(data.ownerBusiness.financialOverview.estimatedCommissionThisWeek))}</span></p>
+                            <p>{t("Commission This Month:", "عمولة الشهر:")} <span className="text-white">{currencyText(formatUsdt(data.ownerBusiness.financialOverview.estimatedCommissionThisMonth))}</span></p>
+                            <p>{t("Largest Trade:", "أكبر صفقة:")} <span className="text-white">{currencyText(formatUsdt(data.ownerBusiness.financialOverview.largestTradeUsdt))}</span></p>
+                            <p>{t("Largest Trade ID:", "رقم أكبر صفقة:")} <span className="font-mono font-medium text-white">{currencyText(replaceExchangeEntityIds(data.ownerBusiness.financialOverview.largestTradeId, displayLookup))}</span></p>
+                            <p>{t("Largest Seller:", "صاحب أكبر صفقة:")} <span className="text-white">{currencyText(data.ownerBusiness.financialOverview.largestSeller)}</span></p>
+                            <p>{t("Average Trade Size:", "متوسط حجم الصفقة:")} <span className="text-white">{currencyText(formatUsdt(data.ownerBusiness.financialOverview.averageTradeSizeUsdt))}</span></p>
                           </CardContent>
                         </Card>
 
@@ -1852,9 +2001,9 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                           <CardContent className="max-h-[360px] space-y-2 overflow-y-auto text-sm text-[#D1D5DB]">
                             {data.ownerBusiness.liveActivity.slice(0, 10).map((entry) => (
                               <div key={entry.id} className="rounded-xl border border-white/10 bg-white/[0.02] px-3 py-2">
-                                <p className="text-white">{replaceExchangeEntityIds(liveActivityMessage(entry), displayLookup)}</p>
+                                <p className="text-white">{currencyText(replaceExchangeEntityIds(liveActivityMessage(entry), displayLookup))}</p>
                                 <p className="text-xs uppercase tracking-[0.12em] text-[#9CA3AF]">
-                                  {liveActivityTypeLabel(entry.type)} • {formatDate(entry.createdAt)}
+                                  {currencyText(liveActivityTypeLabel(entry.type))} • {currencyText(formatDate(entry.createdAt))}
                                 </p>
                               </div>
                             ))}
@@ -1867,7 +2016,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                         <CardHeader>
                           <CardTitle>{t("Trust Engine", "نظام الثقة")}</CardTitle>
                           <CardDescription>
-                            {t(`Marketplace trust average: ${data.trustEngine.marketplaceHealth.averageTrustScore}/100 across ${data.trustEngine.marketplaceHealth.sellerCount} sellers.`, `متوسط ثقة السوق: ${data.trustEngine.marketplaceHealth.averageTrustScore}/100 لدى ${data.trustEngine.marketplaceHealth.sellerCount} من البائعين.`)}
+                            {currencyText(t(`Marketplace trust average: ${data.trustEngine.marketplaceHealth.averageTrustScore}/100 across ${data.trustEngine.marketplaceHealth.sellerCount} sellers.`, `متوسط ثقة السوق: ${data.trustEngine.marketplaceHealth.averageTrustScore}/100 لدى ${data.trustEngine.marketplaceHealth.sellerCount} من البائعين.`))}
                           </CardDescription>
                         </CardHeader>
                         <CardContent className="grid gap-4 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
@@ -1876,7 +2025,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                             <div className="mt-3 space-y-2 text-sm text-[#D1D5DB]">
                               {data.trustEngine.highestTrustSellers.slice(0, 5).map((seller) => (
                                 <p key={seller.sellerId}>
-                                  <span className="text-white">{seller.sellerName}</span> — {seller.trustScore}/100
+                                  <span className="text-white">{currencyText(seller.sellerName)}</span> — {seller.trustScore}/100
                                 </p>
                               ))}
                             </div>
@@ -1886,7 +2035,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                             <div className="mt-3 space-y-2 text-sm text-[#D1D5DB]">
                               {data.trustEngine.accountsLosingTrust.length ? data.trustEngine.accountsLosingTrust.slice(0, 5).map((seller) => (
                                 <p key={seller.sellerId}>
-                                  <span className="text-white">{seller.sellerName}</span> — {seller.trustDelta.toFixed(1)}
+                                  <span className="text-white">{currencyText(seller.sellerName)}</span> — {seller.trustDelta.toFixed(1)}
                                 </p>
                               )) : <p className="text-[#9CA3AF]">{t("No trust decline detected.", "لم يتم رصد انخفاض في الثقة.")}</p>}
                             </div>
@@ -1896,7 +2045,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                             <div className="mt-3 space-y-2 text-sm text-[#D1D5DB]">
                               {data.trustEngine.flaggedSellers.length ? data.trustEngine.flaggedSellers.slice(0, 5).map((seller) => (
                                 <p key={seller.sellerId}>
-                                  <span className="text-white">{seller.sellerName}</span> — {trustFlagReasonLabelForLocale(seller.reason, locale)}
+                                  <span className="text-white">{currencyText(seller.sellerName)}</span> — {currencyText(trustFlagReasonLabelForLocale(seller.reason, locale))}
                                 </p>
                               )) : <p className="text-[#9CA3AF]">{t("No sellers currently flagged.", "لا يوجد بائعون مبلّغ عنهم حاليًا.")}</p>}
                             </div>
@@ -1933,7 +2082,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
 
                         {adminDestination.sellerApplicationId && unavailableDeepLinkMessage ? (
                           <p role="status" className="mt-4 rounded-xl border border-amber-400/25 bg-amber-400/10 px-4 py-3 text-sm text-amber-100">
-                            {unavailableDeepLinkMessage}
+                            {currencyText(unavailableDeepLinkMessage)}
                           </p>
                         ) : null}
 
@@ -1959,12 +2108,12 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                   className={`border-t border-white/10 ${adminDestination.sellerApplicationId === application.id ? "bg-[#C9A227]/10 outline outline-1 outline-[#C9A227]/45" : ""}`}
                                 >
                                   <td className="px-4 py-3">
-                                    <p className="font-medium text-white">{application.fullName}</p>
-                                    <p className="text-xs text-[#9CA3AF]">{application.email}</p>
+                                    <p className="font-medium text-white">{currencyText(application.fullName)}</p>
+                                    <p className="text-xs text-[#9CA3AF]">{currencyText(application.email)}</p>
                                   </td>
-                                  <td className="px-4 py-3 text-[#D1D5DB]">{application.whatsappNumber}</td>
-                                  <td className="px-4 py-3 text-[#D1D5DB]">{application.preferredNetworks.join(", ")}</td>
-                                  <td className="px-4 py-3 text-[#D1D5DB]">{formatDate(application.createdAt)}</td>
+                                  <td className="px-4 py-3 text-[#D1D5DB]">{currencyText(application.whatsappNumber)}</td>
+                                  <td className="px-4 py-3 text-[#D1D5DB]">{currencyText(application.preferredNetworks.join(", "))}</td>
+                                  <td className="px-4 py-3 text-[#D1D5DB]">{currencyText(formatDate(application.createdAt))}</td>
                                   <td className="px-4 py-3">
                                     <span className={`rounded-full px-2.5 py-1 text-xs ${application.status === "approved" ? "border border-emerald-500/35 bg-emerald-500/10 text-emerald-300" : application.status === "rejected" ? "border border-red-500/35 bg-red-500/10 text-red-300" : "border border-[#C9A227]/35 bg-[#C9A227]/10 text-[#C9A227]"}`}>
                                       {application.status === "approved" ? t("Approved", "مقبول") : application.status === "rejected" ? t("Rejected", "مرفوض") : t("Pending", "قيد الانتظار")}
@@ -1976,11 +2125,20 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                         type="button"
                                         size="sm"
                                         disabled={application.status !== "pending"}
-                                        onClick={() => {
-                                          if (!window.confirm(t("Approve this seller application?", "هل تريد قبول طلب هذا البائع؟"))) return;
-                                          const reason = requestReason(t("Reason for approving this seller application:", "سبب قبول طلب البائع:"), t("Seller approved for launch", "تم اعتماد البائع للعمل"));
+                                        onClick={async () => {
+                                          if (!(await confirmAction(t(
+                                            "Approve this seller application after your WhatsApp review?",
+                                            "هل تريد قبول طلب هذا البائع بعد مراجعة التوثيق عبر واتساب؟",
+                                          )))) return;
+                                          const reason = (await requestReason(t("Reason for approving this seller application:", "سبب قبول طلب البائع:"), t("Seller approved for launch", "تم اعتماد البائع للعمل")));
                                           if (!reason) return;
-                                          void runAction(fetch(`/api/alpha-exchange/admin/seller-applications/${application.id}/approve`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ reason }) }), t("Application approved.", "تم قبول الطلب."));
+                                          void runAction(prepareOwnerDashboardAction(`/api/alpha-exchange/admin/seller-applications/${application.id}/approve`, {
+                                            method: "POST",
+                                            headers: { "content-type": "application/json" },
+                                            body: JSON.stringify({
+                                              reason,
+                                            }),
+                                          }), t("Application approved.", "تم قبول الطلب."));
                                         }}
                                       >
                                         {t("Approve", "قبول")}
@@ -1990,15 +2148,33 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                         size="sm"
                                         variant="secondary"
                                         disabled={application.status !== "pending"}
-                                        onClick={() => {
-                                          if (!window.confirm(t("Reject this seller application?", "هل تريد رفض طلب هذا البائع؟"))) return;
-                                          const reason = requestReason(t("Reason for rejecting this seller application:", "سبب رفض طلب البائع:"), t("Application rejected", "تم رفض الطلب"));
+                                        onClick={async () => {
+                                          if (!(await confirmAction(t("Reject this seller application?", "هل تريد رفض طلب هذا البائع؟")))) return;
+                                          const reason = (await requestReason(t("Reason for rejecting this seller application:", "سبب رفض طلب البائع:"), t("Application rejected", "تم رفض الطلب")));
                                           if (!reason) return;
-                                          void runAction(fetch(`/api/alpha-exchange/admin/seller-applications/${application.id}/reject`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ reason }) }), t("Application rejected.", "تم رفض الطلب."));
+                                          void runAction(prepareOwnerDashboardAction(`/api/alpha-exchange/admin/seller-applications/${application.id}/reject`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ reason }) }), t("Application rejected.", "تم رفض الطلب."));
                                         }}
                                       >
                                         {t("Reject", "رفض")}
                                       </Button>
+                                      {application.status === "approved" ? (
+                                        <Button
+                                          type="button"
+                                          size="sm"
+                                          variant="secondary"
+                                          disabled={approvalEmailSendingId !== null}
+                                          onClick={async () => {
+                                            setApprovalEmailSendingId(application.id);
+                                            try {
+                                              await runAction(prepareOwnerDashboardAction(`/api/alpha-exchange/admin/seller-applications/${application.id}/approval-email`, { method: "POST" }), t("Approval email submitted for delivery.", "تم إرسال رسالة الموافقة إلى خدمة البريد للتسليم."));
+                                            } finally {
+                                              setApprovalEmailSendingId(null);
+                                            }
+                                          }}
+                                        >
+                                          {approvalEmailSendingId === application.id ? t("Sending…", "جارٍ الإرسال…") : t("Send approval email", "إرسال بريد الموافقة")}
+                                        </Button>
+                                      ) : null}
                                     </div>
                                   </td>
                                 </tr>
@@ -2059,8 +2235,8 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                 return (
                                   <tr key={seller.id} className="border-t border-white/10">
                                     <td className="px-4 py-3">
-                                      <p className="font-medium text-white">{seller.fullName}</p>
-                                      <p className="text-xs text-[#9CA3AF]">{seller.email}</p>
+                                      <p className="font-medium text-white">{currencyText(seller.fullName)}</p>
+                                      <p className="text-xs text-[#9CA3AF]">{currencyText(seller.email)}</p>
                                       <div className="mt-2">
                                         <div className="flex flex-wrap gap-2">
                                           {Array.from(
@@ -2068,7 +2244,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                               [
                                                 (seller.roles ?? []).includes("owner") ? "owner" : null,
                                                 (seller.roles ?? []).includes("admin") || seller.role === "admin" ? "administrator" : null,
-                                                seller.sellerStatus === "approved_seller" || (seller.roles ?? []).includes("approved_seller") ? "approved_seller" : null,
+                                                seller.sellerApprovalVerified && (seller.sellerStatus === "approved_seller" || (seller.roles ?? []).includes("approved_seller")) ? "approved_seller" : null,
                                                 seller.sellerStatus === "pending_seller_approval" || (seller.roles ?? []).includes("pending_seller_approval") ? "pending_seller" : null,
                                                 (seller.roles ?? []).includes("buyer") || seller.role === "buyer" ? "buyer" : null,
                                                 (seller.roles ?? []).includes("student") ? "student" : null,
@@ -2081,12 +2257,12 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                         </div>
                                       </div>
                                     </td>
-                                    <td className="px-4 py-3 text-[#D1D5DB]">{formatDate(seller.createdAt)}</td>
+                                    <td className="px-4 py-3 text-[#D1D5DB]">{currencyText(formatDate(seller.createdAt))}</td>
                                     <td className="px-4 py-3 text-[#D1D5DB]">
                                       <span className="font-medium capitalize text-white">{sellerLevelLabel(seller.sellerPrestigeRank)}</span>
                                       {seller.sellerRankOverride ? <p className="text-[11px] text-[#FDE68A]">{t("Override active", "تعديل يدوي نشط")}</p> : null}
                                     </td>
-                                    <td className="px-4 py-3 text-[#D1D5DB]">{formatUsdt(Math.max(0, Number(seller.lifetimeCompletedVolumeUsdt ?? 0)))}</td>
+                                    <td className="px-4 py-3 text-[#D1D5DB]">{currencyText(formatUsdt(Math.max(0, Number(seller.lifetimeCompletedVolumeUsdt ?? 0))))}</td>
                                     <td className="px-4 py-3 text-[#D1D5DB]">{activeListings}</td>
                                     <td className="px-4 py-3 text-[#D1D5DB]">{completedTrades}</td>
                                     <td className="px-4 py-3">
@@ -2103,38 +2279,20 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                     </td>
                                     <td className="px-4 py-3">
                                       <div className="flex flex-wrap items-center gap-2">
-                                        {!isSuspended ? (
-                                          <Button type="button" size="sm" variant="secondary" onClick={() => {
-                                            if (!window.confirm(t("Suspend this seller?", "هل تريد إيقاف هذا البائع؟"))) return;
-                                            const reason = requestReason(t("Reason for suspending this seller:", "سبب إيقاف البائع:"), t("Seller suspended", "تم إيقاف البائع"));
-                                            if (!reason) return;
-                                            void runAction(fetch(`/api/alpha-exchange/admin/sellers/${seller.id}/suspend`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ reason }) }), t("Seller suspended.", "تم إيقاف البائع."));
-                                          }}>
-                                            {t("Suspend", "إيقاف")}
-                                          </Button>
-                                        ) : (
-                                          <Button type="button" size="sm" onClick={() => {
-                                            if (!window.confirm(t("Reactivate this seller?", "هل تريد إعادة تفعيل هذا البائع؟"))) return;
-                                            const reason = requestReason(t("Reason for reactivating this seller:", "سبب إعادة تفعيل البائع:"), t("Seller reactivated", "تمت إعادة تفعيل البائع"));
-                                            if (!reason) return;
-                                            void runAction(fetch(`/api/alpha-exchange/admin/sellers/${seller.id}/reactivate`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ reason }) }), t("Seller reactivated.", "تمت إعادة تفعيل البائع."));
-                                          }}>
-                                            {t("Reactivate", "إعادة التفعيل")}
-                                          </Button>
-                                        )}
+                                        {isOwner ? <Button type="button" size="sm" variant="secondary" disabled={Boolean(ownerAccountTarget) || rankMgmtSaving.size > 0 || isProtectedOwnerTarget(seller)} onClick={() => openOwnerAccount(seller)}>{t("Manage account", "إدارة الحساب")}</Button> : null}
                                         {isOnVacation ? (
-                                          <Button type="button" size="sm" variant="secondary" onClick={() => {
-                                            if (!window.confirm(t("End vacation mode for this seller?", "هل تريد إنهاء وضع الإجازة لهذا البائع؟"))) return;
-                                            const reason = requestReason(t("Reason for ending vacation mode:", "سبب إنهاء وضع الإجازة:"), t("Vacation Mode ended.", "تم إنهاء وضع الإجازة."));
+                                          <Button type="button" size="sm" variant="secondary" onClick={async () => {
+                                            if (!(await confirmAction(t("End vacation mode for this seller?", "هل تريد إنهاء وضع الإجازة لهذا البائع؟")))) return;
+                                            const reason = (await requestReason(t("Reason for ending vacation mode:", "سبب إنهاء وضع الإجازة:"), t("Vacation Mode ended.", "تم إنهاء وضع الإجازة.")));
                                             if (!reason) return;
                                             void handleSellerAvailabilityStatus(seller.id, "available", t("Vacation Mode ended.", "تم إنهاء وضع الإجازة."), reason);
                                           }}>
                                             {t("End Vacation", "إنهاء الإجازة")}
                                           </Button>
                                         ) : (
-                                          <Button type="button" size="sm" variant="secondary" onClick={() => {
-                                            if (!window.confirm(t("Enable vacation mode for this seller?", "هل تريد تفعيل وضع الإجازة لهذا البائع؟"))) return;
-                                            const reason = requestReason(t("Reason for enabling vacation mode:", "سبب تفعيل وضع الإجازة:"), t("Vacation Mode enabled.", "تم تفعيل وضع الإجازة."));
+                                          <Button type="button" size="sm" variant="secondary" onClick={async () => {
+                                            if (!(await confirmAction(t("Enable vacation mode for this seller?", "هل تريد تفعيل وضع الإجازة لهذا البائع؟")))) return;
+                                            const reason = (await requestReason(t("Reason for enabling vacation mode:", "سبب تفعيل وضع الإجازة:"), t("Vacation Mode enabled.", "تم تفعيل وضع الإجازة.")));
                                             if (!reason) return;
                                             void handleSellerAvailabilityStatus(seller.id, "vacation", t("Vacation Mode enabled.", "تم تفعيل وضع الإجازة."), reason);
                                           }}>
@@ -2148,15 +2306,15 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                           type="button"
                                           size="sm"
                                           variant="secondary"
-                                          onClick={() => {
-                                            const nextRank = window.prompt(t("Set rank (bronze, silver, gold, diamond, elite)", "حدّد الرتبة (bronze, silver, gold, diamond, elite)"), seller.sellerPrestigeRank ?? "bronze");
+                                          onClick={async () => {
+                                            const nextRank = (await promptAction(t("Set rank (bronze, silver, gold, diamond, elite)", "حدّد الرتبة (bronze, silver, gold, diamond, elite)"), seller.sellerPrestigeRank ?? "bronze"));
                                             if (!nextRank) return;
                                             const rankInput = normalizeSellerLevel(nextRank);
                                             if (!rankInput) {
                                               pushToast(t("Invalid prestige rank.", "الرتبة غير صحيحة."));
                                               return;
                                             }
-                                            const reason = window.prompt(t("Override reason", "سبب التعديل"), t("Manual admin override", "تعديل يدوي من الإدارة"));
+                                            const reason = (await promptAction(t("Override reason", "سبب التعديل"), t("Manual admin override", "تعديل يدوي من الإدارة")));
                                             if (!reason) return;
                                             void handleSellerPrestigeOverride(seller.id, rankInput, reason, false);
                                           }}
@@ -2168,8 +2326,8 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                             type="button"
                                             size="sm"
                                             variant="secondary"
-                                            onClick={() => {
-                                              const reason = window.prompt(t("Reason for clearing override", "سبب إزالة التعديل"), t("Return to automatic progression", "العودة إلى التقدّم التلقائي"));
+                                            onClick={async () => {
+                                              const reason = (await promptAction(t("Reason for clearing override", "سبب إزالة التعديل"), t("Return to automatic progression", "العودة إلى التقدّم التلقائي")));
                                               if (!reason) return;
                                               void handleSellerPrestigeOverride(seller.id, seller.sellerPrestigeRank ?? "bronze", reason, true);
                                             }}
@@ -2198,10 +2356,10 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                         {SELLER_LEVELS.map((rank) => {
                           const count = (data?.approvedSellers ?? []).filter((s) => (s.sellerPrestigeRank ?? "bronze") === rank).length;
                           const rankColors: Record<SellerLevel, string> = {
-                            bronze: "border-[#CD7F32]/30 bg-[#CD7F32]/10 text-[#E8A96A]",
-                            silver: "border-[#C0C0C0]/30 bg-[#C0C0C0]/10 text-[#C9CED9]",
-                            gold: "border-[#C9A227]/30 bg-[#C9A227]/10 text-[#FDE68A]",
-                            diamond: "border-[#7CC9FF]/30 bg-[#7CC9FF]/10 text-[#7CC9FF]",
+                            bronze: "rank-tone rank-tone--bronze",
+                            silver: "rank-tone rank-tone--silver",
+                            gold: "rank-tone rank-tone--gold",
+                            diamond: "rank-tone rank-tone--diamond",
                             elite: "border-[#F8E7A0]/30 bg-[#F8E7A0]/10 text-[#F8E7A0]",
                           };
                           return (
@@ -2254,7 +2412,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                           {/* Bulk Actions */}
                           {rankMgmtSelected.size > 0 ? (
                             <div className="mt-4 flex flex-wrap items-center gap-2 rounded-xl border border-[#C9A227]/25 bg-[#C9A227]/8 p-3">
-                              <span className="text-sm font-medium text-[#FDE68A]">{t(`${rankMgmtSelected.size} selected`, `تم اختيار ${rankMgmtSelected.size}`)}</span>
+                              <span className="text-sm font-medium text-[#FDE68A]">{currencyText(t(`${rankMgmtSelected.size} selected`, `تم اختيار ${rankMgmtSelected.size}`))}</span>
                               <div className="ml-auto flex flex-wrap gap-2">
                                 <Button type="button" size="sm" variant="secondary" onClick={() => void handleBulkRankAction("promote")}>
                                   {t("Promote", "ترقية")} ↑
@@ -2303,7 +2461,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                   <th className="px-4 py-3">{t("Seller", "البائع")}</th>
                                   <th className="px-4 py-3">{t("Current Rank", "الرتبة الحالية")}</th>
                                   <th className="px-4 py-3">{t("Trust Score", "درجة الثقة")}</th>
-                                  <th className="px-4 py-3">{t("Volume (USDT)", "الحجم (USDT)")}</th>
+                                  <th className="px-4 py-3">{currencyText(t("Volume (USDT)", "الحجم (USDT)"))}</th>
                                   <th className="px-4 py-3">{t("Status", "الحالة")}</th>
                                   <th className="px-4 py-3">{t("Set New Rank", "تعيين رتبة جديدة")}</th>
                                 </tr>
@@ -2335,17 +2493,17 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                       <td className="px-4 py-3">
                                         <div className="flex items-center gap-2.5">
                                           <div className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/15 bg-white/[0.06] text-sm font-semibold text-white">
-                                            {String(seller.fullName || seller.email || "?")
+                                            {currencyText(String(seller.fullName || seller.email || "?")
                                               .trim()
                                               .split(" ")
                                               .map((p) => p[0])
                                               .join("")
                                               .slice(0, 2)
-                                              .toUpperCase()}
+                                              .toUpperCase())}
                                           </div>
                                           <div>
-                                            <p className="font-medium text-white">{seller.fullName || "—"}</p>
-                                            <p className="text-[11px] text-[#9CA3AF]">{seller.email}</p>
+                                            <p className="font-medium text-white">{currencyText(seller.fullName || "—")}</p>
+                                            <p className="text-[11px] text-[#9CA3AF]">{currencyText(seller.email)}</p>
                                             {isOwner ? <span className="mt-0.5 inline-block rounded-full border border-red-500/30 bg-red-500/10 px-1.5 py-0.5 text-[10px] text-red-300">{t("Owner — Protected", "المالك — محمي")}</span> : null}
                                           </div>
                                         </div>
@@ -2368,7 +2526,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                         ) : <span className="text-[#9CA3AF]">—</span>}
                                       </td>
                                       <td className="px-4 py-3 text-[#D1D5DB]">
-                                        {Math.max(0, Number(seller.lifetimeCompletedVolumeUsdt ?? 0)).toLocaleString("en-IL")}
+                                        {moneyText(Math.max(0, Number(seller.lifetimeCompletedVolumeUsdt ?? 0)).toLocaleString("en-IL"))}
                                       </td>
                                       <td className="px-4 py-3">
                                         {seller.sellerStatus === "suspended" ? (
@@ -2416,16 +2574,16 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                             <div className="mt-2 flex flex-wrap gap-2">
                               {SELLER_LEVELS.map((rank, idx) => {
                                 const colors: Record<SellerLevel, string> = {
-                                  bronze: "border-[#CD7F32]/30 text-[#E8A96A]",
-                                  silver: "border-[#C0C0C0]/30 text-[#C9CED9]",
-                                  gold: "border-[#C9A227]/30 text-[#FDE68A]",
-                                  diamond: "border-[#7CC9FF]/30 text-[#7CC9FF]",
+                                  bronze: "rank-tone rank-tone--bronze",
+                                  silver: "rank-tone rank-tone--silver",
+                                  gold: "rank-tone rank-tone--gold",
+                                  diamond: "rank-tone rank-tone--diamond",
                                   elite: "border-[#F8E7A0]/30 text-[#F8E7A0]",
                                 };
                                 const volumes: Record<SellerLevel, string> = { bronze: "0 USDT", silver: "15K+", gold: "50K+", diamond: "150K+", elite: "500K+" };
                                 return (
                                   <span key={rank} className={`rounded-full border px-2.5 py-1 text-[11px] ${colors[rank]}`}>
-                                    {idx + 1}. {sellerLevelLabel(rank)} · {volumes[rank]}
+                                    {idx + 1}. {sellerLevelLabel(rank)} · {currencyText(volumes[rank])}
                                   </span>
                                 );
                               })}
@@ -2472,7 +2630,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
 
                         {adminDestination.listingId && unavailableDeepLinkMessage ? (
                           <p role="status" className="mt-4 rounded-xl border border-amber-400/25 bg-amber-400/10 px-4 py-3 text-sm text-amber-100">
-                            {unavailableDeepLinkMessage}
+                            {currencyText(unavailableDeepLinkMessage)}
                           </p>
                         ) : null}
 
@@ -2500,38 +2658,38 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                   tabIndex={-1}
                                   className={`border-t border-white/10 ${adminDestination.listingId === listing.id ? "bg-[#C9A227]/10 outline outline-1 outline-[#C9A227]/45" : ""}`}
                                 >
-                                  <td className="px-4 py-3 text-white">{listing.sellerDisplayName}</td>
-                                  <td className="px-4 py-3 text-[#D1D5DB]">{listing.availableAmount}</td>
-                                  <td className="px-4 py-3 text-[#D1D5DB]">{listing.price}</td>
+                                  <td className="px-4 py-3 text-white">{currencyText(listing.sellerDisplayName)}</td>
+                                  <td className="px-4 py-3 text-[#D1D5DB]">{moneyText(listing.availableAmount)}</td>
+                                  <td className="px-4 py-3 text-[#D1D5DB]">{moneyText(listing.price)}</td>
                                   <td className="px-4 py-3 text-[#D1D5DB]">{listing.network}</td>
-                                  <td className="px-4 py-3 text-[#D1D5DB]">{listing.bankName ?? "—"}</td>
+                                  <td className="px-4 py-3 text-[#D1D5DB]">{currencyText(listing.bankName ?? "—")}</td>
                                   <td className="px-4 py-3">
                                     <span className={`rounded-full px-2.5 py-1 text-xs ${listing.status === "active" ? "border border-emerald-500/35 bg-emerald-500/10 text-emerald-300" : listing.status === "draft" ? "border border-[#6CAEFF]/35 bg-[#6CAEFF]/10 text-[#93C5FD]" : listing.status === "matched" || listing.status === "in_trade" ? "border border-amber-500/35 bg-amber-500/10 text-amber-300" : listing.status === "completed" ? "border border-violet-500/35 bg-violet-500/10 text-violet-300" : listing.status === "cancelled" ? "border border-red-500/35 bg-red-500/10 text-red-300" : listing.status === "paused" ? "border border-[#C9A227]/35 bg-[#C9A227]/10 text-[#C9A227]" : "border border-white/20 bg-white/5 text-white/75"}`}>
-                                      {statusLabel(listing.status)}
+                                      {currencyText(statusLabel(listing.status))}
                                     </span>
                                   </td>
                                   <td className="px-4 py-3 text-xs text-[#D1D5DB]">
-                                    <p>{listing.expiresAt ? formatDate(listing.expiresAt) : "—"}</p>
-                                    {listing.lastRenewedAt ? <p className="text-[11px] text-[#9CA3AF]">{t("Renewed", "تم التجديد")} {formatDate(listing.lastRenewedAt)}</p> : null}
-                                    {listing.expiredAt ? <p className="text-[11px] text-amber-300">{t("Expired", "انتهى")} {formatDate(listing.expiredAt)}</p> : null}
+                                    <p>{currencyText(listing.expiresAt ? formatDate(listing.expiresAt) : "—")}</p>
+                                    {listing.lastRenewedAt ? <p className="text-[11px] text-[#9CA3AF]">{t("Renewed", "تم التجديد")} {currencyText(formatDate(listing.lastRenewedAt))}</p> : null}
+                                    {listing.expiredAt ? <p className="text-[11px] text-amber-300">{t("Expired", "انتهى")} {currencyText(formatDate(listing.expiredAt))}</p> : null}
                                   </td>
-                                  <td className="px-4 py-3 text-[#D1D5DB]">{formatDate(listing.createdAt)}</td>
+                                  <td className="px-4 py-3 text-[#D1D5DB]">{currencyText(formatDate(listing.createdAt))}</td>
                                   <td className="px-4 py-3">
                                     <div className="flex flex-wrap items-center gap-2">
                                       {listing.status === "draft" ? (
                                         <>
-                                          <Button type="button" size="sm" onClick={() => runAction(fetch(`/api/alpha-exchange/admin/listings/${listing.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "approve" }) }), t("Listing approved.", "تمت الموافقة على العرض."))}>
+                                          <Button type="button" size="sm" onClick={() => runAction(prepareOwnerDashboardAction(`/api/alpha-exchange/admin/listings/${listing.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "approve" }) }), t("Listing approved.", "تمت الموافقة على العرض."))}>
                                             {t("Approve", "موافقة")}
                                           </Button>
                                           <Button
                                             type="button"
                                             size="sm"
                                             variant="secondary"
-                                            onClick={() => {
-                                              const reason = window.prompt(t("Reject reason", "سبب الرفض"));
+                                            onClick={async () => {
+                                              const reason = (await promptAction(t("Reject reason", "سبب الرفض")));
                                               if (!reason) return;
                                               void runAction(
-                                                fetch(`/api/alpha-exchange/admin/listings/${listing.id}`, {
+                                                prepareOwnerDashboardAction(`/api/alpha-exchange/admin/listings/${listing.id}`, {
                                                   method: "PATCH",
                                                   headers: { "content-type": "application/json" },
                                                   body: JSON.stringify({ action: "reject", reason }),
@@ -2546,11 +2704,11 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                             type="button"
                                             size="sm"
                                             variant="secondary"
-                                            onClick={() => {
-                                              const reason = window.prompt(t("Change request", "التعديلات المطلوبة"));
+                                            onClick={async () => {
+                                              const reason = (await promptAction(t("Change request", "التعديلات المطلوبة")));
                                               if (!reason) return;
                                               void runAction(
-                                                fetch(`/api/alpha-exchange/admin/listings/${listing.id}`, {
+                                                prepareOwnerDashboardAction(`/api/alpha-exchange/admin/listings/${listing.id}`, {
                                                   method: "PATCH",
                                                   headers: { "content-type": "application/json" },
                                                   body: JSON.stringify({ action: "request_changes", reason }),
@@ -2564,9 +2722,9 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                         </>
                                       ) : null}
                                       {(listing.status === "expired" || listing.status === "paused" || listing.status === "closed") ? (
-                                        <Button type="button" size="sm" variant="secondary" onClick={() => {
-                                          if (!window.confirm(t(`${listing.status === "closed" ? "Reopen" : "Renew"} this listing?`, `هل تريد ${listing.status === "closed" ? "إعادة فتح" : "تجديد"} هذا العرض؟`))) return;
-                                          const reason = requestReason(t(`Reason for ${listing.status === "closed" ? "reopening" : "renewing"} this listing:`, `سبب ${listing.status === "closed" ? "إعادة فتح" : "تجديد"} العرض:`), listing.status === "closed" ? t("Listing reopened by admin.", "أعادت الإدارة فتح العرض.") : t("Listing renewed by admin.", "جدّدت الإدارة العرض."));
+                                        <Button type="button" size="sm" variant="secondary" onClick={async () => {
+                                          if (!(await confirmAction(t(`${listing.status === "closed" ? "Reopen" : "Renew"} this listing?`, `هل تريد ${listing.status === "closed" ? "إعادة فتح" : "تجديد"} هذا العرض؟`)))) return;
+                                          const reason = (await requestReason(t(`Reason for ${listing.status === "closed" ? "reopening" : "renewing"} this listing:`, `سبب ${listing.status === "closed" ? "إعادة فتح" : "تجديد"} العرض:`), listing.status === "closed" ? t("Listing reopened by admin.", "أعادت الإدارة فتح العرض.") : t("Listing renewed by admin.", "جدّدت الإدارة العرض.")));
                                           if (!reason) return;
                                           void handleAdminListingAction(listing.id, "renew", listing.status === "closed" ? t("Listing reopened by admin.", "تمت إعادة فتح العرض.") : t("Listing renewed by admin.", "تم تجديد العرض."), 24, reason);
                                         }}>
@@ -2578,11 +2736,11 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                           type="button"
                                           size="sm"
                                           variant="secondary"
-                                          onClick={() => {
-                                            if (!window.confirm(t("Extend this listing expiration?", "هل تريد تمديد صلاحية هذا العرض؟"))) return;
-                                            const hours = window.prompt(t("Extend expiration by hours (1, 6, 12, 24)", "مدة التمديد بالساعات (1، 6، 12، 24)"), "24");
+                                          onClick={async () => {
+                                            if (!(await confirmAction(t("Extend this listing expiration?", "هل تريد تمديد صلاحية هذا العرض؟")))) return;
+                                            const hours = (await promptAction(t("Extend expiration by hours (1, 6, 12, 24)", "مدة التمديد بالساعات (1، 6، 12، 24)"), "24"));
                                             if (!hours) return;
-                                            const reason = requestReason(t("Reason for extending this listing:", "سبب تمديد العرض:"), t("Listing expiration extended.", "تم تمديد صلاحية العرض."));
+                                            const reason = (await requestReason(t("Reason for extending this listing:", "سبب تمديد العرض:"), t("Listing expiration extended.", "تم تمديد صلاحية العرض.")));
                                             if (!reason) return;
                                             void handleAdminListingAction(listing.id, "extend", t("Listing expiration extended.", "تم تمديد صلاحية العرض."), Number(hours), reason);
                                           }}
@@ -2591,9 +2749,9 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                         </Button>
                                       ) : null}
                                       {listing.status !== "closed" && listing.status !== "completed" && listing.status !== "cancelled" ? (
-                                        <Button type="button" size="sm" variant="secondary" onClick={() => {
-                                          if (!window.confirm(t("Close this listing?", "هل تريد إغلاق هذا العرض؟"))) return;
-                                          const reason = requestReason(t("Reason for closing this listing:", "سبب إغلاق العرض:"), t("Listing closed by admin.", "أغلقت الإدارة العرض."));
+                                        <Button type="button" size="sm" variant="secondary" onClick={async () => {
+                                          if (!(await confirmAction(t("Close this listing?", "هل تريد إغلاق هذا العرض؟")))) return;
+                                          const reason = (await requestReason(t("Reason for closing this listing:", "سبب إغلاق العرض:"), t("Listing closed by admin.", "أغلقت الإدارة العرض.")));
                                           if (!reason) return;
                                           void handleAdminListingAction(listing.id, "close", t("Listing closed by admin.", "تم إغلاق العرض."), undefined, reason);
                                         }}>
@@ -2605,8 +2763,8 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                           type="button"
                                           size="sm"
                                           variant="secondary"
-                                          onClick={() => {
-                                            const reason = window.prompt(t("Force-close reason", "سبب الإغلاق الإجباري"), t("Admin override", "إجراء من الإدارة"));
+                                          onClick={async () => {
+                                            const reason = (await promptAction(t("Force-close reason", "سبب الإغلاق الإجباري"), t("Admin override", "إجراء من الإدارة")));
                                             if (!reason) return;
                                             void handleAdminListingAction(listing.id, "force_close", t("Listing force closed.", "تم إغلاق العرض إجباريًا."), undefined, reason);
                                           }}
@@ -2620,13 +2778,13 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                           size="sm"
                                           variant="secondary"
                                           className="border-red-500/50 bg-red-500/15 text-red-200 hover:bg-red-500/25"
-                                          onClick={() => {
-                                            if (!window.confirm(t(
+                                          onClick={async () => {
+                                            if (!(await confirmAction(t(
                                               "Permanently purge this smoke-test listing, its test trade, messages, notifications, audit references, and metric impact? This works only before payment evidence is submitted.",
                                               "حذف اختبار الفحص نهائيًا مع الصفقة التجريبية والرسائل والإشعارات ومراجع السجل وتأثيره على الإحصاءات؟ يعمل هذا فقط قبل إرسال إثبات الدفع.",
-                                            ))) return;
+                                            )))) return;
                                             void runAction(
-                                              fetch(`/api/alpha-exchange/admin/listings/${listing.id}/purge-smoke-test`, { method: "DELETE" }),
+                                              prepareOwnerDashboardAction(`/api/alpha-exchange/admin/listings/${listing.id}/purge-smoke-test`, { method: "DELETE" }),
                                               t("Smoke-test records purged.", "تم حذف سجلات اختبار الفحص بالكامل."),
                                             );
                                           }}
@@ -2634,7 +2792,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                           {t("Purge Smoke Test", "حذف اختبار الفحص بالكامل")}
                                         </Button>
                                       ) : null}
-                                      <Button type="button" size="sm" variant="secondary" onClick={() => runAction(fetch(`/api/alpha-exchange/admin/listings/${listing.id}`, { method: "DELETE" }), t("Listing deleted.", "تم حذف العرض."))}>
+                                      <Button type="button" size="sm" variant="secondary" onClick={() => runAction(prepareOwnerDashboardAction(`/api/alpha-exchange/admin/listings/${listing.id}`, { method: "DELETE" }), t("Listing deleted.", "تم حذف العرض."))}>
                                         {t("Delete", "حذف")}
                                       </Button>
                                     </div>
@@ -2652,9 +2810,9 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                           <div className="mt-3 space-y-2 text-xs text-[#D1D5DB]">
                             {expirationHistory.slice(0, 10).map((entry) => (
                               <div key={entry.id} className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
-                                <p className="text-white">{actionLabel(entry.action)}</p>
-                                <p>{localizedAuditDetails(entry)}</p>
-                                <p className="text-[#9CA3AF]">{formatDate(entry.createdAt)}</p>
+                                <p className="text-white">{currencyText(actionLabel(entry.action))}</p>
+                                <p>{currencyText(localizedAuditDetails(entry))}</p>
+                                <p className="text-[#9CA3AF]">{currencyText(formatDate(entry.createdAt))}</p>
                               </div>
                             ))}
                             {expirationHistory.length === 0 ? <p className="text-[#9CA3AF]">{t("No expiration events recorded yet.", "لا توجد أحداث انتهاء صلاحية مسجّلة بعد.")}</p> : null}
@@ -2723,8 +2881,8 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                     {reports.map((report) => (
                                       <tr key={report.sellerId} className="border-b border-white/5 align-top">
                                         <td className="px-3 py-2">
-                                          <p className="font-medium text-white">{report.sellerName}</p>
-                                          <p className="text-[11px] text-[#9CA3AF]">{t(`${report.totalListings} listings`, `${report.totalListings} عروض`)}</p>
+                                          <p className="font-medium text-white">{currencyText(report.sellerName)}</p>
+                                          <p className="text-[11px] text-[#9CA3AF]">{currencyText(t(`${report.totalListings} listings`, `${report.totalListings} عروض`))}</p>
                                         </td>
                                         <td className="px-3 py-2 font-semibold text-white">{report.reliability.reliabilityScore}</td>
                                         <td className="px-3 py-2 text-[#D1D5DB]">{report.reliability.cancellationRate}%</td>
@@ -2748,20 +2906,20 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                   {flagged.map((report) => (
                                     <div key={`flagged-${report.sellerId}`} className={`rounded-xl border p-3 text-xs ${tierTone[report.reliability.warningTier]}`}>
                                       <div className="flex items-center justify-between gap-2">
-                                        <p className="font-semibold text-white">{report.sellerName}</p>
+                                        <p className="font-semibold text-white">{currencyText(report.sellerName)}</p>
                                         <span className="capitalize">{isArabic ? ({ none: "جيد", notice: "ملاحظة", warning: "تحذير", critical: "حرج" } as const)[report.reliability.warningTier] : report.reliability.warningTier} · {t("score", "الدرجة")} {report.reliability.reliabilityScore}</span>
                                       </div>
-                                      <p className="mt-1">{isArabic
+                                      <p className="mt-1">{currencyText(isArabic
                                         ? ({ none: "لا توجد مؤشرات خطر.", notice: "توجد ملاحظة بسيطة تحتاج متابعة.", warning: "تحتاج موثوقية العروض إلى متابعة.", critical: "توجد مؤشرات خطر مهمة وتحتاج إجراءً سريعًا." } as const)[report.reliability.warningTier]
-                                        : report.reliability.warningLabel}</p>
+                                        : report.reliability.warningLabel)}</p>
                                       {report.recentHistory.length ? (
                                         <div className="mt-2 space-y-1 border-t border-white/10 pt-2 text-[#D1D5DB]">
                                           {report.recentHistory.slice(0, 5).map((entry) => (
                                             <div key={entry.id} className="flex flex-wrap items-center gap-2">
-                                              <span className="text-white">{actionLabel(entry.action)}</span>
-                                              {entry.reason ? <span>· {entry.reason}</span> : null}
-                                              {entry.details ? <span className="text-[#9CA3AF]">· {localizedAuditDetails(entry)}</span> : null}
-                                              <span className="text-[#9CA3AF]">· {formatDate(entry.createdAt)}</span>
+                                              <span className="text-white">{currencyText(actionLabel(entry.action))}</span>
+                                              {entry.reason ? <span>· {currencyText(entry.reason)}</span> : null}
+                                              {entry.details ? <span className="text-[#9CA3AF]">· {currencyText(localizedAuditDetails(entry))}</span> : null}
+                                              <span className="text-[#9CA3AF]">· {currencyText(formatDate(entry.createdAt))}</span>
                                             </div>
                                           ))}
                                         </div>
@@ -2782,10 +2940,10 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                       <CardHeader>
                         <div className="flex flex-wrap items-center justify-between gap-3">
                           <div>
-                            <CardTitle>{t("Purchase Requests", "طلبات الشراء والصفقات")}</CardTitle>
-                            <CardDescription>{t("Monitor request flow and inspect request details.", "تابع الصفقات وافتح تفاصيل كل طلب.")}</CardDescription>
+                            <CardTitle>{requestsStatus === "active" ? t("Active Trades", "الصفقات النشطة") : t("Purchase Requests", "طلبات الشراء والصفقات")}</CardTitle>
+                            <CardDescription>{requestsStatus === "active" ? t("Accepted trades still in progress. Open a trade for details.", "الصفقات المقبولة التي ما زالت قيد التنفيذ. افتح الصفقة للتفاصيل.") : t("Monitor request flow and inspect request details.", "تابع الصفقات وافتح تفاصيل كل طلب.")}</CardDescription>
                           </div>
-                          <Button type="button" variant="secondary" onClick={exportTradesCsv}>
+                          <Button type="button" variant="secondary" onClick={exportTradesCsv} title={t("Export all matching trades across every page", "تصدير جميع الصفقات المطابقة عبر كل الصفحات")}>
                             {t("Export Trades", "تصدير الصفقات")}
                           </Button>
                         </div>
@@ -2796,8 +2954,9 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                             <Search className="pointer-events-none absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#9CA3AF]" />
                             <Input className="ps-9" placeholder={t("Search buyer, seller, listing...", "ابحث بالمشتري أو البائع أو العرض...")} value={requestsQuery} onChange={(event) => setRequestsQuery(event.target.value)} />
                           </div>
-                          <select value={requestsStatus} onChange={(event) => setRequestsStatus(event.target.value as typeof requestsStatus)} className="flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 text-sm text-white">
+                          <select aria-label={t("Filter trades by status", "تصفية الصفقات حسب الحالة")} value={requestsStatus} onChange={(event) => { setRequestsStatus(event.target.value as typeof requestsStatus); setRequestsPage(1); }} className="flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 text-sm text-white">
                             <option value="all">{t("Status: All", "الحالة: الكل")}</option>
+                            <option value="active">{t("Active trades", "الصفقات النشطة")}</option>
                             {(["pending", "accepted", "payment_sent", "usdt_sent", "declined", "completed", "locked", "review_open", "cancelled"] as const).map((status) => <option key={status} value={status}>{statusLabel(status)}</option>)}
                           </select>
                           <select value={requestsSort} onChange={(event) => setRequestsSort(event.target.value as typeof requestsSort)} className="flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 text-sm text-white">
@@ -2808,7 +2967,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
 
                         {adminDestination.purchaseRequestId && unavailableDeepLinkMessage ? (
                           <p role="status" className="mt-4 rounded-xl border border-amber-400/25 bg-amber-400/10 px-4 py-3 text-sm text-amber-100">
-                            {unavailableDeepLinkMessage}
+                            {currencyText(unavailableDeepLinkMessage)}
                           </p>
                         ) : null}
 
@@ -2830,7 +2989,6 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                             <tbody>
                               {requestsRows.rows.map((request) => {
                                 const listing = listingById.get(request.listingId);
-                                const seller = sellersById.get(request.sellerId);
                                 return (
                                   <tr
                                     key={request.id}
@@ -2839,21 +2997,21 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                     tabIndex={-1}
                                     className={`border-t border-white/10 ${adminDestination.purchaseRequestId === request.id ? "bg-[#C9A227]/10 outline outline-1 outline-[#C9A227]/45" : ""}`}
                                   >
-                                    <td className="w-[11rem] px-4 py-3 text-center font-mono font-medium whitespace-nowrap text-[#D1D5DB]">{displayTradeId(request)}</td>
-                                    <td className="px-4 py-3 text-white">{request.buyerName}</td>
-                                    <td className="px-4 py-3 text-[#D1D5DB]">{seller?.fullName ?? request.sellerId}</td>
+                                    <td className="w-[11rem] px-4 py-3 text-center font-mono font-medium whitespace-nowrap text-[#D1D5DB]">{currencyText(displayTradeId(request))}</td>
+                                    <td className="px-4 py-3 text-white">{currencyText(request.buyerName)}</td>
+                                    <td className="px-4 py-3 text-[#D1D5DB]">{currencyText(accountLabel(request.sellerId))}</td>
                                     <td className="px-4 py-3 text-[#D1D5DB]">
-                                      <p>{request.usdtAmount ?? listing?.availableAmount ?? "—"} USDT</p>
+                                      <p>{currencyText(`${request.usdtAmount ?? listing?.availableAmount ?? "—"} USDT`)}</p>
                                       <p className={`mt-1 text-xs ${request.priceMode === "buyer_offer" ? "font-semibold text-[#F4D87A]" : "text-[#9CA3AF]"}`}>
-                                        {request.priceMode === "buyer_offer" ? t("Offer", "عرض سعر") : t("Price", "السعر")} ₪{(toNumber(request.pricePerUsdt) || (toNumber(request.fiatAmount) / Math.max(1, toNumber(request.usdtAmount)))).toFixed(2)}
+                                        {request.priceMode === "buyer_offer" ? t("Offer", "عرض سعر") : t("Price", "السعر")} {currencyText(`${(toNumber(request.pricePerUsdt) || (toNumber(request.fiatAmount) / Math.max(1, toNumber(request.usdtAmount)))).toFixed(2)} ${request.currency || "ILS"}`)}
                                       </p>
                                     </td>
-                                    <td className="px-4 py-3 font-mono font-medium whitespace-nowrap text-[#D1D5DB]">{displayListingId(listing, request.listingId)}</td>
-                                    <td className="px-4 py-3 text-[#D1D5DB]">{request.bankName ?? listing?.bankName ?? "—"}</td>
+                                    <td className="px-4 py-3 font-mono font-medium whitespace-nowrap text-[#D1D5DB]">{currencyText(displayListingId(listing, request.listingId))}</td>
+                                    <td className="px-4 py-3 text-[#D1D5DB]">{currencyText(request.bankName ?? t("Not recorded", "غير مسجّل"))}</td>
                                     <td className="px-4 py-3">
-                                      <span className="rounded-full border border-white/20 bg-white/5 px-2.5 py-1 text-xs text-white/80">{statusLabel(request.status)}</span>
+                                      <span className="rounded-full border border-white/20 bg-white/5 px-2.5 py-1 text-xs text-white/80">{currencyText(statusLabel(request.status))}</span>
                                     </td>
-                                    <td className="px-4 py-3 text-[#D1D5DB]">{formatDate(request.createdAt)}</td>
+                                    <td className="px-4 py-3 text-[#D1D5DB]">{currencyText(formatDate(request.createdAt))}</td>
                                     <td className="px-4 py-3">
                                       <Button type="button" size="sm" variant="secondary" onClick={() => setSelectedRequest(request)}>
                                         {t("View Details", "عرض التفاصيل")}
@@ -2862,24 +3020,24 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                   </tr>
                                 );
                               })}
-                              {requestsRows.rows.length === 0 ? renderEmptyTableRow(t("No purchase requests match your filters.", "لا توجد طلبات شراء تطابق الفلاتر."), 9) : null}
+                              {requestsRows.rows.length === 0 ? renderEmptyTableRow(requestsStatus === "active" && !requestsQuery.trim() ? t("No active trades right now.", "لا توجد صفقات نشطة الآن.") : t("No purchase requests match your filters.", "لا توجد طلبات شراء تطابق الفلاتر."), 9) : null}
                             </tbody>
                           </table>
                         </div>
                         {renderPagination(requestsRows.safePage, requestsRows.totalPages, setRequestsPage)}
-                        <div className="mt-5 rounded-xl border border-white/10 bg-black/20 p-4">
+                        {requestsStatus !== "active" ? <div className="mt-5 rounded-xl border border-white/10 bg-black/20 p-4">
                           <p className="text-sm font-medium text-white">{t("Timeout History", "سجل انتهاء المهلة")}</p>
                           <div className="mt-3 space-y-2 text-xs text-[#D1D5DB]">
                             {timeoutHistory.slice(0, 10).map((request) => (
                               <div key={request.id} className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
-                                <p className="font-mono font-medium text-white">{displayTradeId(request)}</p>
-                                <p>{request.timeoutReason ?? t("Trade timed out.", "انتهت مهلة الصفقة.")}</p>
-                                <p className="text-[#9CA3AF]">{request.timedOutAt ? formatDate(request.timedOutAt) : "—"}</p>
+                                <p className="font-mono font-medium text-white">{currencyText(displayTradeId(request))}</p>
+                                <p>{currencyText(request.timeoutReason ?? t("Trade timed out.", "انتهت مهلة الصفقة."))}</p>
+                                <p className="text-[#9CA3AF]">{currencyText(request.timedOutAt ? formatDate(request.timedOutAt) : "—")}</p>
                               </div>
                             ))}
                             {timeoutHistory.length === 0 ? <p className="text-[#9CA3AF]">{t("No timeout events recorded yet.", "لا توجد أحداث انتهاء مهلة مسجّلة بعد.")}</p> : null}
                           </div>
-                        </div>
+                        </div> : null}
                       </CardContent>
                     </Card>
                   ) : null}
@@ -2892,7 +3050,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                             <CardTitle>{t("Commissions", "العمولات")}</CardTitle>
                             <CardDescription>{t("Track trade commissions and admin-issued seller commissions.", "تابع عمولات الصفقات والعمولات الصادرة عن الإدارة للبائعين.")}</CardDescription>
                           </div>
-                          <Button type="button" variant="secondary" onClick={exportCommissionsCsv}>
+                          <Button type="button" variant="secondary" onClick={exportCommissionsCsv} title={t("Export all matching commissions across every page", "تصدير جميع العمولات المطابقة عبر كل الصفحات")}>
                             {t("Export CSV", "تصدير CSV")}
                           </Button>
                         </div>
@@ -2901,11 +3059,11 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                         <form onSubmit={handleIssueManualCommission} className="rounded-2xl border border-[#C9A227]/30 bg-[#C9A227]/[0.06] p-4">
                           <div className="mb-4">
                             <p className="font-semibold text-white">{t("Issue Seller Commission", "إصدار عمولة للبائع")}</p>
-                            <p className="mt-1 text-xs leading-5 text-[#D1D5DB]">
-                              {t(
+                            <p className="commission-notice mt-1 text-xs leading-5 text-[#D1D5DB]">
+                              {currencyText(t(
                                 "Creates a real payable commission in the seller’s standard USDT-TRC20 Pay Now flow. This is separate from Recovery Fees and does not use the compliance recovery wallet.",
                                 "ينشئ عمولة فعلية قابلة للدفع في مسار ادفع الآن القياسي للبائع عبر USDT-TRC20. هذا النظام منفصل عن رسوم الاسترداد ولا يستخدم محفظة استرداد الامتثال.",
-                              )}
+                              ))}
                             </p>
                           </div>
                           <div className="grid gap-3 lg:grid-cols-2">
@@ -2927,8 +3085,8 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                               </select>
                             </div>
                             <div>
-                              <label htmlFor="manual-commission-amount" className="mb-1.5 block text-xs font-medium text-[#D1D5DB]">{t("Commission amount (USDT)", "قيمة العمولة (USDT)")}</label>
-                              <Input
+                              <label htmlFor="manual-commission-amount" className="mb-1.5 block text-xs font-medium text-[#D1D5DB]">{currencyText(t("Commission amount (USDT)", "قيمة العمولة (USDT)"))}</label>
+                              <Input className="currency-money"
                                 id="manual-commission-amount"
                                 type="number"
                                 inputMode="decimal"
@@ -2989,7 +3147,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
 
                         {adminDestination.commissionId && unavailableDeepLinkMessage ? (
                           <p role="status" className="mt-4 rounded-xl border border-amber-400/25 bg-amber-400/10 px-4 py-3 text-sm text-amber-100">
-                            {unavailableDeepLinkMessage}
+                            {currencyText(unavailableDeepLinkMessage)}
                           </p>
                         ) : null}
 
@@ -2998,11 +3156,12 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                             const request = record.purchaseRequestId
                               ? (data.purchaseRequests ?? []).find((item) => item.id === record.purchaseRequestId)
                               : undefined;
-                            const seller = sellersById.get(record.sellerId);
-                            const sellerName = seller?.fullName ?? record.sellerId;
-                            const isAdminIssued = record.source === "admin_manual";
+                            const sellerName = accountLabel(record.sellerId);
+                            const isCarried = record.source === "tolerance_carry_forward";
+                            const isAdminIssued = record.source === "admin_manual" || isCarried;
+                            const tradeCurrency = record.grossCurrency ?? request?.currency;
                             const sourceLabel = isAdminIssued
-                              ? `${t("Admin-issued", "صادرة عن الإدارة")} · ${displayCommissionId(record)}`
+                              ? `${(isCarried ? t("Carried balance", "رصيد مرحّل") : t("Admin-issued", "صادرة عن الإدارة"))} · ${displayCommissionId(record)}`
                               : displayTradeId(request, record.tradeId ?? record.purchaseRequestId);
                             const exactPayment = typeof record.paymentExpectedAmount === "number"
                               ? record.paymentExpectedAmount
@@ -3019,57 +3178,60 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                 <div className="flex min-w-0 items-start justify-between gap-3">
                                   <div className="min-w-0">
                                     <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-[#7F8490]">{t("Seller", "البائع")}</p>
-                                    <h3 className="mt-1 break-words text-base font-semibold text-white">{sellerName}</h3>
+                                    <h3 className="mt-1 break-words text-base font-semibold text-white">{currencyText(sellerName)}</h3>
                                     {isAdminIssued ? (
                                       <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-1.5">
                                         <span className="rounded-full border border-[#C9A227]/30 bg-[#C9A227]/10 px-2 py-0.5 text-[10px] font-semibold text-[#F4D87A]">
-                                          {t("Admin-issued", "صادرة عن الإدارة")}
+                                          {(isCarried ? t("Carried balance", "رصيد مرحّل") : t("Admin-issued", "صادرة عن الإدارة"))}
                                         </span>
-                                        <span className="break-all font-mono text-[11px] text-[#9CA3AF]">{displayCommissionId(record)}</span>
+                                        <span className="break-all font-mono text-[11px] text-[#9CA3AF]">{currencyText(displayCommissionId(record))}</span>
                                       </div>
                                     ) : (
-                                      <p className="mt-1 break-all font-mono text-[11px] text-[#9CA3AF]">{sourceLabel}</p>
+                                      <p className="mt-1 break-all font-mono text-[11px] text-[#9CA3AF]">{currencyText(sourceLabel)}</p>
                                     )}
                                   </div>
                                   <span className={`shrink-0 rounded-full border px-2.5 py-1 text-xs font-medium ${record.paymentStatus === "paid" ? "border-emerald-500/35 bg-emerald-500/10 text-emerald-300" : record.paymentStatus === "overdue" ? "border-red-500/35 bg-red-500/10 text-red-300" : "border-amber-500/35 bg-amber-500/10 text-amber-300"}`}>
-                                    {statusLabel(record.paymentStatus)}
+                                    {currencyText(statusLabel(record.paymentStatus))}
                                   </span>
                                 </div>
 
                                 <div className="mt-4 grid grid-cols-2 gap-2.5 sm:grid-cols-4">
                                   <div className="rounded-xl border border-[#C9A227]/20 bg-[#C9A227]/[0.07] p-3">
                                     <p className="text-[10px] uppercase tracking-[0.12em] text-[#A58A38]">{t("Commission", "العمولة")}</p>
-                                    <p className="mt-1 text-sm font-semibold text-[#F4D87A]">{formatUsdt(record.commissionAmount)}</p>
+                                    <p className="mt-1 text-sm font-semibold text-emerald-300">{currencyText(formatUsdt(record.commissionAmount))}</p>
+                                    {record.feePolicyVersion === "buyer_seller_1pct_v1" ? <p className="mt-1 text-xs text-emerald-300">{t("Seller 1%", "البائع 1%")}: {currencyText(formatUsdt(record.sellerFeeAmount ?? 0))} · {t("Buyer 1%", "المشتري 1%")}: {currencyText(formatUsdt(record.buyerFeeCollectedAmount ?? 0))}</p> : null}
                                   </div>
                                   <div className="rounded-xl border border-white/10 bg-black/20 p-3">
                                     <p className="text-[10px] uppercase tracking-[0.12em] text-[#7F8490]">{t("Exact payment", "الدفع الدقيق")}</p>
-                                    <p className="mt-1 text-sm font-medium text-white">{formatExactUsdt(exactPayment)}</p>
+                                    <p className="mt-1 text-sm font-medium text-white">{currencyText(formatExactUsdt(exactPayment))}</p>
                                   </div>
                                   <div className="rounded-xl border border-white/10 bg-black/20 p-3">
                                     <p className="text-[10px] uppercase tracking-[0.12em] text-[#7F8490]">{t("Trade value", "قيمة الصفقة")}</p>
-                                    <p className="mt-1 text-sm font-medium text-white">{isAdminIssued ? "—" : formatCurrency(record.grossAmount)}</p>
+                                    <p className="mt-1 text-sm font-medium text-white">{currencyText(isAdminIssued ? "—" : tradeCurrency ? formatCurrency(record.grossAmount, tradeCurrency) : t("Currency unavailable", "العملة غير متاحة"))}</p>
                                   </div>
                                   <div className="rounded-xl border border-white/10 bg-black/20 p-3">
                                     <p className="text-[10px] uppercase tracking-[0.12em] text-[#7F8490]">{t("Issued", "تاريخ الإصدار")}</p>
-                                    <p className="mt-1 text-xs font-medium leading-5 text-white">{formatDate(record.createdAt)}</p>
+                                    <p className="mt-1 text-xs font-medium leading-5 text-white">{currencyText(formatDate(record.createdAt))}</p>
                                   </div>
                                 </div>
 
                                 <div className="mt-3 rounded-xl border border-white/10 bg-black/20 px-3 py-2.5 text-sm">
                                   <p className="text-[10px] uppercase tracking-[0.12em] text-[#7F8490]">{isAdminIssued ? t("Reason", "السبب") : t("Buyer", "المشتري")}</p>
                                   <p className="mt-1 whitespace-pre-wrap break-words text-[#D1D5DB]">
-                                    {isAdminIssued
+                                    {currencyText(isCarried
+                                      ? t("Unpaid balance from an earlier verified commission payment. This is not an additional trading fee.", "رصيد غير مدفوع من دفعة عمولة سابقة تم التحقق منها. هذه ليست رسوم تداول إضافية.")
+                                      : isAdminIssued
                                       ? record.issueReason || t("Admin-issued seller obligation", "التزام بائع صادر عن الإدارة")
-                                      : request?.buyerName ?? record.buyerId ?? "—"}
+                                      : request?.buyerName ?? record.buyerId ?? "—")}
                                   </p>
                                 </div>
 
                                 {record.paymentSignature || record.paymentVerificationNotes ? (
                                   <div className="mt-3 rounded-xl border border-white/10 bg-black/20 px-3 py-2.5 text-xs text-[#9CA3AF]">
                                     {record.paymentSignature ? (
-                                      <p className="break-all"><span className="text-[#D1D5DB]">{t("Payment reference:", "مرجع الدفع:")}</span> {record.paymentSignature}</p>
+                                      <p className="break-all"><span className="text-[#D1D5DB]">{t("Payment reference:", "مرجع الدفع:")}</span> {currencyText(record.paymentSignature)}</p>
                                     ) : null}
-                                    {record.paymentVerificationNotes ? <p className="mt-1 break-words">{record.paymentVerificationNotes}</p> : null}
+                                    {record.paymentVerificationNotes ? <p className="mt-1 break-words">{currencyText(record.paymentVerificationNotes)}</p> : null}
                                   </div>
                                 ) : null}
 
@@ -3102,11 +3264,11 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                           size="sm"
                                           variant="secondary"
                                           className="w-full"
-                                          onClick={() => {
-                                            if (!window.confirm(t("Reject this commission payment verification?", "هل تريد رفض التحقق من دفع هذه العمولة؟"))) return;
-                                            const reason = requestReason(t("Reason for rejecting this commission:", "سبب رفض العمولة:"), t("Commission verification rejected.", "تم رفض التحقق من العمولة."));
+                                          onClick={async () => {
+                                            if (!(await confirmAction(t("Reject this commission payment verification?", "هل تريد رفض التحقق من دفع هذه العمولة؟")))) return;
+                                            const reason = (await requestReason(t("Reason for rejecting this commission:", "سبب رفض العمولة:"), t("Commission verification rejected.", "تم رفض التحقق من العمولة.")));
                                             if (!reason) return;
-                                            void runAction(fetch(`/api/alpha-exchange/admin/commissions/${record.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ paymentStatus: "pending", paymentVerificationStatus: "failed", paymentVerificationNotes: reason, reason }) }), t("Commission rejected.", "تم رفض العمولة."));
+                                            void runAction(prepareOwnerDashboardAction(`/api/alpha-exchange/admin/commissions/${record.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ paymentStatus: "pending", paymentVerificationStatus: "failed", paymentVerificationNotes: reason, reason }) }), t("Commission rejected.", "تم رفض العمولة."));
                                           }}
                                         >
                                           {t("Reject", "رفض")}
@@ -3118,11 +3280,11 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                           size="sm"
                                           variant="secondary"
                                           className="w-full"
-                                          onClick={() => {
-                                            if (!window.confirm(t("Reset this commission to pending?", "هل تريد إعادة هذه العمولة إلى قيد الانتظار؟"))) return;
-                                            const reason = requestReason(t("Reason for resetting this commission to pending:", "سبب إعادة العمولة إلى قيد الانتظار:"), t("Commission reset to pending.", "تمت إعادة العمولة إلى قيد الانتظار."));
+                                          onClick={async () => {
+                                            if (!(await confirmAction(t("Reset this commission to pending?", "هل تريد إعادة هذه العمولة إلى قيد الانتظار؟")))) return;
+                                            const reason = (await requestReason(t("Reason for resetting this commission to pending:", "سبب إعادة العمولة إلى قيد الانتظار:"), t("Commission reset to pending.", "تمت إعادة العمولة إلى قيد الانتظار.")));
                                             if (!reason) return;
-                                            void runAction(fetch(`/api/alpha-exchange/admin/commissions/${record.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ paymentStatus: "pending", paymentVerificationStatus: "pending_verification", paymentVerificationNotes: reason, reason }) }), t("Commission reset to pending.", "تمت إعادة العمولة إلى قيد الانتظار."));
+                                            void runAction(prepareOwnerDashboardAction(`/api/alpha-exchange/admin/commissions/${record.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ paymentStatus: "pending", paymentVerificationStatus: "pending_verification", paymentVerificationNotes: reason, reason }) }), t("Commission reset to pending.", "تمت إعادة العمولة إلى قيد الانتظار."));
                                           }}
                                         >
                                           {t("Reset Pending", "إعادة للانتظار")}
@@ -3192,21 +3354,20 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                             </thead>
                             <tbody>
                               {auditRows.rows.map((entry) => {
-                                const actor = sellersById.get(entry.actorUserId);
                                 return (
                                   <tr key={entry.id} className="border-t border-white/10">
-                                    <td className="px-4 py-3 text-[#D1D5DB]">{formatDate(entry.createdAt)}</td>
-                                    <td className="px-4 py-3 text-white">{actor?.fullName ?? entry.actorUserId}</td>
-                                    <td className="px-4 py-3 text-[#D1D5DB]">{actionLabel(entry.action)}</td>
+                                    <td className="px-4 py-3 text-[#D1D5DB]">{currencyText(formatDate(entry.createdAt))}</td>
+                                    <td className="px-4 py-3 text-white">{currencyText(accountLabel(entry.actorUserId))}</td>
+                                    <td className="px-4 py-3 text-[#D1D5DB]">{currencyText(actionLabel(entry.action))}</td>
                                     <td className="px-4 py-3 font-mono font-medium whitespace-nowrap text-[#D1D5DB]">
-                                      {entry.listingId
+                                      {currencyText(entry.listingId
                                         ? `${t("Listing", "العرض")} ${displayListingId(listingById.get(entry.listingId), entry.listingId)}`
                                         : entry.purchaseRequestId
                                           ? `${t("Trade", "الصفقة")} ${displayTradeId(requestsById.get(entry.purchaseRequestId), entry.purchaseRequestId)}`
-                                          : entry.targetUserId ?? t("system", "النظام")}
+                                          : entry.targetUserId ? accountLabel(entry.targetUserId) : t("system", "النظام"))}
                                     </td>
-                                    <td className="px-4 py-3 text-[#D1D5DB]">{entry.reason ?? "—"}</td>
-                                    <td className="px-4 py-3 text-[#D1D5DB]">{localizedAuditDetails(entry)}</td>
+                                    <td className="px-4 py-3 text-[#D1D5DB]">{currencyText(entry.reason ?? "—")}</td>
+                                    <td className="px-4 py-3 text-[#D1D5DB]">{currencyText(localizedAuditDetails(entry))}</td>
                                   </tr>
                                 );
                               })}
@@ -3236,11 +3397,11 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                   const copy = localizeNotificationCopy(entry, locale);
                                   return (
                                     <tr key={entry.id} className="border-t border-white/10">
-                                      <td className="px-4 py-3 text-[#D1D5DB]" title={formatDate(entry.createdAt)}>{formatNotificationRelativeTime(entry.createdAt, locale)}</td>
-                                      <td className="px-4 py-3 text-white">{sellersById.get(entry.userId)?.fullName ?? entry.userId}</td>
-                                      <td className="px-4 py-3 text-[#D1D5DB]">{notificationCategoryLabel(entry.category)}</td>
-                                      <td className="px-4 py-3 text-white">{replaceExchangeEntityIds(copy.title, displayLookup)}</td>
-                                      <td className="px-4 py-3 text-[#D1D5DB]">{replaceExchangeEntityIds(copy.message, displayLookup)}</td>
+                                      <td className="px-4 py-3 text-[#D1D5DB]" title={formatDate(entry.createdAt)}>{currencyText(formatNotificationRelativeTime(entry.createdAt, locale))}</td>
+                                      <td className="px-4 py-3 text-white">{currencyText(accountLabel(entry.userId))}</td>
+                                      <td className="px-4 py-3 text-[#D1D5DB]">{currencyText(notificationCategoryLabel(entry.category))}</td>
+                                      <td className="px-4 py-3 text-white">{currencyText(replaceExchangeEntityIds(copy.title, displayLookup))}</td>
+                                      <td className="px-4 py-3 text-[#D1D5DB]">{currencyText(replaceExchangeEntityIds(copy.message, displayLookup))}</td>
                                     </tr>
                                   );
                                 })}
@@ -3261,6 +3422,12 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                         <CardDescription>{t("Recent lifecycle messages. Recipient numbers are always masked.", "أحدث الرسائل التشغيلية. أرقام المستلمين مخفية دائمًا.")}</CardDescription>
                       </CardHeader>
                       <CardContent>
+                        {smsHistoryState === "loading" ? <p role="status" className="py-4 text-sm text-[#D1D5DB]">{t("Loading SMS delivery history…", "جارٍ تحميل سجل رسائل SMS…")}</p> : null}
+                        {smsHistoryState === "error" ? <div className="space-y-3 py-4">
+                          <p role="alert" className="text-sm text-amber-200">{t("SMS delivery history could not be loaded. Try again.", "تعذر تحميل سجل رسائل SMS. أعد المحاولة.")}</p>
+                          <Button type="button" variant="secondary" onClick={() => void fetchSmsDeliveries()}>{t("Retry SMS history", "إعادة تحميل سجل رسائل SMS")}</Button>
+                        </div> : null}
+                        {smsHistoryState === "ready" ? <>
                         <div className="overflow-x-auto rounded-xl border border-white/10">
                           <table className="w-full min-w-[1320px] text-sm">
                             <thead className="bg-white/[0.03] text-left text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">
@@ -3288,21 +3455,21 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                 const deliveryTimestamp = delivery.deliveredAt ?? delivery.failedAt ?? delivery.sentAt;
                                 return (
                                   <tr key={delivery.id} className="border-t border-white/10">
-                                    <td className="px-4 py-3 font-mono text-white">{delivery.recipientPhoneMasked}</td>
-                                    <td className="px-4 py-3 text-[#D1D5DB]">{smsEventLabel(delivery.eventType)}</td>
+                                    <td className="px-4 py-3 font-mono text-white">{currencyText(delivery.recipientPhoneMasked)}</td>
+                                    <td className="px-4 py-3 text-[#D1D5DB]">{currencyText(smsEventLabel(delivery.eventType))}</td>
                                     <td className="px-4 py-3">
                                       <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-medium capitalize ${statusClass}`}>
-                                        {statusLabel(delivery.status)}
+                                        {currencyText(statusLabel(delivery.status))}
                                       </span>
                                     </td>
                                     <td className="px-4 py-3 text-[#D1D5DB]">{delivery.retryCount}</td>
-                                    <td className="px-4 py-3 font-mono text-xs text-[#D1D5DB]">{delivery.twilioMessageSid ?? "—"}</td>
-                                    <td className="px-4 py-3 text-[#D1D5DB]">{formatDate(delivery.createdAt)}</td>
-                                    <td className="px-4 py-3 text-[#D1D5DB]">{formatDate(delivery.updatedAt)}</td>
-                                    <td className="px-4 py-3 text-[#D1D5DB]">{deliveryTimestamp ? formatDate(deliveryTimestamp) : "—"}</td>
-                                    <td className="max-w-xs px-4 py-3 text-[#D1D5DB]">{delivery.lastError
+                                    <td className="px-4 py-3 font-mono text-xs text-[#D1D5DB]">{currencyText(delivery.twilioMessageSid ?? "—")}</td>
+                                    <td className="px-4 py-3 text-[#D1D5DB]">{currencyText(formatDate(delivery.createdAt))}</td>
+                                    <td className="px-4 py-3 text-[#D1D5DB]">{currencyText(formatDate(delivery.updatedAt))}</td>
+                                    <td className="px-4 py-3 text-[#D1D5DB]">{currencyText(deliveryTimestamp ? formatDate(deliveryTimestamp) : "—")}</td>
+                                    <td className="max-w-xs px-4 py-3 text-[#D1D5DB]">{currencyText(delivery.lastError
                                       ? isArabic && !/[\u0600-\u06ff]/.test(delivery.lastError) ? "تعذّر تسليم الرسالة." : delivery.lastError
-                                      : "—"}</td>
+                                      : "—")}</td>
                                   </tr>
                                 );
                               })}
@@ -3311,6 +3478,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                           </table>
                         </div>
                         {renderPagination(smsDeliveryRows.safePage, smsDeliveryRows.totalPages, setSmsDeliveriesPage)}
+                        </> : null}
                       </CardContent>
                     </Card>
                   ) : null}
@@ -3327,7 +3495,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                           <p>{t("Resolved Cases:", "الحالات المحلولة:")} <span className="text-white">{data.enforcement.metrics.resolvedCases}</span></p>
                           <p>{t("Revoked Sellers:", "البائعون الملغون:")} <span className="text-white">{data.enforcement.metrics.revokedCases}</span></p>
                           <p>{t("Total Cases:", "إجمالي الحالات:")} <span className="text-white">{data.enforcement.metrics.totalCases}</span></p>
-                          <p>{t("Outstanding Fees:", "الرسوم المستحقة:")} <span className="text-white">{formatUsdt(data.enforcement.metrics.outstandingFeeAmountUsdt)}</span></p>
+                          <p>{t("Outstanding Fees:", "الرسوم المستحقة:")} <span className="text-white">{currencyText(formatUsdt(data.enforcement.metrics.outstandingFeeAmountUsdt))}</span></p>
                         </CardContent>
                       </Card>
 
@@ -3353,14 +3521,14 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                 {data.enforcement.activeCases.map((record) => (
                                   <tr key={record.id} className="border-t border-white/10">
                                     <td className="px-4 py-3">
-                                      <p className="font-medium text-white">{record.sellerName}</p>
-                                      <p className="text-xs text-[#9CA3AF]">{record.sellerEmail}</p>
+                                      <p className="font-medium text-white">{currencyText(record.sellerName)}</p>
+                                      <p className="text-xs text-[#9CA3AF]">{currencyText(record.sellerEmail)}</p>
                                     </td>
                                     <td className="px-4 py-3 text-[#D1D5DB]">#{record.violationNumber}</td>
-                                    <td className="px-4 py-3 text-[#FDE68A]">{record.feeAmount.toFixed(2)} {record.feeCurrency}</td>
-                                    <td className="px-4 py-3 text-[#D1D5DB]">{formatDate(record.issuedAt)}</td>
-                                    <td className="px-4 py-3 text-[#D1D5DB]">{record.dueAt ? formatDate(record.dueAt) : "—"}</td>
-                                    <td className="px-4 py-3 text-[#D1D5DB]">{record.reason}</td>
+                                    <td className="px-4 py-3 text-[#FDE68A]">{currencyText(`${record.feeAmount.toFixed(2)} ${record.feeCurrency}`)}</td>
+                                    <td className="px-4 py-3 text-[#D1D5DB]">{currencyText(formatDate(record.issuedAt))}</td>
+                                    <td className="px-4 py-3 text-[#D1D5DB]">{currencyText(record.dueAt ? formatDate(record.dueAt) : "—")}</td>
+                                    <td className="px-4 py-3 text-[#D1D5DB]">{currencyText(record.reason)}</td>
                                   </tr>
                                 ))}
                                 {data.enforcement.activeCases.length === 0 ? renderEmptyTableRow(t("No active compliance cases.", "لا توجد حالات امتثال نشطة."), 6) : null}
@@ -3391,12 +3559,12 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                               <tbody>
                                 {enforcementRows.rows.map((entry) => (
                                   <tr key={entry.id} className="border-t border-white/10">
-                                    <td className="px-4 py-3 text-[#D1D5DB]">{formatDate(entry.createdAt)}</td>
-                                    <td className="px-4 py-3 text-white">{entry.sellerName}</td>
-                                    <td className="px-4 py-3 text-[#D1D5DB]">{actionLabel(entry.action)}</td>
-                                    <td className="px-4 py-3 text-[#D1D5DB]">{entry.actorName}</td>
-                                    <td className="px-4 py-3 text-[#D1D5DB]">{entry.reason ?? "—"}</td>
-                                    <td className="px-4 py-3 text-[#D1D5DB]">{entry.notes ?? "—"}</td>
+                                    <td className="px-4 py-3 text-[#D1D5DB]">{currencyText(formatDate(entry.createdAt))}</td>
+                                    <td className="px-4 py-3 text-white">{currencyText(entry.sellerName)}</td>
+                                    <td className="px-4 py-3 text-[#D1D5DB]">{currencyText(actionLabel(entry.action))}</td>
+                                    <td className="px-4 py-3 text-[#D1D5DB]">{currencyText(entry.actorName)}</td>
+                                    <td className="px-4 py-3 text-[#D1D5DB]">{currencyText(entry.reason ?? "—")}</td>
+                                    <td className="px-4 py-3 text-[#D1D5DB]">{currencyText(entry.notes ?? "—")}</td>
                                   </tr>
                                 ))}
                                 {enforcementRows.rows.length === 0 ? renderEmptyTableRow(t("No compliance activity yet.", "لا يوجد نشاط امتثال بعد."), 6) : null}
@@ -3446,11 +3614,11 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                               <tbody>
                                 {data.privateBeta.inviteCodes.slice(0, 20).map((invite) => (
                                   <tr key={invite.id} className="border-t border-white/10">
-                                    <td className="px-4 py-3 text-white">{invite.code}</td>
-                                    <td className="px-4 py-3 text-[#D1D5DB]">{statusLabel(invite.status)}</td>
+                                    <td className="px-4 py-3 text-white">{currencyText(invite.code)}</td>
+                                    <td className="px-4 py-3 text-[#D1D5DB]">{currencyText(statusLabel(invite.status))}</td>
                                     <td className="px-4 py-3 text-[#D1D5DB]">{invite.usedCount}/{invite.maxUses}</td>
-                                    <td className="px-4 py-3 text-[#D1D5DB]">{invite.expiresAt ? formatDate(invite.expiresAt) : t("No expiry", "بلا انتهاء")}</td>
-                                    <td className="px-4 py-3 text-[#D1D5DB]">{formatDate(invite.createdAt)}</td>
+                                    <td className="px-4 py-3 text-[#D1D5DB]">{currencyText(invite.expiresAt ? formatDate(invite.expiresAt) : t("No expiry", "بلا انتهاء"))}</td>
+                                    <td className="px-4 py-3 text-[#D1D5DB]">{currencyText(formatDate(invite.createdAt))}</td>
                                     <td className="px-4 py-3">
                                       <div className="flex items-center gap-2">
                                         <Button type="button" size="sm" variant="secondary" onClick={() => void handleInviteStatus(invite.id, "expire")}>
@@ -3479,9 +3647,9 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                               <tbody>
                                 {data.privateBeta.inviteUses.slice(0, 20).map((use) => (
                                   <tr key={use.id} className="border-t border-white/10">
-                                    <td className="px-4 py-3 text-white">{use.code}</td>
-                                    <td className="px-4 py-3 text-[#D1D5DB]">{use.usedByEmail}</td>
-                                    <td className="px-4 py-3 text-[#D1D5DB]">{formatDate(use.usedAt)}</td>
+                                    <td className="px-4 py-3 text-white">{currencyText(use.code)}</td>
+                                    <td className="px-4 py-3 text-[#D1D5DB]">{currencyText(use.usedByEmail)}</td>
+                                    <td className="px-4 py-3 text-[#D1D5DB]">{currencyText(formatDate(use.usedAt))}</td>
                                   </tr>
                                 ))}
                                 {!data.privateBeta.inviteUses.length ? renderEmptyTableRow(t("No used invites yet.", "لا توجد دعوات مستخدمة بعد."), 3) : null}
@@ -3510,9 +3678,9 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                             <div className="space-y-2">
                               {betaFeedbackRows.map((entry) => (
                                 <div key={entry.id} className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs">
-                                  <p className="text-white">{feedbackCategoryLabel(entry.category)} • {statusLabel(entry.status)}</p>
-                                  <p className="mt-1 text-[#D1D5DB]">{replaceExchangeEntityIds(entry.message, displayLookup)}</p>
-                                  <p className="mt-1 text-[#9CA3AF]">{formatDate(entry.createdAt)}</p>
+                                  <p className="text-white">{feedbackCategoryLabel(entry.category)} • {currencyText(statusLabel(entry.status))}</p>
+                                  <p className="mt-1 text-[#D1D5DB]">{currencyText(replaceExchangeEntityIds(entry.message, displayLookup))}</p>
+                                  <p className="mt-1 text-[#9CA3AF]">{currencyText(formatDate(entry.createdAt))}</p>
                                   <div className="mt-2 flex gap-2">
                                     <Button type="button" size="sm" variant="secondary" onClick={() => void handleFeedbackStatus(entry.id, "in_review")}>{t("In Review", "قيد المراجعة")}</Button>
                                     <Button type="button" size="sm" variant="secondary" onClick={() => void handleFeedbackStatus(entry.id, "resolved")}>{t("Resolve", "حلّ")}</Button>
@@ -3594,8 +3762,8 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                               {data.privateBeta.announcements.slice(0, 10).map((announcement) => (
                                 <div key={announcement.id} className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs">
                                   <div dir={isArabic ? "rtl" : "ltr"} lang={locale}>
-                                    <p className="font-medium text-white">{isArabic ? announcement.titleAr || announcement.title : announcement.titleEn || announcement.title}</p>
-                                    <p className="mt-1 text-[#D1D5DB]">{isArabic ? announcement.messageAr || announcement.message : announcement.messageEn || announcement.message}</p>
+                                    <p className="font-medium text-white">{currencyText(isArabic ? announcement.titleAr || announcement.title : announcement.titleEn || announcement.title)}</p>
+                                    <p className="mt-1 text-[#D1D5DB]">{currencyText(isArabic ? announcement.messageAr || announcement.message : announcement.messageEn || announcement.message)}</p>
                                   </div>
                                   <p className="mt-2 text-[#9CA3AF]">
                                     {announcement.type === "maintenance"
@@ -3605,7 +3773,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                         : announcement.type === "bug_fix"
                                           ? t("Bug Fix", "إصلاح خلل")
                                           : t("Known Issue", "مشكلة معروفة")}
-                                    {" • "}{formatDate(announcement.createdAt)}{" • "}{announcement.isActive ? t("Active", "نشط") : t("Disabled", "معطّل")}
+                                    {" • "}{currencyText(formatDate(announcement.createdAt))}{" • "}{announcement.isActive ? t("Active", "نشط") : t("Disabled", "معطّل")}
                                   </p>
                                   <Button type="button" size="sm" variant="secondary" className="mt-2" onClick={() => void handleAnnouncementState(announcement, !announcement.isActive)}>
                                     {announcement.isActive ? t("Disable", "تعطيل") : t("Enable", "تفعيل")}
@@ -3629,19 +3797,19 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                         </CardHeader>
                         <CardContent className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                           {[
-                            { label: t("Active Trades", "الصفقات النشطة"), value: (data.purchaseRequests ?? []).filter((r) => r.status !== "completed" && r.status !== "cancelled" && r.status !== "declined").length },
-                            { label: t("Completed Trades", "الصفقات المكتملة"), value: (data.purchaseRequests ?? []).filter((r) => r.status === "completed").length },
+                            { label: t("Active Trades", "الصفقات النشطة"), value: (data.purchaseRequests ?? []).filter(isActiveOwnerTrade).length },
+                            { label: t("Completed Trades", "الصفقات المكتملة"), value: (data.purchaseRequests ?? []).filter(isCompletedOwnerTrade).length },
                             { label: t("Open Listings", "العروض المفتوحة"), value: (data.listings ?? []).filter((l) => l.status === "active").length },
-                            { label: t("Revenue Today (est.)", "إيراد اليوم (تقديري)"), value: formatCurrency(data.ownerBusiness.today.estimatedCommission) },
-                            { label: t("Revenue This Week", "إيراد هذا الأسبوع"), value: formatCurrency(data.ownerBusiness.financialOverview.estimatedCommissionThisWeek) },
-                            { label: t("Revenue This Month", "إيراد هذا الشهر"), value: formatCurrency(data.ownerBusiness.financialOverview.estimatedCommissionThisMonth) },
+                            { label: t("Estimated Commission Today", "العمولة المقدرة لليوم"), value: formatUsdt(data.ownerBusiness.today.estimatedCommission) },
+                            { label: t("Estimated Commission This Week", "العمولة المقدرة لهذا الأسبوع"), value: formatUsdt(data.ownerBusiness.financialOverview.estimatedCommissionThisWeek) },
+                            { label: t("Estimated Commission This Month", "العمولة المقدرة لهذا الشهر"), value: formatUsdt(data.ownerBusiness.financialOverview.estimatedCommissionThisMonth) },
                             { label: t("Volume Today", "حجم اليوم"), value: formatUsdt(data.ownerBusiness.today.tradeVolumeUsdt) },
                             { label: t("Top Seller (Week)", "أفضل بائع (الأسبوع)"), value: data.ownerBusiness.thisWeek.topSeller || "—" },
                           ].map((stat) => (
                             <Card key={stat.label} className="border-white/10 bg-black/20">
                               <CardHeader className="pb-2">
-                                <CardDescription className="text-xs uppercase tracking-[0.15em] text-[#9CA3AF]">{stat.label}</CardDescription>
-                                <CardTitle className="text-xl">{stat.value}</CardTitle>
+                                <CardDescription className="text-xs uppercase tracking-[0.15em] text-[#9CA3AF]">{currencyText(stat.label)}</CardDescription>
+                                <CardTitle className="text-xl">{currencyText(stat.value)}</CardTitle>
                               </CardHeader>
                             </Card>
                           ))}
@@ -3654,13 +3822,13 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                     <Card className="border-white/10 bg-[#0B0B0B]/90">
                       <CardHeader>
                         <CardTitle>{t("User Management", "إدارة المستخدمين")}</CardTitle>
-                        <CardDescription>{t("Manage all platform users, roles, and account states.", "أدر مستخدمي المنصة وأدوارهم وحالات حساباتهم.")}</CardDescription>
+                        <CardDescription>{t("Manage all platform users, private contact numbers, roles, and account states.", "أدر مستخدمي المنصة وأرقام التواصل الخاصة وأدوارهم وحالات حساباتهم.")}</CardDescription>
                       </CardHeader>
                       <CardContent>
                         <div className="grid gap-3 md:grid-cols-3">
                           <div className="relative md:col-span-2">
                             <Search className="pointer-events-none absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#9CA3AF]" />
-                            <Input className="ps-9" placeholder={t("Search name, email, role...", "ابحث بالاسم أو البريد أو الدور...")} value={usersQuery} onChange={(event) => { setUsersQuery(event.target.value); setUsersPage(1); }} />
+                            <Input className="ps-9" placeholder={t("Search name, email, WhatsApp, role...", "ابحث بالاسم أو البريد أو واتساب أو الدور...")} value={usersQuery} onChange={(event) => { setUsersQuery(event.target.value); setUsersPage(1); }} />
                           </div>
                           <select value={usersRoleFilter} onChange={(event) => { setUsersRoleFilter(event.target.value); setUsersPage(1); }} className="flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 text-sm text-white">
                             <option value="all">{t("Role: All", "الدور: الكل")}</option>
@@ -3679,6 +3847,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                               <tr>
                                 <th className="px-4 py-3">{t("Name", "الاسم")}</th>
                                 <th className="px-4 py-3">{t("Email", "البريد الإلكتروني")}</th>
+                                <th className="px-4 py-3">{t("WhatsApp", "واتساب")}</th>
                                 <th className="px-4 py-3">{t("Role", "الدور")}</th>
                                 <th className="px-4 py-3">{t("Status", "الحالة")}</th>
                                 <th className="px-4 py-3">{t("Joined", "تاريخ الانضمام")}</th>
@@ -3688,30 +3857,27 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                             <tbody>
                               {usersRows.rows.map((user) => (
                                 <tr key={user.id} className="border-t border-white/10">
-                                  <td className="px-4 py-3 font-medium text-white">{user.fullName}</td>
-                                  <td className="px-4 py-3 text-[#D1D5DB]">{user.email}</td>
-                                  <td className="px-4 py-3 text-[#D1D5DB]">{roleLabel(user.role)}</td>
+                                  <td className="px-4 py-3 font-medium text-white">{currencyText(user.fullName)}</td>
+                                  <td className="px-4 py-3 text-[#D1D5DB]">{currencyText(user.email)}</td>
+                                  <td className="whitespace-nowrap px-4 py-3 text-[#D1D5DB]" dir="ltr">{currencyText(user.whatsappNumber || t("Not provided", "غير مُقدّم"))}</td>
+                                  <td className="px-4 py-3 text-[#D1D5DB]">{currencyText(roleLabel(user.role))}</td>
                                   <td className="px-4 py-3">
                                     {user.disabled ? (
                                       <span className="rounded-full border border-red-500/35 bg-red-500/10 px-2.5 py-1 text-xs text-red-300">{t("Disabled", "معطّل")}</span>
                                     ) : (
                                       <span className="rounded-full border border-emerald-500/35 bg-emerald-500/10 px-2.5 py-1 text-xs text-emerald-300">{t("Active", "نشط")}</span>
                                     )}
+                                    <p className="mt-2 text-xs text-[#9CA3AF]">{t("Seller access", "صلاحية البائع")}: {currencyText(roleLabel(user.sellerStatus ?? "buyer"))}</p>
                                   </td>
-                                  <td className="px-4 py-3 text-[#D1D5DB]">{formatDate(user.createdAt)}</td>
+                                  <td className="px-4 py-3 text-[#D1D5DB]">{currencyText(formatDate(user.createdAt))}</td>
                                   <td className="px-4 py-3">
                                     <div className="flex flex-wrap items-center gap-2">
-                                      <Button type="button" size="sm" variant="secondary" onClick={() => void handleChangeUserRole(user.id, user.role)}>
-                                        {t("Change Role", "تغيير الدور")}
-                                      </Button>
-                                      <Button type="button" size="sm" variant="secondary" onClick={() => void handleDisableUser(user.id, !user.disabled)} className={user.disabled ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20" : "border-red-500/40 bg-red-500/10 text-red-300 hover:bg-red-500/20"}>
-                                        {user.disabled ? t("Enable", "تفعيل") : t("Disable", "تعطيل")}
-                                      </Button>
+                                      {isOwner ? <Button type="button" size="sm" variant="secondary" disabled={Boolean(ownerAccountTarget) || rankMgmtSaving.size > 0 || isProtectedOwnerTarget(user)} onClick={() => openOwnerAccount(user)}>{t("Manage account", "إدارة الحساب")}</Button> : null}
                                     </div>
                                   </td>
                                 </tr>
                               ))}
-                              {usersRows.rows.length === 0 ? renderEmptyTableRow(t("No users match your filters.", "لا يوجد مستخدمون يطابقون الفلاتر."), 6) : null}
+                              {usersRows.rows.length === 0 ? renderEmptyTableRow(t("No users match your filters.", "لا يوجد مستخدمون يطابقون الفلاتر."), 7) : null}
                             </tbody>
                           </table>
                         </div>
@@ -3748,10 +3914,10 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                 const seller = sellersById.get(review.sellerId);
                                 return (
                                   <tr key={review.id} className="border-t border-white/10">
-                                    <td className="px-4 py-3 text-white">{seller?.fullName ?? review.sellerId}</td>
-                                    <td className="px-4 py-3 text-[#D1D5DB]">{review.buyerId}</td>
-                                    <td className="px-4 py-3 text-[#C9A227]">{"★".repeat(review.rating)}{"☆".repeat(5 - review.rating)}</td>
-                                    <td className="px-4 py-3 max-w-[260px] truncate text-[#D1D5DB]">{review.comment}</td>
+                                    <td className="px-4 py-3 text-white">{currencyText(seller?.fullName ?? review.sellerId)}</td>
+                                    <td className="px-4 py-3 text-[#D1D5DB]">{currencyText(review.buyerId)}</td>
+                                    <td className="px-4 py-3 text-[#C9A227]">{currencyText("★".repeat(review.rating))}{currencyText("☆".repeat(5 - review.rating))}</td>
+                                    <td className="px-4 py-3 max-w-[260px] truncate text-[#D1D5DB]">{currencyText(review.comment)}</td>
                                     <td className="px-4 py-3">
                                       {review.hidden ? (
                                         <span className="rounded-full border border-red-500/35 bg-red-500/10 px-2.5 py-1 text-xs text-red-300">{t("Hidden", "مخفي")}</span>
@@ -3800,15 +3966,15 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                         </CardHeader>
                         <CardContent className="space-y-3">
                           {systemHealthError ? (
-                            <p role="alert" className="rounded-xl border border-red-500/35 bg-red-500/10 p-3 text-sm text-red-200">{systemHealthError}</p>
+                            <p role="alert" className="rounded-xl border border-red-500/35 bg-red-500/10 p-3 text-sm text-red-200">{currencyText(systemHealthError)}</p>
                           ) : null}
                           {systemHealth ? (
                             <div className="flex flex-wrap items-center gap-3 text-sm text-[#D1D5DB]">
                               <span className={`rounded-full border px-3 py-1 font-medium ${systemHealth.status === "healthy" ? "border-emerald-500/35 bg-emerald-500/10 text-emerald-300" : "border-amber-500/35 bg-amber-500/10 text-amber-300"}`}>
                                 {systemHealth.status === "healthy" ? t("All systems healthy", "جميع الأنظمة تعمل") : t("Attention required", "تحتاج إلى مراجعة")}
                               </span>
-                              <span>{t("Last checked", "آخر فحص")}: {formatDate(systemHealth.checkedAt)}</span>
-                              <span>{t("Release", "الإصدار")}: <bdi dir="ltr">{systemHealth.release}</bdi></span>
+                              <span>{t("Last checked", "آخر فحص")}: {currencyText(formatDate(systemHealth.checkedAt))}</span>
+                              <span>{t("Release", "الإصدار")}: <bdi dir="ltr">{currencyText(systemHealth.release)}</bdi></span>
                               <span>{t("Check time", "مدة الفحص")}: {systemHealth.durationMs} ms</span>
                             </div>
                           ) : systemHealthLoading ? (
@@ -3827,10 +3993,10 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                   {t("Marketplace Operational Guard", "مراقبة عمليات السوق")}
                                 </CardTitle>
                                 <CardDescription className="mt-2">
-                                  {t(
+                                  {currencyText(t(
                                     "Detects stuck trades, unanswered price offers, overdue USDT releases, and broken listing locks.",
                                     "يرصد الصفقات المتوقفة وعروض الأسعار بلا رد وتأخر إرسال USDT وأقفال العروض غير السليمة.",
-                                  )}
+                                  ))}
                                 </CardDescription>
                               </div>
                               <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${systemHealth.operations.status === "critical" ? "border-red-500/40 bg-red-500/10 text-red-200" : systemHealth.operations.status === "attention" ? "border-amber-500/40 bg-amber-500/10 text-amber-200" : "border-emerald-500/35 bg-emerald-500/10 text-emerald-200"}`}>
@@ -3854,7 +4020,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                               ].map((metric) => (
                                 <div key={metric.key} className={`rounded-2xl border p-3 ${metric.alert ? "border-amber-500/35 bg-amber-500/10" : "border-white/10 bg-black/20"}`}>
                                   <p className={`text-2xl font-semibold ${metric.alert ? "text-amber-200" : "text-white"}`}>{metric.value}</p>
-                                  <p className="mt-1 text-xs leading-5 text-[#B7BDC8]">{metric.label}</p>
+                                  <p className="mt-1 text-xs leading-5 text-[#B7BDC8]">{currencyText(metric.label)}</p>
                                 </div>
                               ))}
                             </div>
@@ -3865,9 +4031,9 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                 {systemHealth.operations.incidents.map((incident) => (
                                   <div key={incident.id} className={`flex flex-col gap-3 rounded-2xl border p-3 sm:flex-row sm:items-center sm:justify-between ${incident.severity === "critical" ? "border-red-500/30 bg-red-500/10" : "border-amber-500/25 bg-amber-500/10"}`}>
                                     <div className="min-w-0">
-                                      <p className="text-sm font-medium text-white">{operationalIncidentLabel(incident.kind, isArabic)}</p>
+                                      <p className="text-sm font-medium text-white">{currencyText(operationalIncidentLabel(incident.kind, isArabic))}</p>
                                       <p className="mt-1 text-xs text-[#D1D5DB]">
-                                        {incident.requestId ? <><span>{t("Request", "الطلب")}: </span><bdi dir="ltr">{formatRequestId(incident.requestId)}</bdi></> : <><span>{t("Listing", "العرض")}: </span><bdi dir="ltr">{formatListingId(incident.listingId ?? "")}</bdi></>}
+                                        {incident.requestId ? <><span>{t("Request", "الطلب")}: </span><bdi dir="ltr">{currencyText(formatRequestId(incident.requestId))}</bdi></> : <><span>{t("Listing", "العرض")}: </span><bdi dir="ltr">{currencyText(formatListingId(incident.listingId ?? ""))}</bdi></>}
                                         <span> · {incident.ageMinutes} {t("min", "دقيقة")}</span>
                                       </p>
                                     </div>
@@ -3903,14 +4069,14 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                               <Card key={check.key} className={`bg-black/20 ${healthy ? "border-emerald-500/20" : "border-amber-500/35"}`}>
                                 <CardHeader className="pb-3">
                                   <div className="flex items-start justify-between gap-3">
-                                    <CardTitle className="text-base">{isArabic ? arabicLabels[check.key] : check.label}</CardTitle>
+                                    <CardTitle className="text-base">{currencyText(isArabic ? arabicLabels[check.key] : check.label)}</CardTitle>
                                     <span className={`rounded-full border px-2.5 py-1 text-xs ${healthy ? "border-emerald-500/35 bg-emerald-500/10 text-emerald-300" : "border-amber-500/35 bg-amber-500/10 text-amber-300"}`}>
                                       {healthy ? t("Healthy", "يعمل") : t("Review", "مراجعة")}
                                     </span>
                                   </div>
                                 </CardHeader>
                                 <CardContent className="space-y-2 pt-0 text-sm text-[#D1D5DB]">
-                                  <p>{isArabic ? (healthy ? "الخدمة متاحة وتعمل بشكل طبيعي." : "الخدمة تحتاج إلى مراجعة من المالك.") : check.detail}</p>
+                                  <p>{currencyText(isArabic ? (healthy ? "الخدمة متاحة وتعمل بشكل طبيعي." : "الخدمة تحتاج إلى مراجعة من المالك.") : check.detail)}</p>
                                   {typeof check.latencyMs === "number" ? <p className="text-xs text-[#9CA3AF]">{t("Latency", "زمن الاستجابة")}: {check.latencyMs} ms</p> : null}
                                 </CardContent>
                               </Card>
@@ -4025,9 +4191,9 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                 variant="secondary"
                                 size="sm"
                                 className="border-red-500/40 bg-red-500/10 text-red-300 hover:bg-red-500/20"
-                                onClick={() => {
-                                  if (!window.confirm(t("Force-expire all overdue listings? This cannot be undone.", "هل تريد إنهاء جميع العروض المتأخرة إجباريًا؟ لا يمكن التراجع عن ذلك."))) return;
-                                  void runAction(fetch("/api/alpha-exchange/admin/listings/force-expire", { method: "POST" }), t("Expired listings force-closed.", "تم إغلاق العروض المنتهية إجباريًا."));
+                                onClick={async () => {
+                                  if (!(await confirmAction(t("Force-expire all overdue listings? This cannot be undone.", "هل تريد إنهاء جميع العروض المتأخرة إجباريًا؟ لا يمكن التراجع عن ذلك.")))) return;
+                                  void runAction(prepareOwnerDashboardAction("/api/alpha-exchange/admin/listings/force-expire", { method: "POST" }), t("Expired listings force-closed.", "تم إغلاق العروض المنتهية إجباريًا."));
                                 }}
                               >
                                 {t("Run Now", "تنفيذ الآن")}
@@ -4041,11 +4207,11 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                 variant="secondary"
                                 size="sm"
                                 className="border-amber-500/40 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20"
-                                onClick={() => {
-                                  if (!window.confirm(t("Recalculate trust scores now? This may take a moment.", "هل تريد إعادة حساب درجات الثقة الآن؟ قد يستغرق ذلك بعض الوقت."))) return;
-                                  const reason = requestReason(t("Reason for recalculating trust scores:", "سبب إعادة حساب درجات الثقة:"), t("Launch trust recalculation", "إعادة حساب الثقة من الإدارة"));
+                                onClick={async () => {
+                                  if (!(await confirmAction(t("Recalculate trust scores now? This may take a moment.", "هل تريد إعادة حساب درجات الثقة الآن؟ قد يستغرق ذلك بعض الوقت.")))) return;
+                                  const reason = (await requestReason(t("Reason for recalculating trust scores:", "سبب إعادة حساب درجات الثقة:"), t("Launch trust recalculation", "إعادة حساب الثقة من الإدارة")));
                                   if (!reason) return;
-                                  void runAction(fetch("/api/alpha-exchange/admin/trust/recalculate-all", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ reason }) }), t("Trust score recalculation triggered.", "بدأت إعادة حساب درجات الثقة."));
+                                  void runAction(prepareOwnerDashboardAction("/api/alpha-exchange/admin/trust/recalculate-all", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ reason }) }), t("Trust score recalculation triggered.", "بدأت إعادة حساب درجات الثقة."));
                                 }}
                               >
                                 {t("Run Now", "تنفيذ الآن")}
@@ -4101,7 +4267,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                             </Button>
                             {data.complianceSettings?.recoveryWallet ? (
                               <p className="text-xs text-[#9CA3AF]">
-                                {t("Current:", "الحالية:")} <span className="text-white">{data.complianceSettings.recoveryWallet.network}</span> • {data.complianceSettings.recoveryWallet.walletAddress}
+                                {t("Current:", "الحالية:")} <span className="text-white">{data.complianceSettings.recoveryWallet.network}</span> • {currencyText(data.complianceSettings.recoveryWallet.walletAddress)}
                               </p>
                             ) : (
                               <p className="text-xs text-amber-300">{t("No recovery wallet configured yet.", "لم يتم إعداد محفظة استرداد بعد.")}</p>
@@ -4126,37 +4292,37 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
               className="alpha-modal-panel modal-panel max-h-[90vh] w-full max-w-5xl overflow-y-auto"
             >
               <div className="flex items-center justify-between">
-                <h3 id="admin-seller-dialog-title" className="text-xl font-semibold">{selectedSeller.fullName}</h3>
+                <h3 id="admin-seller-dialog-title" className="text-xl font-semibold">{currencyText(selectedSeller.fullName)}</h3>
                 <button type="button" aria-label={t("Close seller profile", "إغلاق ملف البائع")} onClick={() => setSelectedSeller(null)} className="rounded-full border border-white/15 p-2 text-[#9CA3AF] transition hover:text-white">
                   <X className="h-4 w-4" />
                 </button>
               </div>
               <div className="mt-4 grid gap-2 text-sm text-[#D1D5DB]">
-                <p>{t("Email:", "البريد الإلكتروني:")} <span className="text-white">{selectedSeller.email}</span></p>
-                <p>{t("WhatsApp:", "واتساب:")} <span className="text-white" dir="ltr">{selectedSeller.whatsappNumber}</span></p>
-                <p>{t("Member Since:", "عضو منذ:")} <span className="text-white">{formatDate(selectedSeller.createdAt)}</span></p>
-                <p>{t("Status:", "الحالة:")} <span className="text-white">{statusLabel(selectedSeller.sellerStatus)}</span></p>
-                <p>{t("Availability:", "التوفر:")} <span className="text-white">{statusLabel(selectedSeller.availabilityStatus ?? "available")}</span></p>
+                <p>{t("Email:", "البريد الإلكتروني:")} <span className="text-white">{currencyText(selectedSeller.email)}</span></p>
+                <p>{t("WhatsApp:", "واتساب:")} <span className="text-white" dir="ltr">{currencyText(selectedSeller.whatsappNumber)}</span></p>
+                <p>{t("Member Since:", "عضو منذ:")} <span className="text-white">{currencyText(formatDate(selectedSeller.createdAt))}</span></p>
+                <p>{t("Status:", "الحالة:")} <span className="text-white">{currencyText(statusLabel(selectedSeller.sellerStatus))}</span></p>
+                <p>{t("Availability:", "التوفر:")} <span className="text-white">{currencyText(statusLabel(selectedSeller.availabilityStatus ?? "available"))}</span></p>
                 <p>{t("Prestige Rank:", "الرتبة:")} <span className="text-white capitalize">{sellerLevelLabel(selectedSeller.sellerPrestigeRank)}</span></p>
-                <p>{t("Lifetime Completed Volume:", "إجمالي حجم الصفقات المكتملة:")} <span className="text-white">{formatUsdt(Math.max(0, Number(selectedSeller.lifetimeCompletedVolumeUsdt ?? 0)))}</span></p>
+                <p>{t("Lifetime Completed Volume:", "إجمالي حجم الصفقات المكتملة:")} <span className="text-white">{currencyText(formatUsdt(Math.max(0, Number(selectedSeller.lifetimeCompletedVolumeUsdt ?? 0))))}</span></p>
                 {selectedSeller.sellerRankOverride ? (
-                  <p>{t("Override:", "التعديل اليدوي:")} <span className="text-white capitalize">{sellerLevelLabel(selectedSeller.sellerRankOverride.rank)}</span> • {selectedSeller.sellerRankOverride.reason}</p>
+                  <p>{t("Override:", "التعديل اليدوي:")} <span className="text-white capitalize">{sellerLevelLabel(selectedSeller.sellerRankOverride.rank)}</span> • {currencyText(selectedSeller.sellerRankOverride.reason)}</p>
                 ) : null}
               </div>
               <div className="mt-4 flex flex-wrap gap-2">
                 {selectedSeller.availabilityStatus === "vacation" ? (
-                  <Button type="button" size="sm" variant="secondary" onClick={() => {
-                    if (!window.confirm(t("End vacation mode for this seller?", "هل تريد إنهاء وضع الإجازة لهذا البائع؟"))) return;
-                    const reason = requestReason(t("Reason for ending vacation mode:", "سبب إنهاء وضع الإجازة:"), t("Vacation Mode ended.", "تم إنهاء وضع الإجازة."));
+                  <Button type="button" size="sm" variant="secondary" onClick={async () => {
+                    if (!(await confirmAction(t("End vacation mode for this seller?", "هل تريد إنهاء وضع الإجازة لهذا البائع؟")))) return;
+                    const reason = (await requestReason(t("Reason for ending vacation mode:", "سبب إنهاء وضع الإجازة:"), t("Vacation Mode ended.", "تم إنهاء وضع الإجازة.")));
                     if (!reason) return;
                     void handleSellerAvailabilityStatus(selectedSeller.id, "available", t("Vacation Mode ended.", "تم إنهاء وضع الإجازة."), reason);
                   }}>
                     {t("End Vacation", "إنهاء الإجازة")}
                   </Button>
                 ) : (
-                  <Button type="button" size="sm" variant="secondary" onClick={() => {
-                    if (!window.confirm(t("Enable vacation mode for this seller?", "هل تريد تفعيل وضع الإجازة لهذا البائع؟"))) return;
-                    const reason = requestReason(t("Reason for enabling vacation mode:", "سبب تفعيل وضع الإجازة:"), t("Vacation Mode enabled.", "تم تفعيل وضع الإجازة."));
+                  <Button type="button" size="sm" variant="secondary" onClick={async () => {
+                    if (!(await confirmAction(t("Enable vacation mode for this seller?", "هل تريد تفعيل وضع الإجازة لهذا البائع؟")))) return;
+                    const reason = (await requestReason(t("Reason for enabling vacation mode:", "سبب تفعيل وضع الإجازة:"), t("Vacation Mode enabled.", "تم تفعيل وضع الإجازة.")));
                     if (!reason) return;
                     void handleSellerAvailabilityStatus(selectedSeller.id, "vacation", t("Vacation Mode enabled.", "تم تفعيل وضع الإجازة."), reason);
                   }}>
@@ -4167,15 +4333,15 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                   type="button"
                   size="sm"
                   variant="secondary"
-                  onClick={() => {
-                    const nextRank = window.prompt(t("Set rank (bronze, silver, gold, diamond, elite)", "حدّد الرتبة (bronze, silver, gold, diamond, elite)"), selectedSeller.sellerPrestigeRank ?? "bronze");
+                  onClick={async () => {
+                    const nextRank = (await promptAction(t("Set rank (bronze, silver, gold, diamond, elite)", "حدّد الرتبة (bronze, silver, gold, diamond, elite)"), selectedSeller.sellerPrestigeRank ?? "bronze"));
                     if (!nextRank) return;
                     const rankInput = normalizeSellerLevel(nextRank);
                     if (!rankInput) {
                       pushToast(t("Invalid prestige rank.", "الرتبة غير صحيحة."));
                       return;
                     }
-                    const reason = window.prompt(t("Override reason", "سبب التعديل"), t("Manual admin override", "تعديل يدوي من الإدارة"));
+                    const reason = (await promptAction(t("Override reason", "سبب التعديل"), t("Manual admin override", "تعديل يدوي من الإدارة")));
                     if (!reason) return;
                     void handleSellerPrestigeOverride(selectedSeller.id, rankInput, reason, false);
                   }}
@@ -4187,8 +4353,8 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                     type="button"
                     size="sm"
                     variant="secondary"
-                    onClick={() => {
-                      const reason = window.prompt(t("Reason for clearing override", "سبب إزالة التعديل"), t("Return to automatic progression", "العودة إلى التقدّم التلقائي"));
+                    onClick={async () => {
+                      const reason = (await promptAction(t("Reason for clearing override", "سبب إزالة التعديل"), t("Return to automatic progression", "العودة إلى التقدّم التلقائي")));
                       if (!reason) return;
                       void handleSellerPrestigeOverride(selectedSeller.id, selectedSeller.sellerPrestigeRank ?? "bronze", reason, true);
                     }}
@@ -4243,38 +4409,37 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                   <X className="h-4 w-4" />
                 </button>
               </div>
+              {isOwner ? <div className="mt-4 rounded-xl border border-rose-400/25 bg-rose-400/5 p-3">
+                <a href={`/${locale}/trade-room/${encodeURIComponent(selectedRequest.id)}?view=history`} className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-rose-400/35 px-4 py-3 text-center text-sm font-semibold text-rose-200 hover:bg-rose-400/10">
+                  <FileClock className="h-4 w-4 shrink-0" aria-hidden="true" />{t("Open trade room history", "فتح سجل غرفة الصفقة")}
+                </a>
+                <p className="mt-2 text-xs text-[#9CA3AF]">{t("Read the full chat, attachments, timeline and reviews, with owner controls below.", "راجع كامل المحادثة والمرفقات والسجل الزمني والتقييمات مع إجراءات المالك بالأسفل.")}</p>
+              </div> : null}
               <div className="mt-4 grid gap-2 text-sm text-[#D1D5DB]">
-                <p>{t("Request ID:", "رقم الطلب:")} <span className="font-mono font-medium text-white">{displayRequestId(selectedRequest)}</span></p>
-                <p>{t("Trade ID:", "رقم الصفقة:")} <span className="font-mono font-medium text-white">{displayTradeId(selectedRequest)}</span></p>
-                <p>{t("Buyer:", "المشتري:")} <span className="text-white">{selectedRequest.buyerName}</span></p>
-                <p>{t("WhatsApp:", "واتساب:")} <span className="text-white" dir="ltr">{selectedRequest.buyerWhatsapp}</span></p>
-                <p>{t("Listing:", "العرض:")} <span className="font-mono font-medium text-white">{displayListingId(listingById.get(selectedRequest.listingId), selectedRequest.listingId)}</span></p>
-                <p>{t("Seller:", "البائع:")} <span className="text-white">{sellersById.get(selectedRequest.sellerId)?.fullName ?? selectedRequest.sellerId}</span></p>
-                <p>{t("Status:", "الحالة:")} <span className="text-white">{statusLabel(selectedRequest.status)}</span></p>
-                <p>{t("USDT Amount:", "كمية USDT:")} <span className="text-white">{selectedRequest.usdtAmount}</span></p>
-                <p>{t("Fiat Amount:", "المبلغ النقدي:")} <span className="text-white">{selectedRequest.fiatAmount} {selectedRequest.currency}</span></p>
-                <p>{selectedRequest.priceMode === "buyer_offer" ? t("Buyer Offered Price:", "سعر المشتري المقترح:") : t("Price per USDT:", "السعر لكل USDT:")} <span className={selectedRequest.priceMode === "buyer_offer" ? "font-semibold text-[#F4D87A]" : "text-white"}>₪{(toNumber(selectedRequest.pricePerUsdt) || (toNumber(selectedRequest.fiatAmount) / Math.max(1, toNumber(selectedRequest.usdtAmount)))).toFixed(2)}</span></p>
-                {selectedRequest.priceMode === "buyer_offer" ? <p>{t("Original Listing Price:", "سعر العرض الأصلي:")} <span className="text-white">₪{selectedRequest.listingPriceAtRequest ?? "—"}</span></p> : null}
+                <p>{t("Request ID:", "رقم الطلب:")} <span className="font-mono font-medium text-white">{currencyText(displayRequestId(selectedRequest))}</span></p>
+                <p>{t("Trade ID:", "رقم الصفقة:")} <span className="font-mono font-medium text-white">{currencyText(displayTradeId(selectedRequest))}</span></p>
+                <p>{t("Buyer:", "المشتري:")} <span className="text-white">{currencyText(selectedRequest.buyerName)}</span></p>
+                <p>{t("WhatsApp:", "واتساب:")} <span className="text-white" dir="ltr">{currencyText(selectedRequest.buyerWhatsapp)}</span></p>
+                <p>{t("Listing:", "العرض:")} <span className="font-mono font-medium text-white">{currencyText(displayListingId(listingById.get(selectedRequest.listingId), selectedRequest.listingId))}</span></p>
+                <p>{t("Seller:", "البائع:")} <span className="text-white">{currencyText(accountLabel(selectedRequest.sellerId))}</span></p>
+                <p>{t("Status:", "الحالة:")} <span className="text-white">{currencyText(statusLabel(selectedRequest.status))}</span></p>
+                <p>{currencyText(t("USDT Amount:", "كمية USDT:"))} <span className="text-white">{moneyText(selectedRequest.usdtAmount ?? "—")}</span></p>
+                <p>{t("Fiat Amount:", "المبلغ النقدي:")} <span className="text-white">{currencyText(`${selectedRequest.fiatAmount} ${selectedRequest.currency}`)}</span></p>
+                <p>{currencyText(selectedRequest.priceMode === "buyer_offer" ? t("Buyer Offered Price:", "سعر المشتري المقترح:") : t("Price per USDT:", "السعر لكل USDT:"))} <span className={selectedRequest.priceMode === "buyer_offer" ? "font-semibold text-[#F4D87A]" : "text-white"}>{currencyText(`${(toNumber(selectedRequest.pricePerUsdt) || (toNumber(selectedRequest.fiatAmount) / Math.max(1, toNumber(selectedRequest.usdtAmount)))).toFixed(2)} ${selectedRequest.currency || "ILS"}`)}</span></p>
+                {selectedRequest.priceMode === "buyer_offer" ? <p>{t("Original Listing Price:", "سعر العرض الأصلي:")} <span className="text-white">{currencyText(`${selectedRequest.listingPriceAtRequest ?? "—"} ${selectedRequest.currency || "ILS"}`)}</span></p> : null}
                 <p>{t("Network:", "الشبكة:")} <span className="text-white">{selectedRequest.network}</span></p>
-                <p>{t("Payment Method:", "طريقة الدفع:")} <span className="text-white">{marketplacePaymentMethodLabelForLocale(selectedRequest.paymentMethod, locale)}</span></p>
-                <p>{t("Receiving Bank:", "البنك المستلم:")} <span className="text-white">{selectedRequest.bankName ?? "—"}</span></p>
-                <p>{t("Submitted:", "تاريخ التقديم:")} <span className="text-white">{formatDate(selectedRequest.createdAt)}</span></p>
-                {selectedRequest.completedAt ? <p>{t("Completed:", "اكتملت:")} <span className="text-white">{formatDate(selectedRequest.completedAt)}</span></p> : null}
-                {selectedRequest.timedOutAt ? <p>{t("Timed Out:", "انتهت المهلة:")} <span className="text-white">{formatDate(selectedRequest.timedOutAt)}</span></p> : null}
-                {selectedRequest.timeoutReason ? <p>{t("Timeout Reason:", "سبب انتهاء المهلة:")} <span className="text-white">{selectedRequest.timeoutReason}</span></p> : null}
-                {selectedRequest.reviewUnlockedAt ? <p>{t("Review Unlocked:", "تم فتح التقييم:")} <span className="text-white">{formatDate(selectedRequest.reviewUnlockedAt)}</span></p> : null}
-                <p>{t("Notes:", "الملاحظات:")} <span className="text-white">{selectedRequest.buyerNotes || "—"}</span></p>
+                <p>{t("Payment Method:", "طريقة الدفع:")} <span className="text-white">{currencyText(marketplacePaymentMethodLabelForLocale(selectedRequest.paymentMethod, locale))}</span></p>
+                <p>{t("Receiving Bank:", "البنك المستلم:")} <span className="text-white">{currencyText(selectedRequest.bankName ?? "—")}</span></p>
+                <p>{t("Submitted:", "تاريخ التقديم:")} <span className="text-white">{currencyText(formatDate(selectedRequest.createdAt))}</span></p>
+                {selectedRequest.completedAt ? <p>{t("Completed:", "اكتملت:")} <span className="text-white">{currencyText(formatDate(selectedRequest.completedAt))}</span></p> : null}
+                {selectedRequest.timedOutAt ? <p>{t("Timed Out:", "انتهت المهلة:")} <span className="text-white">{currencyText(formatDate(selectedRequest.timedOutAt))}</span></p> : null}
+                {selectedRequest.timeoutReason ? <p>{t("Timeout Reason:", "سبب انتهاء المهلة:")} <span className="text-white">{currencyText(selectedRequest.timeoutReason)}</span></p> : null}
+                {selectedRequest.reviewUnlockedAt ? <p>{t("Review Unlocked:", "تم فتح التقييم:")} <span className="text-white">{currencyText(formatDate(selectedRequest.reviewUnlockedAt))}</span></p> : null}
+                <p>{t("Notes:", "الملاحظات:")} <span className="text-white">{currencyText(selectedRequest.buyerNotes || "—")}</span></p>
                 <p>
                   {t("Buyer Evidence:", "إثبات المشتري:")}{" "}
                   {selectedRequest.buyerEvidence ? (
-                    <a
-                      href={`/api/alpha-exchange/purchase-requests/${selectedRequest.id}/evidence/${selectedRequest.buyerEvidence.id}`}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-[#C9A227] underline-offset-2 hover:underline"
-                    >
-                      {selectedRequest.buyerEvidence.fileName}
-                    </a>
+                    <TradeEvidenceViewer key={selectedRequest.buyerEvidence.id} requestId={selectedRequest.id} evidence={selectedRequest.buyerEvidence} isAr={isArabic} />
                   ) : (
                     <span className="text-white">{t("Missing", "مفقود")}</span>
                   )}
@@ -4282,14 +4447,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                 <p>
                   {t("Seller Evidence:", "إثبات البائع:")}{" "}
                   {selectedRequest.sellerEvidence ? (
-                    <a
-                      href={`/api/alpha-exchange/purchase-requests/${selectedRequest.id}/evidence/${selectedRequest.sellerEvidence.id}`}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-[#C9A227] underline-offset-2 hover:underline"
-                    >
-                      {selectedRequest.sellerEvidence.fileName}
-                    </a>
+                    <TradeEvidenceViewer key={selectedRequest.sellerEvidence.id} requestId={selectedRequest.id} evidence={selectedRequest.sellerEvidence} isAr={isArabic} />
                   ) : (
                     <span className="text-white">{t("Missing", "مفقود")}</span>
                   )}
@@ -4301,7 +4459,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                   {(selectedRequest.timeline ?? []).map((event) => (
                     <div key={event.id} className="flex items-start gap-2">
                       <span className="mt-1 h-2.5 w-2.5 rounded-full bg-[#C9A227]" />
-                      <span>{formatDate(event.createdAt)} — {timelineEventLabel(event)}</span>
+                      <span>{currencyText(formatDate(event.createdAt))} — {currencyText(timelineEventLabel(event))}</span>
                     </div>
                   ))}
                 </div>
@@ -4309,31 +4467,23 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
               {selectedRequest.buyerReview ? (
                 <div className="mt-4 rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-[#D1D5DB]">
                   <p className="text-sm font-medium text-white">{t("Buyer Review", "تقييم المشتري")}</p>
-                  <p className="mt-2">{selectedRequest.buyerReview.comment}</p>
+                  <p className="mt-2">{currencyText(selectedRequest.buyerReview.comment)}</p>
                 </div>
               ) : null}
               {selectedRequest.sellerResponse ? (
                 <div className="mt-3 rounded-xl border border-[#6CAEFF]/35 bg-[#6CAEFF]/10 p-3 text-xs text-[#D1D5DB]">
                   <p className="text-sm font-medium text-white">{t("Seller Response", "رد البائع")}</p>
-                  <p className="mt-2">{selectedRequest.sellerResponse.message}</p>
+                  <p className="mt-2">{currencyText(selectedRequest.sellerResponse.message)}</p>
                 </div>
               ) : null}
-              {selectedRequest.status !== "completed" && selectedRequest.status !== "cancelled" && selectedRequest.status !== "declined" ? (
-                <div className="mt-4 rounded-xl border border-amber-500/30 bg-amber-500/10 p-4">
-                  <p className="mb-3 text-sm font-medium text-amber-300">{t("Admin Actions", "إجراءات الإدارة")}</p>
-                  <div className="flex flex-wrap gap-2">
-                    <Button type="button" size="sm" onClick={() => void handleForceComplete(selectedRequest.id)} className="border-[#C9A227]/40 bg-[#C9A227]/20 text-[#C9A227] hover:bg-[#C9A227]/30">
-                      {t("Force Complete", "إكمال إجباري")}
-                    </Button>
-                    <Button type="button" size="sm" variant="secondary" onClick={() => void handleForceCancel(selectedRequest.id)} className="border-red-500/40 bg-red-500/10 text-red-300 hover:bg-red-500/20">
-                      {t("Force Cancel", "إلغاء إجباري")}
-                    </Button>
-                    <Button type="button" size="sm" variant="secondary" onClick={() => void handleUnlockReview(selectedRequest.id)}>
-                      {t("Unlock Review", "فتح التقييم")}
-                    </Button>
-                  </div>
-                </div>
-              ) : null}
+              <TradeOwnerActions
+                key={selectedRequest.id}
+                locale={locale}
+                request={selectedRequest}
+                isOwner={isOwner}
+                openDispute={selectedOpenDispute}
+                onUpdated={async () => { await fetchData({ silent: true }); }}
+              />
             </div>
           </div>
         ) : null}
@@ -4382,22 +4532,22 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <p className="text-[10px] font-medium uppercase tracking-[0.14em] text-[#7F8490]">{t("Seller", "البائع")}</p>
-                    <p className="mt-1 break-words font-semibold text-white">{commissionPaidPending.sellerName}</p>
-                    <p className="mt-1 break-all font-mono text-[11px] text-[#9CA3AF]">{commissionPaidPending.sourceLabel}</p>
+                    <p className="mt-1 break-words font-semibold text-white">{currencyText(commissionPaidPending.sellerName)}</p>
+                    <p className="mt-1 break-all font-mono text-[11px] text-[#9CA3AF]">{currencyText(commissionPaidPending.sourceLabel)}</p>
                   </div>
                   <span className={`shrink-0 rounded-full border px-2.5 py-1 text-xs ${commissionPaidPending.record.paymentStatus === "overdue" ? "border-red-500/35 bg-red-500/10 text-red-300" : "border-amber-500/35 bg-amber-500/10 text-amber-300"}`}>
-                    {statusLabel(commissionPaidPending.record.paymentStatus)}
+                    {currencyText(statusLabel(commissionPaidPending.record.paymentStatus))}
                   </span>
                 </div>
                 <div className="mt-4 grid grid-cols-2 gap-2.5">
                   <div className="rounded-xl border border-[#C9A227]/20 bg-[#C9A227]/[0.07] p-3">
                     <p className="text-[10px] uppercase tracking-[0.12em] text-[#A58A38]">{t("Commission", "العمولة")}</p>
-                    <p className="mt-1 font-semibold text-[#F4D87A]">{formatUsdt(commissionPaidPending.record.commissionAmount)}</p>
+                    <p className="mt-1 font-semibold text-[#F4D87A]">{currencyText(formatUsdt(commissionPaidPending.record.commissionAmount))}</p>
                   </div>
                   <div className="rounded-xl border border-white/10 bg-black/20 p-3">
                     <p className="text-[10px] uppercase tracking-[0.12em] text-[#7F8490]">{t("Requested payment", "الدفع المطلوب")}</p>
                     <p className="mt-1 font-medium text-white">
-                      {formatExactUsdt(commissionPaidPending.record.paymentExpectedAmount ?? commissionPaidPending.record.commissionAmount)}
+                      {currencyText(formatExactUsdt(commissionPaidPending.record.paymentExpectedAmount ?? commissionPaidPending.record.commissionAmount))}
                     </p>
                   </div>
                 </div>
@@ -4432,12 +4582,12 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
               </div>
 
               {commissionPaidError ? (
-                <p role="alert" className="mt-3 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2.5 text-sm leading-5 text-red-200">
-                  {commissionPaidError}
-                </p>
+                <ActionFeedback revealKey={commissionPaidErrorFeedbackKey} as="p" role="alert" className="mt-3 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2.5 text-sm leading-5 text-red-200">
+                  {currencyText(commissionPaidError)}
+                </ActionFeedback>
               ) : null}
 
-              <div className="mt-4 rounded-xl border border-emerald-500/20 bg-emerald-500/[0.07] px-3 py-2.5 text-xs leading-5 text-emerald-100">
+              <div className="commission-notice mt-4 rounded-xl border border-emerald-500/20 bg-emerald-500/[0.07] px-3 py-2.5 text-xs leading-5 text-emerald-100">
                 {t(
                   "Confirmation marks this commission paid, records the audit reason, notifies the seller, and unlocks selling when no other commission is due.",
                   "سيؤدي التأكيد إلى تسجيل العمولة كمدفوعة وحفظ السبب وإشعار البائع وفتح البيع إذا لم تبقَ عمولة أخرى.",
@@ -4493,7 +4643,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
               {/* Seller info */}
               <div className="mb-5 rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3">
                 <p className="text-xs text-[#9CA3AF] mb-2">{t("You’re about to change:", "أنت على وشك تغيير:")}</p>
-                <p className="text-sm font-medium text-white mb-3">{rankConfirmPending.sellerName}</p>
+                <p className="text-sm font-medium text-white mb-3">{currencyText(rankConfirmPending.sellerName)}</p>
                 <div className="flex items-center gap-3">
                   <span className={`inline-block rounded-full border px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.1em] ${RANK_BADGE_COLOR[rankConfirmPending.fromRank]}`}>
                     {sellerLevelLabel(rankConfirmPending.fromRank)}
@@ -4546,9 +4696,9 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
         ) : null}
 
       {toast ? (
-          <div className="alpha-reveal-rise fixed inset-x-4 bottom-[calc(5.5rem+env(safe-area-inset-bottom))] z-[90] rounded-2xl border border-[#C9A227]/35 bg-[#0B0B0B]/95 px-4 py-3 text-center text-sm text-white shadow-[0_14px_34px_rgba(0,0,0,0.4)] md:inset-x-auto md:bottom-5 md:end-5 md:rounded-full md:py-2 md:text-start">
-            {toast}
-          </div>
+          <ActionFeedback floating revealKey={toastFeedbackKey} className="alpha-reveal-rise fixed inset-x-4 bottom-[calc(5.5rem+env(safe-area-inset-bottom))] z-[90] rounded-2xl border border-[#C9A227]/35 bg-[#0B0B0B]/95 px-4 py-3 text-center text-sm text-white shadow-[0_14px_34px_rgba(0,0,0,0.4)] md:inset-x-auto md:bottom-5 md:end-5 md:rounded-full md:py-2 md:text-start">
+            {currencyText(toast)}
+          </ActionFeedback>
         ) : null}
     </section>
   );

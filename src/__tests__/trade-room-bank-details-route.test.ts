@@ -3,20 +3,20 @@ import { NextRequest } from "next/server";
 
 const mocks = vi.hoisted(() => ({
   requireApiUser: vi.fn(),
-  requireEmailVerificationForTrading: vi.fn(),
+  requireMarketplaceVerificationForTrading: vi.fn(),
   getTradeRoomBankDetails: vi.fn(),
 }));
 
 vi.mock("@/lib/api-auth", () => ({
   requireApiUser: mocks.requireApiUser,
-  requireEmailVerificationForTrading: mocks.requireEmailVerificationForTrading,
+  requireMarketplaceVerificationForTrading: mocks.requireMarketplaceVerificationForTrading,
 }));
 
 vi.mock("@/lib/alpha-exchange-store", () => ({
   getTradeRoomBankDetails: mocks.getTradeRoomBankDetails,
 }));
 
-import { GET } from "@/app/api/alpha-exchange/trade-room/[requestId]/bank-details/route";
+import { POST } from "@/app/api/alpha-exchange/trade-room/[requestId]/bank-details/route";
 
 describe("trade room bank details route", () => {
   beforeEach(() => {
@@ -26,7 +26,7 @@ describe("trade room bank details route", () => {
       user: { id: "buyer-1", role: "buyer", emailVerified: true },
       unauthorized: null,
     });
-    mocks.requireEmailVerificationForTrading.mockReturnValue(null);
+    mocks.requireMarketplaceVerificationForTrading.mockReturnValue(null);
   });
 
   it("returns bank details for an authorized participant", async () => {
@@ -41,8 +41,8 @@ describe("trade room bank details route", () => {
       accountLast4: "7890",
     });
 
-    const request = new NextRequest("http://localhost/api/alpha-exchange/trade-room/req-1/bank-details");
-    const response = await GET(request, { params: Promise.resolve({ requestId: "req-1" }) });
+    const request = new NextRequest("http://localhost/api/alpha-exchange/trade-room/req-1/bank-details", { method: "POST" });
+    const response = await POST(request, { params: Promise.resolve({ requestId: "req-1" }) });
     const payload = await response.json() as { bankDetails?: { accountNumber: string } };
 
     expect(response.status).toBe(200);
@@ -55,29 +55,29 @@ describe("trade room bank details route", () => {
   });
 
   it("maps not-allowed errors to 403", async () => {
-    mocks.getTradeRoomBankDetails.mockRejectedValue(new Error("Bank details are available only after the seller accepts the trade."));
+    mocks.getTradeRoomBankDetails.mockRejectedValue(new Error("Bank details are available only for an active Bank Transfer request."));
 
-    const request = new NextRequest("http://localhost/api/alpha-exchange/trade-room/req-1/bank-details");
-    const response = await GET(request, { params: Promise.resolve({ requestId: "req-1" }) });
+    const request = new NextRequest("http://localhost/api/alpha-exchange/trade-room/req-1/bank-details", { method: "POST" });
+    const response = await POST(request, { params: Promise.resolve({ requestId: "req-1" }) });
     const payload = await response.json() as { error?: string };
 
     expect(response.status).toBe(403);
-    expect(payload.error).toMatch(/only after/i);
+    expect(payload.error).toMatch(/only for/i);
   });
 
   it("maps missing trade errors to 404", async () => {
     mocks.getTradeRoomBankDetails.mockRejectedValue(new Error("Trade not found."));
 
-    const request = new NextRequest("http://localhost/api/alpha-exchange/trade-room/missing/bank-details");
-    const response = await GET(request, { params: Promise.resolve({ requestId: "missing" }) });
+    const request = new NextRequest("http://localhost/api/alpha-exchange/trade-room/missing/bank-details", { method: "POST" });
+    const response = await POST(request, { params: Promise.resolve({ requestId: "missing" }) });
 
     expect(response.status).toBe(404);
   });
 
   it("denies an unverified email before loading bank details", async () => {
-    mocks.requireEmailVerificationForTrading.mockReturnValueOnce(new Response(null, { status: 403 }));
-    const request = new NextRequest("http://localhost/api/alpha-exchange/trade-room/req-1/bank-details");
-    const response = await GET(request, { params: Promise.resolve({ requestId: "req-1" }) });
+    mocks.requireMarketplaceVerificationForTrading.mockReturnValueOnce(new Response(null, { status: 403 }));
+    const request = new NextRequest("http://localhost/api/alpha-exchange/trade-room/req-1/bank-details", { method: "POST" });
+    const response = await POST(request, { params: Promise.resolve({ requestId: "req-1" }) });
     expect(response.status).toBe(403);
     expect(mocks.getTradeRoomBankDetails).not.toHaveBeenCalled();
   });

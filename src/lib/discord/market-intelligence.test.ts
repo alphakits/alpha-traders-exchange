@@ -1,3 +1,5 @@
+import { publicAccountId } from "@/lib/public-account-identity";
+import { publicAccountUsername } from "@/lib/public-account-username";
 // @vitest-environment node
 
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -307,6 +309,8 @@ describe("Discord market intelligence content", () => {
       averageResponseMinutes: null,
     });
     expect(capturedSql).toContain("seller_status = 'approved_seller'");
+    expect(capturedSql).toContain("users.seller_status = 'approved_seller'");
+    expect(capturedSql).not.toContain("sellerApprovalVerification");
     expect(capturedSql).toContain("isProfileHidden");
     expect(capturedSql).toContain("approvalStatus");
     expect(capturedSql).toContain("payment_status <> 'paid'");
@@ -520,6 +524,7 @@ describe("Discord public seller profile boundary", () => {
           rows: [{
             created_at: new Date("2024-01-01T00:00:00.000Z"),
             payload: {
+              id: "seller-alpha",
               fullName: "Private Legal Name",
               email: "private@example.com",
               buyerDisplayName: "Alpha Seller",
@@ -542,7 +547,7 @@ describe("Discord public seller profile boundary", () => {
       }),
     };
     const profile = await getPublicDiscordSellerProfileByUsername({
-      username: "alpha-seller",
+      username: publicAccountUsername("seller-alpha"),
       pool: pool as never,
       siteUrl: "https://www.alphatraders.co.il",
       now: new Date("2026-08-08T05:00:00.000Z").getTime(),
@@ -551,13 +556,14 @@ describe("Discord public seller profile boundary", () => {
     const serialized = JSON.stringify({ profile, card });
 
     expect(capturedSql).toContain("seller_status = 'approved_seller'");
+    expect(capturedSql).toContain("users.seller_status = 'approved_seller'");
     expect(capturedSql).toContain("discord_identities");
     expect(capturedSql).toContain("isProfileHidden");
     expect(profile).toMatchObject({
-      displayName: "Alpha Seller",
+      displayName: publicAccountId({ id: "seller-alpha", role: "approved_seller" }),
       level: "gold",
       completedTrades: 40,
-      publicVolumeRange: "10K+ USDT",
+      publicVolumeRange: null,
     });
     expect(serialized).not.toMatch(/Private Legal Name|private@example|sellerId/i);
   });
@@ -612,6 +618,7 @@ describe("Discord public seller profile boundary", () => {
         rows: [{
           created_at: new Date("2024-01-01T00:00:00.000Z"),
           payload: {
+            id: "private-stats",
             buyerDisplayName: "Private Stats",
             showTradeStats: false,
             showLastActive: false,
@@ -630,7 +637,7 @@ describe("Discord public seller profile boundary", () => {
       })),
     };
     const profile = await getPublicDiscordSellerProfileByUsername({
-      username: "private-stats",
+      username: publicAccountUsername("private-stats"),
       pool: pool as never,
       siteUrl: "https://www.alphatraders.co.il",
     });

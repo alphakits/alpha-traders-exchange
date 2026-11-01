@@ -1,0 +1,1254 @@
+[
+  {
+    "table_name": "evidence_blobs",
+    "rls": false,
+    "force_rls": false,
+    "owner": "postgres",
+    "columns": [
+      {
+        "name": "storage_key",
+        "type": "text",
+        "default": null,
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "name": "content",
+        "type": "bytea",
+        "default": null,
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "name": "created_at",
+        "type": "timestamp with time zone",
+        "default": "now()",
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "name": "updated_at",
+        "type": "timestamp with time zone",
+        "default": "now()",
+        "identity": "",
+        "not_null": true
+      }
+    ],
+    "constraints": [
+      {
+        "name": "evidence_blobs_pkey",
+        "definition": "PRIMARY KEY (storage_key)"
+      }
+    ],
+    "indexes": [
+      "CREATE UNIQUE INDEX evidence_blobs_pkey ON alpha_exchange.evidence_blobs USING btree (storage_key)",
+      "CREATE INDEX idx_alpha_exchange_evidence_blobs_updated ON alpha_exchange.evidence_blobs USING btree (updated_at DESC)"
+    ],
+    "policies": null,
+    "grants": [
+      {
+        "grantee": "postgres",
+        "privilege": "DELETE"
+      },
+      {
+        "grantee": "postgres",
+        "privilege": "INSERT"
+      },
+      {
+        "grantee": "postgres",
+        "privilege": "REFERENCES"
+      },
+      {
+        "grantee": "postgres",
+        "privilege": "SELECT"
+      },
+      {
+        "grantee": "postgres",
+        "privilege": "TRIGGER"
+      },
+      {
+        "grantee": "postgres",
+        "privilege": "TRUNCATE"
+      },
+      {
+        "grantee": "postgres",
+        "privilege": "UPDATE"
+      }
+    ]
+  },
+  {
+    "table_name": "marketplace_email_gate",
+    "rls": true,
+    "force_rls": false,
+    "owner": "postgres",
+    "columns": [
+      {
+        "name": "singleton",
+        "type": "boolean",
+        "default": "true",
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "name": "available_at",
+        "type": "timestamp with time zone",
+        "default": "now()",
+        "identity": "",
+        "not_null": true
+      }
+    ],
+    "constraints": [
+      {
+        "name": "marketplace_email_gate_pkey",
+        "definition": "PRIMARY KEY (singleton)"
+      },
+      {
+        "name": "marketplace_email_gate_singleton_check",
+        "definition": "CHECK (singleton)"
+      }
+    ],
+    "indexes": [
+      "CREATE UNIQUE INDEX marketplace_email_gate_pkey ON alpha_exchange.marketplace_email_gate USING btree (singleton)"
+    ],
+    "policies": null,
+    "grants": [
+      {
+        "grantee": "postgres",
+        "privilege": "DELETE"
+      },
+      {
+        "grantee": "postgres",
+        "privilege": "INSERT"
+      },
+      {
+        "grantee": "postgres",
+        "privilege": "REFERENCES"
+      },
+      {
+        "grantee": "postgres",
+        "privilege": "SELECT"
+      },
+      {
+        "grantee": "postgres",
+        "privilege": "TRIGGER"
+      },
+      {
+        "grantee": "postgres",
+        "privilege": "TRUNCATE"
+      },
+      {
+        "grantee": "postgres",
+        "privilege": "UPDATE"
+      }
+    ]
+  },
+  {
+    "table_name": "marketplace_email_outbox",
+    "rls": true,
+    "force_rls": false,
+    "owner": "postgres",
+    "columns": [
+      {
+        "name": "id",
+        "type": "text",
+        "default": null,
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "name": "recipient_id",
+        "type": "text",
+        "default": null,
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "name": "event",
+        "type": "text",
+        "default": null,
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "name": "recipient_email",
+        "type": "text",
+        "default": null,
+        "identity": "",
+        "not_null": false
+      },
+      {
+        "name": "request_body",
+        "type": "text",
+        "default": null,
+        "identity": "",
+        "not_null": false
+      },
+      {
+        "name": "idempotency_key",
+        "type": "text",
+        "default": null,
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "name": "request_id",
+        "type": "text",
+        "default": null,
+        "identity": "",
+        "not_null": false
+      },
+      {
+        "name": "required_trade_statuses",
+        "type": "text[]",
+        "default": null,
+        "identity": "",
+        "not_null": false
+      },
+      {
+        "name": "status",
+        "type": "text",
+        "default": "'pending'::text",
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "name": "attempts",
+        "type": "integer",
+        "default": "0",
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "name": "available_at",
+        "type": "timestamp with time zone",
+        "default": "now()",
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "name": "expires_at",
+        "type": "timestamp with time zone",
+        "default": "(now() + '23:00:00'::interval)",
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "name": "lease_token",
+        "type": "text",
+        "default": null,
+        "identity": "",
+        "not_null": false
+      },
+      {
+        "name": "lease_until",
+        "type": "timestamp with time zone",
+        "default": null,
+        "identity": "",
+        "not_null": false
+      },
+      {
+        "name": "last_reason",
+        "type": "text",
+        "default": null,
+        "identity": "",
+        "not_null": false
+      },
+      {
+        "name": "created_at",
+        "type": "timestamp with time zone",
+        "default": "now()",
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "name": "updated_at",
+        "type": "timestamp with time zone",
+        "default": "now()",
+        "identity": "",
+        "not_null": true
+      }
+    ],
+    "constraints": [
+      {
+        "name": "marketplace_email_outbox_idempotency_key_key",
+        "definition": "UNIQUE (idempotency_key)"
+      },
+      {
+        "name": "marketplace_email_outbox_pkey",
+        "definition": "PRIMARY KEY (id)"
+      },
+      {
+        "name": "marketplace_email_outbox_recipient_id_fkey",
+        "definition": "FOREIGN KEY (recipient_id) REFERENCES alpha_exchange.users(id) ON DELETE CASCADE"
+      },
+      {
+        "name": "marketplace_email_outbox_status_check",
+        "definition": "CHECK ((status = ANY (ARRAY['pending'::text, 'processing'::text, 'sent'::text, 'failed'::text, 'suppressed'::text])))"
+      }
+    ],
+    "indexes": [
+      "CREATE INDEX idx_marketplace_email_due ON alpha_exchange.marketplace_email_outbox USING btree (available_at, created_at) WHERE (status = ANY (ARRAY['pending'::text, 'processing'::text]))",
+      "CREATE UNIQUE INDEX marketplace_email_outbox_idempotency_key_key ON alpha_exchange.marketplace_email_outbox USING btree (idempotency_key)",
+      "CREATE UNIQUE INDEX marketplace_email_outbox_pkey ON alpha_exchange.marketplace_email_outbox USING btree (id)"
+    ],
+    "policies": null,
+    "grants": [
+      {
+        "grantee": "postgres",
+        "privilege": "DELETE"
+      },
+      {
+        "grantee": "postgres",
+        "privilege": "INSERT"
+      },
+      {
+        "grantee": "postgres",
+        "privilege": "REFERENCES"
+      },
+      {
+        "grantee": "postgres",
+        "privilege": "SELECT"
+      },
+      {
+        "grantee": "postgres",
+        "privilege": "TRIGGER"
+      },
+      {
+        "grantee": "postgres",
+        "privilege": "TRUNCATE"
+      },
+      {
+        "grantee": "postgres",
+        "privilege": "UPDATE"
+      }
+    ]
+  },
+  {
+    "table_name": "notification_analytics",
+    "rls": false,
+    "force_rls": false,
+    "owner": "postgres",
+    "columns": [
+      {
+        "name": "id",
+        "type": "text",
+        "default": null,
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "name": "metric",
+        "type": "text",
+        "default": null,
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "name": "value",
+        "type": "double precision",
+        "default": null,
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "name": "recorded_at",
+        "type": "timestamp with time zone",
+        "default": null,
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "name": "sort_index",
+        "type": "integer",
+        "default": null,
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "name": "payload",
+        "type": "jsonb",
+        "default": null,
+        "identity": "",
+        "not_null": true
+      }
+    ],
+    "constraints": [
+      {
+        "name": "notification_analytics_pkey",
+        "definition": "PRIMARY KEY (id)"
+      }
+    ],
+    "indexes": [
+      "CREATE INDEX idx_alpha_exchange_notification_analytics_metric_recorded ON alpha_exchange.notification_analytics USING btree (metric, recorded_at DESC)",
+      "CREATE UNIQUE INDEX notification_analytics_pkey ON alpha_exchange.notification_analytics USING btree (id)"
+    ],
+    "policies": null,
+    "grants": [
+      {
+        "grantee": "postgres",
+        "privilege": "DELETE"
+      },
+      {
+        "grantee": "postgres",
+        "privilege": "INSERT"
+      },
+      {
+        "grantee": "postgres",
+        "privilege": "REFERENCES"
+      },
+      {
+        "grantee": "postgres",
+        "privilege": "SELECT"
+      },
+      {
+        "grantee": "postgres",
+        "privilege": "TRIGGER"
+      },
+      {
+        "grantee": "postgres",
+        "privilege": "TRUNCATE"
+      },
+      {
+        "grantee": "postgres",
+        "privilege": "UPDATE"
+      }
+    ]
+  },
+  {
+    "table_name": "notification_deliveries",
+    "rls": false,
+    "force_rls": false,
+    "owner": "postgres",
+    "columns": [
+      {
+        "name": "id",
+        "type": "text",
+        "default": null,
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "name": "queue_job_id",
+        "type": "text",
+        "default": null,
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "name": "event_id",
+        "type": "text",
+        "default": null,
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "name": "recipient_user_id",
+        "type": "text",
+        "default": null,
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "name": "channel",
+        "type": "text",
+        "default": null,
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "name": "status",
+        "type": "text",
+        "default": null,
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "name": "attempt_number",
+        "type": "integer",
+        "default": null,
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "name": "created_at",
+        "type": "timestamp with time zone",
+        "default": null,
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "name": "sort_index",
+        "type": "integer",
+        "default": null,
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "name": "payload",
+        "type": "jsonb",
+        "default": null,
+        "identity": "",
+        "not_null": true
+      }
+    ],
+    "constraints": [
+      {
+        "name": "notification_deliveries_event_id_fkey",
+        "definition": "FOREIGN KEY (event_id) REFERENCES alpha_exchange.notification_events(id) ON DELETE CASCADE"
+      },
+      {
+        "name": "notification_deliveries_pkey",
+        "definition": "PRIMARY KEY (id)"
+      },
+      {
+        "name": "notification_deliveries_queue_job_id_fkey",
+        "definition": "FOREIGN KEY (queue_job_id) REFERENCES alpha_exchange.notification_queue(id) ON DELETE CASCADE"
+      },
+      {
+        "name": "notification_deliveries_recipient_user_id_fkey",
+        "definition": "FOREIGN KEY (recipient_user_id) REFERENCES alpha_exchange.users(id) ON DELETE CASCADE"
+      }
+    ],
+    "indexes": [
+      "CREATE INDEX idx_alpha_exchange_notification_deliveries_queue_created ON alpha_exchange.notification_deliveries USING btree (queue_job_id, created_at DESC)",
+      "CREATE UNIQUE INDEX notification_deliveries_pkey ON alpha_exchange.notification_deliveries USING btree (id)"
+    ],
+    "policies": null,
+    "grants": [
+      {
+        "grantee": "postgres",
+        "privilege": "DELETE"
+      },
+      {
+        "grantee": "postgres",
+        "privilege": "INSERT"
+      },
+      {
+        "grantee": "postgres",
+        "privilege": "REFERENCES"
+      },
+      {
+        "grantee": "postgres",
+        "privilege": "SELECT"
+      },
+      {
+        "grantee": "postgres",
+        "privilege": "TRIGGER"
+      },
+      {
+        "grantee": "postgres",
+        "privilege": "TRUNCATE"
+      },
+      {
+        "grantee": "postgres",
+        "privilege": "UPDATE"
+      }
+    ]
+  },
+  {
+    "table_name": "notification_events",
+    "rls": false,
+    "force_rls": false,
+    "owner": "postgres",
+    "columns": [
+      {
+        "name": "id",
+        "type": "text",
+        "default": null,
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "name": "dedupe_key",
+        "type": "text",
+        "default": null,
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "name": "domain",
+        "type": "text",
+        "default": null,
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "name": "event_name",
+        "type": "text",
+        "default": null,
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "name": "status",
+        "type": "text",
+        "default": null,
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "name": "priority",
+        "type": "text",
+        "default": null,
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "name": "created_at",
+        "type": "timestamp with time zone",
+        "default": null,
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "name": "updated_at",
+        "type": "timestamp with time zone",
+        "default": null,
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "name": "scheduled_for",
+        "type": "timestamp with time zone",
+        "default": null,
+        "identity": "",
+        "not_null": false
+      },
+      {
+        "name": "sort_index",
+        "type": "integer",
+        "default": null,
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "name": "payload",
+        "type": "jsonb",
+        "default": null,
+        "identity": "",
+        "not_null": true
+      }
+    ],
+    "constraints": [
+      {
+        "name": "notification_events_dedupe_key_key",
+        "definition": "UNIQUE (dedupe_key)"
+      },
+      {
+        "name": "notification_events_pkey",
+        "definition": "PRIMARY KEY (id)"
+      }
+    ],
+    "indexes": [
+      "CREATE INDEX idx_alpha_exchange_notification_events_status_created ON alpha_exchange.notification_events USING btree (status, created_at DESC)",
+      "CREATE UNIQUE INDEX notification_events_dedupe_key_key ON alpha_exchange.notification_events USING btree (dedupe_key)",
+      "CREATE UNIQUE INDEX notification_events_pkey ON alpha_exchange.notification_events USING btree (id)"
+    ],
+    "policies": null,
+    "grants": [
+      {
+        "grantee": "postgres",
+        "privilege": "DELETE"
+      },
+      {
+        "grantee": "postgres",
+        "privilege": "INSERT"
+      },
+      {
+        "grantee": "postgres",
+        "privilege": "REFERENCES"
+      },
+      {
+        "grantee": "postgres",
+        "privilege": "SELECT"
+      },
+      {
+        "grantee": "postgres",
+        "privilege": "TRIGGER"
+      },
+      {
+        "grantee": "postgres",
+        "privilege": "TRUNCATE"
+      },
+      {
+        "grantee": "postgres",
+        "privilege": "UPDATE"
+      }
+    ]
+  },
+  {
+    "table_name": "notification_queue",
+    "rls": false,
+    "force_rls": false,
+    "owner": "postgres",
+    "columns": [
+      {
+        "name": "id",
+        "type": "text",
+        "default": null,
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "name": "event_id",
+        "type": "text",
+        "default": null,
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "name": "dedupe_key",
+        "type": "text",
+        "default": null,
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "name": "recipient_user_id",
+        "type": "text",
+        "default": null,
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "name": "channel",
+        "type": "text",
+        "default": null,
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "name": "status",
+        "type": "text",
+        "default": null,
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "name": "priority",
+        "type": "text",
+        "default": null,
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "name": "scheduled_for",
+        "type": "timestamp with time zone",
+        "default": null,
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "name": "created_at",
+        "type": "timestamp with time zone",
+        "default": null,
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "name": "updated_at",
+        "type": "timestamp with time zone",
+        "default": null,
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "name": "sort_index",
+        "type": "integer",
+        "default": null,
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "name": "payload",
+        "type": "jsonb",
+        "default": null,
+        "identity": "",
+        "not_null": true
+      }
+    ],
+    "constraints": [
+      {
+        "name": "notification_queue_dedupe_key_key",
+        "definition": "UNIQUE (dedupe_key)"
+      },
+      {
+        "name": "notification_queue_event_id_fkey",
+        "definition": "FOREIGN KEY (event_id) REFERENCES alpha_exchange.notification_events(id) ON DELETE CASCADE"
+      },
+      {
+        "name": "notification_queue_pkey",
+        "definition": "PRIMARY KEY (id)"
+      },
+      {
+        "name": "notification_queue_recipient_user_id_fkey",
+        "definition": "FOREIGN KEY (recipient_user_id) REFERENCES alpha_exchange.users(id) ON DELETE CASCADE"
+      }
+    ],
+    "indexes": [
+      "CREATE INDEX idx_alpha_exchange_notification_queue_status_scheduled ON alpha_exchange.notification_queue USING btree (status, scheduled_for)",
+      "CREATE UNIQUE INDEX notification_queue_dedupe_key_key ON alpha_exchange.notification_queue USING btree (dedupe_key)",
+      "CREATE UNIQUE INDEX notification_queue_pkey ON alpha_exchange.notification_queue USING btree (id)"
+    ],
+    "policies": null,
+    "grants": [
+      {
+        "grantee": "postgres",
+        "privilege": "DELETE"
+      },
+      {
+        "grantee": "postgres",
+        "privilege": "INSERT"
+      },
+      {
+        "grantee": "postgres",
+        "privilege": "REFERENCES"
+      },
+      {
+        "grantee": "postgres",
+        "privilege": "SELECT"
+      },
+      {
+        "grantee": "postgres",
+        "privilege": "TRIGGER"
+      },
+      {
+        "grantee": "postgres",
+        "privilege": "TRUNCATE"
+      },
+      {
+        "grantee": "postgres",
+        "privilege": "UPDATE"
+      }
+    ]
+  },
+  {
+    "table_name": "notification_reminders",
+    "rls": false,
+    "force_rls": false,
+    "owner": "postgres",
+    "columns": [
+      {
+        "name": "id",
+        "type": "text",
+        "default": null,
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "name": "event_id",
+        "type": "text",
+        "default": null,
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "name": "recipient_user_id",
+        "type": "text",
+        "default": null,
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "name": "policy_key",
+        "type": "text",
+        "default": null,
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "name": "step_id",
+        "type": "text",
+        "default": null,
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "name": "status",
+        "type": "text",
+        "default": null,
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "name": "due_at",
+        "type": "timestamp with time zone",
+        "default": null,
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "name": "created_at",
+        "type": "timestamp with time zone",
+        "default": null,
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "name": "updated_at",
+        "type": "timestamp with time zone",
+        "default": null,
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "name": "sort_index",
+        "type": "integer",
+        "default": null,
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "name": "payload",
+        "type": "jsonb",
+        "default": null,
+        "identity": "",
+        "not_null": true
+      }
+    ],
+    "constraints": [
+      {
+        "name": "notification_reminders_event_id_fkey",
+        "definition": "FOREIGN KEY (event_id) REFERENCES alpha_exchange.notification_events(id) ON DELETE CASCADE"
+      },
+      {
+        "name": "notification_reminders_pkey",
+        "definition": "PRIMARY KEY (id)"
+      },
+      {
+        "name": "notification_reminders_recipient_user_id_fkey",
+        "definition": "FOREIGN KEY (recipient_user_id) REFERENCES alpha_exchange.users(id) ON DELETE CASCADE"
+      }
+    ],
+    "indexes": [
+      "CREATE INDEX idx_alpha_exchange_notification_reminders_status_due ON alpha_exchange.notification_reminders USING btree (status, due_at)",
+      "CREATE UNIQUE INDEX notification_reminders_pkey ON alpha_exchange.notification_reminders USING btree (id)"
+    ],
+    "policies": null,
+    "grants": [
+      {
+        "grantee": "postgres",
+        "privilege": "DELETE"
+      },
+      {
+        "grantee": "postgres",
+        "privilege": "INSERT"
+      },
+      {
+        "grantee": "postgres",
+        "privilege": "REFERENCES"
+      },
+      {
+        "grantee": "postgres",
+        "privilege": "SELECT"
+      },
+      {
+        "grantee": "postgres",
+        "privilege": "TRIGGER"
+      },
+      {
+        "grantee": "postgres",
+        "privilege": "TRUNCATE"
+      },
+      {
+        "grantee": "postgres",
+        "privilege": "UPDATE"
+      }
+    ]
+  },
+  {
+    "table_name": "performance_telemetry",
+    "rls": false,
+    "force_rls": false,
+    "owner": "postgres",
+    "columns": [
+      {
+        "name": "id",
+        "type": "text",
+        "default": null,
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "name": "domain",
+        "type": "text",
+        "default": null,
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "name": "action",
+        "type": "text",
+        "default": null,
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "name": "route",
+        "type": "text",
+        "default": null,
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "name": "method",
+        "type": "text",
+        "default": null,
+        "identity": "",
+        "not_null": false
+      },
+      {
+        "name": "status_code",
+        "type": "integer",
+        "default": null,
+        "identity": "",
+        "not_null": false
+      },
+      {
+        "name": "created_at",
+        "type": "timestamp with time zone",
+        "default": null,
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "name": "sort_index",
+        "type": "integer",
+        "default": null,
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "name": "payload",
+        "type": "jsonb",
+        "default": null,
+        "identity": "",
+        "not_null": true
+      }
+    ],
+    "constraints": [
+      {
+        "name": "performance_telemetry_pkey",
+        "definition": "PRIMARY KEY (id)"
+      }
+    ],
+    "indexes": [
+      "CREATE UNIQUE INDEX performance_telemetry_pkey ON alpha_exchange.performance_telemetry USING btree (id)"
+    ],
+    "policies": null,
+    "grants": [
+      {
+        "grantee": "postgres",
+        "privilege": "DELETE"
+      },
+      {
+        "grantee": "postgres",
+        "privilege": "INSERT"
+      },
+      {
+        "grantee": "postgres",
+        "privilege": "REFERENCES"
+      },
+      {
+        "grantee": "postgres",
+        "privilege": "SELECT"
+      },
+      {
+        "grantee": "postgres",
+        "privilege": "TRIGGER"
+      },
+      {
+        "grantee": "postgres",
+        "privilege": "TRUNCATE"
+      },
+      {
+        "grantee": "postgres",
+        "privilege": "UPDATE"
+      }
+    ]
+  },
+  {
+    "table_name": "rate_limit_windows",
+    "rls": false,
+    "force_rls": false,
+    "owner": "postgres",
+    "columns": [
+      {
+        "name": "bucket_key",
+        "type": "text",
+        "default": null,
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "name": "window_started_at",
+        "type": "timestamp with time zone",
+        "default": null,
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "name": "request_count",
+        "type": "integer",
+        "default": null,
+        "identity": "",
+        "not_null": true
+      }
+    ],
+    "constraints": [
+      {
+        "name": "rate_limit_windows_pkey",
+        "definition": "PRIMARY KEY (bucket_key)"
+      },
+      {
+        "name": "rate_limit_windows_request_count_check",
+        "definition": "CHECK ((request_count >= 0))"
+      }
+    ],
+    "indexes": [
+      "CREATE UNIQUE INDEX rate_limit_windows_pkey ON alpha_exchange.rate_limit_windows USING btree (bucket_key)"
+    ],
+    "policies": null,
+    "grants": [
+      {
+        "grantee": "postgres",
+        "privilege": "DELETE"
+      },
+      {
+        "grantee": "postgres",
+        "privilege": "INSERT"
+      },
+      {
+        "grantee": "postgres",
+        "privilege": "REFERENCES"
+      },
+      {
+        "grantee": "postgres",
+        "privilege": "SELECT"
+      },
+      {
+        "grantee": "postgres",
+        "privilege": "TRIGGER"
+      },
+      {
+        "grantee": "postgres",
+        "privilege": "TRUNCATE"
+      },
+      {
+        "grantee": "postgres",
+        "privilege": "UPDATE"
+      }
+    ]
+  },
+  {
+    "table_name": "trade_turn_states",
+    "rls": false,
+    "force_rls": false,
+    "owner": "postgres",
+    "columns": [
+      {
+        "name": "request_id",
+        "type": "text",
+        "default": null,
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "name": "trade_id",
+        "type": "text",
+        "default": null,
+        "identity": "",
+        "not_null": false
+      },
+      {
+        "name": "status",
+        "type": "text",
+        "default": null,
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "name": "owner",
+        "type": "text",
+        "default": null,
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "name": "expected_action",
+        "type": "text",
+        "default": null,
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "name": "action_required",
+        "type": "boolean",
+        "default": null,
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "name": "updated_at",
+        "type": "timestamp with time zone",
+        "default": null,
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "name": "sort_index",
+        "type": "integer",
+        "default": null,
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "name": "payload",
+        "type": "jsonb",
+        "default": null,
+        "identity": "",
+        "not_null": true
+      }
+    ],
+    "constraints": [
+      {
+        "name": "trade_turn_states_pkey",
+        "definition": "PRIMARY KEY (request_id)"
+      }
+    ],
+    "indexes": [
+      "CREATE UNIQUE INDEX trade_turn_states_pkey ON alpha_exchange.trade_turn_states USING btree (request_id)"
+    ],
+    "policies": null,
+    "grants": [
+      {
+        "grantee": "postgres",
+        "privilege": "DELETE"
+      },
+      {
+        "grantee": "postgres",
+        "privilege": "INSERT"
+      },
+      {
+        "grantee": "postgres",
+        "privilege": "REFERENCES"
+      },
+      {
+        "grantee": "postgres",
+        "privilege": "SELECT"
+      },
+      {
+        "grantee": "postgres",
+        "privilege": "TRIGGER"
+      },
+      {
+        "grantee": "postgres",
+        "privilege": "TRUNCATE"
+      },
+      {
+        "grantee": "postgres",
+        "privilege": "UPDATE"
+      }
+    ]
+  }
+]

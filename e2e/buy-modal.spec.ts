@@ -2,6 +2,7 @@ import { test, expect, request, type APIRequestContext, type Page } from "@playw
 import { randomUUID } from "node:crypto";
 import { cleanupBuyerFixture, resolveBuyerFixture, type BuyerFixture } from "./support/buyer-fixture";
 import { E2E_BASE_URL } from "./support/base-url";
+import { createE2eSellerApprovalVerification } from "./support/seller-verification";
 
 const TEST_SUPPORT_HEADERS = { "x-alpha-test-support": "enabled" };
 
@@ -9,6 +10,7 @@ let buyerFixture: BuyerFixture | undefined;
 let originalBuyerRecord: Record<string, unknown> | null = null;
 const sellerId = `seller-e2e-${randomUUID()}`;
 const listingId = `listing-e2e-${randomUUID()}`;
+const sellerBankAccountId = `bank-${sellerId}`;
 const sellerPrivateEmail = "e2e-modal-seller-private@example.test";
 
 async function readRuntimeDb(request: APIRequestContext) {
@@ -38,6 +40,7 @@ async function seedSellerAndListing(request: APIRequestContext) {
       role: "approved_seller",
       roles: ["approved_seller"],
       sellerStatus: "approved_seller",
+      sellerApprovalVerification: createE2eSellerApprovalVerification(now),
       whatsappNumber: "+972500000055",
       preferredNetworks: ["TRC20"],
       preferredPaymentMethods: ["Bank Transfer"],
@@ -54,6 +57,18 @@ async function seedSellerAndListing(request: APIRequestContext) {
       onlineStatus: "online",
       availabilityStatus: "available",
       isProfileHidden: false,
+      sellerBankAccounts: [{
+        id: sellerBankAccountId,
+        sellerId,
+        accountHolderName: "E2E Modal Seller",
+        bankName: "Bank Hapoalim",
+        branchNumber: "123",
+        accountNumber: "9000000055",
+        accountLast4: "0055",
+        isDefault: true,
+        createdAt: now,
+        updatedAt: now,
+      }],
     },
   ];
   const listings = Array.isArray(db.marketplaceListings) ? db.marketplaceListings : [];
@@ -71,6 +86,7 @@ async function seedSellerAndListing(request: APIRequestContext) {
       network: "TRC20",
       paymentMethod: "Bank Transfer",
       paymentMethods: ["Bank Transfer"],
+      bankAccountId: sellerBankAccountId,
       bankName: "Bank Hapoalim",
       minimumTrade: "100",
       maximumTrade: "1000",
@@ -171,9 +187,45 @@ test.afterAll(async () => {
 test.describe("Direct Buy USDT modal", () => {
   test.beforeEach(async ({ page }) => {
     await seedSellerAndListing(page.request);
-    await makeBuyerEmailVerifiedWithoutPhone(page.request);
+    await restoreBuyerPhoneFixture(page.request);
     await login(page, buyerFixture!.email, buyerFixture!.password);
   });
+
+  for (const viewer of ["buyer", "owner"] as const) {
+    test(`keeps seller private histories out of the buying flow for ${viewer} on mobile`, async ({ page }) => {
+      const db = await readRuntimeDb(page.request);
+      const now = new Date().toISOString();
+      const privateCommissionId = `private-commission-${sellerId}`;
+      db.commissionRecords = [
+        ...(Array.isArray(db.commissionRecords) ? db.commissionRecords : []),
+        { id: privateCommissionId, sellerId, source: "admin_manual", rate: 0, grossAmount: 0,
+          commissionAmount: 20, paymentStatus: "paid", paymentVerificationStatus: "verified",
+          dueAt: now, createdAt: now, updatedAt: now },
+      ];
+      await writeRuntimeDb(page.request, db);
+      if (viewer === "owner") await login(page, process.env.E2E_OWNER_EMAIL!, process.env.E2E_OWNER_PASSWORD!);
+      const publicResponse = await page.request.get(`/api/alpha-exchange/sellers/${sellerId}/profile?includePrivateData=true&viewerRole=owner`);
+      expect(publicResponse.status()).toBe(200);
+      const publicPayload = await publicResponse.json();
+      expect(publicPayload.profile.ownerTools).toBeUndefined();
+      expect(publicPayload.profile.commissionPaid).toBeUndefined();
+      expect(publicPayload.profile.recentActivity).toEqual([]);
+      expect(JSON.stringify(publicPayload)).not.toContain(privateCommissionId);
+      const privateResponse = await page.request.get(`/api/alpha-exchange/admin/sellers/${sellerId}/profile`);
+      expect(privateResponse.status()).toBe(viewer === "owner" ? 200 : 403);
+      if (viewer === "owner") {
+        const privatePayload = await privateResponse.json();
+        expect(privatePayload.profile.ownerTools.commissionHistory).toContainEqual(expect.objectContaining({ id: privateCommissionId }));
+      }
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.goto("/en/usdt-exchange");
+      await page.getByRole("button", { name: /Buy USDT from/i }).first().click();
+      const dialog = page.getByRole("dialog", { name: "Buy USDT", exact: true });
+      await expect(dialog.getByLabel(/USDT Amount/i)).toBeVisible();
+      await expect(dialog.getByText(/Commission History|Recent Commission|Trade History|Recent Trades|Recent Audit|Owner Tools/)).toHaveCount(0);
+      await expect(dialog.getByRole("button", { name: /Suspend Seller|Feature Seller|Hide Seller/ })).toHaveCount(0);
+    });
+  }
 
   test("opens a purchase-first modal with the form immediately visible (desktop)", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 900 });
@@ -187,8 +239,9 @@ test.describe("Direct Buy USDT modal", () => {
     await expect(page.getByRole("heading", { name: /^Buy USDT$/ })).toBeVisible();
     // The amount field is available immediately — no profile-first scrolling.
     await expect(page.getByLabel(/USDT Amount/i)).toBeVisible();
-    await expect(page.getByLabel(/WhatsApp/i)).toHaveCount(0);
-    await expect(page.getByLabel(/Buyer notes/i)).toHaveCount(0);
+    const purchase = page.getByRole("dialog", { name: "Buy USDT", exact: true });
+    await expect(purchase.getByLabel(/WhatsApp/i)).toHaveCount(0);
+    await expect(purchase.getByLabel(/Buyer notes/i)).toHaveCount(0);
     await expect(page.getByRole("button", { name: /Start Trade/i })).toBeVisible();
   });
 
@@ -202,26 +255,31 @@ test.describe("Direct Buy USDT modal", () => {
 
     await expect(page.getByRole("heading", { name: /^Buy USDT$/ })).toBeVisible();
     await expect(page.getByLabel(/USDT Amount/i)).toBeVisible();
-    await expect(page.getByLabel(/WhatsApp/i)).toHaveCount(0);
+    await expect(page.getByRole("dialog", { name: "Buy USDT", exact: true }).getByLabel(/WhatsApp/i)).toHaveCount(0);
 
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     expect(overflow).toBeLessThanOrEqual(1);
   });
 
-  test("submits the minimum valid price offer on desktop and freezes the negotiated totals", async ({ page }) => {
+  for (const [price, discount, total] of [["3.25", "0.35", "328.25"], ["3.95", "-0.35", "398.95"]]) {
+  test(`submits the boundary price offer ${price} on desktop and freezes negotiated totals`, async ({ page }, info) => {
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto("/en/usdt-exchange");
 
-    const offerButton = page.getByRole("button", { name: /Make a price offer to E2E Modal Seller/i }).first();
+    const publicListings = await (await page.request.get("/api/alpha-exchange/listings")).json() as { listings: Array<{ id: string; sellerDisplayName: string }> };
+    const listing = publicListings.listings.find(item => item.id === listingId);
+    expect(listing).toBeDefined();
+    const offerButton = page.getByRole("button", { name: "Make a price offer to " + listing!.sellerDisplayName, exact: true });
     await offerButton.scrollIntoViewIfNeeded();
     await offerButton.click();
 
     await expect(page.getByRole("heading", { name: /^Make a Price Offer$/ })).toBeVisible();
     const priceInput = page.getByLabel(/Your Price per USDT/i);
     await expect(priceInput).toHaveAttribute("min", "3.25");
-    await expect(priceInput).toHaveAttribute("max", "3.59");
+    await expect(priceInput).toHaveAttribute("max", "3.95");
     await expect(priceInput).toHaveAttribute("step", "0.01");
-    await priceInput.fill("3.25");
+    await priceInput.fill(price);
+    await page.screenshot({ path: info.outputPath(`offer-boundary-${price}-desktop.png`) });
     await page.getByLabel(/Receiving Wallet Address/i).fill("TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE");
 
     await Promise.all([
@@ -233,16 +291,20 @@ test.describe("Direct Buy USDT modal", () => {
     const requests = Array.isArray(db.purchaseRequests) ? db.purchaseRequests : [];
     const submitted = requests.find((entry) => entry && typeof entry === "object" && (entry as Record<string, unknown>).listingId === listingId) as Record<string, unknown> | undefined;
     expect(submitted).toMatchObject({
+      usdtAmount: "100",
       listingPriceAtRequest: "3.60",
-      pricePerUsdt: "3.25",
+      pricePerUsdt: price,
       priceMode: "buyer_offer",
-      priceOfferDiscount: "0.35",
-      fiatAmount: "3250.00",
+      priceOfferDiscount: discount,
+      fiatAmount: total,
+      feePolicyVersion: "buyer_seller_1pct_v1",
       status: "pending",
     });
   });
 
-  test("keeps the Arabic price-offer dialog valid and overflow-free at 320px", async ({ page }) => {
+  }
+
+  test("keeps the Arabic price-offer dialog valid and overflow-free at 320px", async ({ page }, info) => {
     await page.setViewportSize({ width: 320, height: 720 });
     await page.goto("/ar/usdt-exchange");
 
@@ -254,7 +316,10 @@ test.describe("Direct Buy USDT modal", () => {
     const priceInput = page.getByLabel(/سعرك لكل USDT/);
     await priceInput.fill("3.24");
     await expect(priceInput).toHaveAttribute("aria-invalid", "true");
-    await priceInput.fill("3.25");
+    await priceInput.fill("3.96");
+    await expect(priceInput).toHaveAttribute("aria-invalid", "true");
+    await priceInput.fill("3.95");
+    await page.screenshot({ path: info.outputPath("offer-boundary-ar-mobile.png") });
     await expect(priceInput).not.toHaveAttribute("aria-invalid", "true");
     await expect(page.getByRole("button", { name: /^إرسال عرض السعر$/ })).toBeVisible();
 
@@ -262,7 +327,60 @@ test.describe("Direct Buy USDT modal", () => {
     expect(overflow).toBeLessThanOrEqual(1);
   });
 
-  test("lets a verified-email Buyer without a verified phone create a trade without contact fields", async ({ page }) => {
+  for (const locale of ["en", "ar"] as const) {
+    test(`calculates USDT from the ATM hundred-step code including the fee in ${locale}`, async ({ page }, info) => {
+      await page.setViewportSize({ width: 390, height: 844 });
+      const initial = await readRuntimeDb(page.request);
+      const listing = (initial.marketplaceListings as Array<Record<string, unknown>>).find(item => item.id === listingId)!;
+      Object.assign(listing, { originalAmount: "420", availableAmount: "420", minimumTrade: "420", maximumTrade: "420", price: "3.10",
+        paymentMethod: "Cardless ATM Withdrawal", paymentMethods: ["Cardless ATM Withdrawal"] });
+      await writeRuntimeDb(page.request, initial);
+      await page.goto(`/${locale}/usdt-exchange`);
+      const publicListings = await (await page.request.get("/api/alpha-exchange/listings")).json() as { listings: Array<{ id: string; sellerDisplayName: string }> };
+      const displayName = publicListings.listings.find(item => item.id === listingId)!.sellerDisplayName;
+      const buy = page.getByRole("button", { name: locale === "en" ? `Buy USDT from ${displayName}` : `شراء USDT من ${displayName}`, exact: true });
+      await buy.click();
+      const dialog = page.getByRole("dialog");
+      const cash = dialog.locator("#cardless-cash-input");
+      const amount = dialog.locator("#buyer-usdt-amount");
+      const submit = dialog.getByRole("button", { name: locale === "en" ? "Start Trade" : "بدء الصفقة", exact: true });
+      await expect(amount).toHaveValue("420");
+      await dialog.locator("#buyer-receiving-wallet").fill("TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE");
+      await dialog.locator("#cardless-bank").selectOption("Bank Hapoalim");
+      await dialog.locator("#cardless-withdrawal-code").fill("482913");
+      await dialog.locator("#cardless-verification-kind").selectOption("date_of_birth");
+      await dialog.locator("#cardless-verification-value").fill("25/08/1995");
+      await cash.fill("1300");
+      await expect(submit).toBeEnabled();
+      await expect(amount).toHaveValue("415.202811");
+      const denied = await page.request.post("/api/alpha-exchange/purchase-requests", { data: {
+        listingId, usdtAmount: "420", buyerReceivingWalletAddress: "TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE", receivingNetwork: "TRC20",
+        paymentMethod: "Cardless ATM Withdrawal", bankName: "Bank Hapoalim", feePolicyVersion: "buyer_seller_1pct_v1",
+        cardlessWithdrawalCode: "482913", cardlessVerificationKind: "date_of_birth", cardlessVerificationValue: "25/08/1995", cardlessIlsAmount: "1300",
+      } });
+      expect(denied.status()).toBe(400);
+      expect(await denied.json()).toMatchObject({ code: "CARDLESS_PAYMENT_AMOUNT_MISMATCH", details: { requiredTotal: "1315.02" } });
+      await cash.scrollIntoViewIfNeeded();
+      await page.screenshot({ path: info.outputPath(`atm-code-calculation-${locale}.png`) });
+      await cash.fill("1315");
+      await expect(submit).toBeDisabled();
+      await cash.fill("1400");
+      await expect(submit).toBeDisabled();
+      await cash.fill(locale === "ar" ? "١٣٠٠" : "1300");
+      await expect(cash).toHaveValue("1,300");
+      await expect(amount).toHaveValue("415.202811");
+      await expect(submit).toBeEnabled();
+      expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
+      await Promise.all([page.waitForURL(new RegExp(`/${locale}/trade-room/`)), submit.click()]);
+      const saved = await readRuntimeDb(page.request);
+      expect((saved.purchaseRequests as Array<Record<string, unknown>>).find(item => item.listingId === listingId)).toMatchObject({
+        usdtAmount: "415.202811", fiatAmount: "1300.00", pricePerUsdt: "3.10", feePolicyVersion: "buyer_seller_1pct_v1", status: "pending",
+      });
+    });
+  }
+
+  test("blocks a buyer with missing private contact before creating a trade", async ({ page }) => {
+    await makeBuyerEmailVerifiedWithoutPhone(page.request);
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto("/en/usdt-exchange");
     const listingsResponse = await page.request.get("/api/alpha-exchange/listings");
@@ -271,13 +389,15 @@ test.describe("Direct Buy USDT modal", () => {
     expect(listingsPayload).not.toContain("+972500000055");
     expect(listingsPayload).not.toContain(sellerPrivateEmail);
 
-    const buyButton = page.getByRole("button", { name: /Buy USDT/i }).first();
-    await buyButton.scrollIntoViewIfNeeded();
-    await buyButton.click();
-    await page.getByLabel(/Receiving Wallet Address/i).fill("TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE");
-    await Promise.all([
-      page.waitForURL(new RegExp(`/en/trade-room/`)),
-      page.getByRole("button", { name: /^Start Trade$/i }).click(),
-    ]);
+    const contact = page.getByRole("dialog", { name: "A number to reach you when needed" });
+    await expect(contact).toBeVisible();
+    await expect(contact.getByLabel("Phone or WhatsApp number (required)")).toHaveAttribute("required", "");
+    const denied = await page.request.post("/api/alpha-exchange/purchase-requests", {
+      data: { listingId, usdtAmount: "100", buyerReceivingWalletAddress: "TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE", paymentMethod: "Bank Transfer", feePolicyVersion: "buyer_seller_1pct_v1" },
+    });
+    expect(denied.status()).toBe(400);
+    expect(await denied.json()).toMatchObject({ code: "PRIVATE_CONTACT_REQUIRED" });
+    const db = await readRuntimeDb(page.request);
+    expect((db.purchaseRequests as Array<Record<string, unknown>>).filter(item => item.listingId === listingId)).toEqual([]);
   });
 });

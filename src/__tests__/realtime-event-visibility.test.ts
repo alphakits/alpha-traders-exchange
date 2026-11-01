@@ -15,6 +15,8 @@ vi.mock("@/lib/alpha-exchange-store", () => ({
 }));
 
 import { realtimeEventForUser } from "@/lib/realtime-event-visibility";
+import { sanitizePurchaseRequestForActor } from "@/lib/alpha-exchange-store";
+import type { MarketplaceListing, PurchaseRequest } from "@/types/alpha-exchange";
 
 function viewer(id: string, role: "admin" | "approved_seller" = "approved_seller") {
   return {
@@ -42,6 +44,35 @@ function notification(overrides: Partial<AlphaExchangeNotification> = {}): Alpha
 }
 
 describe("seller workspace realtime visibility", () => {
+  it("never broadcasts a draft listing or its bank identifier to other sellers", () => {
+    const listing = { id: "draft-private", sellerId: "seller-1", status: "draft", bankAccountId: "private-bank", sellerDisplayName: "Private Seller" } as MarketplaceListing;
+    const event: RealtimeEvent = { type: "listing.created", payload: { listing } };
+    expect(realtimeEventForUser(event, viewer("seller-2"))).toBeNull();
+    expect(realtimeEventForUser(event, viewer("seller-1"))).toEqual(event);
+    expect(realtimeEventForUser(event, viewer("admin-1", "admin"))).toEqual(event);
+  });
+
+  it.each([
+    { type: "listing.quantity_changed", payload: { listingId: "draft-private", availableAmount: "9876" } },
+    { type: "listing.status_changed", payload: { listingId: "draft-private", status: "draft" } },
+    { type: "seller.status_changed", payload: { sellerId: "seller-1", onlineStatus: "online" } },
+  ] as RealtimeEvent[])("scopes private live updates to their recipient: $type", (update) => {
+    const event = { ...update, recipientUserId: "seller-1" };
+    expect(realtimeEventForUser(event, viewer("seller-2"))).toBeNull();
+    expect(realtimeEventForUser(event, viewer("seller-1"))).toEqual(event);
+    expect(realtimeEventForUser(event, viewer("admin-1", "admin"))).toEqual(event);
+  });
+
+  it("does not reintroduce an unsanitized timeline beside the sanitized trade payload", () => {
+    const request = { id: "trade-1", buyerId: "buyer-1", sellerId: "seller-1", status: "accepted", timeline: [{ message: "Private phone +972501234567" }] } as PurchaseRequest;
+    const sanitized = { ...request, timeline: [{ message: "[private contact removed]" }] } as PurchaseRequest;
+    vi.mocked(sanitizePurchaseRequestForActor).mockReturnValueOnce(sanitized);
+    const event: RealtimeEvent = { type: "trade.status_changed", payload: { request, requestId: request.id, status: request.status, timeline: request.timeline } };
+    const visible = realtimeEventForUser(event, viewer("seller-1"));
+    expect(JSON.stringify(visible)).not.toContain("+972501234567");
+    expect(visible?.payload).toMatchObject({ timeline: sanitized.timeline, request: sanitized });
+    expect(realtimeEventForUser(event, viewer("seller-2"))).toBeNull();
+  });
   it("never broadcasts a notification to a different user, including an admin", () => {
     const event = { type: "notification.created", payload: { notification: notification() } } as const;
     expect(realtimeEventForUser(event, viewer("seller-2"))).toBeNull();

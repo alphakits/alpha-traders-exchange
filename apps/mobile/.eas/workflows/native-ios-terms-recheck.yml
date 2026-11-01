@@ -1,0 +1,17 @@
+name: Alpha Traders iOS English Terms Recheck
+
+on:
+  workflow_dispatch:
+    inputs:
+      ios_build_id:
+        type: string
+        required: true
+
+jobs:
+  ios_terms_en:
+    type: maestro
+    params:
+      build_id: ${{ inputs.ios_build_id }}
+      flow_path: .maestro/terms-en.yml
+      retries: 0
+      record_screen: true

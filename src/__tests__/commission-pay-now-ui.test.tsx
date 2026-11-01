@@ -1,6 +1,11 @@
-import { act, cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
+import { act, cleanup, configure, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { UsdtExchangePage } from "@/components/sections/usdt-exchange/usdt-exchange-page";
+import { UsdtExchangePage, readApiErrorMessage } from "@/components/sections/usdt-exchange/usdt-exchange-page";
+import { listingCommissionRequiredMessage } from "@/lib/listing-commission-policy";
+
+// This large workspace renders asynchronously; allow shared CI workers to settle
+// mocked fetches without weakening any payment or navigation assertions.
+configure({ asyncUtilTimeout: 5_000 });
 
 const routerPush = vi.fn();
 const navigationState = vi.hoisted(() => ({ search: "" }));
@@ -34,6 +39,7 @@ const seller = {
   role: "approved_seller" as const,
   roles: ["approved_seller" as const, "buyer" as const],
   sellerStatus: "approved_seller" as const,
+  sellerApprovalVerified: true,
   whatsappNumber: "",
   preferredNetworks: [],
   preferredPaymentMethods: [],
@@ -80,7 +86,10 @@ type MockPayableCommission = {
 };
 
 let commissionRecordsOverride: MockPayableCommission[] | null = null;
+let commissionDueStatus: "pending" | "overdue" = "pending";
 let workspaceCanCreateListingOverride: boolean | null = null;
+let workspaceOpenListingCount = 0;
+let workspaceBlockedReasonOverride: string | null = null;
 let commissionPaymentResponse: {
   verification: { verified: boolean; pending?: boolean; notes: string };
 } = { verification: { verified: false, pending: true, notes: "Waiting for TRON final confirmation." } };
@@ -100,7 +109,10 @@ describe("seller commission Pay Now", () => {
     navigationState.search = "";
     commissionRecordVerification = {};
     commissionRecordsOverride = null;
+    commissionDueStatus = "pending";
     workspaceCanCreateListingOverride = null;
+    workspaceOpenListingCount = 0;
+    workspaceBlockedReasonOverride = null;
     commissionPaymentResponse = { verification: { verified: false, pending: true, notes: "Waiting for TRON final confirmation." } };
     commissionPaymentSideEffect = null;
     notificationStreamListener = null;
@@ -168,16 +180,16 @@ describe("seller commission Pay Now", () => {
           listings: [],
           summary: {
             activeListingLimit: 2,
-            openListingCount: 0,
+            openListingCount: workspaceOpenListingCount,
             openTradeCount: 0,
             pendingCommissionCount: payableRecords.length,
             canCreateListing,
             blockedReason: !canCreateListing
-              ? "Your listings are hidden and all new marketplace trading is locked until every pending commission is paid."
+              ? workspaceBlockedReasonOverride ?? listingCommissionRequiredMessage()
               : null,
           },
           commissionStatus: {
-            status: payableRecords.length > 0 ? "pending" : "clear",
+            status: payableRecords.length > 0 ? commissionDueStatus : "clear",
             pendingCount: payableRecords.length,
             amountDue: totalAmountDue,
             totalAmountDue,
@@ -217,7 +229,61 @@ describe("seller commission Pay Now", () => {
 
   afterEach(() => {
     cleanup();
+    vi.useRealTimers();
     vi.unstubAllGlobals();
+  });
+
+  it.each(["en", "ar"] as const)("shows a clear commission-first listing notice and payment action in %s", async (locale) => {
+    workspaceCanCreateListingOverride = true; // A stale permissive summary cannot overrule unpaid debt.
+    render(<UsdtExchangePage locale={locale} initialSessionUser={seller} workspaceMode="seller" />);
+    const isAr = locale === "ar";
+    const createSection = await waitFor(() => {
+      const section = document.getElementById("create-listing")!;
+      expect(section?.textContent).toContain(listingCommissionRequiredMessage(isAr));
+      return within(section);
+    });
+    expect((createSection.getByRole("button", { name: isAr ? "متابعة إلى الدفع" : "Continue to payment" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(createSection.getByRole("button", { name: /Pay Now|ادفع الآن/ }));
+    await waitFor(() => expect(document.getElementById("commission-payment")).not.toBeNull());
+    const localized = await readApiErrorMessage(jsonResponse({ error: listingCommissionRequiredMessage() }, 400), isAr ? "تعذر تحديث العرض" : "Unable to update listing");
+    expect(localized).toBe(listingCommissionRequiredMessage(isAr));
+  });
+
+  it.each(["en", "ar"] as const)("keeps the open-listing limit separate from clear commissions in %s", async (locale) => {
+    commissionRecordsOverride = [];
+    workspaceCanCreateListingOverride = false;
+    workspaceOpenListingCount = 2;
+    workspaceBlockedReasonOverride = "You already have 2 open listings, including listings awaiting review. Close one before creating another.";
+    render(<UsdtExchangePage locale={locale} initialSessionUser={seller} workspaceMode="seller" />);
+    const isAr = locale === "ar";
+    const commissionStatus = await waitFor(() => {
+      const section = document.getElementById("commission-status")!;
+      expect(section?.textContent).toContain(isAr ? "لا توجد عمولة مستحقة حالياً." : "No commission due.");
+      return section;
+    });
+    expect(commissionStatus.textContent).toContain(isAr ? "لا يلزمك دفع أي عمولة حالياً" : "No commission payment is required now");
+    expect(commissionStatus.textContent).not.toMatch(/مساحة عمل البائع مقيدة|Your seller account is temporarily restricted|You already have 2 open listings/);
+    expect(within(commissionStatus).queryByRole("button", { name: /Pay Now|ادفع الآن/ })).toBeNull();
+
+    const createSection = within(document.getElementById("create-listing")!);
+    expect(createSection.getByText(isAr ? "وصلت إلى الحد الأقصى للعروض المفتوحة" : "Open listing limit reached")).toBeTruthy();
+    expect(createSection.getByText(isAr ? /عدد العروض المفتوحة: 2. الحد الأقصى: 2. يشمل ذلك العروض بانتظار المراجعة/ : workspaceBlockedReasonOverride)).toBeTruthy();
+    expect(createSection.getByRole("button", { name: isAr ? "إدارة العروض" : "Manage Listings" })).toBeTruthy();
+    expect(createSection.queryByText(isAr ? "ادفع العمولة أولاً" : "Pay commission first")).toBeNull();
+    expect((createSection.getByRole("button", { name: isAr ? "متابعة إلى الدفع" : "Continue to payment" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it.each(["en", "ar"] as const)("keeps overdue Pay Now available to suspended sellers in %s", async (locale) => {
+    commissionDueStatus = "overdue";
+    render(<UsdtExchangePage locale={locale} initialSessionUser={suspendedSeller} />);
+    const status = await waitFor(() => {
+      const element = document.getElementById("commission-status");
+      expect(element?.textContent).toContain(locale === "ar" ? "العمولة متأخرة" : "Commission Overdue");
+      return element!;
+    });
+    fireEvent.click(within(status).getByRole("button", { name: locale === "ar" ? "ادفع الآن" : "Pay Now" }));
+    await waitFor(() => expect(document.getElementById("commission-payment")?.textContent).toContain("7.000001 USDT"));
+    expect(routerPush).not.toHaveBeenCalled();
   });
 
   it("opens the exact payment panel in place from both mobile buttons", async () => {
@@ -248,7 +314,7 @@ describe("seller commission Pay Now", () => {
     await waitFor(() => {
       expect(firstPanel.textContent).toContain("TRC20");
       expect(firstPanel.textContent).toContain("TMDgWpi2huECqaoR6e71ttEiVyV34HUtr8");
-      expect(within(firstPanel).getByPlaceholderText("64-character TRON TxID")).not.toBeNull();
+      expect(within(firstPanel).getByPlaceholderText("TRC20 TxID or BEP20 0x hash")).not.toBeNull();
     });
 
     fireEvent.click(within(firstPanel).getByRole("button", { name: "Close commission payment" }));
@@ -264,6 +330,36 @@ describe("seller commission Pay Now", () => {
       expect(element?.textContent).toContain("7.000001 USDT");
     });
     expect(routerPush).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { amountDue: 7.89, paymentAmountDue: 7.890001, balance: "7.89 USDT", exact: "7.890001" },
+    { amountDue: 0.18, paymentAmountDue: 0.180001, balance: "0.18 USDT", exact: "0.180001" },
+    { amountDue: 0.002, paymentAmountDue: 0.002001, balance: "0.002 USDT", exact: "0.002001" },
+    { amountDue: 8.304056, paymentAmountDue: 8.304057, balance: "8.304056 USDT", exact: "8.304057" },
+  ])("preserves the fractional commission balance $balance and exact copy amount", async ({ amountDue, paymentAmountDue, balance, exact }) => {
+    commissionRecordsOverride = [{
+      commissionId: "fractional-commission",
+      amountDue,
+      paymentAmountDue,
+      dueAt: "2026-09-15T00:00:00.000Z",
+    }];
+    render(<UsdtExchangePage locale="en" initialSessionUser={seller} />);
+
+    const status = await waitFor(() => {
+      const element = document.getElementById("commission-status");
+      expect(element?.textContent).toContain(balance);
+      return element!;
+    });
+    fireEvent.click(within(status).getByRole("button", { name: "Pay Now" }));
+
+    const panel = await waitFor(() => {
+      const element = document.getElementById("commission-payment");
+      expect(element?.textContent).toContain(`${exact} USDT`);
+      return element!;
+    });
+    fireEvent.click(within(panel).getByRole("button", { name: "Copy exact commission amount" }));
+    await waitFor(() => expect(navigator.clipboard.writeText).toHaveBeenCalledWith(exact));
   });
 
   it("refreshes an already-open seller workspace when an admin issues a commission", async () => {
@@ -309,6 +405,26 @@ describe("seller commission Pay Now", () => {
       expect(commissionStatus.textContent).toContain("12.50 USDT");
       expect(within(commissionStatus).getByRole("button", { name: "Pay Now" })).not.toBeNull();
     });
+  });
+
+  it.each(["en", "ar"] as const)("distinguishes carried and manual obligations and localizes the carried reason in %s", async (locale) => {
+    commissionRecordsOverride = [
+      { commissionId: "carry-1", source: "tolerance_carry_forward", amountDue: 2, paymentAmountDue: 2.000001,
+        dueAt: "2026-09-15T00:00:00.000Z", issueReason: "Unpaid balance from an earlier verified commission payment. This is not an additional trading fee." },
+      { commissionId: "manual-1", source: "admin_manual", amountDue: 9, paymentAmountDue: 9.000001,
+        dueAt: "2026-09-15T00:00:00.000Z", issueReason: "Documented seller adjustment" },
+    ];
+    render(<UsdtExchangePage locale={locale} initialSessionUser={seller} workspaceMode="seller" />);
+    const isAr = locale === "ar";
+    const manual = await screen.findByRole("button", { name: isAr ? /عمولة صادرة عن الإدارة/ : /Admin-issued commission/ });
+    expect(manual.textContent).toContain("9.000001");
+    const carried = screen.getByRole("button", { name: isAr ? /رصيد عمولة مرحّل/ : /Carried commission balance/ });
+    expect(carried.textContent).toContain("2.000001");
+    expect(document.getElementById("commission-status")?.textContent).toContain(isAr
+      ? "رصيد غير مدفوع من دفعة عمولة سابقة تم التحقق منها. هذه ليست رسوم تداول إضافية."
+      : "Unpaid balance from an earlier verified commission payment. This is not an additional trading fee.");
+    fireEvent.click(manual);
+    await waitFor(() => expect(document.getElementById("commission-payment")?.textContent).toContain("Documented seller adjustment"));
   });
 
   it("shows a trade-less manual commission as admin-issued and keeps it payable", async () => {
@@ -364,9 +480,9 @@ describe("seller commission Pay Now", () => {
     );
 
     const createListing = document.getElementById("create-listing");
-    expect(createListing).not.toBeNull();
-    expect(createListing?.textContent).toContain("Your seller account is suspended");
-    expect((within(createListing!).getByRole("button", { name: "Submit Listing" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(createListing).toBeNull();
+    expect(screen.queryByRole("button", { name: "Submit Listing" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Create Listing" })).toBeNull();
   });
 
   it("reacts to a commission reminder routed onto an already-mounted exchange page", async () => {
@@ -385,10 +501,49 @@ describe("seller commission Pay Now", () => {
       expect(element).not.toBeNull();
       expect(element?.textContent).toContain("7.000001 USDT");
     });
-    expect(fetch).toHaveBeenCalledWith(
-      "/api/alpha-exchange/my-listings?commissionId=commission-trade-93",
-      expect.objectContaining({ cache: "no-store" }),
-    );
+    expect(document.getElementById("commission-payment")?.textContent).toContain("TMDgWpi2huECqaoR6e71ttEiVyV34HUtr8");
+  });
+
+  it("opens the exact address while unrelated workspace requests never finish", async () => {
+    navigationState.search = "commission=pay&commissionId=commission-trade-93";
+    const original = vi.mocked(fetch).getMockImplementation()!;
+    let finishPayment!: () => void;
+    const gate = new Promise<void>((resolve) => { finishPayment = resolve; });
+    vi.mocked(fetch).mockImplementation(async (input, init) => {
+      const url = String(input);
+      if (url.includes("discord-sharing") || (url.includes("my-listings") && !url.includes("commissionId="))) return new Promise<Response>(() => {});
+      if (url.includes("my-listings?commissionId=")) await gate;
+      return original(input, init);
+    });
+    const view = render(<UsdtExchangePage locale="en" initialSessionUser={seller} />);
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith("/api/alpha-exchange/my-listings?commissionId=commission-trade-93", expect.anything()));
+    view.rerender(<UsdtExchangePage locale="en" initialSessionUser={{ ...seller }} />);
+    await act(async () => { finishPayment(); });
+    await waitFor(() => {
+      const panel = document.getElementById("commission-payment");
+      expect(panel?.textContent).toContain("7.000001 USDT");
+      expect(panel?.textContent).toContain("TMDgWpi2huECqaoR6e71ttEiVyV34HUtr8");
+    });
+  });
+
+  it("keeps the requested commission when a slower general workspace response arrives", async () => {
+    navigationState.search = "commission=pay&commissionId=commission-trade-94";
+    commissionRecordsOverride = [
+      { commissionId: "commission-trade-93", amountDue: 7, paymentAmountDue: 7.000001, dueAt: "2026-09-11T00:00:00Z" },
+      { commissionId: "commission-trade-94", amountDue: 9, paymentAmountDue: 9.000002, dueAt: "2026-09-12T00:00:00Z" },
+    ];
+    const original = vi.mocked(fetch).getMockImplementation()!;
+    let finishGeneral!: () => void;
+    const gate = new Promise<void>((resolve) => { finishGeneral = resolve; });
+    vi.mocked(fetch).mockImplementation(async (input, init) => {
+      if (String(input).includes("my-listings") && !String(input).includes("commissionId=")) await gate;
+      return original(input, init);
+    });
+    render(<UsdtExchangePage locale="en" initialSessionUser={seller} />);
+    await waitFor(() => expect(document.getElementById("commission-payment")?.textContent).toContain("9.000002 USDT"));
+    await act(async () => { finishGeneral(); });
+    await waitFor(() => expect(document.getElementById("commission-status")).not.toBeNull());
+    expect(document.getElementById("commission-payment")?.textContent).toContain("9.000002 USDT");
   });
 
   it("restores a pending verification banner and still accepts a replacement TxID", async () => {
@@ -417,10 +572,10 @@ describe("seller commission Pay Now", () => {
     });
     expect(panel.textContent).toContain("Waiting for TRON final confirmation.");
     expect(panel.textContent).toContain("aaaaaaaa…aaaaaaaa");
-    expect(panel.textContent).toContain("paste a replacement TRON TxID below");
+    expect(panel.textContent).toContain("paste a replacement transaction ID below");
 
     fireEvent.click(within(panel).getByRole("button", { name: /Crypto Exchange or Broker/i }));
-    const input = within(panel).getByPlaceholderText("64-character TRON TxID") as HTMLInputElement;
+    const input = within(panel).getByPlaceholderText("TRC20 TxID or BEP20 0x hash") as HTMLInputElement;
     const replacementTxId = "b".repeat(64);
     fireEvent.change(input, { target: { value: replacementTxId } });
     expect(input.value).toBe(replacementTxId);
@@ -455,11 +610,11 @@ describe("seller commission Pay Now", () => {
     expect(pending.textContent).toContain("Automatic verification will continue");
     expect(pending.textContent).toContain("do not pay again");
     expect(pending.textContent).toContain("contact Alpha Traders support");
-    expect(panel.textContent).not.toContain("paste a replacement TRON TxID below");
+    expect(panel.textContent).not.toContain("paste a replacement transaction ID below");
     expect(panel.textContent).not.toContain("Pay this commission");
     expect(within(panel).queryByRole("button", { name: "Copy exact commission amount" })).toBeNull();
     expect(within(panel).queryByRole("button", { name: /Crypto Exchange or Broker/i })).toBeNull();
-    expect(within(panel).queryByPlaceholderText("64-character TRON TxID")).toBeNull();
+    expect(within(panel).queryByPlaceholderText("TRC20 TxID or BEP20 0x hash")).toBeNull();
     expect(within(panel).queryByRole("button", { name: "Verify Payment" })).toBeNull();
   });
 
@@ -488,10 +643,10 @@ describe("seller commission Pay Now", () => {
     });
     expect(panel.textContent).toContain("The transfer amount did not exactly match the requested commission.");
     expect(panel.textContent).toContain("cccccccc…cccccccc");
-    expect(panel.textContent).toContain("paste the correct TRON TxID below");
+    expect(panel.textContent).toContain("paste the correct transaction ID below");
 
     fireEvent.click(within(panel).getByRole("button", { name: /Crypto Exchange or Broker/i }));
-    const input = within(panel).getByPlaceholderText("64-character TRON TxID") as HTMLInputElement;
+    const input = within(panel).getByPlaceholderText("TRC20 TxID or BEP20 0x hash") as HTMLInputElement;
     fireEvent.change(input, { target: { value: "d".repeat(64) } });
     expect(input.value).toBe("d".repeat(64));
     expect((within(panel).getByRole("button", { name: "Verify Payment" }) as HTMLButtonElement).disabled).toBe(false);
@@ -544,7 +699,7 @@ describe("seller commission Pay Now", () => {
       return element!;
     });
     fireEvent.click(within(panel).getByRole("button", { name: /Crypto Exchange or Broker/i }));
-    fireEvent.change(within(panel).getByPlaceholderText("64-character TRON TxID"), {
+    fireEvent.change(within(panel).getByPlaceholderText("TRC20 TxID or BEP20 0x hash"), {
       target: { value: "e".repeat(64) },
     });
     fireEvent.click(within(panel).getByRole("button", { name: "Verify Payment" }));
@@ -594,7 +749,7 @@ describe("seller commission Pay Now", () => {
       return element!;
     });
     fireEvent.click(within(panel).getByRole("button", { name: /Crypto Exchange or Broker/i }));
-    fireEvent.change(within(panel).getByPlaceholderText("64-character TRON TxID"), {
+    fireEvent.change(within(panel).getByPlaceholderText("TRC20 TxID or BEP20 0x hash"), {
       target: { value: "f".repeat(64) },
     });
     settleOnSubmit = true;
@@ -605,6 +760,110 @@ describe("seller commission Pay Now", () => {
       expect(document.body.textContent).toContain("Payment verified. All commission dues are settled");
       expect(document.body.textContent).not.toContain("0.000000 USDT");
     });
+  });
+
+  it.each(["focus", "interval", "notification"])("settles an automatic payment without a submitted TxID on %s refresh", async (refreshMethod) => {
+    if (refreshMethod === "interval") vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    render(<UsdtExchangePage locale="en" initialSessionUser={seller} />);
+    const commissionStatus = await waitFor(() => {
+      const element = document.getElementById("commission-status");
+      expect(element?.textContent).toContain("7.00 USDT");
+      expect(notificationStreamListener).not.toBeNull();
+      return element!;
+    });
+    fireEvent.click(within(commissionStatus).getByRole("button", { name: "Pay Now" }));
+    await waitFor(() => expect(document.getElementById("commission-payment")?.textContent).toContain("7.000001 USDT"));
+
+    commissionRecordsOverride = [];
+    if (refreshMethod === "interval") {
+      await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
+    } else if (refreshMethod === "focus") {
+      fireEvent(window, new Event("focus"));
+    } else {
+      act(() => {
+        notificationStreamListener?.(new MessageEvent("notifications", {
+          data: JSON.stringify({
+            unreadCount: 1,
+            notifications: [{
+              id: "notification-final-commission-paid",
+              userId: seller.id,
+              category: "trade",
+              title: "Commission payment verified",
+              message: "All commission dues are settled.",
+              isRead: false,
+              reason: "commission_payment_verified",
+              actionHref: "/usdt-exchange",
+              createdAt: "2026-09-12T00:00:00.000Z",
+            }],
+          }),
+        }));
+      });
+    }
+
+    await waitFor(() => {
+      expect(document.getElementById("commission-payment")).toBeNull();
+      expect(document.body.textContent).toContain("Payment verified. All commission dues are settled.");
+      expect(commissionStatus.textContent).toContain("No commission due");
+      expect(document.body.textContent).not.toContain("0.000000 USDT");
+    });
+    expect(vi.mocked(fetch).mock.calls.some(([input]) => String(input).includes("/commissions/pay"))).toBe(false);
+  });
+
+  it("closes an automatically settled selected panel on notification refresh without switching to the remaining commission", async () => {
+    const remainingRecord: MockPayableCommission = {
+      commissionId: "commission-trade-93",
+      amountDue: 7,
+      paymentAmountDue: 7.000001,
+      relatedTradeDisplayNumber: 93,
+      dueAt: "2026-09-11T00:00:00.000Z",
+    };
+    commissionRecordsOverride = [remainingRecord, {
+      commissionId: "commission-trade-94",
+      amountDue: 8,
+      paymentAmountDue: 8.000001,
+      relatedTradeDisplayNumber: 94,
+      dueAt: "2026-09-12T00:00:00.000Z",
+    }];
+    render(<UsdtExchangePage locale="en" initialSessionUser={seller} />);
+    const commissionStatus = await waitFor(() => {
+      const element = document.getElementById("commission-status");
+      expect(element?.textContent).toContain("Choose one unpaid commission to pay.");
+      expect(notificationStreamListener).not.toBeNull();
+      return element!;
+    });
+    fireEvent.click(within(commissionStatus).getByRole("button", { name: /Trade #94/i }));
+    await waitFor(() => expect(document.getElementById("commission-payment")?.textContent).toContain("8.000001 USDT"));
+
+    commissionRecordsOverride = [remainingRecord];
+    act(() => {
+      notificationStreamListener?.(new MessageEvent("notifications", {
+        data: JSON.stringify({
+          unreadCount: 1,
+          notifications: [{
+            id: "notification-commission-paid-94",
+            userId: seller.id,
+            category: "trade",
+            title: "Commission payment verified",
+            message: "Your payment was verified. One commission remains due.",
+            isRead: false,
+            reason: "commission_payment_due",
+            actionHref: "/usdt-exchange?commission=pay&commissionId=commission-trade-93#commission-payment",
+            createdAt: "2026-09-12T00:00:00.000Z",
+          }],
+        }),
+      }));
+    });
+
+    await waitFor(() => {
+      expect(document.getElementById("commission-payment")).toBeNull();
+      expect(document.body.textContent).toContain("Select the next outstanding commission when you are ready.");
+      expect(document.body.textContent).not.toContain("0.000000 USDT");
+      expect(commissionStatus.textContent).toContain("7.00 USDT");
+    });
+    // Remaining debt is available only after an explicit new selection.
+    fireEvent.click(within(commissionStatus).getByRole("button", { name: "Pay Now" }));
+    await waitFor(() => expect(document.getElementById("commission-payment")?.textContent).toContain("7.000001 USDT"));
+    expect(vi.mocked(fetch).mock.calls.some(([input]) => String(input).includes("/commissions/pay"))).toBe(false);
   });
 
   it("closes a pending payment panel when background verification settles that commission", async () => {

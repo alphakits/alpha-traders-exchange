@@ -1,6 +1,11 @@
 "use client";
+import { navigateToPageSection } from "@/lib/page-section-navigation";
+import { HelpDetails } from "@/components/ui/help-details";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { currencyText } from "@/components/ui/currency-text";
+import { ActionFeedback, useActionFeedbackState } from "@/components/ui/action-feedback";
+import { useCallback, useEffect, useMemo, useRef, useState, type SetStateAction } from "react";
+import { fetchClientJson, runClientRequest } from "@/lib/client-request-deadline";
 import { BellDot, CheckCheck, Megaphone, Scale, Search, ShieldCheck, Star, Tags, UserRound } from "lucide-react";
 import type { AppLocale } from "@/i18n/routing";
 import { useRouter } from "@/i18n/navigation";
@@ -13,7 +18,7 @@ import { formatListingId, formatTradeId } from "@/lib/format-id";
 import { replaceExchangeEntityIdsWithHints } from "@/lib/alpha-exchange-display";
 import { formatNotificationRelativeTime } from "@/lib/notification-time";
 import { sortNotificationsNewestFirst } from "@/lib/notification-sort";
-import { getTradeRoomConversationDestination } from "@/lib/trade-room-notification-destination";
+import { extractRequestIdFromTradeRoomHref, extractTradeRoomHrefFromRelatedHref, getTradeRoomConversationDestination } from "@/lib/trade-room-notification-destination";
 import { getCommissionPaymentNotificationDestination } from "@/lib/commission-payment-destination";
 import {
   getExplicitNonTradeRoomNotificationDestination,
@@ -24,7 +29,7 @@ import { useAuthenticatedNotificationStream } from "@/components/notifications/u
 import { useOptionalCanonicalSession } from "@/components/auth/canonical-session-provider";
 import { localizeNotificationActionLabel, localizeNotificationCopy } from "@/lib/notification-localization";
 import { israelCalendarDayNumber } from "@/lib/israel-calendar";
-import { isCashTradePaymentMethod } from "@/lib/marketplace-payment-methods";
+import { getTradeRoomSnapshotAction as buildTradeRoomActionForSnapshot, tradeRoomActionLabel, type TradeRoomActionSnapshot as TradeSnapshotPayload } from "@/lib/trade-room-destination";
 
 type NotificationsPayload = {
   notifications: AlphaExchangeNotification[];
@@ -37,21 +42,13 @@ type NotificationsStreamPayload = {
   unreadCount: number;
 };
 
-type TradeRoomRequestPayload = {
-  id: string;
-  status: string;
-  sellerId: string;
-  buyerId: string;
-  paymentMethod?: string;
-};
-
-type TradeSnapshotPayload = {
-  requestId?: string;
-  currentStage?: string;
-  sellerId?: string;
-  buyerId?: string;
-  paymentMethod?: string;
-};
+function validNotificationItems(value: unknown, userId: string): value is AlphaExchangeNotification[] {
+  return Array.isArray(value) && value.every((item) => item && typeof item === "object"
+    && typeof item.id === "string" && item.id.length > 0 && item.userId === userId
+    && typeof item.title === "string" && typeof item.message === "string"
+    && typeof item.category === "string" && typeof item.isRead === "boolean"
+    && typeof item.createdAt === "string" && Number.isFinite(Date.parse(item.createdAt)));
+}
 
 type NotificationFilter = "all" | "actions" | "unread" | "trades" | "listings" | "reviews" | "announcements" | "history";
 
@@ -94,50 +91,8 @@ function buildTradeRoomHashForAction(action: string) {
   return "action-required";
 }
 
-function buildTradeRoomActionForRequest(request: TradeRoomRequestPayload, actorUserId: string) {
-  const isSeller = request.sellerId === actorUserId;
-  const isBuyer = request.buyerId === actorUserId;
-  const cashTrade = isCashTradePaymentMethod(request.paymentMethod);
-  if (request.status === "pending" && isSeller) return "accept-trade";
-  if (request.status === "accepted" && isBuyer) return cashTrade ? "confirm-cash-payment" : "upload-payment-receipt";
-  if (request.status === "payment_sent" && isSeller) return "confirm-money-received";
-  if (request.status === "funds_received" && isSeller) return cashTrade ? "confirm-usdt-sent" : "release-usdt";
-  if (request.status === "usdt_release_pending" && isSeller) return cashTrade ? "confirm-usdt-sent" : "upload-seller-evidence";
-  if (request.status === "usdt_sent" && cashTrade && isSeller) return "complete-cash-trade";
-  if (request.status === "usdt_sent" && !cashTrade && isBuyer) return "confirm-usdt-received";
-  if ((request.status === "review_open" || request.status === "completed" || request.status === "locked") && isBuyer) return "review-trade";
-  return "open-trade";
-}
-
-function buildTradeRoomActionForSnapshot(snapshot: TradeSnapshotPayload | null | undefined, actorUserId: string) {
-  const requestId = String(snapshot?.requestId ?? "").trim();
-  const status = String(snapshot?.currentStage ?? "").trim();
-  const sellerId = String(snapshot?.sellerId ?? "").trim();
-  const buyerId = String(snapshot?.buyerId ?? "").trim();
-  if (!requestId || !status || !sellerId || !buyerId) return null;
-  return buildTradeRoomActionForRequest({ id: requestId, status, sellerId, buyerId, paymentMethod: snapshot?.paymentMethod }, actorUserId);
-}
-
 function notificationNeedsUserAction(notification: AlphaExchangeNotification) {
-  if (isNotificationActionRequired(notification)) return true;
-  if (notification.category !== "trade") return false;
-  const tradeAction = buildTradeRoomActionForSnapshot(notification.tradeSnapshot, notification.userId);
-  return Boolean(tradeAction && tradeAction !== "open-trade");
-}
-
-function tradeRoomActionLabel(action: string, locale: AppLocale) {
-  const isAr = locale === "ar";
-  if (action === "accept-trade") return isAr ? "مراجعة طلب الصفقة" : "Review trade request";
-  if (action === "confirm-cash-payment") return isAr ? "تأكيد تسليم النقد أو الرمز" : "Confirm cash or code sent";
-  if (action === "upload-payment-receipt") return isAr ? "رفع إيصال الدفع" : "Upload payment receipt";
-  if (action === "confirm-money-received") return isAr ? "تأكيد استلام الدفعة" : "Confirm payment received";
-  if (action === "release-usdt") return isAr ? "بدء إرسال USDT" : "Begin USDT release";
-  if (action === "upload-seller-evidence") return isAr ? "رفع الإثبات وإرسال USDT" : "Upload proof and send USDT";
-  if (action === "confirm-usdt-sent") return isAr ? "تأكيد إرسال USDT" : "Confirm USDT sent";
-  if (action === "complete-cash-trade" || action === "send-usdt-complete") return isAr ? "تحديد الصفقة كمكتملة" : "Mark trade as completed";
-  if (action === "confirm-usdt-received") return isAr ? "تأكيد استلام USDT" : "Confirm USDT received";
-  if (action === "review-trade") return isAr ? "إضافة تقييم للصفقة" : "Leave a trade review";
-  return isAr ? "عرض تفاصيل الصفقة" : "View trade details";
+  return isNotificationActionRequired(notification);
 }
 
 function matchesFilter(notification: AlphaExchangeNotification, filter: NotificationFilter) {
@@ -212,29 +167,6 @@ function buildNotificationGroups(
   return groups;
 }
 
-function extractTradeRoomHrefFromRelatedHref(relatedHref?: string) {
-  const href = relatedHref?.trim();
-  if (!href) return null;
-  const normalized = href.startsWith("/") ? href : `/${href}`;
-  const roomMatch = normalized.match(/\/trade-room\/([^/?#]+)/i);
-  if (roomMatch?.[1]) return `/trade-room/${decodeURIComponent(roomMatch[1])}`;
-  const requestMatch = normalized.match(/[?&]requestId=([^&]+)/i);
-  if (requestMatch?.[1]) return `/trade-room/${decodeURIComponent(requestMatch[1])}`;
-  return null;
-}
-
-function extractRequestIdFromTradeRoomHref(href: string | null) {
-  if (!href) return null;
-  try {
-    const parsed = new URL(href, "https://www.alphatraders.co.il");
-    const match = parsed.pathname.match(/\/trade-room\/([^/]+)\/?$/i);
-    return match?.[1] ? decodeURIComponent(match[1]).trim() || null : null;
-  } catch {
-    const match = href.split("?")[0]?.split("#")[0]?.match(/\/trade-room\/([^/]+)\/?$/i);
-    return match?.[1] ? decodeURIComponent(match[1]).trim() || null : null;
-  }
-}
-
 function canResolveNotificationDestination(notification: AlphaExchangeNotification) {
   if (getCommissionPaymentNotificationDestination(notification)) return true;
   if (getTradeRoomConversationDestination(notification)) return true;
@@ -243,7 +175,7 @@ function canResolveNotificationDestination(notification: AlphaExchangeNotificati
   return Boolean(
     notification.relatedRequestId?.trim()
     || (notification.tradeSnapshot as TradeSnapshotPayload | undefined)?.requestId?.trim()
-    || extractTradeRoomHrefFromRelatedHref(notification.relatedHref ?? notification.actionHref),
+    || (extractTradeRoomHrefFromRelatedHref(notification.relatedHref) ?? extractTradeRoomHrefFromRelatedHref(notification.actionHref)),
   );
 }
 
@@ -264,12 +196,20 @@ export function NotificationsPage(props: NotificationsPageProps) {
 function NotificationsPageSession({ locale, userId }: NotificationsPageProps) {
   const isAr = locale === "ar";
   const canonicalSession = useOptionalCanonicalSession();
-  const [notifications, setNotifications] = useState<AlphaExchangeNotification[]>([]);
-  const [totalCount, setTotalCount] = useState(0);
-  const [unreadCount, setUnreadCount] = useState(0);
+  const [{ notifications, totalCount, unreadCount }, setInbox] = useState({ notifications: [] as AlphaExchangeNotification[], totalCount: 0, unreadCount: 0 });
+  const setNotifications = useCallback((value: SetStateAction<AlphaExchangeNotification[]>) => setInbox((current) => ({
+    ...current, notifications: typeof value === "function" ? value(current.notifications) : value,
+  })), []);
+  const setTotalCount = useCallback((value: SetStateAction<number>) => setInbox((current) => ({
+    ...current, totalCount: typeof value === "function" ? value(current.totalCount) : value,
+  })), []);
+  const setUnreadCount = useCallback((value: SetStateAction<number>) => setInbox((current) => ({
+    ...current, unreadCount: typeof value === "function" ? value(current.unreadCount) : value,
+  })), []);
   const [loading, setLoading] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError, errorFeedbackKey] = useActionFeedbackState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<NotificationFilter>("all");
   const [page, setPage] = useState(1);
@@ -284,6 +224,17 @@ function NotificationsPageSession({ locale, userId }: NotificationsPageProps) {
   );
   const canLoadNotifications = !canonicalSession
     || (!canonicalSession.isResolving && canonicalSession.user?.id === userId);
+  const refreshSession = canonicalSession?.refresh;
+  const readRequest = useRef<AbortController | null>(null);
+  const mounted = useRef(true);
+  const allowed = useRef(canLoadNotifications);
+  allowed.current = canLoadNotifications;
+  const actionLocks = useRef(new Set<string>());
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; readRequest.current?.abort(); readRequest.current = null; };
+  }, []);
 
   useEffect(() => {
     if (!canonicalUserMismatch) return;
@@ -291,8 +242,10 @@ function NotificationsPageSession({ locale, userId }: NotificationsPageProps) {
     setTotalCount(0);
     setUnreadCount(0);
     setError(null);
+    setLoadError(null);
     setLoading(false);
-  }, [canonicalUserMismatch]);
+    setIsLoadingMore(false);
+  }, [canonicalUserMismatch, setError, setNotifications, setTotalCount, setUnreadCount]);
 
   useEffect(() => {
     const mediaQuery = window.matchMedia("(max-width: 768px)");
@@ -311,13 +264,22 @@ function NotificationsPageSession({ locale, userId }: NotificationsPageProps) {
     offset?: number;
     append?: boolean;
   } = {}) => {
-    if (!canLoadNotifications) return;
+    if (!allowed.current) return;
+    if (document.visibilityState === "hidden" || navigator.onLine === false) {
+      setLoading(false);
+      if (navigator.onLine === false) setLoadError(isAr ? "أنت غير متصل. ستتحدّث الإشعارات عند عودة الاتصال." : "You are offline. Notifications will refresh when the connection returns.");
+      return;
+    }
+    if (append && readRequest.current) return;
+    readRequest.current?.abort();
+    const controller = new AbortController();
+    readRequest.current = controller;
     if (append) {
       setIsLoadingMore(true);
     } else {
       setLoading(true);
     }
-    setError(null);
+    setLoadError(null);
     try {
       const params = new URLSearchParams({
         limit: String(fetchLimit),
@@ -325,13 +287,21 @@ function NotificationsPageSession({ locale, userId }: NotificationsPageProps) {
         includeActivity: "0",
       });
       if (filter === "history") params.set("state", "archived");
-      const response = await fetch(`/api/alpha-exchange/notifications?${params.toString()}`, { cache: "no-store" });
+      const { response, payload } = await runClientRequest(controller, 15_000, async (signal) => {
+        const response = await fetch(`/api/alpha-exchange/notifications?${params.toString()}`, { cache: "no-store", signal });
+        const payload = response.ok ? await response.json() as NotificationsPayload : null;
+        return { response, payload };
+      });
+      if (readRequest.current !== controller || !mounted.current || !allowed.current) return;
       if (!response.ok) {
-        if (response.status === 401) void canonicalSession?.refresh({ force: true });
+        if (response.status === 401 || response.status === 403) {
+          setNotifications([]); setTotalCount(0); setUnreadCount(0);
+          void refreshSession?.({ force: true });
+        }
         throw new Error(isAr ? "تعذر تحميل الإشعارات." : "Failed to load notifications.");
       }
-      const payload = (await response.json()) as NotificationsPayload;
-      const incoming = sortNotificationsNewestFirst(payload.notifications ?? []);
+      if (!payload || !validNotificationItems(payload.notifications, userId)) throw new Error("Invalid notifications response");
+      const incoming = sortNotificationsNewestFirst(payload.notifications);
       setNotifications((prev) => {
         if (!append) return incoming;
         const merged = [...prev];
@@ -344,35 +314,56 @@ function NotificationsPageSession({ locale, userId }: NotificationsPageProps) {
         }
         return sortNotificationsNewestFirst(merged);
       });
-      setTotalCount(payload.total ?? incoming.length);
-      setUnreadCount(payload.unreadCount ?? 0);
+      setTotalCount(Number.isSafeInteger(payload.total) && payload.total >= 0 ? payload.total : incoming.length);
+      setUnreadCount(Number.isSafeInteger(payload.unreadCount) && payload.unreadCount >= 0 ? payload.unreadCount : incoming.filter((item) => !item.isRead).length);
     } catch {
-      setError(isAr ? "تعذر تحميل الإشعارات." : "Failed to load notifications.");
+      if (readRequest.current === controller && mounted.current && allowed.current) {
+        setLoadError(isAr ? "تعذر تحميل الإشعارات." : "Failed to load notifications.");
+      }
     } finally {
-      if (append) {
+      if (readRequest.current === controller) {
+        readRequest.current = null;
         setIsLoadingMore(false);
-      } else {
         setLoading(false);
       }
     }
-  }, [canLoadNotifications, canonicalSession, fetchLimit, filter, isAr]);
+  }, [fetchLimit, filter, isAr, refreshSession, userId, setNotifications, setTotalCount, setUnreadCount]);
 
   useEffect(() => {
     if (isMobileViewport === null || !canLoadNotifications) return;
     void loadNotifications({ offset: 0, append: false });
-  }, [canLoadNotifications, isMobileViewport, loadNotifications]);
+    const resume = () => {
+      if (document.visibilityState === "hidden" || navigator.onLine === false) {
+        readRequest.current?.abort(); readRequest.current = null;
+        setLoading(false); setIsLoadingMore(false);
+        if (navigator.onLine === false) setLoadError(isAr ? "أنت غير متصل. ستتحدّث الإشعارات عند عودة الاتصال." : "You are offline. Notifications will refresh when the connection returns.");
+      } else void loadNotifications();
+    };
+    document.addEventListener("visibilitychange", resume);
+    window.addEventListener("online", resume);
+    window.addEventListener("offline", resume);
+    return () => {
+      document.removeEventListener("visibilitychange", resume);
+      window.removeEventListener("online", resume);
+      window.removeEventListener("offline", resume);
+      readRequest.current?.abort(); readRequest.current = null;
+    };
+  }, [canLoadNotifications, isMobileViewport, isAr, loadNotifications]);
 
   const handleNotificationStream = useCallback((event: Event) => {
     const messageEvent = event as MessageEvent<string>;
     try {
       const payload = JSON.parse(messageEvent.data) as NotificationsStreamPayload;
-      if (!Array.isArray(payload.notifications)) return;
+      if (!allowed.current || !validNotificationItems(payload.notifications, userId)) return;
+      // A fresh stream snapshot must not be overwritten by an older pending read.
+      readRequest.current?.abort(); readRequest.current = null;
+      setLoading(false); setIsLoadingMore(false); setLoadError(null);
       setNotifications(sortNotificationsNewestFirst(payload.notifications));
-      setUnreadCount(typeof payload.unreadCount === "number" ? payload.unreadCount : 0);
+      setUnreadCount(Number.isSafeInteger(payload.unreadCount) && payload.unreadCount >= 0 ? payload.unreadCount : payload.notifications.filter((item) => !item.isRead).length);
     } catch {
       // Ignore malformed stream payloads.
     }
-  }, []);
+  }, [userId, setNotifications, setUnreadCount]);
   useAuthenticatedNotificationStream({ enabled: canLoadNotifications && filter !== "history", onNotifications: handleNotificationStream });
 
   useEffect(() => {
@@ -436,7 +427,7 @@ function NotificationsPageSession({ locale, userId }: NotificationsPageProps) {
         return isAr ? "فتح رسالة الصفقة" : "Open trade message";
       }
       const tradeAction = buildTradeRoomActionForSnapshot(notification.tradeSnapshot, notification.userId);
-      if (tradeAction && tradeAction !== "open-trade") return tradeRoomActionLabel(tradeAction, locale);
+      if (tradeAction) return tradeRoomActionLabel(tradeAction, locale);
       if (notification.actionLabel?.trim()) {
         return localizeNotificationActionLabel(notification.actionLabel, locale, notification);
       }
@@ -453,14 +444,14 @@ function NotificationsPageSession({ locale, userId }: NotificationsPageProps) {
     const label = notification.category === "application"
       ? "Review Application"
       : notification.category === "listing"
-        ? "Manage Listing"
+        ? "View listing"
         : "View Details";
     return localizeNotificationActionLabel(label, locale, notification);
   }
 
   function resolveTradeRoomHref(notification: AlphaExchangeNotification) {
-    if (notification.relatedRequestId?.trim()) return `/trade-room/${notification.relatedRequestId.trim()}`;
-    const fromHref = extractTradeRoomHrefFromRelatedHref(notification.relatedHref ?? notification.actionHref);
+    if (notification.relatedRequestId?.trim()) return `/trade-room/${encodeURIComponent(notification.relatedRequestId.trim())}`;
+    const fromHref = (extractTradeRoomHrefFromRelatedHref(notification.relatedHref) ?? extractTradeRoomHrefFromRelatedHref(notification.actionHref));
     if (fromHref) return fromHref;
     return null;
   }
@@ -486,12 +477,12 @@ function NotificationsPageSession({ locale, userId }: NotificationsPageProps) {
       if (input?.includePending) query.set("includePending", "1");
       if (input?.requestId?.trim()) query.set("requestId", input.requestId.trim());
       const suffix = query.size ? `?${query.toString()}` : "";
-      const response = await fetch(`/api/alpha-exchange/trade-room/active${suffix}`, { cache: "no-store" });
+      const { response, payload } = await fetchClientJson<{ activeRequestId?: string | null; destination?: string | null }>(`/api/alpha-exchange/trade-room/active${suffix}`, { cache: "no-store" });
       if (!response.ok) return input?.fallbackHref ?? null;
-      const payload = (await response.json()) as { activeRequestId?: string | null; destination?: string | null };
-      if (payload.destination?.trim()) return payload.destination.trim();
+      const destination = getSafeInternalNotificationDestination({ actionHref: payload.destination ?? undefined });
+      if (destination) return destination;
       if (!payload.activeRequestId) return null;
-      return `/trade-room/${payload.activeRequestId}`;
+      return `/trade-room/${encodeURIComponent(payload.activeRequestId)}`;
     } catch {
       return input?.fallbackHref ?? null;
     }
@@ -510,25 +501,12 @@ function NotificationsPageSession({ locale, userId }: NotificationsPageProps) {
       if (snapshotAction && (notification.tradeSnapshot as TradeSnapshotPayload | undefined)?.requestId) {
         const requestId = String((notification.tradeSnapshot as TradeSnapshotPayload).requestId ?? "").trim();
         const hash = buildTradeRoomHashForAction(snapshotAction);
-        return `/trade-room/${requestId}?action=${encodeURIComponent(snapshotAction)}#${hash}`;
+        return `/trade-room/${encodeURIComponent(requestId)}?action=${encodeURIComponent(snapshotAction)}#${hash}`;
       }
-      if (relatedRequestId && notification.userId) {
-        try {
-          const response = await fetch(`/api/alpha-exchange/trade-room/${relatedRequestId}`, { cache: "no-store" });
-          if (response.ok) {
-            const payload = (await response.json()) as { request?: TradeRoomRequestPayload };
-            const request = payload.request;
-            if (request?.id) {
-              const action = buildTradeRoomActionForRequest(request, notification.userId);
-              const hash = buildTradeRoomHashForAction(action);
-              return `/trade-room/${request.id}?action=${encodeURIComponent(action)}#${hash}`;
-            }
-          }
-        } catch {
-          // Fall back to active trade resolution below.
-        }
-      }
+      // The room reconciles its current action from the authoritative response.
+      // A known destination must not wait for duplicate status/active-room reads.
       const fallbackHref = resolveTradeRoomHref(notification);
+      if (fallbackHref) return fallbackHref;
       return await resolveActiveTradeHref({
         notificationId: notification.id,
         requestId: relatedRequestId,
@@ -542,6 +520,7 @@ function NotificationsPageSession({ locale, userId }: NotificationsPageProps) {
 
   async function openNotificationDestination(notification: AlphaExchangeNotification) {
     const destination = await resolveNotificationDestination(notification);
+    if (!mounted.current || !allowed.current) return;
     if (TRADE_ROOM_DEBUG) {
       console.log("[notification-open] notification click", {
         notificationId: notification.id,
@@ -561,104 +540,102 @@ function NotificationsPageSession({ locale, userId }: NotificationsPageProps) {
       prefetchTradeRoom(router, requestId, userId);
     }
     if (!notification.isRead) void handleMarkOneRead(notification.id);
-    router.push(destination);
-  }
-
-  async function handleSellerApplicationDecision(notification: AlphaExchangeNotification, decision: "approve" | "reject") {
-    const applicationId = extractSellerApplicationId(notification);
-    if (!applicationId) return;
-    const actionKey = `${decision}:${notification.id}`;
-    if (itemLoading[`approve:${notification.id}`] || itemLoading[`reject:${notification.id}`] || itemLoading[`dismiss:${notification.id}`]) return;
-    setItemLoading((prev) => ({ ...prev, [actionKey]: true }));
-    try {
-      const reason = decision === "approve" ? "Approved from notification workflow" : "Rejected from notification workflow";
-      const response = await fetch(`/api/alpha-exchange/admin/seller-applications/${encodeURIComponent(applicationId)}/${decision}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ reason }),
-      });
-      if (!response.ok) {
-        setError(isAr ? "تعذر تحديث طلب البائع." : "Failed to update seller application.");
-        return;
-      }
-      // A completed decision archives the matching owner/admin action alert on
-      // the server. Reload it instead of marking it read and resurrecting it.
-      await loadNotifications();
-    } catch {
-      setError(isAr ? "تعذر تحديث طلب البائع." : "Failed to update seller application.");
-    } finally {
-      setItemLoading((prev) => ({ ...prev, [actionKey]: false }));
-    }
+    navigateToPageSection(router, destination);
   }
 
   async function handleMarkOneRead(notificationId: string) {
     const key = `read:${notificationId}`;
-    if (itemLoading[key]) return;
+    if (!allowed.current || actionLocks.current.has(key)) return;
     const target = notifications.find((item) => item.id === notificationId);
     if (!target || target.isRead) return;
+    actionLocks.current.add(key);
+    setError(null);
     setItemLoading((prev) => ({ ...prev, [key]: true }));
     try {
-      const response = await fetch(`/api/alpha-exchange/notifications/${notificationId}`, {
+      const response = await runClientRequest(new AbortController(), 15_000, (signal) => fetch(`/api/alpha-exchange/notifications/${notificationId}`, {
         method: "PATCH",
+        signal,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ isRead: true }),
-      });
+      }));
+      if (!mounted.current || !allowed.current) return;
       if (!response.ok) {
         setError(isAr ? "تعذر تحديث الإشعار." : "Failed to update notification.");
         return;
       }
-      const nextNotifications = notifications.map((item) => (
-        item.id === notificationId ? { ...item, isRead: true, state: "read" as const } : item
-      ));
-      const sortedNextNotifications = sortNotificationsNewestFirst(nextNotifications);
-      const nextUnreadCount = Math.max(0, unreadCount - 1);
-      setNotifications(sortedNextNotifications);
-      setUnreadCount(nextUnreadCount);
+      setInbox((current) => ({
+        ...current,
+        notifications: sortNotificationsNewestFirst(current.notifications.map((item) => (
+          item.id === notificationId ? { ...item, isRead: true, state: "read" as const } : item
+        ))),
+        unreadCount: Math.max(0, current.unreadCount - (current.notifications.some((item) => item.id === notificationId && !item.isRead) ? 1 : 0)),
+      }));
+    } catch {
+      setError(isAr ? "تعذر تحديث الإشعار." : "Failed to update notification.");
     } finally {
+      actionLocks.current.delete(key);
       setItemLoading((prev) => ({ ...prev, [key]: false }));
     }
   }
 
   async function handleMarkAllRead() {
-    if (isMarkingAllRead) return;
+    if (!allowed.current || actionLocks.current.has("read:all")) return;
+    actionLocks.current.add("read:all");
+    const submittedIds = new Set(notifications.map((item) => item.id));
+    const submittedUnread = unreadCount;
+    setError(null);
     setIsMarkingAllRead(true);
     try {
-      const response = await fetch("/api/alpha-exchange/notifications", {
+      const response = await runClientRequest(new AbortController(), 15_000, (signal) => fetch("/api/alpha-exchange/notifications", {
         method: "PATCH",
+        signal,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "mark_all_read" }),
-      });
+      }));
+      if (!mounted.current || !allowed.current) return;
       if (!response.ok) {
         setError(isAr ? "تعذر تحديث الإشعارات." : "Failed to update notifications.");
         return;
       }
-      const nextNotifications = sortNotificationsNewestFirst(notifications.map((item) => ({ ...item, isRead: true, state: "read" as const })));
-      setNotifications(nextNotifications);
-      setUnreadCount(0);
+      setInbox((current) => ({
+        ...current,
+        notifications: sortNotificationsNewestFirst(current.notifications.map((item) => submittedIds.has(item.id)
+          ? { ...item, isRead: true, state: "read" as const } : item)),
+        unreadCount: Math.max(current.notifications.filter((item) => !submittedIds.has(item.id) && !item.isRead).length, current.unreadCount - submittedUnread, 0),
+      }));
+    } catch {
+      setError(isAr ? "تعذر تحديث الإشعارات." : "Failed to update notifications.");
     } finally {
+      actionLocks.current.delete("read:all");
       setIsMarkingAllRead(false);
     }
   }
 
   async function handleDismissNotification(notification: AlphaExchangeNotification) {
     const key = `dismiss:${notification.id}`;
-    if (itemLoading[key]) return;
+    if (!allowed.current || actionLocks.current.has(key)) return;
+    actionLocks.current.add(key);
     setItemLoading((prev) => ({ ...prev, [key]: true }));
     setError(null);
-    setNotifications((prev) => prev.filter((item) => item.id !== notification.id));
-    setTotalCount((prev) => Math.max(0, prev - 1));
-    if (!notification.isRead) setUnreadCount((prev) => Math.max(0, prev - 1));
     try {
-      const response = await fetch(`/api/alpha-exchange/notifications/${notification.id}`, {
+      const response = await runClientRequest(new AbortController(), 15_000, (signal) => fetch(`/api/alpha-exchange/notifications/${notification.id}`, {
         method: "PATCH",
+        signal,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "dismiss" }),
-      });
+      }));
       if (!response.ok) throw new Error("notification_dismiss_failed");
+      if (!mounted.current || !allowed.current) return;
+      setInbox((current) => ({
+        notifications: current.notifications.filter((item) => item.id !== notification.id),
+        totalCount: Math.max(0, current.totalCount - (current.notifications.some((item) => item.id === notification.id) ? 1 : 0)),
+        unreadCount: Math.max(0, current.unreadCount - (current.notifications.some((item) => item.id === notification.id && !item.isRead) ? 1 : 0)),
+      }));
     } catch {
       setError(isAr ? "تعذر حفظ الإشعار لوقت لاحق." : "Failed to save this notification for later.");
       await loadNotifications({ offset: 0, append: false });
     } finally {
+      actionLocks.current.delete(key);
       setItemLoading((prev) => ({ ...prev, [key]: false }));
     }
   }
@@ -700,8 +677,8 @@ function NotificationsPageSession({ locale, userId }: NotificationsPageProps) {
             </h1>
             <CardDescription className="text-[15px] leading-6 text-[#B8BEC8] sm:text-base">
               {isAr
-                ? "ابدأ بما يحتاج إلى إجراء، ثم راجع آخر تحديثات حسابك."
-                : "Start with what needs action, then review your latest account updates."}
+                ? "تحديثات الصفقات وتنبيهات الحساب."
+                : "Trade updates and account alerts."}
             </CardDescription>
           </div>
 
@@ -797,28 +774,29 @@ function NotificationsPageSession({ locale, userId }: NotificationsPageProps) {
               ))}
             </div>
           ) : null}
-          {!loading && error ? <p role="alert" className="rounded-xl border border-red-400/20 bg-red-500/10 p-4 text-base leading-6 text-red-200">{error}</p> : null}
-          {!loading && !error && pageItems.length === 0 ? (
+          {!loading && (error || loadError) ? <ActionFeedback autoReveal={Boolean(error)} revealKey={errorFeedbackKey} as="p" role="alert" className="rounded-xl border border-red-400/20 bg-red-500/10 p-4 text-base leading-6 text-red-200">{currencyText(error ?? loadError)}</ActionFeedback> : null}
+          {!loading && loadError ? <Button variant="outline" onClick={() => void loadNotifications()}>{isAr ? "إعادة المحاولة" : "Retry"}</Button> : null}
+          {!loading && !error && !loadError && pageItems.length === 0 ? (
             <div className="empty-state-panel py-8 text-center">
               <CheckCheck className="mx-auto h-7 w-7 text-[#C9A227]" aria-hidden="true" />
               <p className="mt-2 text-base font-medium text-white">{isAr ? "لا توجد إشعارات هنا" : "Nothing here right now"}</p>
               <p className="mt-1 text-sm leading-6 text-[#AEB4BE]">
-                {isAr
+                {currencyText(isAr
                   ? `لا توجد إشعارات ضمن تصنيف «${notificationFilterLabel(filter, locale)}».`
-                  : `There are no notifications in “${notificationFilterLabel(filter, locale)}”.`}
+                  : `There are no notifications in “${notificationFilterLabel(filter, locale)}”.`)}
               </p>
             </div>
           ) : null}
 
-          {!loading && !error ? <div className="space-y-6">
+          {!loading && pageItems.length > 0 ? <div className="space-y-6">
             {groupedPageItems.map((group) => (
               <section key={group.key} className="space-y-3">
                 <div className={`flex items-end justify-between gap-3 border-b pb-2 ${group.isActionGroup ? "border-amber-400/25" : "border-white/10"}`}>
                   <div>
                     <h2 className={`text-sm font-semibold leading-5 ${group.isActionGroup ? "text-amber-200" : "text-[#D7DBE2]"} ${!isAr && !group.isActionGroup ? "uppercase tracking-[0.08em]" : ""}`}>
-                      {group.label}
+                      {currencyText(group.label)}
                     </h2>
-                    {group.description ? <p className="mt-0.5 text-sm leading-5 text-[#AEB4BE]">{group.description}</p> : null}
+                    {group.description ? <p className="mt-0.5 text-sm leading-5 text-[#AEB4BE]">{currencyText(group.description)}</p> : null}
                   </div>
                   <span className="shrink-0 text-xs text-[#8F96A1]">{group.items.length}</span>
                 </div>
@@ -837,20 +815,20 @@ function NotificationsPageSession({ locale, userId }: NotificationsPageProps) {
                         </span>
                         <div className="min-w-0 flex-1">
                           <div className="flex items-start justify-between gap-2">
-                            <h3 className="text-base font-semibold leading-6 text-white"><bdi dir="auto">{formatNotificationTitle(notification, locale)}</bdi></h3>
+                            <h3 className={`text-base font-semibold leading-6 text-white ${notification.reason?.startsWith("commission_") ? "commission-notice" : ""}`}><bdi dir="auto">{currencyText(formatNotificationTitle(notification, locale))}</bdi></h3>
                             {!notification.isRead ? (
                               <span role="img" className="mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full bg-[#E5BD3D]" aria-label={isAr ? "غير مقروء" : "Unread"} />
                             ) : null}
                           </div>
-                          <span className="mt-1 block text-xs leading-5 text-[#9CA3AF]">{formatNotificationRelativeTime(notification.createdAt, locale)}</span>
-                          <p className="mt-2 text-base leading-7 text-[#D7DBE2]"><bdi dir="auto" className="text-base">{formatNotificationMessage(notification, locale)}</bdi></p>
+                          <span className="mt-1 block text-xs leading-5 text-[#9CA3AF]">{currencyText(formatNotificationRelativeTime(notification.createdAt, locale))}</span>
+                          {!actionRequired && !notification.reason?.startsWith("commission_") && formatNotificationMessage(notification, locale).length > 200 ? <HelpDetails title={isAr ? "عرض التحديث" : "Read update"} className="mt-2"><p><bdi dir="auto">{currencyText(formatNotificationMessage(notification, locale))}</bdi></p></HelpDetails> : <p className={`mt-2 text-base leading-7 text-[#D7DBE2] ${notification.reason?.startsWith("commission_") ? "commission-notice" : ""}`}><bdi dir="auto" className="text-base">{currencyText(formatNotificationMessage(notification, locale))}</bdi></p>}
                           <div className="mt-3 flex flex-wrap gap-1.5 text-xs leading-5">
                             {actionRequired ? <span className="rounded-full border border-amber-400/35 bg-amber-400/10 px-2.5 py-1 font-semibold text-amber-200">{isAr ? "مطلوب منك إجراء" : "Action required"}</span> : null}
-                            {isTradeNotification(notification) && (notification.relatedTradeId || notification.relatedTradeDisplayNumber || notification.relatedRequestId || notification.relatedRequestDisplayNumber) ? <span className="rounded-full border border-white/15 px-2.5 py-1 text-[#D1D5DB]">{isAr ? "صفقة" : "Trade"} <bdi dir="ltr">{formatTradeId(notification.relatedTradeDisplayNumber ?? notification.relatedRequestDisplayNumber, notification.relatedTradeId ?? notification.relatedRequestId)}</bdi></span> : null}
-                            {notification.relatedListingId || notification.relatedListingDisplayNumber ? <span className="rounded-full border border-white/15 px-2.5 py-1 text-[#D1D5DB]">{isAr ? "عرض" : "Listing"} <bdi dir="ltr">{formatListingId(notification.relatedListingDisplayNumber, notification.relatedListingId)}</bdi></span> : null}
-                            {notification.relatedSellerName ? <span className="max-w-full truncate rounded-full border border-[#C9A227]/30 bg-[#C9A227]/10 px-2.5 py-1 text-[#FDE68A]">{isAr ? "البائع" : "Seller"}: <bdi dir="auto">{notification.relatedSellerName}</bdi>{notification.relatedSellerUsername ? <> • <bdi dir="ltr">@{notification.relatedSellerUsername}</bdi></> : null}</span> : null}
-                            {notification.tradeSnapshot?.usdtAmount ? <span className="rounded-full border border-white/15 px-2.5 py-1 text-[#D1D5DB]"><bdi dir="ltr">{notification.tradeSnapshot.usdtAmount} USDT</bdi></span> : null}
-                            {notification.tradeSnapshot?.counterpartyName ? <span className="rounded-full border border-white/15 px-2.5 py-1 text-[#D1D5DB]"><bdi dir="auto">{notification.tradeSnapshot.counterpartyName}</bdi></span> : null}
+                            {isTradeNotification(notification) && (notification.relatedTradeId || notification.relatedTradeDisplayNumber || notification.relatedRequestId || notification.relatedRequestDisplayNumber) ? <span className="rounded-full border border-white/15 px-2.5 py-1 text-[#D1D5DB]">{isAr ? "صفقة" : "Trade"} <bdi dir="ltr">{currencyText(formatTradeId(notification.relatedTradeDisplayNumber ?? notification.relatedRequestDisplayNumber, notification.relatedTradeId ?? notification.relatedRequestId))}</bdi></span> : null}
+                            {notification.relatedListingId || notification.relatedListingDisplayNumber ? <span className="rounded-full border border-white/15 px-2.5 py-1 text-[#D1D5DB]">{isAr ? "عرض" : "Listing"} <bdi dir="ltr">{currencyText(formatListingId(notification.relatedListingDisplayNumber, notification.relatedListingId))}</bdi></span> : null}
+                            {notification.relatedSellerName ? <span className="max-w-full truncate rounded-full border border-[#C9A227]/30 bg-[#C9A227]/10 px-2.5 py-1 text-[#FDE68A]">{isAr ? "البائع" : "Seller"}: <bdi dir="auto">{currencyText(notification.relatedSellerName)}</bdi>{notification.relatedSellerUsername ? <> • <bdi dir="ltr">@{currencyText(notification.relatedSellerUsername)}</bdi></> : null}</span> : null}
+                            {notification.tradeSnapshot?.usdtAmount ? <span className="rounded-full border border-white/15 px-2.5 py-1 text-[#D1D5DB]"><bdi dir="ltr">{currencyText(`${notification.tradeSnapshot.usdtAmount} USDT`)}</bdi></span> : null}
+                            {notification.tradeSnapshot?.counterpartyName ? <span className="rounded-full border border-white/15 px-2.5 py-1 text-[#D1D5DB]"><bdi dir="auto">{currencyText(notification.tradeSnapshot.counterpartyName)}</bdi></span> : null}
                           </div>
                           <div className="mt-4 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
                             {hasPrimaryDestination ? (
@@ -873,7 +851,7 @@ function NotificationsPageSession({ locale, userId }: NotificationsPageProps) {
                                 }}
                                 onClick={() => void openNotificationDestination(notification)}
                               >
-                                {resolveNotificationActionLabel(notification)}
+                                {currencyText(resolveNotificationActionLabel(notification))}
                               </Button>
                             ) : null}
                             {notification.category === "application" && extractSellerApplicationId(notification) ? (
@@ -881,33 +859,9 @@ function NotificationsPageSession({ locale, userId }: NotificationsPageProps) {
                                 <Button
                                   type="button"
                                   size="sm"
-                                  variant="default"
-                                  className="h-auto min-h-11 px-4 py-2 text-sm md:min-h-9"
-                                  disabled={Boolean(itemLoading[`approve:${notification.id}`] || itemLoading[`reject:${notification.id}`] || itemLoading[`dismiss:${notification.id}`])}
-                                  loading={Boolean(itemLoading[`approve:${notification.id}`])}
-                                  loadingLabel={isAr ? "جاري القبول..." : "Approving..."}
-                                  onClick={() => void handleSellerApplicationDecision(notification, "approve")}
-                                >
-                                  {isAr ? "قبول الطلب" : "Approve application"}
-                                </Button>
-                                <Button
-                                  type="button"
-                                  size="sm"
-                                  variant="destructive"
-                                  className="h-auto min-h-11 px-4 py-2 text-sm md:min-h-9"
-                                  disabled={Boolean(itemLoading[`approve:${notification.id}`] || itemLoading[`reject:${notification.id}`] || itemLoading[`dismiss:${notification.id}`])}
-                                  loading={Boolean(itemLoading[`reject:${notification.id}`])}
-                                  loadingLabel={isAr ? "جاري الرفض..." : "Rejecting..."}
-                                  onClick={() => void handleSellerApplicationDecision(notification, "reject")}
-                                >
-                                  {isAr ? "رفض الطلب" : "Reject application"}
-                                </Button>
-                                <Button
-                                  type="button"
-                                  size="sm"
                                   variant="ghost"
                                   className="col-span-2 h-auto min-h-11 px-4 py-2 text-sm sm:col-auto md:min-h-9"
-                                  disabled={Boolean(itemLoading[`approve:${notification.id}`] || itemLoading[`reject:${notification.id}`] || itemLoading[`dismiss:${notification.id}`])}
+                                  disabled={Boolean(itemLoading[`dismiss:${notification.id}`])}
                                   loading={Boolean(itemLoading[`dismiss:${notification.id}`])}
                                   loadingLabel={isAr ? "جاري الحفظ..." : "Saving..."}
                                   onClick={() => void handleDismissNotification(notification)}
@@ -962,7 +916,7 @@ function NotificationsPageSession({ locale, userId }: NotificationsPageProps) {
           <div className="flex flex-col gap-3 border-t border-white/10 pt-4 sm:flex-row sm:items-center sm:justify-between">
             <p className="text-sm leading-5 text-[#9CA3AF]">
               {isAr ? "عرض" : "Showing"} {pageItems.length ? pageStart + 1 : 0}-{Math.min(pageStart + PAGE_SIZE, filteredNotifications.length)} {isAr ? "من" : "of"} {filteredNotifications.length}
-              {totalCount > notifications.length ? (isAr ? ` (تم تحميل ${notifications.length} من ${totalCount})` : ` loaded (${notifications.length}/${totalCount} total)`) : ""}
+              {currencyText(totalCount > notifications.length ? (isAr ? ` (تم تحميل ${notifications.length} من ${totalCount})` : ` loaded (${notifications.length}/${totalCount} total)`) : "")}
             </p>
             <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 sm:flex">
               <Button type="button" size="sm" variant="secondary" className="h-11 px-3 text-sm md:h-9" disabled={currentPage <= 1} onClick={() => setPage((prev) => Math.max(1, prev - 1))}>

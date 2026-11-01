@@ -32,6 +32,7 @@ vi.mock("@/lib/rate-limit", () => ({ checkRateLimit: mocks.checkRateLimit }));
 vi.mock("@/lib/structured-logging", () => ({ logEvent: vi.fn() }));
 
 import { GET, PATCH } from "@/app/api/mobile/v1/trades/[requestId]/route";
+import { publicAccountId } from "@/lib/public-account-identity";
 
 function request(method: "GET" | "PATCH", body?: Record<string, unknown>) {
   return new NextRequest("https://www.alphatraders.co.il/api/mobile/v1/trades/purchase-1", {
@@ -133,6 +134,49 @@ beforeEach(() => {
 });
 
 describe("mobile trade detail route", () => {
+  it("serializes unpaid accepted amount adjustment separately from bank-disclosure cancellation", async () => {
+    mocks.getTradeRoomData.mockResolvedValueOnce(room({
+      buyerEvidence: undefined,
+      sensitivePaymentKind: "bank_details",
+      sensitivePaymentSharedAt: "2026-10-28T12:00:00Z",
+    }));
+    const response = await GET(request("GET"), { params: Promise.resolve({ requestId: "purchase-1" }) });
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      trade: { actions: { canCancel: false, canAdjustAmounts: true } },
+    });
+  });
+
+  it.each([
+    { paymentSentAt: "2026-10-28T12:00:00Z" },
+    { sensitivePaymentKind: "cardless_code", sensitivePaymentSharedAt: "2026-10-28T12:00:00Z" },
+    { fundsReceivedAt: "2026-10-28T12:00:00Z" },
+  ])("serializes amount denial for stale accepted progress: %j", async progress => {
+    mocks.getTradeRoomData.mockResolvedValueOnce(room({ buyerEvidence: undefined, ...progress }));
+    const response = await GET(request("GET"), { params: Promise.resolve({ requestId: "purchase-1" }) });
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      trade: { actions: { canAdjustAmounts: false } },
+    });
+  });
+
+  it.each(["Bank Transfer", "Cardless ATM Withdrawal", "Face-to-Face (Meet in Person)"])("exposes no buyer completion action for %s", async (paymentMethod) => {
+    mocks.getTradeRoomData.mockResolvedValue(room({ paymentMethod, status: "usdt_sent" }));
+    const response = await GET(request("GET"), { params: Promise.resolve({ requestId: "purchase-1" }) });
+    expect(response.status).toBe(200);
+    const payload = await response.json();
+    expect(payload.trade.actions).toMatchObject({ canConfirmReceived: false, canCompleteTrade: false, canCompleteFaceToFace: false });
+  });
+
+  it("accepts the explicit seller completion command on the native API", async () => {
+    mocks.requireMobileApiUser.mockResolvedValue({ user: { id: "private-seller-id", role: "approved_seller" }, accessToken: "access", unauthorized: null });
+    mocks.updatePurchaseRequestStatus.mockResolvedValue({ request: room({ status: "review_open" }).request, statusChanged: true });
+    const response = await PATCH(request("PATCH", { action: "complete_trade", usdtSentConfirmed: true }), { params: Promise.resolve({ requestId: "purchase-1" }) });
+    expect(response.status).toBe(200);
+    expect(mocks.updatePurchaseRequestStatus).toHaveBeenCalledWith(expect.objectContaining({
+      actorUserId: "private-seller-id", nextStatus: "completed", completionMode: "seller", usdtSentConfirmed: true,
+    }));
+  });
   it("returns a whitelist projection without internal party, listing, timeline, evidence, or message identifiers", async () => {
     const response = await GET(request("GET"), { params: Promise.resolve({ requestId: "purchase-1" }) });
     const payload = await response.json();
@@ -142,10 +186,10 @@ describe("mobile trade detail route", () => {
     expect(payload.trade).toMatchObject({
       id: "purchase-1",
       side: "buyer",
-      counterpartyDisplayName: "Verified Seller",
+      counterpartyDisplayName: publicAccountId({ id: "private-seller-id", role: "approved_seller" }),
       actions: { canViewBankDetails: true, canCompleteFaceToFace: false },
       timeline: [{ type: "request_accepted" }],
-      messages: [{ sender: "counterparty", message: "Ready when you are" }],
+      messages: [{ sender: "counterparty", participantRole: "seller", senderPublicId: publicAccountId({ id: "private-seller-id", role: "approved_seller" }), status: "sent", message: "Ready when you are" }],
     });
     for (const value of [
       "private-seller-id",
@@ -157,6 +201,8 @@ describe("mobile trade detail route", () => {
       "private-message-id",
       "+972500000000",
       "private note",
+      "Verified Seller",
+      "Buyer One",
     ]) {
       expect(serialized).not.toContain(value);
     }
@@ -257,6 +303,30 @@ describe("mobile trade detail route", () => {
     }));
   });
 
+  it("submits a Cardless ATM code and payment confirmation atomically", async () => {
+    const response = await PATCH(request("PATCH", {
+      action: "submit_cardless_code",
+      withdrawalCode: "482913",
+      verificationKind: "id_number",
+      verificationValue: "012345678",
+      clientOperationId: "0123456789abcdef0123456789abcdef",
+    }), {
+      params: Promise.resolve({ requestId: "purchase-1" }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(mocks.updatePurchaseRequestStatus).toHaveBeenCalledWith(expect.objectContaining({
+      requestId: "purchase-1",
+      actorUserId: "buyer-1",
+      actorRole: "buyer",
+      nextStatus: "payment_sent",
+      cardlessWithdrawalCode: "482913",
+      cardlessVerificationKind: "id_number",
+      cardlessVerificationValue: "012345678",
+      clientOperationId: "0123456789abcdef0123456789abcdef",
+    }));
+  });
+
   it("exposes and executes seller-only Face-to-Face completion only after USDT was confirmed sent", async () => {
     mocks.requireMobileApiUser.mockResolvedValue({
       user: { id: "private-seller-id", role: "approved_seller" },
@@ -300,7 +370,7 @@ describe("mobile trade detail route", () => {
     }));
   });
 
-  it("does not expose Face-to-Face completion to the seller before buyer and seller confirmations", async () => {
+  it("exposes Face-to-Face cash receipt but keeps delivery and completion locked until receipt", async () => {
     mocks.requireMobileApiUser.mockResolvedValueOnce({
       user: { id: "private-seller-id", role: "approved_seller" },
       accessToken: "access",
@@ -318,7 +388,7 @@ describe("mobile trade detail route", () => {
     await expect(response.json()).resolves.toMatchObject({
       trade: {
         side: "seller",
-        actions: { canMarkUsdtSent: false, canCompleteFaceToFace: false, canConfirmFunds: false },
+        actions: { canMarkUsdtSent: false, canCompleteFaceToFace: false, canConfirmFunds: true },
       },
     });
   });

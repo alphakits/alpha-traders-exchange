@@ -50,6 +50,7 @@ function buildEmbedUrl(asset: LessonAsset, resolvedVideoUrl: string) {
 export function VideoPlayer({
   asset,
   title,
+  poster,
   initialTimeSeconds = 0,
   onVideoPlay,
   onVideoComplete,
@@ -58,6 +59,7 @@ export function VideoPlayer({
 }: {
   asset: LessonAsset;
   title: string;
+  poster?: string;
   initialTimeSeconds?: number;
   onVideoPlay: () => void;
   onVideoComplete: () => void;
@@ -85,9 +87,9 @@ export function VideoPlayer({
   }, [initialTimeSeconds, isSelfHosted]);
 
   useEffect(() => {
-    setIsLoading(hasVideoSource);
+    setIsLoading(hasVideoSource && (!isSelfHosted || !videoRef.current?.readyState));
     setHasError(false);
-  }, [embedUrl, hasVideoSource, reloadKey]);
+  }, [embedUrl, hasVideoSource, isSelfHosted, reloadKey]);
 
   useEffect(() => {
     if (!hasVideoSource || !isLoading || hasError) return;
@@ -150,6 +152,7 @@ export function VideoPlayer({
       {isSelfHosted ? (
         <video
           ref={videoRef}
+          poster={poster}
           className="block h-full w-full bg-black object-contain"
           controls
           controlsList="nodownload"
@@ -160,7 +163,11 @@ export function VideoPlayer({
             setHasError(false);
             onVideoPlay();
           }}
-          onWaiting={() => setIsLoading(true)}
+          onWaiting={(event) => {
+            if (!event.currentTarget.paused) setIsLoading(true);
+          }}
+          onPause={() => setIsLoading(false)}
+          onCanPlay={() => setIsLoading(false)}
           onLoadedMetadata={() => {
             setIsLoading(false);
             setHasError(false);

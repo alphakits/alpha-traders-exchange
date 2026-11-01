@@ -1,12 +1,25 @@
 import { randomBytes, randomUUID, scrypt as scryptCallback, timingSafeEqual } from "crypto";
 import { promisify } from "util";
-import { cookies } from "next/headers";
-import { createAuthSession, deleteSessionByToken, findUserByEmail, getAuthenticatedUserBySessionToken } from "@/lib/alpha-exchange-store";
+import { cache } from "react";
+import { cookies, headers } from "next/headers";
+import { after } from "next/server";
+import { createAuthSession, deleteSessionByToken, findUserByEmail, getAuthenticatedUserBySessionToken, recordAccountSecurityNotice } from "@/lib/alpha-exchange-store";
+import { sessionDeviceLabel } from "@/lib/account-session-presentation";
 import { AUTH_COOKIE_NAME, AUTH_PHONE_VERIFIED_COOKIE_NAME, AUTH_VERIFIED_COOKIE_NAME } from "@/lib/auth-constants";
 
 export { AUTH_COOKIE_NAME, AUTH_VERIFIED_COOKIE_NAME, AUTH_PHONE_VERIFIED_COOKIE_NAME };
 
 const scrypt = promisify(scryptCallback);
+
+// A locale layout and its page can both need the same principal. React's
+// request-scoped cache coalesces those reads without retaining authentication
+// data between requests or weakening server-side authorization checks.
+const getSessionUserForRequest = cache(async (token: string, includeDisabled: boolean) => (
+  getAuthenticatedUserBySessionToken(
+    token,
+    includeDisabled ? { includeDisabled: true } : undefined,
+  )
+));
 
 type AuthCookieMutator = {
   set: (
@@ -52,14 +65,21 @@ export async function verifyPassword(password: string, storedHash: string) {
 
 export async function createUserSession(userId: string, durationDays = 14) {
   const token = `${randomUUID()}-${randomBytes(24).toString("hex")}`;
-  const session = await createAuthSession(userId, token, durationDays);
+  let deviceLabel: string | undefined;
+  try { deviceLabel = sessionDeviceLabel((await headers()).get("user-agent")); } catch { /* Non-request jobs retain the existing session behavior. */ }
+  const session = deviceLabel ? await createAuthSession(userId, token, durationDays, deviceLabel) : await createAuthSession(userId, token, durationDays);
+  try { after(async () => { try { await recordAccountSecurityNotice(userId, "login", deviceLabel); } catch { console.warn("Account sign-in notice could not be persisted."); } }); } catch { /* No request lifecycle in unit tests or background jobs. */ }
   return {
     token,
     expiresAt: session.expiresAt,
   };
 }
 
-export async function authenticateLocalUser(email: string, password: string) {
+export async function authenticateLocalUser(
+  email: string,
+  password: string,
+  options?: { includeDisabled?: boolean },
+) {
   const user = await findUserByEmail(email);
   if (!user?.passwordHash) {
     return null;
@@ -67,6 +87,10 @@ export async function authenticateLocalUser(email: string, password: string) {
 
   const isValid = await verifyPassword(password, user.passwordHash);
   if (!isValid) {
+    return null;
+  }
+
+  if (user.disabled === true && options?.includeDisabled !== true) {
     return null;
   }
 
@@ -89,10 +113,22 @@ export async function getCurrentSessionUser() {
   if (!token) {
     return null;
   }
-  const user = await getAuthenticatedUserBySessionToken(token);
-  if (!user) return null;
+  const user = await getSessionUserForRequest(token, false);
+  if (!user || user.disabled === true) return null;
   // Email verification is enforced at login and at every buyer-facing trading
   // route. Silently deleting sessions here causes a race: if a DB write is
   // stale, the user is kicked out mid-session with no feedback.
   return user;
+}
+
+/**
+ * Resolve the session principal for an API authorization decision, including a
+ * disabled account long enough to revoke its session and return the correct
+ * ACCOUNT_DISABLED response. Page/layout consumers keep using
+ * getCurrentSessionUser(), which never exposes a disabled principal.
+ */
+export async function getCurrentSessionUserForAuthorization() {
+  const token = await getCurrentSessionToken();
+  if (!token) return null;
+  return getSessionUserForRequest(token, true);
 }

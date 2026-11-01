@@ -1,5 +1,7 @@
 "use client";
 
+import { marketFeedStatus } from "@/lib/market-feed-status";
+import { currencyText } from "@/components/ui/currency-text";
 import dynamic from "next/dynamic";
 import { useEffect, useState } from "react";
 import { AlertTriangle, ArrowUpRight, CheckCircle2 } from "lucide-react";
@@ -10,8 +12,8 @@ import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useMarketFeed } from "@/components/market/use-market-feed";
 
-const TradingViewMarketCharts = dynamic(
-  () => import("@/components/market/tradingview-market-charts").then((module) => module.TradingViewMarketCharts),
+const MarketPriceCharts = dynamic(
+  () => import("@/components/market/market-price-charts").then((module) => module.MarketPriceCharts),
   {
     ssr: false,
     loading: () => <div className="h-[320px] animate-pulse rounded-2xl border border-white/10 bg-white/5" />,
@@ -22,7 +24,7 @@ type Locale = "ar" | "en";
 
 function formatPrice(value: number, key: "ethUsdt" | "btcUsdt" | "usdtIls") {
   if (key === "btcUsdt" || key === "ethUsdt") return `$${value.toLocaleString("en-US", { maximumFractionDigits: key === "ethUsdt" ? 2 : 0 })}`;
-  return `₪${value.toFixed(2)}`;
+  return value > 0 ? `₪${value.toFixed(5)}` : "—";
 }
 
 function formatChange(changePercent: number | null) {
@@ -33,7 +35,7 @@ function formatChange(changePercent: number | null) {
 
 function ageLabel(updatedAt: string, now: number, isAr: boolean) {
   const updatedMs = new Date(updatedAt).getTime();
-  if (!updatedMs) return isAr ? "تم التحديث الآن" : "Updated just now";
+  if (!updatedMs) return isAr ? "بانتظار سعر محدّث" : "Waiting for a fresh quote";
   const seconds = Math.max(0, Math.floor((now - updatedMs) / 1000));
   return isAr ? `تم التحديث قبل ${seconds} ثانية` : `Updated ${seconds} sec ago`;
 }
@@ -48,7 +50,7 @@ function marketSourceLabel(value: string, isAr: boolean) {
 }
 
 export function AlphaMarketCenter({ locale, showCta = false }: { locale: Locale; showCta?: boolean }) {
-  const { snapshot, isLoading, error } = useMarketFeed({ refreshMs: 45_000 });
+  const { snapshot, isLoading, error } = useMarketFeed();
 
   return (
     <AlphaMarketCenterView
@@ -98,6 +100,11 @@ export function AlphaMarketCenterView({
   }
 
   if (!snapshot) return null;
+  const feedStatus = marketFeedStatus(snapshot, error, now);
+  const isLive = feedStatus === "live";
+  const isClosed = feedStatus === "closed";
+  const statusLabel = isClosed ? (isAr ? "آخر إغلاق" : "LAST CLOSE") : isLive ? (isAr ? "مباشر" : "LIVE") : (isAr ? "تحديث متأخر" : "Delayed update");
+  const statusClass = isLive ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300" : "border-amber-500/30 bg-amber-500/10 text-amber-200";
   const heroPair = snapshot.pairs.usdtIls;
   const supportingPairs = [snapshot.pairs.btcUsdt, snapshot.pairs.ethUsdt];
 
@@ -111,12 +118,12 @@ export function AlphaMarketCenterView({
               {isAr ? "بيانات السوق المباشرة لحركة التداول في Alpha Exchange." : "Live market data powering Alpha Exchange pricing."}
             </CardDescription>
           </div>
-          <div className="inline-flex items-center gap-2 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-xs font-medium text-emerald-300">
-            <span className="inline-flex h-2 w-2 rounded-full bg-emerald-400" />
-            {isAr ? "مباشر" : "LIVE"}
+          <div className={cn("inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-medium", statusClass)}>
+            <span className={cn("inline-flex h-2 w-2 rounded-full", isLive ? "bg-emerald-400" : "bg-amber-400")} />
+            {statusLabel}
           </div>
         </div>
-        <p className="text-xs text-[#9CA3AF]"><bdi dir="auto">{ageLabel(snapshot.updatedAt, now, isAr)}</bdi></p>
+        <p className="text-xs text-[#9CA3AF]"><bdi dir="auto">{currencyText(ageLabel(snapshot.pairs.usdtIls.quotedAt ?? "", now, isAr))}</bdi></p>
       </CardHeader>
       <CardContent className="space-y-6">
         <div className="grid gap-4 lg:grid-cols-[minmax(0,1.3fr)_minmax(0,0.9fr)]">
@@ -124,25 +131,25 @@ export function AlphaMarketCenterView({
             <div className="flex items-start justify-between gap-3">
               <div>
                 <p className="text-[11px] uppercase tracking-[0.18em] text-[#D4AF37]">{isAr ? "مرساة التسعير" : "Pricing Anchor"}</p>
-                <p className="mt-2 text-sm text-[#CFCFCF]"><bdi dir="ltr">{heroPair.label}</bdi></p>
+                <p className="mt-2 text-sm text-[#CFCFCF]"><bdi dir="ltr">{currencyText(heroPair.label)}</bdi></p>
               </div>
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-[11px] font-medium text-emerald-300">
-                <span className="inline-flex h-1.5 w-1.5 rounded-full bg-emerald-400" />
-                {isAr ? "مباشر" : "LIVE"}
+              <span className={cn("inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-[11px] font-medium", statusClass)}>
+                <span className={cn("inline-flex h-1.5 w-1.5 rounded-full", isLive ? "bg-emerald-400" : "bg-amber-400")} />
+                {statusLabel}
               </span>
             </div>
             <div className="mt-6 flex flex-wrap items-end justify-between gap-4">
               <div>
-                <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">USDT / ILS</p>
-                <p className="mt-2 text-4xl font-semibold tracking-tight text-white md:text-5xl"><bdi dir="ltr">{formatPrice(heroPair.price, heroPair.key)}</bdi></p>
+                <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{currencyText("USD / ILS")}</p>
+                <p className="mt-2 text-4xl font-semibold tracking-tight text-white md:text-5xl"><bdi dir="ltr">{currencyText(formatPrice(heroPair.price, heroPair.key))}</bdi></p>
                 <div className={`mt-3 inline-flex items-center gap-1.5 text-sm ${heroPair.changePercent !== null && heroPair.changePercent >= 0 ? "text-emerald-300" : "text-rose-300"}`}>
                   <ArrowUpRight className={`h-4 w-4 ${heroPair.changePercent !== null && heroPair.changePercent >= 0 ? "" : "rotate-90"}`} />
-                  <bdi dir="ltr">{formatChange(heroPair.changePercent)}</bdi>
+                  <bdi dir="ltr">{currencyText(formatChange(heroPair.changePercent))}</bdi>
                 </div>
               </div>
               <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-right text-xs text-[#9CA3AF]">
-                <p className="uppercase tracking-[0.14em]">{isAr ? "مصدر حي" : "Live Reference"}</p>
-                <p className="mt-1 text-sm text-white"><bdi dir="auto">{marketSourceLabel(heroPair.reference ?? heroPair.source, isAr)}</bdi></p>
+                <p className="uppercase tracking-[0.14em]">{isLive ? (isAr ? "مصدر حي" : "Live Reference") : (isAr ? "آخر مرجع" : "Last Reference")}</p>
+                <p className="mt-1 text-sm text-white"><bdi dir="auto">{currencyText(marketSourceLabel(heroPair.reference ?? heroPair.source, isAr))}</bdi></p>
               </div>
             </div>
           </div>
@@ -152,22 +159,22 @@ export function AlphaMarketCenterView({
               const positive = pair.changePercent !== null && pair.changePercent >= 0;
               return (
                 <div key={pair.key} className="rounded-[1.5rem] border border-white/10 bg-black/25 p-4 md:p-5">
-                  <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]"><bdi dir="ltr">{pair.label}</bdi></p>
+                  <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]"><bdi dir="ltr">{currencyText(pair.label)}</bdi></p>
                   <div className="mt-3 flex items-end justify-between gap-3">
-                    <p className="text-2xl font-semibold text-white"><bdi dir="ltr">{formatPrice(pair.price, pair.key)}</bdi></p>
+                    <p className="text-2xl font-semibold text-white"><bdi dir="ltr">{currencyText(formatPrice(pair.price, pair.key))}</bdi></p>
                     <div className={`inline-flex items-center gap-1 text-xs ${positive ? "text-emerald-300" : "text-rose-300"}`}>
                       <ArrowUpRight className={`h-3.5 w-3.5 ${positive ? "" : "rotate-90"}`} />
-                      <bdi dir="ltr">{formatChange(pair.changePercent)}</bdi>
+                      <bdi dir="ltr">{currencyText(formatChange(pair.changePercent))}</bdi>
                     </div>
                   </div>
-                  <p className="mt-2 text-xs text-[#9CA3AF]"><bdi dir="auto">{marketSourceLabel(pair.reference ?? pair.source, isAr)}</bdi></p>
+                  <p className="mt-2 text-xs text-[#9CA3AF]"><bdi dir="auto">{currencyText(marketSourceLabel(pair.reference ?? pair.source, isAr))}</bdi></p>
                 </div>
               );
             })}
           </div>
         </div>
 
-        <TradingViewMarketCharts locale={locale} />
+        <MarketPriceCharts locale={locale} />
 
         <div className="rounded-2xl border border-[#C9A227]/25 bg-[#C9A227]/10 p-4 text-sm text-[#E5E7EB]">
           <p className="text-xs uppercase tracking-[0.14em] text-[#D4AF37]">{isAr ? "كيف يعمل التسعير" : "How pricing works"}</p>
@@ -178,7 +185,13 @@ export function AlphaMarketCenterView({
           </p>
         </div>
 
-        {snapshot.status !== "live" || error ? (
+        {isClosed ? (
+          <p className="text-xs text-amber-200">
+            {isAr
+              ? "سوق USD/ILS مغلق. يظهر آخر سعر إغلاق صالح؛ وتستمر تحديثات BTC وETH."
+              : "USD/ILS market closed. Showing the valid last close; BTC and ETH continue updating."}
+          </p>
+        ) : !isLive ? (
           <div className="rounded-2xl border border-amber-500/35 bg-amber-500/10 p-3 text-sm text-amber-200">
             <div className="flex items-start gap-2">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />

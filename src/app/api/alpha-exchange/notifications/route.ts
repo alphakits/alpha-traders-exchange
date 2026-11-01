@@ -26,8 +26,8 @@ export async function GET(request: NextRequest) {
   const query = String(searchParams.get("q") ?? "");
   const category = isNotificationCategory(categoryRaw) ? categoryRaw : undefined;
   const unreadOnly = unreadOnlyRaw === "1" || unreadOnlyRaw === "true";
-  const limit = Number.isFinite(Number(limitRaw)) ? Number(limitRaw) : undefined;
-  const offset = Number.isFinite(Number(offsetRaw)) ? Number(offsetRaw) : undefined;
+  const limit = limitRaw && Number.isFinite(Number(limitRaw)) ? Number(limitRaw) : undefined;
+  const offset = offsetRaw && Number.isFinite(Number(offsetRaw)) ? Number(offsetRaw) : undefined;
   const includeActivity = !(includeActivityRaw === "0" || includeActivityRaw === "false");
   const state = isNotificationState(stateRaw) ? stateRaw : undefined;
   const payload = await getNotificationsForUser({
@@ -40,13 +40,15 @@ export async function GET(request: NextRequest) {
     includeActivity,
     state,
   });
-  return NextResponse.json(payload);
+  return NextResponse.json(payload, {
+    headers: { "Cache-Control": "private, no-store, max-age=0", Pragma: "no-cache" },
+  });
 }
 
 export async function PATCH(request: NextRequest) {
   const { user, unauthorized } = await requireApiUser();
   if (!user) return unauthorized;
-  const rate = await checkSharedRateLimit({ headers: request.headers, key: "exchange:notifications-mark-all-read", maxRequests: 12, windowMs: 60_000 });
+  const rate = await checkSharedRateLimit({ headers: request.headers, key: "exchange:notifications-mark-all-read", identifier: user.id, maxRequests: 12, windowMs: 60_000 });
   if (!rate.allowed) return createRateLimitResponse(rate.retryAfterSeconds);
 
   try {

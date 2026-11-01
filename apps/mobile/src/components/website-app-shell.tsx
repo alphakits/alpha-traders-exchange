@@ -1,19 +1,18 @@
+import { BrandedText as Text } from "./branded-text";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import Constants from "expo-constants";
-import { getLocales } from "expo-localization";
 import * as Notifications from "expo-notifications";
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  ActivityIndicator,
   AppState,
+  Alert,
   BackHandler,
   Image,
   Linking,
   Platform,
   Pressable,
   StyleSheet,
-  Text,
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -38,18 +37,27 @@ import {
 } from "@alpha-traders/contracts";
 import { MobileApiError, refreshMobile } from "../api/mobile-api";
 import {
+  clearRememberedLogin,
   clearStoredTokens,
   getOrCreateDeviceId,
+  loadRememberedLogin,
   loadStoredTokens,
+  saveRememberedLogin,
   saveStoredTokens,
 } from "../auth/session-storage";
 import {
   ALPHA_TRADERS_WEB_ORIGIN,
   isTrustedWebsiteDocumentUrl,
-  trustedWebsiteResumeUrl,
+  isTrustedWebsiteTradeRoomUrl,
   trustedWebsiteReturnPath,
   websiteNavigationDecision,
+  websiteRequestNavigationDecision,
 } from "../web/website-navigation";
+import {
+  DEFAULT_MOBILE_LOCALE,
+  WEBSITE_SESSION_LOCALE_KEY,
+  websiteSessionResume,
+} from "../web/website-session-language";
 import {
   pendingPushUrlAfterConsumption,
   resolvePreparedWebsiteSource,
@@ -68,8 +76,9 @@ import {
 } from "../notifications/push-registration-recovery";
 import { useNetworkStatus } from "../network/network-context";
 import { useMobileAppReadiness } from "../readiness/use-mobile-app-readiness";
+import { LaunchScreen } from "./launch-screen";
+import { handleRememberedLoginMessage, rememberedLoginReplyScript } from "../web/remembered-login-bridge";
 
-const LEGACY_LOCALE_KEY = "alpha.mobile.locale.v1";
 const RESUME_URL_KEY = "alpha.mobile.website.resume-url.v1";
 const SESSION_MIGRATED_KEY = "alpha.mobile.website.session-migrated.v1";
 
@@ -77,21 +86,12 @@ type WebsiteAppShellProps = {
   onNativeReady?: () => void;
 };
 
-function inferredLocale(): MobileLocale {
-  return getLocales()[0]?.languageCode === "ar" ? "ar" : "en";
-}
-
 function clientPlatform() {
   return Platform.OS === "ios" ? "ios" : "android";
 }
 
 function appVersion() {
   return Constants.expoConfig?.version ?? MOBILE_CURRENT_APP_VERSION;
-}
-
-async function resolvedLocale() {
-  const stored = await AsyncStorage.getItem(LEGACY_LOCALE_KEY);
-  return stored === "ar" || stored === "en" ? stored : inferredLocale();
 }
 
 async function currentNativeTokens(locale: MobileLocale): Promise<MobileAuthTokens | null> {
@@ -116,12 +116,12 @@ async function currentNativeTokens(locale: MobileLocale): Promise<MobileAuthToke
 }
 
 async function createInitialSource(): Promise<{ locale: MobileLocale; source: WebsiteSource }> {
-  const [locale, storedResumeUrl, storedMigrationState] = await Promise.all([
-    resolvedLocale(),
+  const [storedLocale, storedResumeUrl, storedMigrationState] = await Promise.all([
+    AsyncStorage.getItem(WEBSITE_SESSION_LOCALE_KEY),
     AsyncStorage.getItem(RESUME_URL_KEY),
     AsyncStorage.getItem(SESSION_MIGRATED_KEY),
   ]);
-  const savedUrl = trustedWebsiteResumeUrl(storedResumeUrl, locale);
+  const { locale, uri: savedUrl } = websiteSessionResume(storedLocale, storedResumeUrl);
   const migrationComplete = storedMigrationState === "1";
   if (migrationComplete) return { locale, source: { uri: savedUrl } };
 
@@ -187,8 +187,10 @@ export function WebsiteAppShell({ onNativeReady }: WebsiteAppShellProps) {
   const readyReported = useRef(false);
   const hasLoadedContentRef = useRef(false);
   const loadErrorRef = useRef(false);
-  const localeRef = useRef<MobileLocale>(inferredLocale());
+  const localeRef = useRef<MobileLocale>(DEFAULT_MOBILE_LOCALE);
   const activeSessionRef = useRef<{ userId: string; locale: MobileLocale } | null>(null);
+  const sessionEpochRef = useRef(0);
+  const pendingLocaleWriteRef = useRef(Promise.resolve());
   const pendingBadgeRef = useRef<{ userId: string; unreadCount: number } | null>(null);
   const pendingReviewRef = useRef<string | null>(null);
   const pendingPushUrlRef = useRef<string | null>(null);
@@ -202,11 +204,13 @@ export function WebsiteAppShell({ onNativeReady }: WebsiteAppShellProps) {
   } | null>(null);
   const pushRegistrationInFlightRef = useRef<Promise<void> | null>(null);
   const [source, setSource] = useState<WebsiteSource | null>(null);
-  const [locale, setLocale] = useState<MobileLocale>(inferredLocale);
+  const [isTradeRoomDocument, setIsTradeRoomDocument] = useState(false);
+  const [locale, setLocale] = useState<MobileLocale>(DEFAULT_MOBILE_LOCALE);
   const [canGoBack, setCanGoBack] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [loadFailed, setLoadFailed] = useState(false);
   const [isPrivacyMasked, setIsPrivacyMasked] = useState(AppState.currentState !== "active");
+  const [webNotificationReminders, setWebNotificationReminders] = useState(false);
   const [pushSetupIssue, setPushSetupIssue] = useState<PushSetupIssue | null>(null);
   const { isOnline } = useNetworkStatus();
   const readiness = useMobileAppReadiness(locale, isOnline);
@@ -238,9 +242,10 @@ export function WebsiteAppShell({ onNativeReady }: WebsiteAppShellProps) {
         prepared.consumedPushUrl,
       );
       sourcePreparationInFlightRef.current = false;
+      setIsTradeRoomDocument(isTrustedWebsiteTradeRoomUrl(prepared.source.uri));
       setSource(prepared.source);
     } catch {
-      const fallbackLocale = inferredLocale();
+      const fallbackLocale = DEFAULT_MOBILE_LOCALE;
       localeRef.current = fallbackLocale;
       setLocale(fallbackLocale);
       const prepared = resolvePreparedWebsiteSource(
@@ -252,6 +257,7 @@ export function WebsiteAppShell({ onNativeReady }: WebsiteAppShellProps) {
         prepared.consumedPushUrl,
       );
       sourcePreparationInFlightRef.current = false;
+      setIsTradeRoomDocument(isTrustedWebsiteTradeRoomUrl(prepared.source.uri));
       setSource(prepared.source);
     }
   }, []);
@@ -293,7 +299,7 @@ export function WebsiteAppShell({ onNativeReady }: WebsiteAppShellProps) {
     }
     if (pushRegistrationKeyRef.current === key) {
       if (pushRegistrationResultRef.current) {
-        sendMessageToWebsite(pushRegistrationResultRef.current);
+        sendMessageToWebsite({ ...pushRegistrationResultRef.current, userId });
       }
       return;
     }
@@ -314,15 +320,16 @@ export function WebsiteAppShell({ onNativeReady }: WebsiteAppShellProps) {
       };
       return;
     }
+    const sessionEpoch = sessionEpochRef.current;
     const task = (async () => {
       const result = await registerForNativePushNotifications(nextLocale);
-      if (activeSessionRef.current?.userId !== userId) return;
+      if (sessionEpochRef.current !== sessionEpoch || activeSessionRef.current?.userId !== userId || activeSessionRef.current.locale !== nextLocale) return;
       setPushSetupIssue(pushSetupIssueFromRegistrationStatus(result.status));
       if (result.status === "registered") {
         pushRegistrationKeyRef.current = key;
         pushRegistrationResultRef.current = result;
       }
-      sendMessageToWebsite(result);
+      sendMessageToWebsite({ ...result, userId });
     })();
     pushRegistrationInFlightRef.current = task;
     void task.finally(() => {
@@ -371,6 +378,7 @@ export function WebsiteAppShell({ onNativeReady }: WebsiteAppShellProps) {
       loadErrorRef.current = false;
       setLoadFailed(false);
       setIsLoading(!hasLoadedContentRef.current);
+      setIsTradeRoomDocument(isTrustedWebsiteTradeRoomUrl(target));
       setSource({ uri: target });
     }
     const reviewReference = reviewReferenceFromPushData(data);
@@ -403,6 +411,7 @@ export function WebsiteAppShell({ onNativeReady }: WebsiteAppShellProps) {
     });
     const appStateSubscription = AppState.addEventListener("change", (state) => {
       setIsPrivacyMasked(state !== "active");
+      webViewRef.current?.injectJavaScript(`window.dispatchEvent(new CustomEvent("alpha-native-app-state", { detail: { active: ${state === "active"} } })); true;`);
       if (state !== "active") return;
       const session = activeSessionRef.current;
       if (session) ensurePushRegistration(session.userId, session.locale, true);
@@ -432,8 +441,7 @@ export function WebsiteAppShell({ onNativeReady }: WebsiteAppShellProps) {
   }, []);
 
   const shouldStart = useCallback((request: ShouldStartLoadRequest) => {
-    const decision = websiteNavigationDecision(request.url);
-    if (!request.isTopFrame) return decision === "allow";
+    const decision = websiteRequestNavigationDecision(request);
     if (decision === "allow") return true;
     if (decision === "external") openExternally(request.url);
     return false;
@@ -444,24 +452,44 @@ export function WebsiteAppShell({ onNativeReady }: WebsiteAppShellProps) {
     setCanGoBack(nextCanGoBack);
     const resumeUrl = trustedWebsiteReturnPath(url);
     if (!resumeUrl) return;
+    setIsTradeRoomDocument(isTrustedWebsiteTradeRoomUrl(url));
     const nextLocale: MobileLocale = resumeUrl.startsWith("/ar") ? "ar" : "en";
     localeRef.current = nextLocale;
     setLocale(nextLocale);
     void Promise.all([
       AsyncStorage.setItem(RESUME_URL_KEY, `${ALPHA_TRADERS_WEB_ORIGIN}${resumeUrl}`),
-      AsyncStorage.setItem(LEGACY_LOCALE_KEY, nextLocale),
       AsyncStorage.setItem(SESSION_MIGRATED_KEY, "1"),
-    ]);
+    ]).catch(() => undefined);
   }, []);
 
   const handleWebsiteMessage = useCallback((event: WebViewMessageEvent) => {
     // The bridge can register push tokens and update native state. Only a
     // first-party top-level document may send privileged messages into it.
     if (!isTrustedWebsiteDocumentUrl(event.nativeEvent.url)) return;
+    const { url, data } = event.nativeEvent;
+    void handleRememberedLoginMessage(url, data, {
+      load: loadRememberedLogin, save: saveRememberedLogin, clear: clearRememberedLogin,
+    }).then((response) => {
+      if (!response) return;
+      const script = rememberedLoginReplyScript(url, response);
+      if (script) webViewRef.current?.injectJavaScript(script);
+      if (response.status === "failed") {
+        Alert.alert(localeRef.current === "ar" ? "تذكرني" : "Remember me",
+          localeRef.current === "ar" ? "تعذر تحديث بيانات الدخول المحفوظة على هذا الهاتف. يرجى المحاولة مرة أخرى." : "We couldn't update the saved login details on this phone. Please try again.");
+      }
+    }).catch(() => undefined);
     const message = parseWebToNativeBridgeMessage(event.nativeEvent.data);
     if (!message) return;
     if (message.type === "alpha.web.session") {
+      const sessionLocale = message.authenticated ? message.locale : DEFAULT_MOBILE_LOCALE;
+      localeRef.current = sessionLocale;
+      setLocale(sessionLocale);
+      // Best-effort local persistence must never delay sign-in or sign-out.
+      pendingLocaleWriteRef.current = pendingLocaleWriteRef.current
+        .then(() => AsyncStorage.setItem(WEBSITE_SESSION_LOCALE_KEY, sessionLocale))
+        .catch(() => undefined);
       if (!message.authenticated) {
+        sessionEpochRef.current++;
         activeSessionRef.current = null;
         pendingBadgeRef.current = null;
         pendingPushRegistrationRef.current = null;
@@ -469,8 +497,13 @@ export function WebsiteAppShell({ onNativeReady }: WebsiteAppShellProps) {
         pushRegistrationResultRef.current = null;
         pendingReviewRef.current = null;
         setPushSetupIssue(null);
+        setWebNotificationReminders(false);
         void Notifications.setBadgeCountAsync(0).catch(() => undefined);
         return;
+      }
+      if (activeSessionRef.current?.userId !== message.userId) {
+        sessionEpochRef.current++;
+        setWebNotificationReminders(false);
       }
       activeSessionRef.current = { userId: message.userId, locale: message.locale };
       if (pendingBadgeRef.current?.userId === message.userId) {
@@ -495,6 +528,15 @@ export function WebsiteAppShell({ onNativeReady }: WebsiteAppShellProps) {
       };
       return;
     }
+    if (message.type === "alpha.web.notification-reminders" && activeSessionRef.current?.userId === message.userId) {
+      setWebNotificationReminders(true);
+      return;
+    }
+    if (message.type === "alpha.web.push-settings" && activeSessionRef.current?.userId === message.userId) {
+      if (pushSetupIssue === "denied") void Linking.openSettings().catch(() => undefined);
+      else ensurePushRegistration(message.userId, message.locale, true);
+      return;
+    }
     if (
       message.type === "alpha.web.push-registration"
       && activeSessionRef.current?.userId === message.userId
@@ -509,7 +551,7 @@ export function WebsiteAppShell({ onNativeReady }: WebsiteAppShellProps) {
       pendingReviewRef.current = message.tradeReference;
       attemptPendingReview();
     }
-  }, [attemptPendingReview, ensurePushRegistration]);
+  }, [attemptPendingReview, ensurePushRegistration, pushSetupIssue]);
 
   const recoverPushSetup = useCallback(() => {
     if (pushSetupIssue === "denied") {
@@ -554,6 +596,7 @@ export function WebsiteAppShell({ onNativeReady }: WebsiteAppShellProps) {
       hasLoadedContentRef.current = false;
       setLoadFailed(false);
       setIsLoading(true);
+      setIsTradeRoomDocument(false);
       setSource({ uri: `${ALPHA_TRADERS_WEB_ORIGIN}/${locale}` });
     } catch {
       // The website remains responsible for rendering ordinary HTTP errors.
@@ -567,6 +610,7 @@ export function WebsiteAppShell({ onNativeReady }: WebsiteAppShellProps) {
       loadErrorRef.current = false;
       setLoadFailed(false);
       setIsLoading(!hasLoadedContentRef.current);
+      setIsTradeRoomDocument(isTrustedWebsiteTradeRoomUrl(targetUrl));
       setSource({ uri: targetUrl });
       return;
     }
@@ -637,17 +681,22 @@ export function WebsiteAppShell({ onNativeReady }: WebsiteAppShellProps) {
           ref={webViewRef}
           source={source}
           style={styles.webView}
-          originWhitelist={[
-            "https://alphatraders.co.il",
-            "https://www.alphatraders.co.il",
-            "https://discord.com",
-            "https://www.discord.com",
-            "about:blank",
-            "blob:*",
-          ]}
+          // Dispatch every request to our validator. WebView otherwise calls
+          // Linking.openURL before shouldStart, even for a rejected iframe.
+          // The validator allows exact trusted documents/embeds, blocks unsafe
+          // schemes and sends only explicit top-level links to the browser.
+          originWhitelist={["*"]}
           onShouldStartLoadWithRequest={shouldStart}
           onNavigationStateChange={rememberNavigation}
           onLoadStart={() => {
+            // A replacement document must announce its own session and setup
+            // support; old permission tasks cannot certify the new document.
+            sessionEpochRef.current++;
+            activeSessionRef.current = null;
+            pendingPushRegistrationRef.current = null;
+            pushRegistrationKeyRef.current = null;
+            pushRegistrationResultRef.current = null;
+            setWebNotificationReminders(false);
             loadErrorRef.current = false;
             setLoadFailed(false);
             if (!hasLoadedContentRef.current) setIsLoading(true);
@@ -672,18 +721,19 @@ export function WebsiteAppShell({ onNativeReady }: WebsiteAppShellProps) {
           cacheMode="LOAD_DEFAULT"
           contentInsetAdjustmentBehavior="never"
           domStorageEnabled
-          javaScriptCanOpenWindowsAutomatically
+          javaScriptCanOpenWindowsAutomatically={false}
           javaScriptEnabled
           mediaPlaybackRequiresUserAction={false}
           mixedContentMode="never"
-          pullToRefreshEnabled
+          // Native iOS refresh can intercept gestures independently of CSS containment.
+          pullToRefreshEnabled={!isTradeRoomDocument}
           setSupportMultipleWindows={false}
           sharedCookiesEnabled
           thirdPartyCookiesEnabled={false}
         />
       ) : null}
 
-      {pushSetupIssue && pushRecoveryLabels && !isLoading && !loadFailed ? (
+      {!webNotificationReminders && pushSetupIssue && pushRecoveryLabels && !isLoading && !loadFailed ? (
         <View accessibilityRole="alert" style={styles.pushRecoveryBanner}>
           <Text style={[styles.pushRecoveryTitle, locale === "ar" && styles.rtlText]}>
             {pushRecoveryLabels.title}
@@ -713,10 +763,7 @@ export function WebsiteAppShell({ onNativeReady }: WebsiteAppShellProps) {
       ) : null}
 
       {readiness.status === "checking" || (isLoading && !loadFailed) ? (
-        <View accessibilityLabel={locale === "ar" ? "جارٍ تحميل Alpha Traders" : "Loading Alpha Traders"} accessibilityRole="progressbar" style={styles.loadingOverlay}>
-          <Image accessible={false} alt="" source={brandLogo} style={styles.loadingLogo} />
-          <ActivityIndicator color="#D4AF37" size="large" />
-        </View>
+        <LaunchScreen locale={locale} onReady={reportNativeReady} paused={isPrivacyMasked} />
       ) : null}
 
       {loadFailed && readiness.status !== "checking" ? (
@@ -842,25 +889,6 @@ const styles = StyleSheet.create({
     color: "#FFFFFF",
     fontSize: 14,
     fontWeight: "700",
-  },
-  loadingOverlay: {
-    alignItems: "center",
-    backgroundColor: "#050505",
-    bottom: 0,
-    justifyContent: "center",
-    left: 0,
-    position: "absolute",
-    right: 0,
-    top: 0,
-    zIndex: 50,
-  },
-  loadingLogo: {
-    borderColor: "rgba(212, 175, 55, 0.62)",
-    borderRadius: 30,
-    borderWidth: 1,
-    height: 132,
-    marginBottom: 22,
-    width: 132,
   },
   privacyMask: {
     alignItems: "center",
@@ -1012,3 +1040,4 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
 });
+

@@ -13,12 +13,64 @@ function completeRequiredFields() {
   fireEvent.change(screen.getByLabelText(/البريد الإلكتروني|Email/), { target: { value: "test@example.com" } });
   fireEvent.change(screen.getByLabelText(/^كلمة المرور$|^Password$/), { target: { value: "password123" } });
   fireEvent.change(screen.getByLabelText(/تأكيد كلمة المرور|Confirm Password/), { target: { value: "password123" } });
-  fireEvent.click(screen.getByRole("checkbox"));
+  fireEvent.change(screen.getByLabelText(/رقم واتساب|WhatsApp Number/), { target: { value: "0501234567" } });
+  for (const checkbox of screen.getAllByRole("checkbox")) fireEvent.click(checkbox);
 }
 
 describe("RegisterForm localization", () => {
+  it.each(["en", "ar"] as const)("preserves the mentorship destination and %s language during signup", async locale => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true }) });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<RegisterForm locale={locale} mentorshipIntent />);
+    completeRequiredFields();
+    fireEvent.submit(screen.getByLabelText(/رقم واتساب|WhatsApp Number/).closest("form")!);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).intent).toBe("mentorship");
+    const login = screen.getByRole("link", { name: locale === "ar" ? "تسجيل الدخول" : "Login" });
+    expect(new URL(login.getAttribute("href")!, "https://www.alphatraders.co.il").searchParams.get("redirectTo")).toBe(`/${locale}/learn-with-mark`);
+  });
+  it.each(["en", "ar"] as const)("preserves the free learning intent and %s language during signup", async locale => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true }) });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<RegisterForm locale={locale} learningIntent />);
+    completeRequiredFields();
+    fireEvent.submit(screen.getByLabelText(/رقم واتساب|WhatsApp Number/).closest("form")!);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).intent).toBe("learn");
+    const login = screen.getByRole("link", { name: locale === "ar" ? "تسجيل الدخول" : "Login" });
+    expect(new URL(login.getAttribute("href")!, "https://www.alphatraders.co.il").searchParams.get("redirectTo")).toBe(`/${locale}/academy`);
+  });
   afterEach(() => {
     vi.unstubAllGlobals();
+  });
+
+  it.each(["en", "ar"] as const)("requires WhatsApp before a registration request in %s", async (locale) => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    render(<RegisterForm locale={locale} />);
+    completeRequiredFields();
+    const contact = screen.getByLabelText(/رقم واتساب|WhatsApp Number/) as HTMLInputElement;
+    expect(contact.required).toBe(true);
+    expect(contact.type).toBe("tel");
+    fireEvent.change(contact, { target: { value: "   " } });
+    fireEvent.submit(contact.closest("form")!);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert").textContent).toContain(locale === "ar" ? "رقم واتساب مطلوب" : "A WhatsApp number is required");
+  });
+
+  it("rejects malformed numbers and sends accepted contacts in international format", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true }) });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<RegisterForm locale="en" />);
+    completeRequiredFields();
+    const contact = screen.getByLabelText("WhatsApp Number");
+    fireEvent.change(contact, { target: { value: "not a number" } });
+    fireEvent.submit(contact.closest("form")!);
+    expect(fetchMock).not.toHaveBeenCalled();
+    fireEvent.change(contact, { target: { value: "050-123-4567" } });
+    fireEvent.submit(contact.closest("form")!);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toMatchObject({ whatsappNumber: "+972501234567" });
   });
 
   it("uses a stable Arabic error instead of exposing an unexpected English API error", async () => {
@@ -53,6 +105,37 @@ describe("RegisterForm localization", () => {
     expect(screen.queryByText("Passwords do not match.")).toBeNull();
   });
 
+  it.each([
+    { locale: "en" as const, code: "PHONE_ALREADY_IN_USE" },
+    { locale: "ar" as const, code: "PHONE_ALREADY_IN_USE" },
+    { locale: "en" as const, code: undefined },
+    { locale: "ar" as const, code: undefined },
+  ])("explains a reused phone and preserves the form in $locale (code: $code)", async ({ locale, code }) => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 409,
+      json: async () => ({
+        code,
+        error: "This phone number is linked to another account. Use a different number or sign in to your existing account.",
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<RegisterForm locale={locale} />);
+    completeRequiredFields();
+    fireEvent.submit(screen.getByLabelText(/رقم واتساب|WhatsApp Number/).closest("form")!);
+
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toBe(locale === "ar"
+      ? "هذا الرقم مرتبط بحساب آخر. استخدم رقمًا مختلفًا أو سجّل الدخول إلى حسابك الحالي."
+      : "This phone number is linked to another account. Use a different number or sign in to your existing account."));
+    expect((screen.getByLabelText(/البريد الإلكتروني|Email/) as HTMLInputElement).value).toBe("test@example.com");
+    expect((screen.getByLabelText(/رقم واتساب|WhatsApp Number/) as HTMLInputElement).value).toBe("0501234567");
+    expect(screen.getByRole("link", { name: locale === "ar" ? "تسجيل الدخول" : "Login" }).getAttribute("href")).toBe("/login");
+    expect(screen.queryByText(/Registration failed|تعذر إنشاء الحساب/)).toBeNull();
+    expect(screen.queryByRole("status")).toBeNull();
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
   it("uses non-enumerating success copy in Arabic", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
       ok: true,
@@ -65,5 +148,18 @@ describe("RegisterForm localization", () => {
 
     await waitFor(() => expect(screen.getByText(/إذا كان البريد صالحًا للتسجيل/)).toBeTruthy());
     expect(screen.queryByText("Unexpected server success copy")).toBeNull();
+  });
+
+  it.each(["en", "ar"] as const)("shows weak-password feedback and retains the registration fields in %s", async locale => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: false,
+      json: async () => ({ code: "WEAK_PASSWORD" }),
+    }));
+    render(<RegisterForm locale={locale} />);
+    completeRequiredFields();
+    fireEvent.submit(screen.getByLabelText(/رقم واتساب|WhatsApp Number/).closest("form")!);
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toContain(locale === "ar" ? "اختر كلمة مرور أقوى" : "Choose a stronger, unique password"));
+    expect((screen.getByLabelText(/البريد الإلكتروني|Email/) as HTMLInputElement).value).toBe("test@example.com");
+    expect(screen.queryByText(/If this email can be registered|إذا كان البريد صالحًا للتسجيل/)).toBeNull();
   });
 });

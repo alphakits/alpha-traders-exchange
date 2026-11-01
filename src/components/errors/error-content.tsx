@@ -19,6 +19,7 @@ function useLocale(): Locale {
 
 interface ErrorContentProps {
   reset: () => void;
+  reference?: string;
   /** Localised title — pass two versions or a single pre-resolved string */
   titleEn?: string;
   titleAr?: string;
@@ -26,6 +27,7 @@ interface ErrorContentProps {
 
 export function ErrorContent({
   reset,
+  reference,
   titleEn = "Something went wrong",
   titleAr = "حدث خطأ ما",
 }: ErrorContentProps) {
@@ -64,6 +66,10 @@ export function ErrorContent({
           >
             {t.desc}
           </p>
+
+          {reference ? <p className="mt-4 break-all text-xs text-white/50">
+            {isRtl ? "مرجع الخطأ" : "Error reference"}: <bdi dir="ltr">{reference}</bdi>
+          </p> : null}
 
           <div
             className="alpha-reveal-scale-x alpha-delay-3 mx-auto my-6 h-px w-24 bg-[#C9A227]/20"

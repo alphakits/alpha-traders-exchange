@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { downloadTradeEvidenceContent } from "@/lib/alpha-exchange-store";
-import { requireApiUser, requireEmailVerificationForTrading } from "@/lib/api-auth";
+import { requireApiUser, requireMarketplaceVerificationForTrading } from "@/lib/api-auth";
 import { checkSharedRateLimit } from "@/lib/rate-limit";
 
 type RouteContext = {
@@ -10,11 +10,12 @@ type RouteContext = {
 export async function GET(request: NextRequest, context: RouteContext) {
   const { user, unauthorized } = await requireApiUser();
   if (!user) return unauthorized;
-  const emailVerificationRequired = requireEmailVerificationForTrading(user);
+  const emailVerificationRequired = requireMarketplaceVerificationForTrading(user);
   if (emailVerificationRequired) return emailVerificationRequired;
   const rate = await checkSharedRateLimit({
     headers: request.headers,
     key: "exchange:trade-evidence-download",
+    identifier: user.id,
     maxRequests: 60,
     windowMs: 60_000,
   });

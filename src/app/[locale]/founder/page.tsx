@@ -6,7 +6,9 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
   return buildPageMetadata({
     locale: locale as "ar" | "en",
     title: locale === "ar" ? "المؤسس" : "Founder",
-    description: "تعرف على مؤسس Alpha Traders، قصته، ورسالة الأكاديمية المجانية.",
+    description: locale === "ar"
+      ? "تعرف على مؤسس Alpha Traders، قصته، ورسالة الأكاديمية المجانية."
+      : "Meet the founder of Alpha Traders, his story, and the mission behind the free Academy.",
     path: "/founder",
   });
 }

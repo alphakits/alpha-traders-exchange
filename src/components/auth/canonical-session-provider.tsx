@@ -3,20 +3,27 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import type { ClientSessionUser } from "@/lib/client-session-user";
 import type { AppLocale } from "@/i18n/routing";
+import { clearClientLocaleChoice } from "@/i18n/locale-preference";
+import { getSignedOutPageDestination, isProtectedPage } from "@/lib/protected-page";
+import { runClientRequest } from "@/lib/client-request-deadline";
 
 export type CanonicalSessionRefreshResult = "authenticated" | "anonymous" | "unavailable";
 
 type CanonicalSessionContextValue = {
   user: ClientSessionUser | null;
   isResolving: boolean;
+  isRestoring: boolean;
   error: boolean;
-  refresh: (options?: { force?: boolean }) => Promise<CanonicalSessionRefreshResult>;
+  refresh: (options?: { force?: boolean; background?: boolean }) => Promise<CanonicalSessionRefreshResult>;
+  beginSignOut?: () => () => void;
 };
 
 const CanonicalSessionContext = createContext<CanonicalSessionContextValue | null>(null);
 
 const CANONICAL_SESSION_RECOVERY_BASE_MS = 1_000;
 const CANONICAL_SESSION_RECOVERY_MAX_MS = 30_000;
+export const CANONICAL_SESSION_READ_TIMEOUT_MS = 30_000;
+const CANONICAL_SESSION_RESUME_INTERVAL_MS = 15_000;
 
 export function getCanonicalSessionRecoveryDelayMs(attempt: number) {
   const safeAttempt = Math.max(1, Math.floor(attempt));
@@ -26,12 +33,10 @@ export function getCanonicalSessionRecoveryDelayMs(attempt: number) {
   );
 }
 
-export function getSessionExpiryLoginDestination(location: Pick<Location, "pathname" | "search" | "hash">) {
-  const pathname = location.pathname || "/";
-  const locale = pathname.match(/^\/(ar|en)(?:\/|$)/)?.[1] ?? "en";
-  if (new RegExp(`^/${locale}/(?:login|register)(?:/|$)`).test(pathname)) return null;
-  const intendedDestination = `${pathname}${location.search ?? ""}${location.hash ?? ""}`;
-  return `/${locale}/login?sessionExpired=1&redirectTo=${encodeURIComponent(intendedDestination)}`;
+export function getSessionExpiryDestination(location: Pick<Location, "pathname"> & Partial<Pick<Location, "search" | "hash">>) {
+  return isProtectedPage(location.pathname || "/")
+    ? getSignedOutPageDestination(`${location.pathname}${location.search ?? ""}${location.hash ?? ""}`)
+    : null;
 }
 
 export function CanonicalSessionProvider({
@@ -44,40 +49,67 @@ export function CanonicalSessionProvider({
   locale?: AppLocale;
 }) {
   const [user, setUser] = useState<ClientSessionUser | null>(initialSessionUser);
-  const [isResolving, setIsResolving] = useState(true);
+  // A server-rendered authenticated principal is immediately usable. Verify
+  // it in parallel instead of freezing the entire Exchange workspace behind a
+  // second /api/auth/me round trip on every navigation.
+  const [isResolving, setIsResolving] = useState(initialSessionUser === null);
   const [error, setError] = useState(false);
+  const [isRestoring, setIsRestoring] = useState(false);
   const requestRef = useRef<Promise<CanonicalSessionRefreshResult> | null>(null);
+  const cancelReadRef = useRef<(() => void) | null>(null);
   const requestIdRef = useRef(0);
+  const lastReadStartedAtRef = useRef(0);
   const mountedRef = useRef(true);
   const hadAuthenticatedSessionRef = useRef(Boolean(initialSessionUser));
   const expiryRedirectStartedRef = useRef(false);
+  const signOutNavigationRef = useRef(false);
+  const pendingSignOutsRef = useRef(new Set<symbol>());
   const recoveryAttemptsRef = useRef(0);
   const recoveryTimeoutRef = useRef<number | null>(null);
   const recoveryNeededRef = useRef(false);
   const scheduleRecoveryRef = useRef<() => void>(() => undefined);
   const localeSyncRef = useRef<string | null>(null);
+  const hasInitialSession = initialSessionUser !== null;
   const canonicalUserId = user?.id;
   const canonicalPreferredLocale = user?.preferredLocale;
 
-  const refresh = useCallback(async ({ force = false }: { force?: boolean } = {}) => {
+  const refresh = useCallback(async ({
+    force = false,
+    background = false,
+  }: { force?: boolean; background?: boolean } = {}) => {
+    // Revocation can reach the server before logout confirmation reaches this
+    // document. The sign-out caller owns navigation during that bounded gap.
+    if (pendingSignOutsRef.current.size || signOutNavigationRef.current) return "unavailable" as const;
+    const shouldBlock = !background;
     if (force) {
       // An auth boundary changed while a request may still be in flight. Its
       // result is no longer authoritative, so sequence a fresh canonical read.
       requestIdRef.current += 1;
       requestRef.current = null;
+      cancelReadRef.current?.();
     }
     if (requestRef.current) return requestRef.current;
+    lastReadStartedAtRef.current = Date.now();
     const requestId = ++requestIdRef.current;
+    const controller = new AbortController();
+    const cancelRead = () => controller.abort();
+    cancelReadRef.current = cancelRead;
     const request = (async () => {
-      setIsResolving(true);
-      setError(false);
+      if (shouldBlock) setIsResolving(true);
       try {
-        const response = await fetch("/api/auth/me", { cache: "no-store", credentials: "include" });
-        const payload = (await response.json().catch(() => null)) as { user?: ClientSessionUser | null } | null;
+        const { response, payload } = await runClientRequest(controller, CANONICAL_SESSION_READ_TIMEOUT_MS, async (signal) => {
+          const response = await fetch("/api/auth/me", { cache: "no-store", credentials: "include", signal });
+          if (response.status === 401 || response.status === 403) return { response, payload: null };
+          const payload = (await response.json().catch(() => null)) as { user?: ClientSessionUser | null } | null;
+          return { response, payload };
+        });
         if (!response.ok) {
           const result: CanonicalSessionRefreshResult = response.status === 401 || response.status === 403 ? "anonymous" : "unavailable";
           if (mountedRef.current && requestId === requestIdRef.current) {
-            setUser(null);
+            if (result === "anonymous") {
+              setUser(null);
+              setIsRestoring(false);
+            }
             setError(result === "unavailable");
           }
           return result;
@@ -85,20 +117,25 @@ export function CanonicalSessionProvider({
         if (!payload || !("user" in payload)) throw new Error("Unable to refresh account status.");
         const result: CanonicalSessionRefreshResult = payload.user ? "authenticated" : "anonymous";
         if (mountedRef.current && requestId === requestIdRef.current) {
-          setUser(payload.user ?? null);
+          const nextUser = payload.user ?? null;
+          // Preserve identity for an unchanged account. Background checks must
+          // not remount its streams or reload every workspace panel.
+          setUser((current) => JSON.stringify(current) === JSON.stringify(nextUser) ? current : nextUser);
           setError(false);
+          setIsRestoring(false);
         }
         return result;
       } catch {
         if (mountedRef.current && requestId === requestIdRef.current) {
-          // A bootstrap snapshot is never authoritative after the canonical
-          // read fails. Hide privileged UI until the server can confirm it.
-          setUser(null);
+          // A timeout is not a logout. Retain the last confirmed account and
+          // its current screen while recovering; every server action still
+          // verifies the session and permissions independently.
           setError(true);
         }
         return "unavailable" as const;
       } finally {
-        if (mountedRef.current && requestId === requestIdRef.current) setIsResolving(false);
+        if (cancelReadRef.current === cancelRead) cancelReadRef.current = null;
+        if (shouldBlock && mountedRef.current && requestId === requestIdRef.current) setIsResolving(false);
       }
     })();
     requestRef.current = request;
@@ -117,11 +154,30 @@ export function CanonicalSessionProvider({
     recoveryAttemptsRef.current = 0;
   }, []);
 
+  const beginSignOut = useCallback(() => {
+    const operation = Symbol("sign-out");
+    pendingSignOutsRef.current.add(operation);
+    requestIdRef.current += 1;
+    requestRef.current = null;
+    cancelReadRef.current?.();
+    cancelReadRef.current = null;
+    recoveryNeededRef.current = false;
+    clearSessionRecovery();
+    setIsResolving(false);
+    // Retain the confirmed account during the request; server actions still
+    // authorize independently. Failure or cancellation resumes verification.
+    return () => {
+      if (!pendingSignOutsRef.current.delete(operation)) return;
+      if (mountedRef.current && !pendingSignOutsRef.current.size && !signOutNavigationRef.current) {
+        void refresh({ force: true, background: true });
+      }
+    };
+  }, [clearSessionRecovery, refresh]);
+
   const scheduleSessionRecovery = useCallback(() => {
     if (
       !mountedRef.current
       || !recoveryNeededRef.current
-      || !hadAuthenticatedSessionRef.current
       || expiryRedirectStartedRef.current
       || recoveryTimeoutRef.current !== null
       || document.visibilityState === "hidden"
@@ -133,7 +189,7 @@ export function CanonicalSessionProvider({
       recoveryTimeoutRef.current = null;
       if (!mountedRef.current || !recoveryNeededRef.current) return;
       if (document.visibilityState === "hidden" || navigator.onLine === false) return;
-      void refresh({ force: true }).then((result) => {
+      void refresh({ background: true }).then((result) => {
         if (!mountedRef.current) return;
         if (result === "unavailable") {
           scheduleRecoveryRef.current();
@@ -148,35 +204,80 @@ export function CanonicalSessionProvider({
 
   useEffect(() => {
     mountedRef.current = true;
-    void refresh();
+    const pendingSignOuts = pendingSignOutsRef.current;
+    void refresh({ background: hasInitialSession });
     const handleAuthChange = () => void refresh({ force: true });
-    const handleSignedOut = () => {
+    const sessionChannel = typeof BroadcastChannel === "function"
+      ? new BroadcastChannel("alpha.auth.session.v1") : null;
+    const clearSignedOutSession = (navigationStarted = false) => {
+      signOutNavigationRef.current ||= navigationStarted;
+      clearClientLocaleChoice();
       hadAuthenticatedSessionRef.current = false;
       expiryRedirectStartedRef.current = true;
       recoveryNeededRef.current = false;
       clearSessionRecovery();
       requestIdRef.current += 1;
       requestRef.current = null;
+      cancelReadRef.current?.();
+      cancelReadRef.current = null;
       setUser(null);
       setError(false);
-      setIsResolving(false);
+      // A confirmed sign-out may already be replacing this document. Hide
+      // private content without letting a page boundary race that navigation.
+      setIsResolving(signOutNavigationRef.current);
+      setIsRestoring(false);
     };
-    const resumeSessionRecovery = () => scheduleRecoveryRef.current();
+    const handleSignedOut = (event: Event) => {
+      clearSignedOutSession(event instanceof CustomEvent && event.detail?.navigationStarted === true);
+      sessionChannel?.postMessage("signed-out");
+    };
+    if (sessionChannel) sessionChannel.onmessage = (event) => {
+      if (event.data === "signed-out") clearSignedOutSession();
+    };
+    const resumeSessionRecovery = () => {
+      if (document.visibilityState === "hidden" || navigator.onLine === false || expiryRedirectStartedRef.current) return;
+      if (recoveryNeededRef.current) {
+        scheduleRecoveryRef.current();
+      } else if (Date.now() - lastReadStartedAtRef.current >= CANONICAL_SESSION_RESUME_INTERVAL_MS) {
+        // iOS can restore a suspended web app without remounting React. Check
+        // the cookie on resume, coalescing pageshow/focus/visibility events.
+        void refresh({ background: true });
+      }
+    };
+    const handlePageShow = (event: PageTransitionEvent) => {
+      // Back/forward cache can restore a page immediately after logout. Do not
+      // let the normal resume throttle skip verification of that saved page.
+      if (event.persisted) {
+        signOutNavigationRef.current = false;
+        pendingSignOutsRef.current.clear();
+        setIsRestoring(true);
+        void refresh({ force: true });
+      } else resumeSessionRecovery();
+    };
     window.addEventListener("alpha-auth-changed", handleAuthChange);
     window.addEventListener("alpha-auth-signed-out", handleSignedOut);
     window.addEventListener("online", resumeSessionRecovery);
+    window.addEventListener("pageshow", handlePageShow);
+    window.addEventListener("focus", resumeSessionRecovery);
     document.addEventListener("visibilitychange", resumeSessionRecovery);
     return () => {
+      sessionChannel?.close();
       mountedRef.current = false;
+      pendingSignOuts.clear();
       recoveryNeededRef.current = false;
       clearSessionRecovery();
       requestIdRef.current += 1;
+      requestRef.current = null;
+      cancelReadRef.current?.();
+      cancelReadRef.current = null;
       window.removeEventListener("alpha-auth-changed", handleAuthChange);
       window.removeEventListener("alpha-auth-signed-out", handleSignedOut);
       window.removeEventListener("online", resumeSessionRecovery);
+      window.removeEventListener("pageshow", handlePageShow);
+      window.removeEventListener("focus", resumeSessionRecovery);
       document.removeEventListener("visibilitychange", resumeSessionRecovery);
     };
-  }, [clearSessionRecovery, refresh]);
+  }, [clearSessionRecovery, hasInitialSession, refresh]);
 
   useEffect(() => {
     if (!locale || !canonicalUserId || canonicalPreferredLocale === locale) return;
@@ -210,12 +311,12 @@ export function CanonicalSessionProvider({
   }, [canonicalPreferredLocale, canonicalUserId, locale]);
 
   useEffect(() => {
-    if (user || (!error && !isResolving)) {
+    if (!error) {
       recoveryNeededRef.current = false;
       clearSessionRecovery();
       return;
     }
-    if (!error || isResolving || !hadAuthenticatedSessionRef.current || expiryRedirectStartedRef.current) return;
+    if (isResolving || expiryRedirectStartedRef.current) return;
     recoveryNeededRef.current = true;
     scheduleRecoveryRef.current();
   }, [clearSessionRecovery, error, isResolving, user]);
@@ -227,13 +328,14 @@ export function CanonicalSessionProvider({
       return;
     }
     if (isResolving || error || !hadAuthenticatedSessionRef.current || expiryRedirectStartedRef.current) return;
-    const destination = getSessionExpiryLoginDestination(window.location);
+    const destination = getSessionExpiryDestination(window.location);
     if (!destination) return;
     expiryRedirectStartedRef.current = true;
+    clearClientLocaleChoice();
     window.location.replace(destination);
   }, [error, isResolving, user]);
 
-  return <CanonicalSessionContext.Provider value={{ user, isResolving, error, refresh }}>{children}</CanonicalSessionContext.Provider>;
+  return <CanonicalSessionContext.Provider value={{ user, isResolving, isRestoring, error, refresh, beginSignOut }}>{children}</CanonicalSessionContext.Provider>;
 }
 
 export function useCanonicalSession() {

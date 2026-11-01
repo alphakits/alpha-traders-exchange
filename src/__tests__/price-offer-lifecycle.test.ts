@@ -1,5 +1,11 @@
+// Synthetic quote for lifecycle tests; feed failures and price boundaries have separate coverage.
+vi.mock("@/lib/market-service", () => ({ DEFAULT_USD_ILS_RATE: 3.05, getUsdtIlsReferenceRate: async () => 4 }));
+
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AlphaExchangeDb, AlphaExchangeUser, SellerStatus, UserRole } from "@/types/alpha-exchange";
+import { createTestSellerApprovalVerification } from "@/test-utils/seller-verification";
+import { getAlphaExchangeRepository } from "@/lib/alpha-exchange-repository";
+import * as tradeRealtime from "@/lib/realtime";
 
 vi.mock("@/lib/postgres-runtime", () => ({
   getRuntimePostgresPool: () => null,
@@ -25,6 +31,7 @@ function createUser(id: string, role: "owner" | "buyer" | "approved_seller"): Al
   const now = new Date().toISOString();
   const roles: UserRole[] = role === "owner" ? ["owner", "admin"] : [role];
   const sellerStatus: SellerStatus = role === "approved_seller" ? "approved_seller" : "buyer";
+  const accountNumber = "1000000001";
   return {
     id,
     fullName: id,
@@ -34,6 +41,9 @@ function createUser(id: string, role: "owner" | "buyer" | "approved_seller"): Al
     role,
     roles,
     sellerStatus,
+    sellerApprovalVerification: role === "approved_seller"
+      ? createTestSellerApprovalVerification(now, OWNER_ID)
+      : undefined,
     availabilityStatus: "available",
     onlineStatus: "online",
     createdAt: now,
@@ -62,6 +72,18 @@ function createUser(id: string, role: "owner" | "buyer" | "approved_seller"): Al
     sellerRankOverride: undefined,
     sellerPromotionHistory: [],
     sellerAchievements: [],
+    sellerBankAccounts: role === "approved_seller" ? [{
+      id: `seller-bank-${id}-hapoalim`,
+      sellerId: id,
+      accountHolderName: "Offer Seller",
+      bankName: "Bank Hapoalim",
+      branchNumber: "123",
+      accountNumber,
+      accountLast4: accountNumber.slice(-4),
+      isDefault: true,
+      createdAt: now,
+      updatedAt: now,
+    }] : undefined,
   };
 }
 
@@ -141,6 +163,8 @@ describe("negotiated marketplace price offers", () => {
 
   it("freezes the buyer's valid price and creates the accepted trade at that exact price", async () => {
     const listing = await createLiveListing();
+    for (const user of (globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb).users) user.notificationPreferences = { inApp: false, browserPush: false, email: false, sms: false };
+    invalidateAlphaExchangeStoreCache();
     const created = await submitOffer(listing.id, BUYER_ONE_ID, "2.95");
 
     expect(created.request).toMatchObject({
@@ -175,9 +199,9 @@ describe("negotiated marketplace price offers", () => {
     });
     expect(snapshot.notifications.some((item) => item.userId === BUYER_ONE_ID && item.title === "Price offer accepted" && item.message.includes("₪2.95"))).toBe(true);
     expect(snapshot.notifications.find((item) => item.userId === SELLER_ID && item.title === "New price offer"))
-      .toMatchObject({ whatsappEvent: "new_request" });
+      .toMatchObject({ whatsappEvent: "new_request", state: "unread", isRead: false });
     expect(snapshot.notifications.find((item) => item.userId === BUYER_ONE_ID && item.title === "Price offer accepted"))
-      .toMatchObject({ whatsappEvent: "request_accepted" });
+      .toMatchObject({ whatsappEvent: "request_accepted", state: "unread", isRead: false });
     expect(snapshot.notifications.filter((item) => item.whatsappEvent).every((item) => (
       Boolean(item.whatsappEventAt) && /^wae-[0-9a-f-]{36}$/i.test(item.whatsappEventKey ?? "")
     ))).toBe(true);
@@ -212,12 +236,59 @@ describe("negotiated marketplace price offers", () => {
     expect(clientAcceptedNotification).not.toHaveProperty("whatsappChannelOnly");
   });
 
-  it("enforces the ₪0.35 server limit and requires a genuinely lower cent price", async () => {
+  it("publishes a required new request only after commit and sends none for a failed write", async () => {
     const listing = await createLiveListing();
-    for (const [offeredPrice, code] of [["2.94", "PRICE_OFFER_BELOW_MINIMUM"], ["3.30", "PRICE_OFFER_NOT_LOWER"], ["3.001", "PRICE_OFFER_INVALID_FORMAT"]] as const) {
+    for (const user of (globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb).users) user.notificationPreferences = { inApp: false, browserPush: false, email: false, sms: false };
+    invalidateAlphaExchangeStoreCache();
+    const repository = await getAlphaExchangeRepository();
+    const persist = repository.saveSnapshot.bind(repository);
+    const publish = vi.spyOn(tradeRealtime, "publishRealtimeEvent");
+    const sellerNotices = () => publish.mock.calls.filter(([event]) => event.type.startsWith("notification.") && "notification" in event.payload && event.payload.notification?.userId === SELLER_ID && event.payload.notification?.title === "New trade request");
+    let fail = true;
+    const save = vi.spyOn(repository, "saveSnapshot").mockImplementation(async (db, options) => {
+      if (options?.selectedTables?.includes("purchase_requests")) {
+        expect(sellerNotices()).toHaveLength(0);
+        if (fail) throw new Error("Controlled request write failure");
+      }
+      return persist(db, options);
+    });
+    try {
+      const command = { buyerId: BUYER_ONE_ID, listingId: listing.id, usdtAmount: "1000", buyerName: BUYER_ONE_ID, buyerReceivingWalletAddress: WALLET, actorUserId: BUYER_ONE_ID };
+      await expect(createPurchaseRequest(command)).rejects.toThrow("Controlled request write failure");
+      expect(sellerNotices()).toHaveLength(0);
+      expect((globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb).purchaseRequests).toHaveLength(0);
+      fail = false;
+      invalidateAlphaExchangeStoreCache();
+      const result = await createPurchaseRequest(command);
+      expect(sellerNotices()).toHaveLength(1);
+      expect((globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb).notifications).toContainEqual(expect.objectContaining({ userId: SELLER_ID, title: "New trade request", relatedRequestId: result.request.id, state: "unread", isRead: false }));
+    } finally { save.mockRestore(); publish.mockRestore(); }
+  });
+
+  it("enforces both sides of the ₪0.35 server limit and cent precision", async () => {
+    const listing = await createLiveListing();
+    for (const [offeredPrice, code] of [["2.94", "PRICE_OFFER_BELOW_MINIMUM"], ["3.66", "PRICE_OFFER_ABOVE_MAXIMUM"], ["3.001", "PRICE_OFFER_INVALID_FORMAT"]] as const) {
       await expect(submitOffer(listing.id, BUYER_ONE_ID, offeredPrice)).rejects.toMatchObject({ code });
     }
     expect((globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb).purchaseRequests).toHaveLength(0);
+  });
+
+  it("opens a correctly priced request from the exact legacy production listing value", async () => {
+    const listing = await createLiveListing();
+    const persistedListing = (globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb).marketplaceListings
+      .find((item) => item.id === listing.id)!;
+    persistedListing.price = "3.263";
+
+    const created = await submitOffer(listing.id, BUYER_ONE_ID, "3.23");
+
+    expect(created.request).toMatchObject({
+      status: "pending",
+      priceMode: "buyer_offer",
+      listingPriceAtRequest: "3.26",
+      pricePerUsdt: "3.23",
+      priceOfferDiscount: "0.03",
+      fiatAmount: "3230.00",
+    });
   });
 
   it("keeps Buy Now behavior unchanged at the listing price", async () => {
@@ -298,7 +369,7 @@ describe("negotiated marketplace price offers", () => {
     });
   });
 
-  it("allows only one concurrent seller acceptance and declines the competing offer", async () => {
+  it("accepts two concurrent offers when seller capacity and inventory permit", async () => {
     const listing = await createLiveListing();
     const [first, second] = await Promise.all([
       submitOffer(listing.id, BUYER_ONE_ID, "3.05"),
@@ -312,9 +383,16 @@ describe("negotiated marketplace price offers", () => {
 
     const snapshot = globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb;
     const offers = snapshot.purchaseRequests.filter((request) => request.listingId === listing.id);
-    expect(offers.filter((request) => request.status === "accepted")).toHaveLength(1);
-    expect(offers.filter((request) => request.status === "declined")).toHaveLength(1);
+    expect(offers.filter((request) => request.status === "accepted")).toHaveLength(2);
+    expect(offers.filter((request) => request.status === "declined")).toHaveLength(0);
     expect(snapshot.marketplaceListings.find((item) => item.id === listing.id)?.activeTradeRequestId)
       .toBe(offers.find((request) => request.status === "accepted")?.id);
   });
+
+it.each(["2.95", "3.30", "3.65"])("persists an agreed offer at %s without changing its price", async (price) => {
+  const listing = await createLiveListing();
+  const created = await submitOffer(listing.id, BUYER_ONE_ID, price);
+  expect(created.request).toMatchObject({ status: "pending", priceMode: "buyer_offer", pricePerUsdt: price, fiatAmount: (Number(price) * 1000).toFixed(2) });
+});
+
 });

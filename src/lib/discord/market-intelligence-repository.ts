@@ -1,4 +1,6 @@
 import "server-only";
+import { storedSellerMetricEvidence } from "@/lib/public-seller-reputation";
+import type { SellerMetricEvidence } from "@alpha-traders/contracts";
 
 import type { Pool } from "pg";
 
@@ -11,9 +13,11 @@ import {
   normalizeMarketSiteUrl,
 } from "@/lib/discord/market-intelligence-publisher";
 import type { DiscordPublicSellerProfile } from "@/lib/discord/seller-profile-card";
-import { isSafeDiscordImageUrl } from "@/lib/discord/listing-publisher";
 import { normalizePublicProfileUsername } from "@/lib/public-profile-username";
+import { publicAccountId } from "@/lib/public-account-identity";
+import { publicAccountUsername } from "@/lib/public-account-username";
 import { deriveSellerPresence } from "@/lib/seller-presence";
+import { ownerApprovedSellerSql } from "@/lib/discord/seller-authorization-sql";
 
 export const MARKET_PRESENCE_WINDOW_MINUTES = 10;
 export const MARKET_ACTIVITY_WINDOW_HOURS = 24;
@@ -86,10 +90,12 @@ type LeaderboardRow = {
   completed_trades: number | null;
   trust_score: string | null;
   rating: string | null;
+  evidence: Record<string, unknown> | null;
 };
 
 const PUBLIC_SELLER_SQL = `
   users.seller_status = 'approved_seller'
+  and ${ownerApprovedSellerSql("users.seller_status")}
   and coalesce((users.payload ->> 'disabled')::boolean, false) = false
   and coalesce((users.payload ->> 'isProfileHidden')::boolean, false) = false
   and coalesce((users.payload ->> 'allowProfileSearch')::boolean, true) = true
@@ -103,7 +109,7 @@ function numberOrNull(value: string | number | null): number | null {
 }
 
 export function rankWeeklySellers(
-  rows: Array<{
+  rows: Array<SellerMetricEvidence & {
     sellerId: string;
     displayName: string;
     completedTrades: number;
@@ -113,7 +119,7 @@ export function rankWeeklySellers(
 ) {
   return [...rows].sort((left, right) =>
     right.completedTrades - left.completedTrades
-    || (right.trustScore ?? -1) - (left.trustScore ?? -1)
+    || (right.alphaScore?.value ?? right.trustScore ?? -1) - (left.alphaScore?.value ?? left.trustScore ?? -1)
     || (right.rating ?? -1) - (left.rating ?? -1)
     || left.displayName.localeCompare(right.displayName, "en", { sensitivity: "base" })
     || left.sellerId.localeCompare(right.sellerId));
@@ -129,9 +135,8 @@ async function readPulse(
         from alpha_exchange.users users
        where ${PUBLIC_SELLER_SQL}
     ), eligible_listings as (
-      select listings.id,
-             nullif(regexp_replace(coalesce(listings.payload ->> 'availableAmount', ''), '[^0-9.]', '', 'g'), '')::numeric as available_amount,
-             nullif(regexp_replace(coalesce(listings.payload ->> 'responseTime', ''), '[^0-9.]', '', 'g'), '')::numeric as response_minutes
+      select listings.id, listings.seller_id,
+             nullif(regexp_replace(coalesce(listings.payload ->> 'availableAmount', ''), '[^0-9.]', '', 'g'), '')::numeric as available_amount
         from alpha_exchange.listings listings
         join public_sellers sellers on sellers.id = listings.seller_id
         join alpha_exchange.users users on users.id = listings.seller_id
@@ -146,6 +151,13 @@ async function readPulse(
             where commission.seller_id = listings.seller_id
               and commission.payment_status <> 'paid'
          )
+    ), measured_sellers as (
+      select (trust.payload -> 'snapshot' ->> 'responseTimeMinutes')::numeric as minutes,
+             (trust.payload -> 'snapshot' ->> 'responseSampleCount')::integer as samples
+        from alpha_exchange.trust_snapshots trust
+        join public_sellers sellers on sellers.id = trust.seller_id
+       where trust.seller_id in (select seller_id from eligible_listings)
+         and coalesce((sellers.payload ->> 'showTradeStats')::boolean, true)
     ), active_trade_count as (
       select count(*)::int as count
         from alpha_exchange.purchase_requests
@@ -158,7 +170,7 @@ async function readPulse(
            (select count(*)::int from public_sellers) as approved_public_sellers,
            (select count(*)::int from eligible_listings) as active_eligible_listings,
            coalesce((select sum(available_amount) from eligible_listings), 0)::text as total_available_usdt,
-           (select round(avg(response_minutes))::text from eligible_listings where response_minutes > 0) as average_response_minutes,
+           (select avg(minutes)::text from measured_sellers where minutes >= 0 and (samples > 0 or (samples is null and minutes > 0))) as average_response_minutes,
            (select count from active_trade_count) as active_trades,
            (
              select count(*)::int
@@ -170,7 +182,10 @@ async function readPulse(
            (
              select count(*)::int
                from alpha_exchange.users users
-              where users.seller_status <> 'approved_seller'
+              where not (
+                  users.seller_status = 'approved_seller'
+                  and ${ownerApprovedSellerSql("users.seller_status")}
+                )
                 and users.role not in ('admin', 'owner')
                  and coalesce((users.payload ->> 'disabled')::boolean, false) = false
                  and coalesce((users.payload ->> 'isProfileHidden')::boolean, false) = false
@@ -253,7 +268,9 @@ async function readLeaderboard(
              users.payload ->> 'buyerDisplayName' as display_name,
              count(*)::int as completed_trades,
              nullif(trust.payload -> 'snapshot' ->> 'trustScore', '')::numeric as trust_score,
-             nullif(trust.payload -> 'snapshot' ->> 'rating', '')::numeric as rating
+             nullif(trust.payload -> 'snapshot' ->> 'rating', '')::numeric as rating,
+             jsonb_build_object('alphaScore', trust.payload -> 'snapshot' -> 'alphaScore',
+                                'totalReviews', trust.payload -> 'snapshot' -> 'totalReviews') as evidence
         from alpha_exchange.purchase_requests requests
         join alpha_exchange.users users on users.id = requests.seller_id
         left join alpha_exchange.trust_snapshots trust on trust.seller_id = requests.seller_id
@@ -264,7 +281,8 @@ async function readLeaderboard(
          and ${PUBLIC_SELLER_SQL}
        group by requests.seller_id, users.payload ->> 'buyerDisplayName',
                 trust.payload -> 'snapshot' ->> 'trustScore',
-                trust.payload -> 'snapshot' ->> 'rating'
+                trust.payload -> 'snapshot' ->> 'rating',
+                trust.payload -> 'snapshot' -> 'alphaScore', trust.payload -> 'snapshot' -> 'totalReviews'
     )
     select clock.server_time,
            clock.window_started_at,
@@ -273,7 +291,7 @@ async function readLeaderboard(
            ranked.display_name,
            ranked.completed_trades,
            ranked.trust_score::text,
-           ranked.rating::text
+           ranked.rating::text, ranked.evidence
       from clock
       left join ranked on true
   `);
@@ -282,10 +300,11 @@ async function readLeaderboard(
     row.seller_id && row.display_name && row.completed_trades
       ? [{
           sellerId: row.seller_id,
-          displayName: row.display_name,
+          displayName: publicAccountId({ id: row.seller_id, role: "approved_seller" }),
           completedTrades: row.completed_trades,
           trustScore: numberOrNull(row.trust_score),
           rating: numberOrNull(row.rating),
+          ...storedSellerMetricEvidence(row.evidence),
         }]
       : []));
   return {
@@ -299,6 +318,8 @@ async function readLeaderboard(
       completedTrades: entry.completedTrades,
       trustScore: entry.trustScore,
       rating: entry.rating,
+      alphaScore: entry.alphaScore,
+      totalReviews: entry.totalReviews,
     })),
     siteUrl,
   };
@@ -614,10 +635,7 @@ export async function getPublicDiscordSellerProfileByUsername(input: {
   `);
   const normalizedUsername = normalizePublicProfileUsername(input.username);
   const row = result.rows.find((candidate) => {
-    const displayName = publicText(candidate.payload.buyerDisplayName);
-    return displayName
-      ? normalizePublicProfileUsername(displayName) === normalizedUsername
-      : false;
+    return typeof candidate.payload.id === "string" && publicAccountUsername(candidate.payload.id) === normalizedUsername;
   });
   if (!row) return null;
   return buildPublicDiscordSellerProfile({
@@ -633,10 +651,10 @@ function buildPublicDiscordSellerProfile(input: {
   now?: number;
 }): DiscordPublicSellerProfile | null {
   const { row } = input;
-  const displayName = publicText(row.payload.buyerDisplayName);
-  if (!displayName) return null;
+  if (typeof row.payload.id !== "string") return null;
+  const displayName = publicAccountId({ id: row.payload.id, role: "approved_seller" });
   const siteUrl = normalizeMarketSiteUrl(input.siteUrl);
-  const normalizedUsername = normalizePublicProfileUsername(displayName);
+  const normalizedUsername = publicAccountUsername(row.payload.id);
   const trust = row.trust_payload?.snapshot
     && typeof row.trust_payload.snapshot === "object"
     ? row.trust_payload.snapshot as Record<string, unknown>
@@ -655,11 +673,10 @@ function buildPublicDiscordSellerProfile(input: {
           : null,
       }, input.now)
     : null;
-  const imageUrl = isSafeDiscordImageUrl(row.payload.profilePhotoUrl)
-    ? row.payload.profilePhotoUrl
-    : null;
+  const imageUrl = null;
   return {
     displayName,
+    ...(showTradeStats ? storedSellerMetricEvidence(trust) : {}),
     level: publicText(trust?.level),
     rating: showTradeStats && completedTrades
       ? numberOrNull(trust?.rating as number | string | null)
@@ -668,7 +685,7 @@ function buildPublicDiscordSellerProfile(input: {
       ? numberOrNull(trust?.reliabilityScore as number | string | null)
       : null,
     completedTrades,
-    publicVolumeRange: showTradeStats ? publicText(trust?.publicVolumeRange) : null,
+    publicVolumeRange: null,
     memberSince: row.created_at.toISOString(),
     presenceLabel: presence?.label ?? null,
     responseTimeMinutes: showTradeStats

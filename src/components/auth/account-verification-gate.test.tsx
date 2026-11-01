@@ -34,7 +34,7 @@ describe("AccountVerificationGate canonical session ownership", () => {
     );
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
-    expect(fetchMock).toHaveBeenCalledWith("/api/auth/me", { cache: "no-store", credentials: "include" });
+    expect(fetchMock).toHaveBeenCalledWith("/api/auth/me", { cache: "no-store", credentials: "include", signal: expect.any(AbortSignal) });
   });
 
   it("shows email as the only verification method when phone verification is off", async () => {
@@ -50,7 +50,7 @@ describe("AccountVerificationGate canonical session ownership", () => {
       </CanonicalSessionProvider>,
     );
 
-    expect(await screen.findByText("Email verification is the only verification method enabled and required to access Alpha Exchange.")).toBeTruthy();
+    expect(await screen.findByText("Verify your email to continue.")).toBeTruthy();
     expect(screen.getByText("Email verification")).toBeTruthy();
     expect(screen.queryByText("Phone verification")).toBeNull();
     expect(screen.queryByRole("button", { name: "Send verification code" })).toBeNull();

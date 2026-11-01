@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSellerReviews, moderateSellerReview, submitBuyerTradeReview } from "@/lib/alpha-exchange-store";
-import { requireApiUser, requireEmailVerificationForTrading } from "@/lib/api-auth";
+import { requireApiUser, requireMarketplaceVerificationForTrading } from "@/lib/api-auth";
 
 export async function GET(request: NextRequest) {
   const { user, unauthorized } = await requireApiUser();
@@ -9,13 +9,13 @@ export async function GET(request: NextRequest) {
   const sellerId = searchParams.get("sellerId")?.trim();
   if (!sellerId) return NextResponse.json({ error: "sellerId is required." }, { status: 400 });
   const reviews = await getSellerReviews({ sellerId, actorUserId: user.id, actorRole: user.role as never });
-  return NextResponse.json({ reviews });
+  return NextResponse.json({ reviews }, { headers: { "Cache-Control": "private, no-store, max-age=0", Vary: "Cookie" } });
 }
 
 export async function POST(request: NextRequest) {
   const { user, unauthorized } = await requireApiUser();
   if (!user) return unauthorized;
-  const emailVerificationRequired = requireEmailVerificationForTrading(user);
+  const emailVerificationRequired = requireMarketplaceVerificationForTrading(user);
   if (emailVerificationRequired) return emailVerificationRequired;
   try {
     const body = await request.json();
@@ -40,7 +40,8 @@ export async function PATCH(request: NextRequest) {
   try {
     const body = await request.json();
     const reviewId = String(body.reviewId ?? "").trim();
-    const hidden = Boolean(body.hidden);
+    if (typeof body.hidden !== "boolean") return NextResponse.json({ error: "hidden must be a boolean." }, { status: 400 });
+    const hidden = body.hidden;
     const hiddenReason = String(body.hiddenReason ?? "").trim();
     const updated = await moderateSellerReview({
       reviewId,

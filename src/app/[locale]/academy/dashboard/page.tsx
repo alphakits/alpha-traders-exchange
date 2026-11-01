@@ -21,7 +21,7 @@ export default async function AcademyDashboardPage({ params }: { params: Promise
     redirect(`/${locale}/login?redirectTo=/${locale}/academy/dashboard`);
   }
   if (!hasRole(user, "student") && !hasRole(user, "admin") && !hasRole(user, "owner")) {
-    redirect(`/${locale}/onboarding`);
+    redirect(`/${locale}/onboarding?mode=manage`);
   }
   return <StudentDashboard />;
 }

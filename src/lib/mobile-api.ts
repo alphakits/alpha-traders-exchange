@@ -1,5 +1,5 @@
-import { randomUUID } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
+import { readLimitedRequestText } from "@/lib/request-body";
 import type {
   MobileApiErrorCode,
   MobileApiErrorResponse,
@@ -8,6 +8,7 @@ import type {
 } from "@alpha-traders/contracts";
 import { resolveSupportedRequestLocale } from "@/lib/request-locale";
 import { resolveMobileVersionPolicy } from "@/lib/mobile-version-policy";
+import { networkAccessMessages } from "@/lib/network-access";
 
 export const MOBILE_RESPONSE_HEADERS = {
   "Cache-Control": "no-store, max-age=0",
@@ -26,6 +27,19 @@ const APP_VERSION_PATTERN = /^[A-Za-z0-9][A-Za-z0-9.+_-]{0,49}$/;
 const NON_NEGATIVE_INTEGER_PATTERN = /^(?:0|[1-9]\d*)$/;
 
 const errorMessages: Record<MobileApiErrorCode, Record<MobileLocale, string>> = {
+  AGE_CONFIRMATION_REQUIRED: {
+    en: "Confirm that you are 18 or older at alphatraders.co.il before using Alpha Exchange.",
+    ar: "أكد أن عمرك 18 عامًا أو أكثر على alphatraders.co.il قبل استخدام Alpha Exchange.",
+  },
+  PHONE_VERIFICATION_REQUIRED: {
+    en: "Verify your phone by SMS before using your buyer or seller account.",
+    ar: "أكد رقم هاتفك برسالة نصية قبل استخدام حساب المشتري أو البائع.",
+  },
+  ...networkAccessMessages,
+  CARDLESS_DETAILS_REQUIRED: {
+    ar: "أدخل رمز السحب ورقم الهوية أو تاريخ الميلاد المطلوب من البنك. إذا لم تظهر الخانة الثانية، افتح نفس الصفقة عبر موقع alphatraders.co.il.",
+    en: "Enter the withdrawal code and the ID number or date of birth required by the bank. If the second field is missing, open the same trade at alphatraders.co.il.",
+  },
   INVALID_REQUEST: {
     ar: "الطلب غير صالح.",
     en: "The request is invalid.",
@@ -131,8 +145,8 @@ const errorMessages: Record<MobileApiErrorCode, Record<MobileLocale, string>> = 
     en: "Complete feedback for your previous trade before starting a new one.",
   },
   AWAITING_BUYER_CONFIRMATION: {
-    ar: "أكد استلام USDT في صفقتك السابقة قبل بدء صفقة جديدة.",
-    en: "Confirm receipt of USDT in your previous trade before starting a new one.",
+    ar: "صفقتك السابقة بانتظار إكمال البائع. افتح غرفة الصفقة للتواصل معه قبل بدء صفقة جديدة.",
+    en: "Your previous trade is waiting for the seller to complete it. Open the Trade Room to contact the seller before starting a new one.",
   },
   COMMISSION_DUE: {
     ar: "لديك عمولة معلقة. قم بتسويتها قبل قبول صفقة جديدة.",
@@ -158,9 +172,17 @@ const errorMessages: Record<MobileApiErrorCode, Record<MobileLocale, string>> = 
     ar: "اختر تقييمًا من 1 إلى 5 وأدخل نصًا من 1 إلى 500 حرف.",
     en: "Choose a rating from 1 to 5 and enter text between 1 and 500 characters.",
   },
+  PRIVATE_CONTACT_REQUIRED: {
+    ar: "أضف رقم هاتف أو واتساب صالحًا في ملفك ليتمكن مالك المنصة من التواصل معك عند الحاجة. الرقم خاص بك وبالمالك فقط.",
+    en: "Add a valid private phone or WhatsApp number in your profile so the owner can reach you when needed.",
+  },
   PROFILE_INVALID: {
     ar: "تحقق من بيانات الملف الشخصي وإعدادات الخصوصية.",
     en: "Check the profile details and privacy settings.",
+  },
+  PROFILE_NAME_COOLDOWN: {
+    ar: "يمكنك تغيير اسم ملفك الشخصي مرة واحدة كل 7 أيام.",
+    en: "You can change your profile name once every 7 days.",
   },
   PROFILE_UPDATE_FAILED: {
     ar: "تعذر تحديث الملف الشخصي الآن. حاول مرة أخرى.",
@@ -178,7 +200,7 @@ const errorMessages: Record<MobileApiErrorCode, Record<MobileLocale, string>> = 
 
 export function createMobileRequestId(request: NextRequest) {
   const supplied = request.headers.get("x-request-id")?.trim() ?? "";
-  return /^[A-Za-z0-9._:-]{8,64}$/.test(supplied) ? supplied : randomUUID();
+  return /^[A-Za-z0-9._:-]{8,64}$/.test(supplied) ? supplied : crypto.randomUUID();
 }
 
 export function resolveMobileLocale(request: NextRequest): MobileLocale {
@@ -256,11 +278,9 @@ export function readMobileBearerToken(request: NextRequest) {
   return match?.[1] ?? null;
 }
 
-export async function readMobileJsonBody(request: NextRequest) {
-  const contentLength = Number(request.headers.get("content-length") ?? "0");
-  if (Number.isFinite(contentLength) && contentLength > 16_384) return null;
+export async function readMobileJsonBody(request: NextRequest, maxBytes = 16_384) {
   try {
-    const value = await request.json();
+    const value: unknown = JSON.parse(await readLimitedRequestText(request, maxBytes));
     if (!value || Array.isArray(value) || typeof value !== "object") return null;
     return value as Record<string, unknown>;
   } catch {
@@ -292,12 +312,12 @@ export function mobileError(
   requestId: string,
   locale: MobileLocale,
   status: number,
-  options: { retryAfterSeconds?: number } = {},
+  options: { retryAfterSeconds?: number; message?: string } = {},
 ) {
   const payload: MobileApiErrorResponse = {
     error: {
       code,
-      message: errorMessages[code][locale],
+      message: options.message ?? errorMessages[code][locale],
     },
     requestId,
   };

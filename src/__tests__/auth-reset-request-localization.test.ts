@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
+vi.mock("@/lib/alpha-exchange-store", () => ({ findUserByEmail: vi.fn(async () => null) }));
 import { resolveSupportedRequestLocale } from "@/lib/request-locale";
 
 const mocks = vi.hoisted(() => ({

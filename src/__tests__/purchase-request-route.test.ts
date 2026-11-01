@@ -4,10 +4,11 @@ import { NextRequest } from "next/server";
 const mocks = vi.hoisted(() => ({
   after: vi.fn(),
   requireApiUser: vi.fn(),
-  requireEmailVerificationForTrading: vi.fn(),
+  requireMarketplaceVerificationForTrading: vi.fn(),
   checkRateLimit: vi.fn(),
   createPurchaseRequest: vi.fn(),
   getMyPurchaseRequests: vi.fn(),
+  sanitizePurchaseRequestForActor: vi.fn(),
   hasRole: vi.fn(),
   isVerified: vi.fn(),
   logEvent: vi.fn(),
@@ -21,7 +22,7 @@ vi.mock("next/server", async (importOriginal) => {
 
 vi.mock("@/lib/api-auth", () => ({
   requireApiUser: mocks.requireApiUser,
-  requireEmailVerificationForTrading: mocks.requireEmailVerificationForTrading,
+  requireMarketplaceVerificationForTrading: mocks.requireMarketplaceVerificationForTrading,
 }));
 
 vi.mock("@/lib/rate-limit", () => ({
@@ -34,6 +35,7 @@ vi.mock("@/lib/alpha-exchange-store", async (importOriginal) => {
     ...actual,
     createPurchaseRequest: mocks.createPurchaseRequest,
     getMyPurchaseRequests: mocks.getMyPurchaseRequests,
+    sanitizePurchaseRequestForActor: mocks.sanitizePurchaseRequestForActor,
   };
 });
 
@@ -55,14 +57,25 @@ vi.mock("@/lib/marketplace-email-events", () => ({
 
 import { POST } from "@/app/api/alpha-exchange/purchase-requests/route";
 import { TradeBlockedError } from "@/lib/alpha-exchange-store";
+import { DemandError } from "@/lib/usdt-demand-policy";
+
+function demandMatchRequest(overrides: Record<string, unknown> = {}) {
+  return new NextRequest("http://localhost/api/alpha-exchange/purchase-requests", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ feePolicyVersion: "buyer_seller_1pct_v1", listingId: "listing-1", usdtAmount: "500",
+      buyerReceivingWalletAddress: "TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE",
+      usdtDemandId: "demand-1", usdtDemandOfferId: "offer-1", usdtDemandRevision: 1, ...overrides }),
+  });
+}
 
 describe("purchase request route", () => {
   beforeEach(() => {
     mocks.requireApiUser.mockReset();
-    mocks.requireEmailVerificationForTrading.mockReset();
+    mocks.requireMarketplaceVerificationForTrading.mockReset();
     mocks.checkRateLimit.mockReset();
     mocks.createPurchaseRequest.mockReset();
     mocks.getMyPurchaseRequests.mockReset();
+    mocks.sanitizePurchaseRequestForActor.mockReset();
     mocks.hasRole.mockReset();
     mocks.isVerified.mockReset();
     mocks.logEvent.mockReset();
@@ -81,11 +94,41 @@ describe("purchase request route", () => {
       },
       unauthorized: null,
     });
-    mocks.requireEmailVerificationForTrading.mockReturnValue(null);
+    mocks.requireMarketplaceVerificationForTrading.mockReturnValue(null);
     mocks.checkRateLimit.mockReturnValue({ allowed: true, retryAfterSeconds: 0 });
     mocks.hasRole.mockImplementation((_user: unknown, role: string) => role === "buyer");
     mocks.isVerified.mockReturnValue(true);
     mocks.prepareTradeEventEmails.mockResolvedValue(async () => {});
+    mocks.sanitizePurchaseRequestForActor.mockImplementation((purchase: Record<string, unknown>) => {
+      const sanitized = { ...purchase };
+      delete sanitized.sellerBankAccountSnapshot;
+      delete sanitized.sellerBankAccountId;
+      return sanitized;
+    });
+  });
+
+  it.each([
+    { usdtDemandId: null, usdtDemandOfferId: null, usdtDemandRevision: "1" },
+    { usdtDemandId: 123, usdtDemandOfferId: 456, usdtDemandRevision: "1" },
+    { usdtDemandId: "", usdtDemandOfferId: "", usdtDemandRevision: 0 },
+    { usdtDemandId: undefined },
+    { usdtDemandOfferId: undefined },
+    { usdtDemandRevision: undefined },
+    { usdtDemandId: " " },
+    { usdtDemandOfferId: "x".repeat(101) },
+    { usdtDemandRevision: -1 },
+    { usdtDemandRevision: 1.5 },
+    { usdtDemandRevision: Number.MAX_SAFE_INTEGER + 1 },
+  ])("rejects a malformed demand binding instead of silently creating an ordinary purchase: %j", async overrides => {
+    mocks.createPurchaseRequest.mockResolvedValue({
+      request: { id: "ordinary-purchase", paymentMethod: "Bank Transfer" },
+      metrics: { totalMs: 1, readDbMs: 0, validationMs: 0, businessMs: 0, writeDbMs: 1, sseMs: 0 },
+    });
+    const response = await POST(demandMatchRequest(overrides));
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ code: "INVALID_DEMAND_MATCH" });
+    expect(mocks.createPurchaseRequest).not.toHaveBeenCalled();
+    expect(mocks.after).not.toHaveBeenCalled();
   });
 
   it("preserves purchaseRequestId in details for pending buyer feedback blockers", async () => {
@@ -100,6 +143,7 @@ describe("purchase request route", () => {
     const request = new NextRequest("http://localhost/api/alpha-exchange/purchase-requests", {
       method: "POST",
       body: JSON.stringify({
+        feePolicyVersion: "buyer_seller_1pct_v1",
         listingId: "listing-1",
         usdtAmount: "500",
         buyerName: "Buyer One",
@@ -123,6 +167,60 @@ describe("purchase request route", () => {
     });
   });
 
+  it.each([undefined, "ACTIVE_TRADE_EXISTS", "23505"])("hides unexpected demand-match storage failures even with a forged expected code %s", async code => {
+    mocks.createPurchaseRequest.mockRejectedValue(Object.assign(new Error("postgres://private-user:private-password@database/internal"), {
+      code, details: { secret: "private-wallet-value" }, purchaseRequestId: "private-record-value",
+    }));
+    const response = await POST(demandMatchRequest());
+    expect(response.status).toBe(503);
+    const payload = await response.json();
+    expect(payload).toMatchObject({ code: "PURCHASE_REQUEST_FAILED", details: null });
+    expect(response.headers.get("X-Request-Id")).toBe(payload.requestId);
+    expect(response.headers.get("cache-control")).toContain("no-store");
+    expect(JSON.stringify([payload, mocks.logEvent.mock.calls])).not.toMatch(/private-user|private-password|database\/internal|private-wallet|private-record/);
+    expect(mocks.logEvent).toHaveBeenLastCalledWith("error", expect.objectContaining({ outcome: "failed", metadata: expect.objectContaining({ demandOrigin: true }) }));
+  });
+
+  it("keeps reviewed price-bound failures actionable for demand matches", async () => {
+    mocks.createPurchaseRequest.mockRejectedValue(new DemandError("PRICE_OUTSIDE_BAND", "Price must be between ₪2.75 and ₪3.45."));
+    const response = await POST(demandMatchRequest());
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ code: "PRICE_OUTSIDE_BAND", message: "Price must be between ₪2.75 and ₪3.45.", details: null });
+  });
+
+  it("preserves a typed demand feedback blocker while discarding arbitrary details and message", async () => {
+    mocks.createPurchaseRequest.mockRejectedValue(new TradeBlockedError("PENDING_BUYER_FEEDBACK", "private-internal-message", "trade-blocker-123", { secret: "private-bank-detail" }));
+    const response = await POST(demandMatchRequest());
+    expect(response.status).toBe(400);
+    const payload = await response.json();
+    expect(payload).toMatchObject({ code: "PENDING_BUYER_FEEDBACK", details: { purchaseRequestId: "trade-blocker-123", errorName: "TradeBlockedError" } });
+    expect(JSON.stringify([payload, mocks.logEvent.mock.calls])).not.toMatch(/private-internal|private-bank|secret/);
+  });
+
+  it("reconstructs the commission action using a safe ID instead of forwarding arbitrary details", async () => {
+    mocks.createPurchaseRequest.mockRejectedValue(new TradeBlockedError("SELLER_COMMISSION_DUE", "private-message", "trade-1", { commissionId: "commission-1", actionHref: "https://untrusted.example/private", bank: "private-bank" }));
+    const response = await POST(demandMatchRequest());
+    const payload = await response.json();
+    expect(payload.details).toMatchObject({ commissionId: "commission-1", purchaseRequestId: "trade-1" });
+    expect(payload.details.actionHref).toMatch(/^\//);
+    expect(JSON.stringify([payload, mocks.logEvent.mock.calls])).not.toMatch(/untrusted|private-bank|private-message/);
+  });
+
+  it("preserves known wallet validation without exposing arbitrary exception properties", async () => {
+    mocks.createPurchaseRequest.mockRejectedValue(new Error("TRC20 requires a valid 34-character Tron address beginning with T."));
+    const response = await POST(demandMatchRequest());
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ code: "PURCHASE_REQUEST_VALIDATION_FAILED", message: "TRC20 requires a valid 34-character Tron address beginning with T.", details: null });
+  });
+  it("keeps a concurrent listing amount change actionable without forwarding internal snapshot details", async () => {
+    mocks.createPurchaseRequest.mockRejectedValue(new TradeBlockedError("LISTING_AMOUNT_CHANGED", "internal snapshot detail", undefined, { snapshot: "private-inventory-state" }));
+    const response = await POST(demandMatchRequest());
+    expect(response.status).toBe(400);
+    const payload = await response.json();
+    expect(payload).toMatchObject({ code: "LISTING_AMOUNT_CHANGED", message: expect.stringContaining("Refresh") });
+    expect(JSON.stringify([payload, mocks.logEvent.mock.calls])).not.toMatch(/internal snapshot|private-inventory/);
+  });
+
   it("allows a verified-email Buyer with no phone and ignores client contact fields", async () => {
     mocks.createPurchaseRequest.mockResolvedValue({
       request: { id: "purchase-1", paymentMethod: "Bank Transfer" },
@@ -131,6 +229,7 @@ describe("purchase request route", () => {
     const request = new NextRequest("http://localhost/api/alpha-exchange/purchase-requests", {
       method: "POST",
       body: JSON.stringify({
+        feePolicyVersion: "buyer_seller_1pct_v1",
         listingId: "listing-1",
         usdtAmount: "500",
         buyerName: "spoofed name@example.test",
@@ -153,9 +252,51 @@ describe("purchase request route", () => {
     expect(input).not.toHaveProperty("buyerNotes");
   });
 
-  it("denies an unverified-email session before mutating a purchase request", async () => {
-    const denied = new Response(JSON.stringify({ code: "EMAIL_VERIFICATION_REQUIRED" }), { status: 403 });
-    mocks.requireEmailVerificationForTrading.mockReturnValueOnce(denied);
+  it("never exposes the locked seller bank snapshot in the pending create response", async () => {
+    mocks.createPurchaseRequest.mockResolvedValue({
+      request: {
+        id: "purchase-secret",
+        paymentMethod: "Bank Transfer",
+        status: "pending",
+        sellerBankAccountId: "bank-secret",
+        sellerBankAccountSnapshot: {
+          accountHolderName: "Seller Secret",
+          bankName: "Bank Hapoalim",
+          branchNumber: "123",
+          accountNumber: "987654321",
+          accountLast4: "4321",
+        },
+      },
+      metrics: { totalMs: 1, readDbMs: 0, validationMs: 0, businessMs: 0, writeDbMs: 1, sseMs: 0 },
+    });
+    const request = new NextRequest("http://localhost/api/alpha-exchange/purchase-requests", {
+      method: "POST",
+      body: JSON.stringify({
+        feePolicyVersion: "buyer_seller_1pct_v1",
+        listingId: "listing-1",
+        usdtAmount: "500",
+        buyerReceivingWalletAddress: "TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE",
+      }),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    const response = await POST(request);
+    const raw = await response.text();
+
+    expect(response.status).toBe(201);
+    expect(response.headers.get("cache-control")).toContain("no-store");
+    expect(raw).not.toContain("sellerBankAccountSnapshot");
+    expect(raw).not.toContain("sellerBankAccountId");
+    expect(raw).not.toContain("987654321");
+    expect(raw).not.toContain("Seller Secret");
+  });
+
+  it.each([
+    ["EMAIL_VERIFICATION_REQUIRED", "Email verification is required before marketplace actions."],
+    ["PHONE_VERIFICATION_REQUIRED", "Phone verification is required before marketplace actions."],
+  ])("preserves %s before mutating a purchase request", async (code, error) => {
+    const denied = new Response(JSON.stringify({ code, error }), { status: 403 });
+    mocks.requireMarketplaceVerificationForTrading.mockReturnValueOnce(denied);
     const request = new NextRequest("http://localhost/api/alpha-exchange/purchase-requests", {
       method: "POST",
       body: JSON.stringify({ listingId: "listing-1" }),
@@ -165,6 +306,18 @@ describe("purchase request route", () => {
     const response = await POST(request);
 
     expect(response.status).toBe(403);
+    const payload = await response.json();
+    expect(payload).toMatchObject({ code, message: error });
+    expect(response.headers.get("X-Request-Id")).toBe(payload.requestId);
+    expect(mocks.createPurchaseRequest).not.toHaveBeenCalled();
+  });
+
+  it("requires review of the buyer fee before creating a request from an old client", async () => {
+    const response = await POST(new NextRequest("http://localhost/api/alpha-exchange/purchase-requests", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ listingId: "listing-1", usdtAmount: "500", buyerReceivingWalletAddress: "TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE" }),
+    }));
+    expect(response.status).toBe(409);
     expect(mocks.createPurchaseRequest).not.toHaveBeenCalled();
   });
 
@@ -177,6 +330,7 @@ describe("purchase request route", () => {
     const request = new NextRequest("http://localhost/api/alpha-exchange/purchase-requests", {
       method: "POST",
       body: JSON.stringify({
+        feePolicyVersion: "buyer_seller_1pct_v1",
         listingId: "listing-1",
         usdtAmount: "500",
         buyerReceivingWalletAddress: "TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE",

@@ -1,3 +1,4 @@
+import { isPublicOwnerIdentity } from "@/lib/public-account-identity";
 import { NextRequest, NextResponse } from "next/server";
 import { requireApiAdmin } from "@/lib/api-auth";
 import { updateSellerAvailabilityStatus, updateSellerProfileStateByAdmin } from "@/lib/alpha-exchange-store";
@@ -54,7 +55,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     if (!updatedSeller) {
       return NextResponse.json({ error: "No seller profile state was updated." }, { status: 400 });
     }
-    return NextResponse.json({ seller: toAdminSellerSummary(updatedSeller) });
+    return NextResponse.json({ seller: toAdminSellerSummary(updatedSeller, isPublicOwnerIdentity(user)) });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to update seller profile state.";
     logEvent("error", {

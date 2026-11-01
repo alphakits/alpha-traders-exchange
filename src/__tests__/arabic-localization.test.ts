@@ -94,7 +94,7 @@ describe("Arabic localization integrity", () => {
     const lessons = readFileSync(join(process.cwd(), "src", "components", "lessons", "lessons-browser.tsx"), "utf8");
 
     for (const label of ["مباشر", "تم التحديث قبل", "مرجع السوق", "سوق Coinbase الفوري"]) expect(market).toContain(label);
-    expect(home).toContain("درجة الثقة والتقييمات");
+    expect(home).toContain("قارن البائعين");
     expect(home).toContain("formatAcademyLevel");
     expect(onboarding).toContain("كن مشتريًا");
     expect(onboarding).toContain("التقدّم للحصول على صفة بائع");

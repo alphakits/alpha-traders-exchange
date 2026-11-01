@@ -1,3 +1,6 @@
+import { canBuyerCancelTrade, canSellerCancelTrade, canSellerDeclineTrade } from "@/lib/trade-room-actions";
+import { areTradeAmountsLocked } from "@/lib/trade-amount-lock";
+import { PrivateContactError } from "@/lib/buyer-contact";
 import type {
   MobileApiErrorCode,
   MobileLocale,
@@ -5,11 +8,16 @@ import type {
   MobileTradeMessage,
   MobileTradeSummary,
 } from "@alpha-traders/contracts";
+import { getTradeAmountAdjustmentCount, localizeCardlessWithdrawalMessage, tradeChatStatus } from "@alpha-traders/contracts";
+import { tradeChatPublicId, tradeChatSender, type TradeChatContext } from "@/lib/trade-chat-presentation";
 import type { TradeRoomData } from "@/lib/alpha-exchange-store";
 import { DIRECT_CONTACT_CONTENT_ERROR } from "@/lib/privacy-redaction";
 import {
   isBankTransferPaymentMethod,
+  isBankDetailsDisclosureStage,
+  isFaceToFacePaymentMethod,
   isCashTradeCompletionAvailable,
+  isSellerTradeCompletionAvailable,
   isCashTradePaymentMethod,
   isCashTradeUsdtSentConfirmationAvailable,
 } from "@/lib/marketplace-payment-methods";
@@ -23,6 +31,9 @@ export function isMobileTradeParticipant(request: PurchaseRequest, userId: strin
 export function toMobileTradeSummary(request: PurchaseRequest, userId: string): MobileTradeSummary {
   const pricePerUsdt = request.pricePerUsdt || request.listingPriceAtRequest || "0";
   return {
+    feePolicyVersion: request.feePolicyVersion,
+    amountAdjustmentCount: getTradeAmountAdjustmentCount(request),
+    termsProposal: request.termsProposal,
     id: request.id,
     displayNumber: request.displayNumber,
     side: request.buyerId === userId ? "buyer" : "seller",
@@ -35,6 +46,7 @@ export function toMobileTradeSummary(request: PurchaseRequest, userId: string): 
     currency: request.currency,
     network: request.network,
     paymentMethod: request.paymentMethod,
+    bankName: request.bankName,
     createdAt: request.createdAt,
     updatedAt: request.updatedAt,
   };
@@ -44,17 +56,29 @@ export function toMobileTradeMessage(
   message: TradeChatMessage,
   userId: string,
   locale: MobileLocale,
+  context?: TradeChatContext,
 ): MobileTradeMessage {
   const sender = message.kind === "system"
     ? "system"
     : message.senderUserId === userId
       ? "you"
       : "counterparty";
+  const identity = context ? tradeChatSender(message, context) : undefined;
   return {
     sender,
+    ...(context && message.kind !== "system" ? {
+      senderPublicId: identity?.publicId,
+      // Keep older installed clients compatible with their role-label map.
+      participantRole: identity?.role === "owner" ? "support" : identity?.role,
+      isOwnerMessage: identity?.role === "owner",
+      status: tradeChatStatus(message, context.request),
+    } : {}),
+    ...(message.credentialKind === "cardless_code" ? { credentialKind: "cardless_code" as const } : {}),
     message: message.kind === "system"
       ? localizeTradeRoomSystemMessage(message.message, locale).text
-      : message.message,
+      : message.credentialKind === "cardless_code"
+        ? localizeCardlessWithdrawalMessage(message.message, locale)
+        : message.message,
     createdAt: message.createdAt,
   };
 }
@@ -62,6 +86,7 @@ export function toMobileTradeMessage(
 type MobileTradeActionContext = {
   canOpenDispute: boolean;
   hasOpenDispute: boolean;
+  sellerCommissionDueCount?: number;
 };
 
 export function toMobileTradeActions(
@@ -72,51 +97,63 @@ export function toMobileTradeActions(
   const isBuyer = request.buyerId === userId;
   const isSeller = request.sellerId === userId;
   const isCashTrade = isCashTradePaymentMethod(request.paymentMethod);
-  return {
-    canAccept: isSeller && request.status === "pending",
-    canDecline: isSeller && request.status === "pending",
-    canCancel: isBuyer
-      && (request.status === "pending" || (request.status === "accepted" && !request.buyerEvidence && !request.paymentSentAt)),
+  const canProgress = request.termsProposal?.status !== "pending";
+  const actions: MobileTradeDetail["actions"] = {
+    canAccept: isSeller && canProgress && request.status === "pending"
+      && !(context.sellerCommissionDueCount && context.sellerCommissionDueCount > 0),
+    canDecline: canSellerDeclineTrade(request, userId),
+    canCancel: canBuyerCancelTrade(request, userId) || (request.status !== "pending" && canSellerCancelTrade(request, userId)),
+    canAdjustAmounts: (isBuyer || isSeller) && !context.hasOpenDispute && !areTradeAmountsLocked(request),
     canViewBankDetails: isBuyer
       && Boolean(request.sellerBankAccountId)
       && isBankTransferPaymentMethod(request.paymentMethod)
-      && !["pending", "declined", "cancelled"].includes(request.status),
-    canMarkPaymentSent: isBuyer
+      && isBankDetailsDisclosureStage(request.status),
+    canMarkPaymentSent: isBuyer && canProgress
       && isCashTrade
-      && request.status === "accepted",
-    canUploadPaymentEvidence: isBuyer
+      && (request.status === "accepted" || (isFaceToFacePaymentMethod(request.paymentMethod) && request.status === "payment_sent")),
+    canConfirmPreparedCardlessCode: isBuyer && canProgress && request.paymentMethod === "Cardless ATM Withdrawal"
+      && request.status === "accepted" && request.cardlessCodeAwaitingBuyerConfirmation === true
+      && Boolean(request.messages?.some(message => message.credentialKind === "cardless_code")),
+    canUploadPaymentEvidence: isBuyer && canProgress
       && request.status === "accepted"
       && !isCashTrade,
-    canConfirmFunds: isSeller
-      && request.status === "payment_sent",
-    canBeginRelease: isSeller
+    canConfirmFunds: isSeller && canProgress && !context.hasOpenDispute
+      && (request.status === "payment_sent" || (isFaceToFacePaymentMethod(request.paymentMethod) && request.status === "accepted")),
+    canBeginRelease: isSeller && canProgress
       && request.status === "funds_received"
       && !isCashTrade,
-    canMarkUsdtSent: isSeller
+    canMarkUsdtSent: isSeller && canProgress
+      && !isSellerTradeCompletionAvailable(request.paymentMethod, request.status)
       && isCashTradeUsdtSentConfirmationAvailable(request.paymentMethod, request.status),
-    canUploadReleaseEvidence: isSeller
+    canUploadReleaseEvidence: isSeller && canProgress
       && request.status === "usdt_release_pending"
       && !isCashTrade,
-    canConfirmReceived: isBuyer
-      && request.status === "usdt_sent"
-      && !isCashTrade,
-    canCompleteFaceToFace: isSeller
+    // Retain the wire field for installed clients; receipt confirmation must
+    // never grant buyers the seller's settlement action.
+    canConfirmReceived: false,
+    canCompleteTrade: isSeller && canProgress && isSellerTradeCompletionAvailable(request.paymentMethod, request.status),
+    canCompleteFaceToFace: isSeller && canProgress
       && isCashTradeCompletionAvailable(request.paymentMethod, request.status),
     canOpenDispute: isBuyer && context.canOpenDispute && !context.hasOpenDispute,
     canSubmitReview: isBuyer
       && ["review_open", "completed", "locked"].includes(request.status)
       && !request.buyerReview,
+    canReviewBuyer: isSeller && ["completed", "review_open", "locked"].includes(request.status) && !request.sellerBuyerReview,
     canRespondToReview: isSeller
       && Boolean(request.buyerReview)
       && request.buyerReview?.hidden !== true
       && !request.sellerResponse,
   };
+  if (request.bankTransferProvider === "wise") return { ...actions, canAccept: false, canDecline: false, canCancel: false, canAdjustAmounts: false,
+    canViewBankDetails: false, canMarkPaymentSent: false, canConfirmPreparedCardlessCode: false, canUploadPaymentEvidence: false,
+    canConfirmFunds: false, canBeginRelease: false, canMarkUsdtSent: false, canUploadReleaseEvidence: false,
+    canCompleteTrade: false, canCompleteFaceToFace: false };
+  return actions;
 }
 
 export function canExposeBuyerWalletToMobileParticipant(request: PurchaseRequest, userId: string) {
   if (request.buyerId === userId) return true;
   if (request.sellerId !== userId) return false;
-  if (!isCashTradePaymentMethod(request.paymentMethod)) return true;
   return ["funds_received", "usdt_release_pending", "usdt_sent", "review_open", "completed", "locked"].includes(request.status);
 }
 
@@ -145,7 +182,10 @@ export function toMobileTradeDetail(
     : undefined;
   return {
     ...toMobileTradeSummary(request, userId),
-    counterpartyDisplayName: isBuyer ? room.counterpart.sellerName : room.counterpart.buyerName,
+    ...(!isBuyer && room.sellerCommissionDueCount > 0 ? { sellerCommissionDue: { count: room.sellerCommissionDueCount, amount: room.sellerCommissionDueAmount } } : {}),
+    ...(request.completionReceipt ? { completionReceipt: request.completionReceipt } : {}),
+    counterpartyDisplayName: tradeChatPublicId(room, isBuyer ? "seller" : "buyer"),
+    participants: { buyerPublicId: tradeChatPublicId(room, "buyer"), sellerPublicId: tradeChatPublicId(room, "seller") },
     receivingWalletAddress: canExposeBuyerWalletToMobileParticipant(request, userId)
       ? request.buyerReceivingWalletAddress
       : undefined,
@@ -153,26 +193,31 @@ export function toMobileTradeDetail(
       type: entry.type,
       createdAt: entry.createdAt,
     })),
-    messages: room.messages.slice(-100).map((message) => toMobileTradeMessage(message, userId, locale)),
+    messages: (["completed", "review_open", "locked"].includes(request.status) ? room.messages : room.messages.slice(-100))
+      .map((message) => toMobileTradeMessage(message, userId, locale, room)),
     hasBuyerEvidence: Boolean(request.buyerEvidence),
     hasSellerEvidence: Boolean(request.sellerEvidence),
     deadlineAt: room.deadlineAt,
     timeRemainingSeconds: room.timeRemainingSeconds,
     hasOpenDispute: room.hasOpenDispute,
     ...(buyerReview ? { buyerReview } : {}),
+    ...(request.sellerBuyerReview ? { sellerBuyerReview: { rating: request.sellerBuyerReview.rating, comment: request.sellerBuyerReview.comment, createdAt: request.sellerBuyerReview.createdAt } } : {}),
     actions: toMobileTradeActions(request, userId, {
       canOpenDispute: room.canOpenDispute,
       hasOpenDispute: room.hasOpenDispute,
+      sellerCommissionDueCount: room.sellerCommissionDueCount,
     }),
   };
 }
 
 export function mobileTradeErrorCode(error: unknown): MobileApiErrorCode | null {
+  if (error instanceof PrivateContactError) return "PRIVATE_CONTACT_REQUIRED";
   const code = typeof error === "object" && error
     ? String((error as { code?: unknown }).code ?? "")
     : "";
   const isTradeBlocked = error instanceof Error && error.name === "TradeBlockedError";
   if (isTradeBlocked) {
+    if (code === "cardless-verification-required" || code === "CARDLESS_DETAILS_REQUIRED" || code === "CARDLESS_PAYMENT_AMOUNT_MISMATCH") return "CARDLESS_DETAILS_REQUIRED";
     if (code === "AWAITING_BUYER_CONFIRMATION") return "AWAITING_BUYER_CONFIRMATION";
     if (code === "ACTIVE_TRADE_EXISTS") return "ACTIVE_TRADE_EXISTS";
     if (code === "PURCHASE_REQUEST_ALREADY_SUBMITTED") return "PURCHASE_REQUEST_ALREADY_SUBMITTED";
@@ -182,7 +227,7 @@ export function mobileTradeErrorCode(error: unknown): MobileApiErrorCode | null 
       return "LISTING_UNAVAILABLE";
     }
     if (code === "safety-acknowledgment-required") return "SAFETY_ACKNOWLEDGEMENT_REQUIRED";
-    if (code === "PRICE_OFFER_INVALID_FORMAT" || code === "PRICE_OFFER_NOT_LOWER" || code === "PRICE_OFFER_BELOW_MINIMUM" || code === "PRICE_OFFERS_ILS_ONLY") {
+    if (code === "PRICE_OFFER_INVALID_FORMAT" || code === "PRICE_OFFER_ABOVE_MAXIMUM" || code === "PRICE_OFFER_BELOW_MINIMUM" || code === "PRICE_OFFERS_ILS_ONLY") {
       return "PRICE_OFFER_INVALID";
     }
     if (code === "purchase-request-not-found") return "TRADE_NOT_FOUND";
@@ -218,7 +263,7 @@ export function mobileTradeErrorCode(error: unknown): MobileApiErrorCode | null 
   if (message.includes("review already submitted") || message.includes("response already submitted") || message.includes("cannot reply")) {
     return "TRADE_ACTION_NOT_ALLOWED";
   }
-  if (message.includes("not allowed") || message.includes("only after") || message.includes("only the")) return "TRADE_ACTION_NOT_ALLOWED";
+  if (message.includes("not allowed") || message.includes("only after") || message.includes("bank details are available only") || message.includes("only the")) return "TRADE_ACTION_NOT_ALLOWED";
   return null;
 }
 

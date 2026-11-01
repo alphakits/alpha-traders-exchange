@@ -1,3 +1,5 @@
+import { BrandedText as Text } from "../components/branded-text";
+import { AttentionSiren } from "../components/attention-siren";
 import { useCallback, useMemo } from "react";
 import {
   ActivityIndicator,
@@ -6,7 +8,6 @@ import {
   Pressable,
   RefreshControl,
   StyleSheet,
-  Text,
   View,
 } from "react-native";
 import { Redirect, useRouter } from "expo-router";
@@ -30,6 +31,7 @@ import {
   setMobileSellerListingStatus,
 } from "../api/mobile-api";
 import { useAuth } from "../auth/auth-context";
+import { canUseSellerTools } from "../auth/seller-access";
 import { GoldButton } from "../components/gold-button";
 import { useLocale } from "../i18n/locale-context";
 import type { MessageKey } from "../i18n/messages";
@@ -37,7 +39,7 @@ import { mergeUniquePages, nextPageOffset } from "../query/paged-data";
 import {
   formatCount,
   formatCurrencyAmountAsUsd,
-  formatFinancialNumber,
+  formatWholeUsdtNumber,
 } from "../finance/financial-display";
 import { useUsdDisplayRate } from "../finance/use-usd-display-rate";
 
@@ -73,8 +75,7 @@ export function SellerWorkspaceScreen() {
   const usdIlsRate = useUsdDisplayRate();
   const queryClient = useQueryClient();
   const userId = user?.id ?? "anonymous";
-  const isApprovedSeller = user?.sellerStatus === "approved_seller"
-    || user?.roles.some((role) => role === "approved_seller" || role === "admin" || role === "owner") === true;
+  const isApprovedSeller = canUseSellerTools(user);
   const queryKey = useMemo(
     () => ["mobile-seller-listings", userId, locale] as const,
     [locale, userId],
@@ -231,7 +232,7 @@ export function SellerWorkspaceScreen() {
               <View style={styles.metricsRow}>
                 <View style={styles.metric}>
                   <Text style={styles.metricLabel}>{t("available")}</Text>
-                  <Text style={styles.metricValue}>{formatFinancialNumber(item.availableAmount, { maximumFractionDigits: 6 })} USDT</Text>
+                  <Text style={styles.metricValue}>{formatWholeUsdtNumber(item.availableAmount)} USDT</Text>
                 </View>
                 <View style={styles.metric}>
                   <Text style={styles.metricLabel}>{t("price")}</Text>
@@ -242,7 +243,7 @@ export function SellerWorkspaceScreen() {
                 {item.network} · {item.paymentMethods.join(" · ")}
               </Text>
               <Text style={[styles.detail, isRTL && styles.rtlText]}>
-                {t("minimum")}: {formatFinancialNumber(item.minimumTrade, { maximumFractionDigits: 6 })} · {t("maximum")}: {formatFinancialNumber(item.maximumTrade, { maximumFractionDigits: 6 })} USDT
+                {t("minimum")}: {formatWholeUsdtNumber(item.minimumTrade)} · {t("maximum")}: {formatWholeUsdtNumber(item.maximumTrade)} USDT
               </Text>
               {item.approvalStatus ? (
                 <Text style={[styles.detail, isRTL && styles.rtlText]}>
@@ -334,7 +335,7 @@ export function SellerWorkspaceScreen() {
                 {isRTL ? "إدارة الحسابات البنكية" : "Manage bank accounts"}
               </GoldButton>
               <GoldButton onPress={() => router.push("/seller/commissions")} variant="outline">
-                {isRTL ? "إدارة العمولات" : "Manage commissions"}
+                {(workspace?.summary.pendingCommissionCount ?? 0) > 0 ? <AttentionSiren /> : null}{isRTL ? "إدارة العمولات" : "Manage commissions"}
               </GoldButton>
             </View>
           </View>

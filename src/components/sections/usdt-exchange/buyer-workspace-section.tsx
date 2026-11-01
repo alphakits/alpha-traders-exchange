@@ -1,20 +1,19 @@
 "use client";
 
-import { useEffect, type Dispatch, type FormEvent, type ReactNode, type SetStateAction } from "react";
+import { currencyText } from "@/components/ui/currency-text";
+import { TradeEvidenceViewer } from "@/components/sections/trade-room/trade-evidence-viewer";
+import { useEffect, type Dispatch, type ReactNode, type SetStateAction } from "react";
 import { HandCoins } from "lucide-react";
 import { Link } from "@/i18n/navigation";
-import { LogoutButton } from "@/components/auth/logout-button";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { RoleBadge } from "@/components/ui/role-badge";
 import { Textarea } from "@/components/ui/textarea";
 import { localizeActivityCopy } from "@/lib/notification-localization";
 import { isCashTradePaymentMethod } from "@/lib/marketplace-payment-methods";
+import { cn } from "@/lib/utils";
 import type { ClientSessionUser } from "@/lib/client-session-user";
 import type { AlphaExchangeActivityLogEntry, MarketplaceListing, PurchaseRequest, PurchaseRequestStatus } from "@/types/alpha-exchange";
-
-type NotificationPreferences = { inApp: boolean; email: boolean; sms: boolean };
 
 export type BuyerWorkspaceSectionProps = {
   activityHistory: AlphaExchangeActivityLogEntry[];
@@ -24,13 +23,16 @@ export type BuyerWorkspaceSectionProps = {
   buyerOverviewCard: ReactNode;
   buyerRequests: PurchaseRequest[];
   buyerTradeQuery: string;
-  buyerTradeStatus: PurchaseRequestStatus | "all";
+  buyerTradeStatus: PurchaseRequestStatus | "all" | "active";
   buyerTradeVisibleCount: number;
+  desktopNavigation?: boolean;
+  purchaseRequestsState?: "loading" | "ready" | "error";
+  onRetryPurchaseRequests?: () => void;
+  onBrowseSellers?: () => void;
   evidenceUploading: Record<string, boolean>;
   filteredBuyerRequests: PurchaseRequest[];
   groupedActivityHistory: Array<{ dayKey: string; label: string; items: AlphaExchangeActivityLogEntry[] }>;
-  handleBuyerTradeStatus: (request: PurchaseRequest, nextStatus: "payment_sent" | "completed" | "cancelled") => Promise<void>;
-  handleNotificationPreferencesSave: (event: FormEvent<HTMLFormElement>) => Promise<void>;
+  handleBuyerTradeStatus: (request: PurchaseRequest, nextStatus: "payment_sent" | "cancelled") => Promise<void>;
   handleOpenTradeRoom: (requestId: string) => void;
   handlePrefetchTradeRoom: (requestId: string) => void;
   handleSubmitBuyerReview: (request: PurchaseRequest) => Promise<void>;
@@ -38,17 +40,14 @@ export type BuyerWorkspaceSectionProps = {
   isMobileViewport: boolean;
   listingsById: Map<string, MarketplaceListing>;
   locale: "ar" | "en";
-  notificationPreferences: NotificationPreferences;
   pendingBuyerReviewTrade: PurchaseRequest | undefined;
   renderNotificationCenterCard: (sectionId: string, className?: string) => ReactNode;
   sessionUser: ClientSessionUser | null;
   setBuyerEvidenceFiles: Dispatch<SetStateAction<Record<string, File | null>>>;
   setBuyerExpandedTradeId: Dispatch<SetStateAction<string | null>>;
   setBuyerTradeQuery: Dispatch<SetStateAction<string>>;
-  setBuyerTradeStatus: Dispatch<SetStateAction<PurchaseRequestStatus | "all">>;
+  setBuyerTradeStatus: Dispatch<SetStateAction<PurchaseRequestStatus | "all" | "active">>;
   setBuyerTradeVisibleCount: Dispatch<SetStateAction<number>>;
-  setNotificationPreferences: Dispatch<SetStateAction<NotificationPreferences>>;
-  setSessionUser: Dispatch<SetStateAction<ClientSessionUser | null>>;
   setTradeReviewDrafts: Dispatch<SetStateAction<Record<string, string>>>;
   sortedBuyerRequests: PurchaseRequest[];
   tradeReviewDrafts: Record<string, string>;
@@ -61,7 +60,6 @@ export type BuyerWorkspaceSectionProps = {
   paymentMethodEmoji: typeof import("@/components/sections/usdt-exchange/usdt-exchange-page").paymentMethodEmoji;
   paymentMethodLabel: typeof import("@/components/sections/usdt-exchange/usdt-exchange-page").paymentMethodLabel;
   paymentMethodTradeInstruction: typeof import("@/components/sections/usdt-exchange/usdt-exchange-page").paymentMethodTradeInstruction;
-  roleBadgeVariantFromSession: typeof import("@/components/sections/usdt-exchange/usdt-exchange-page").roleBadgeVariantFromSession;
   shortListingRef: typeof import("@/components/sections/usdt-exchange/usdt-exchange-page").shortListingRef;
   shortTradeRef: typeof import("@/components/sections/usdt-exchange/usdt-exchange-page").shortTradeRef;
   toNumber: typeof import("@/components/sections/usdt-exchange/usdt-exchange-page").toNumber;
@@ -79,11 +77,14 @@ export function BuyerWorkspaceSection(props: BuyerWorkspaceSectionProps) {
     buyerTradeQuery,
     buyerTradeStatus,
     buyerTradeVisibleCount,
+    desktopNavigation = false,
+    purchaseRequestsState = "ready",
+    onRetryPurchaseRequests,
+    onBrowseSellers,
     evidenceUploading,
     filteredBuyerRequests,
     groupedActivityHistory,
     handleBuyerTradeStatus,
-    handleNotificationPreferencesSave,
     handleOpenTradeRoom,
     handlePrefetchTradeRoom,
     handleSubmitBuyerReview,
@@ -91,7 +92,6 @@ export function BuyerWorkspaceSection(props: BuyerWorkspaceSectionProps) {
     isMobileViewport,
     listingsById,
     locale,
-    notificationPreferences,
     pendingBuyerReviewTrade,
     renderNotificationCenterCard,
     sessionUser,
@@ -100,8 +100,6 @@ export function BuyerWorkspaceSection(props: BuyerWorkspaceSectionProps) {
     setBuyerTradeQuery,
     setBuyerTradeStatus,
     setBuyerTradeVisibleCount,
-    setNotificationPreferences,
-    setSessionUser,
     setTradeReviewDrafts,
     sortedBuyerRequests,
     tradeReviewDrafts,
@@ -114,7 +112,6 @@ export function BuyerWorkspaceSection(props: BuyerWorkspaceSectionProps) {
     paymentMethodEmoji,
     paymentMethodLabel,
     paymentMethodTradeInstruction,
-    roleBadgeVariantFromSession,
     shortListingRef,
     shortTradeRef,
     toNumber,
@@ -127,13 +124,18 @@ export function BuyerWorkspaceSection(props: BuyerWorkspaceSectionProps) {
   useEffect(() => {
     if (typeof window === "undefined") return;
     if (new URLSearchParams(window.location.search).get("section") !== "trade-history") return;
-    const frame = window.requestAnimationFrame(() => {
+    const focusTarget = () => {
       const target = document.getElementById(BUYER_TRADE_HISTORY_SECTION_ID);
       if (!target) return;
       target.scrollIntoView({ behavior: "smooth", block: "start" });
       target.focus({ preventScroll: true });
-    });
-    return () => window.cancelAnimationFrame(frame);
+    };
+    const frame = window.requestAnimationFrame(focusTarget);
+    const timer = window.setTimeout(focusTarget, 250);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.clearTimeout(timer);
+    };
   }, [BUYER_TRADE_HISTORY_SECTION_ID]);
 
   return (
@@ -172,76 +174,26 @@ export function BuyerWorkspaceSection(props: BuyerWorkspaceSectionProps) {
                 <div className="flex items-start gap-3">
                   <span className="text-2xl">⏰</span>
                   <div>
-                    <p className="font-semibold text-[#FDE68A]">{isAr ? "إجراء مطلوب — تأكيد استلام USDT" : "Action Required — Confirm USDT Receipt"}</p>
+                    <p className="font-semibold text-[#FDE68A]">{currencyText(isAr ? "بانتظار إكمال البائع للصفقة" : "Waiting for Seller Completion")}</p>
                     <p className="mt-0.5 text-sm text-[#E5E7EB]">
-                      {isAr
-                        ? "لديك صفقة تنتظر تأكيد استلام USDT. يرجى التأكيد لإكمال صفقتك والسماح بعمليات الشراء الجديدة."
-                        : "You have a trade waiting for your USDT receipt confirmation. Please confirm receipt to complete your trade and unblock new purchases."}
+                      {currencyText(isAr
+                        ? "تحقق من وصول USDT إلى محفظتك. يكمل البائع الصفقة، ثم يمكنك إضافة تقييمك وبدء شراء جديد."
+                        : "Check your wallet for USDT. The seller completes the trade, then you can leave feedback and start a new purchase.")}
                     </p>
                   </div>
                 </div>
                 <Link href={`/trade-room/${archivedConfirmationTrade.id}`} className="shrink-0">
                   <Button size="sm" className="w-full sm:w-auto">
-                    {isAr ? "تأكيد الاستلام" : "Confirm Receipt"}
+                    {isAr ? "فتح غرفة التداول" : "Open Trade Room"}
                   </Button>
                 </Link>
               </CardContent>
             </Card>
           ) : null}
           {buyerOverviewCard}
-          <Card className="border-white/10 bg-[#0B0B0B]/85">
-            <CardHeader>
-              <CardTitle>{isAr ? "جلسة المستخدم" : "Session"}</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3 text-sm">
-              <p className="text-[#D1D5DB]">
-                {sessionUser ? sessionUser.fullName : (isAr ? "غير مسجل الدخول" : "Not logged in")}
-              </p>
-              {sessionUser ? <RoleBadge variant={roleBadgeVariantFromSession(sessionUser)} locale={isAr ? "ar" : "en"} /> : <RoleBadge variant="guest" locale={isAr ? "ar" : "en"} />}
-              <div className="flex flex-wrap gap-2">
-                {!sessionUser ? (
-                  <>
-                    <Link href="/login">
-                      <Button variant="secondary">{isAr ? "تسجيل الدخول" : "Login"}</Button>
-                    </Link>
-                    <Link href="/register">
-                      <Button variant="secondary">{isAr ? "إنشاء حساب" : "Register"}</Button>
-                    </Link>
-                  </>
-                ) : (
-                  <>
-                    <Link href="/profile">
-                      <Button variant="secondary">{isAr ? "الملف الشخصي" : "Profile"}</Button>
-                    </Link>
-                    <LogoutButton
-                      locale={locale}
-                      variant="secondary"
-                      idleLabel={isAr ? "تسجيل الخروج" : "Logout"}
-                      pendingLabel={isAr ? "جارٍ تسجيل الخروج..." : "Signing out..."}
-                      onSignedOut={() => setSessionUser(null)}
-                    />
-                  </>
-                )}
-              </div>
-              {sessionUser ? (
-                <form className="grid gap-2 border-t border-white/10 pt-3" onSubmit={handleNotificationPreferencesSave}>
-                  <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "تفضيلات الإشعارات" : "Notification Preferences"}</p>
-                  <label className="flex items-center justify-between rounded-xl border border-white/10 bg-black/20 p-2 text-xs text-[#D1D5DB]">
-                    <span>{isAr ? "داخل التطبيق" : "In-app"}</span>
-                    <input type="checkbox" checked={notificationPreferences.inApp} onChange={(event) => setNotificationPreferences((prev) => ({ ...prev, inApp: event.target.checked }))} />
-                  </label>
-                  <label className="flex items-center justify-between rounded-xl border border-white/10 bg-black/20 p-2 text-xs text-[#D1D5DB]">
-                    <span>{isAr ? "البريد الإلكتروني" : "Email"}</span>
-                    <input type="checkbox" checked={notificationPreferences.email} onChange={(event) => setNotificationPreferences((prev) => ({ ...prev, email: event.target.checked }))} />
-                  </label>
-                  <Button type="submit" size="sm" variant="secondary">{isAr ? "حفظ التفضيلات" : "Save Preferences"}</Button>
-                </form>
-              ) : null}
-            </CardContent>
-          </Card>
 
           {sessionUser ? (
-            <Card id={BUYER_TRADE_HISTORY_SECTION_ID} tabIndex={-1} className="border-white/10 bg-[#0B0B0B]/90 md:col-span-2">
+            <Card id={BUYER_TRADE_HISTORY_SECTION_ID} tabIndex={-1} className={cn("border-white/10 bg-[#0B0B0B]/90 md:col-span-2", desktopNavigation && "scroll-mt-24")}>
               <CardHeader>
                 <CardTitle>{isAr ? "سجل صفقاتي" : "My Trade History"}</CardTitle>
                 <CardDescription>{isAr ? "الأحدث أولاً، مع صفوف مختصرة وتفاصيل قابلة للتوسيع لكل صفقة." : "Newest first, compact rows, and expandable details for each trade."}</CardDescription>
@@ -249,8 +201,9 @@ export function BuyerWorkspaceSection(props: BuyerWorkspaceSectionProps) {
               <CardContent className="space-y-3">
                 <div className="grid gap-3 md:grid-cols-2">
                   <Input placeholder={isAr ? "ابحث بمعرّف الصفقة أو العرض..." : "Search by trade ID or listing..."} value={buyerTradeQuery} onChange={(event) => setBuyerTradeQuery(event.target.value)} />
-                  <select className="flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 py-2 text-sm text-white" value={buyerTradeStatus} onChange={(event) => setBuyerTradeStatus(event.target.value as typeof buyerTradeStatus)}>
+                  <select aria-label={desktopNavigation ? (isAr ? "تصفية صفقات المشتري" : "Filter buyer trades") : undefined} className="flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 py-2 text-sm text-white" value={buyerTradeStatus} onChange={(event) => setBuyerTradeStatus(event.target.value as typeof buyerTradeStatus)}>
                     <option value="all">{isAr ? "الحالة: الكل" : "Status: All"}</option>
+                    {desktopNavigation ? <option value="active">{isAr ? "الصفقات النشطة" : "Active trades"}</option> : null}
                     <option value="pending">{tradeStatusLabel("pending", isAr)}</option>
                     <option value="accepted">{tradeStatusLabel("accepted", isAr)}</option>
                     <option value="payment_sent">{tradeStatusLabel("payment_sent", isAr)}</option>
@@ -258,11 +211,45 @@ export function BuyerWorkspaceSection(props: BuyerWorkspaceSectionProps) {
                     <option value="usdt_release_pending">{tradeStatusLabel("usdt_release_pending", isAr)}</option>
                     <option value="usdt_sent">{tradeStatusLabel("usdt_sent", isAr)}</option>
                     <option value="review_open">{tradeStatusLabel("review_open", isAr)}</option>
+                    {desktopNavigation ? <option value="completed">{tradeStatusLabel("completed", isAr)}</option> : null}
                     <option value="declined">{tradeStatusLabel("declined", isAr)}</option>
                     <option value="cancelled">{tradeStatusLabel("cancelled", isAr)}</option>
                   </select>
                 </div>
-                {!filteredBuyerRequests.length ? (
+                {desktopNavigation && purchaseRequestsState === "loading" ? (
+                  <div role="status" aria-label={isAr ? "جارٍ تحميل الصفقات" : "Loading trades"} className="space-y-3 rounded-2xl border border-white/10 bg-black/20 p-4">
+                    <div className="h-3 w-28 animate-pulse rounded bg-white/10" />
+                    <div className="h-12 animate-pulse rounded-xl bg-white/10" />
+                  </div>
+                ) : null}
+                {desktopNavigation && purchaseRequestsState === "error" ? (
+                  <div role="alert" className="rounded-2xl border border-amber-400/30 bg-amber-400/10 p-4 text-sm text-amber-100">
+                    <p>{isAr ? "تعذر تحميل أحدث صفقاتك. حاول مرة أخرى." : "We couldn't load your latest trades. Please try again."}</p>
+                    <Button type="button" size="sm" variant="secondary" className="mt-3" onClick={onRetryPurchaseRequests}>
+                      {isAr ? "إعادة المحاولة" : "Retry"}
+                    </Button>
+                  </div>
+                ) : null}
+                {desktopNavigation && purchaseRequestsState === "ready" && !filteredBuyerRequests.length ? (
+                  <div role="status" className="rounded-xl border border-white/10 bg-black/20 p-5 text-center">
+                    <HandCoins className="mx-auto h-5 w-5 text-[#C9A227]" />
+                    <p className="mt-2 text-sm font-medium text-white">{buyerTradeStatus === "active" && !buyerTradeQuery.trim()
+                      ? (isAr ? "لا توجد صفقات نشطة حالياً." : "There are no active trades currently.")
+                      : buyerRequests.length === 0
+                        ? (isAr ? "لا توجد صفقات بعد" : "No trades yet")
+                        : (isAr ? "لا توجد صفقات مطابقة للفلاتر الحالية." : "No trades found for current filters.")}</p>
+                    <p className="mt-1 text-xs text-[#9CA3AF]">{isAr ? "تصفح البائعين لبدء صفقة جديدة، أو راجع سجل صفقاتك." : "Browse sellers to start a new trade, or review your trade history."}</p>
+                    <div className="mt-4 flex flex-wrap justify-center gap-2">
+                      <Button type="button" size="sm" variant="secondary" onClick={onBrowseSellers}>
+                        {isAr ? "تصفح البائعين" : "Browse Sellers"}
+                      </Button>
+                      {buyerRequests.length > 0 ? <Button type="button" size="sm" variant="secondary" onClick={() => { setBuyerTradeQuery(""); setBuyerTradeStatus("all"); }}>
+                        {isAr ? "عرض جميع الصفقات" : "View All Trades"}
+                      </Button> : null}
+                    </div>
+                  </div>
+                ) : null}
+                {!desktopNavigation && !filteredBuyerRequests.length ? (
                   buyerRequests.length === 0 ? (
                     <div className="rounded-xl border border-white/10 bg-black/20 p-5 text-center">
                       <HandCoins className="mx-auto h-5 w-5 text-[#C9A227]" />
@@ -300,18 +287,18 @@ export function BuyerWorkspaceSection(props: BuyerWorkspaceSectionProps) {
                             onClick={() => setBuyerExpandedTradeId((prev) => prev === request.id ? null : request.id)}
                           >
                             <div>
-                              <p className="text-sm font-medium text-white">{shortTradeRef(request, isAr)}</p>
-                              <p className="mt-1 text-xs text-[#9CA3AF]">{isAr ? "العرض" : "Listing"} {shortListingRef({ id: request.listingId, displayNumber: listingsById.get(request.listingId)?.displayNumber })}</p>
+                              <p className="text-sm font-medium text-white">{currencyText(shortTradeRef(request, isAr))}</p>
+                              <p className="mt-1 text-xs text-[#9CA3AF]">{isAr ? "العرض" : "Listing"} {currencyText(shortListingRef({ id: request.listingId, displayNumber: listingsById.get(request.listingId)?.displayNumber }))}</p>
                               {request.priceMode === "buyer_offer" ? <span className="mt-1.5 inline-flex rounded-full border border-[#C9A227]/40 bg-[#C9A227]/10 px-2 py-0.5 text-[11px] font-semibold text-[#F4D87A]">{isAr ? "عرض سعر" : "Price Offer"}</span> : null}
                             </div>
                             <div className="text-xs">
-                              <span className={`rounded-full border px-2.5 py-1 font-semibold tracking-[0.08em] ${presentation.badgeTone}`}>{presentation.badge}</span>
+                              <span className={`rounded-full border px-2.5 py-1 font-semibold tracking-[0.08em] ${presentation.badgeTone}`}>{currencyText(presentation.badge)}</span>
                             </div>
                             <div className="text-sm text-[#D1D5DB]">
-                              <p>{toNumber(request.usdtAmount).toLocaleString("en-IL")} USDT</p>
-                              <p className="mt-1 text-xs text-[#9CA3AF]">{toNumber(request.fiatAmount).toLocaleString("en-IL")} {request.currency}</p>
+                              <p>{currencyText(`${Math.trunc(toNumber(request.usdtAmount)).toLocaleString("en-US")} USDT`)}</p>
+                              <p className="mt-1 text-xs text-[#9CA3AF]">{currencyText(`${toNumber(request.fiatAmount).toLocaleString("en-IL")} ${request.currency}`)}</p>
                             </div>
-                            <p className="text-sm text-[#D1D5DB]">{paymentMethodEmoji(request.paymentMethod)} {paymentMethodLabel(request.paymentMethod, isAr)}</p>
+                            <p className="text-sm text-[#D1D5DB]">{currencyText(paymentMethodEmoji(request.paymentMethod))} {currencyText(paymentMethodLabel(request.paymentMethod, isAr))}</p>
                             <p className="text-sm text-[#D1D5DB]">{new Date(request.completedAt ?? request.updatedAt).toLocaleDateString(isAr ? "ar-IL" : "en-IL")}</p>
                             <p className="text-sm text-[#C9A227] md:text-end">{isExpanded ? (isAr ? "إخفاء" : "Hide") : (isAr ? "توسيع" : "Expand")}</p>
                           </button>
@@ -319,14 +306,14 @@ export function BuyerWorkspaceSection(props: BuyerWorkspaceSectionProps) {
                             <div id={`buyer-trade-details-${request.id}`} className="space-y-3 border-t border-white/10 bg-black/25 px-4 py-4">
                               <div className="grid gap-2 text-sm md:grid-cols-3">
                                 <p>{isAr ? "الشبكة" : "Network"}: <span className="text-white">{request.network}</span></p>
-                                <p>{request.priceMode === "buyer_offer" ? (isAr ? "سعرك المقترح" : "Your Offered Price") : (isAr ? "السعر لكل USDT" : "Price per USDT")}: <span className={request.priceMode === "buyer_offer" ? "font-semibold text-[#F4D87A]" : "text-white"}>₪{(toNumber(request.pricePerUsdt) || (toNumber(request.fiatAmount) / Math.max(1, toNumber(request.usdtAmount)))).toFixed(2)}</span></p>
-                                {request.priceMode === "buyer_offer" ? <p>{isAr ? "سعر البائع الأصلي" : "Original Seller Price"}: <span className="text-white">₪{toNumber(request.listingPriceAtRequest).toFixed(2)}</span></p> : null}
+                                <p>{currencyText(request.priceMode === "buyer_offer" ? (isAr ? "سعرك المقترح" : "Your Offered Price") : (isAr ? "السعر لكل USDT" : "Price per USDT"))}: <span className={request.priceMode === "buyer_offer" ? "font-semibold text-[#F4D87A]" : "text-white"}>{currencyText(`${(toNumber(request.pricePerUsdt) || (toNumber(request.fiatAmount) / Math.max(1, toNumber(request.usdtAmount)))).toFixed(2)} ${request.currency || "ILS"}`)}</span></p>
+                                {request.priceMode === "buyer_offer" ? <p>{isAr ? "سعر البائع الأصلي" : "Original Seller Price"}: <span className="text-white">{currencyText(`${toNumber(request.listingPriceAtRequest).toFixed(2)} ${request.currency || "ILS"}`)}</span></p> : null}
                                 <p>{isAr ? "تاريخ الإرسال" : "Submitted"}: <span className="text-white">{new Date(request.createdAt).toLocaleString(isAr ? "ar-IL" : "en-IL")}</span></p>
                                 {request.completedAt ? <p>{isAr ? "اكتملت" : "Completed"}: <span className="text-white">{new Date(request.completedAt).toLocaleString(isAr ? "ar-IL" : "en-IL")}</span></p> : null}
                               </div>
                               <div className="rounded-xl border border-[#6CAEFF]/25 bg-[#6CAEFF]/10 p-3 text-xs text-[#D1D5DB]">
-                                <p className="font-medium text-white">{paymentMethodEmoji(request.paymentMethod)} {isAr ? "تعليمات الصفقة" : "Trade Instructions"}</p>
-                                <p className="mt-1">{paymentMethodTradeInstruction(request.paymentMethod, "buyer", isAr)}</p>
+                                <p className="font-medium text-white">{currencyText(paymentMethodEmoji(request.paymentMethod))} {isAr ? "تعليمات الصفقة" : "Trade Instructions"}</p>
+                                <p className="mt-1">{currencyText(paymentMethodTradeInstruction(request.paymentMethod, "buyer", isAr))}</p>
                                 <p className="mt-1">{isAr ? <>راجع التفاصيل في <Link href="/safety-trust" locale={locale} className="text-[#93C5FD] underline underline-offset-2">مركز الأمان والثقة</Link>.</> : <>Review details in the <Link href="/safety-trust" locale={locale} className="text-[#93C5FD] underline underline-offset-2">Safety & Trust Center</Link>.</>}</p>
                               </div>
                               <div className="flex flex-wrap gap-2">
@@ -338,9 +325,6 @@ export function BuyerWorkspaceSection(props: BuyerWorkspaceSectionProps) {
                                     <Button type="button" size="sm" disabled={request.status !== "accepted" || !request.buyerEvidence} onClick={() => handleBuyerTradeStatus(request, "payment_sent")}>
                                       {isAr ? "تحديد الدفعة كمُرسلة" : "Mark Payment Sent"}
                                     </Button>
-                                    <Button type="button" size="sm" variant="secondary" disabled={request.status !== "usdt_sent"} onClick={() => handleBuyerTradeStatus(request, "completed")}>
-                                      {isAr ? "تأكيد اكتمال الصفقة" : "Confirm Trade Completed"}
-                                    </Button>
                                   </>
                                 ) : null}
                                 <Button type="button" size="sm" variant="secondary" disabled={!canCancelBuyerHistoryRequest(request, sessionUser?.id)} onClick={() => handleBuyerTradeStatus(request, "cancelled")}>
@@ -351,9 +335,9 @@ export function BuyerWorkspaceSection(props: BuyerWorkspaceSectionProps) {
                                 <div className="rounded-xl border border-emerald-400/30 bg-emerald-500/10 p-3 text-xs text-emerald-100">
                                   <p className="font-medium text-white">{isAr ? "لا يلزم رفع صور" : "No Photo Uploads"}</p>
                                   <p className="mt-1">
-                                    {isAr
-                                      ? "استخدم غرفة التداول للخطوة التالية الواضحة. بعد تأكيد النقد، يؤكد البائع إرسال USDT ثم يحدد الصفقة كمكتملة. لا يلزم تأكيد المشتري."
-                                      : "Use the Trade Room for the guided next step. After cash confirmation, the seller confirms USDT sent and then marks the trade completed. The buyer does not need to confirm."}
+                                    {currencyText(isAr
+                                      ? "افتح الصفقة للخطوة التالية. يكملها البائع بعد إرسال USDT."
+                                      : "Open the trade for your next step. The seller completes it after sending USDT.")}
                                   </p>
                                 </div>
                               ) : (
@@ -361,9 +345,7 @@ export function BuyerWorkspaceSection(props: BuyerWorkspaceSectionProps) {
                                 <div>
                                   <p className="font-medium text-white">{isAr ? "إثبات المشتري" : "Buyer Evidence"}</p>
                                   {request.buyerEvidence ? (
-                                    <a href={`/api/alpha-exchange/purchase-requests/${request.id}/evidence/${request.buyerEvidence.id}`} target="_blank" rel="noreferrer" className="mt-1 inline-block text-[#C9A227] underline-offset-2 hover:underline">
-                                      {request.buyerEvidence.fileName}
-                                    </a>
+                                    <TradeEvidenceViewer key={request.buyerEvidence.id} requestId={request.id} evidence={request.buyerEvidence} isAr={isAr} />
                                   ) : (
                                     <p className="mt-1 text-[#9CA3AF]">{isAr ? "يجب رفع الإثبات قبل تحديد الدفعة كمُرسلة." : "Upload required before marking payment sent."}</p>
                                   )}
@@ -371,9 +353,7 @@ export function BuyerWorkspaceSection(props: BuyerWorkspaceSectionProps) {
                                 <div>
                                   <p className="font-medium text-white">{isAr ? "إثبات البائع" : "Seller Evidence"}</p>
                                   {request.sellerEvidence ? (
-                                    <a href={`/api/alpha-exchange/purchase-requests/${request.id}/evidence/${request.sellerEvidence.id}`} target="_blank" rel="noreferrer" className="mt-1 inline-block text-[#C9A227] underline-offset-2 hover:underline">
-                                      {request.sellerEvidence.fileName}
-                                    </a>
+                                    <TradeEvidenceViewer key={request.sellerEvidence.id} requestId={request.id} evidence={request.sellerEvidence} isAr={isAr} />
                                   ) : (
                                     <p className="mt-1 text-[#9CA3AF]">{isAr ? "بانتظار إثبات البائع." : "Waiting for seller evidence."}</p>
                                   )}
@@ -426,13 +406,13 @@ export function BuyerWorkspaceSection(props: BuyerWorkspaceSectionProps) {
                               {request.buyerReview ? (
                                 <div className="rounded-xl border border-white/10 bg-black/25 p-3 text-xs text-[#D1D5DB]">
                                   <p className="font-medium text-white">{isAr ? "تقييم المشتري" : "Buyer Review"}</p>
-                                  <p className="mt-1">{request.buyerReview.comment}</p>
+                                  <p className="mt-1">{currencyText(request.buyerReview.comment)}</p>
                                 </div>
                               ) : null}
                               {request.sellerResponse ? (
                                 <div className="rounded-xl border border-[#6CAEFF]/35 bg-[#6CAEFF]/10 p-3 text-xs text-[#D1D5DB]">
                                   <p className="font-medium text-white">{isAr ? "رد البائع" : "Seller Response"}</p>
-                                  <p className="mt-1">{request.sellerResponse.message}</p>
+                                  <p className="mt-1">{currencyText(request.sellerResponse.message)}</p>
                                 </div>
                               ) : null}
                             </div>
@@ -477,17 +457,17 @@ export function BuyerWorkspaceSection(props: BuyerWorkspaceSectionProps) {
                 ) : (
                   groupedActivityHistory.map((group) => (
                     <div key={group.dayKey} className="rounded-2xl border border-white/10 bg-black/20 p-3">
-                      <p className="text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF]">{group.label}</p>
+                      <p className="text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF]">{currencyText(group.label)}</p>
                       <div className="mt-3 grid gap-2 lg:grid-cols-2 xl:grid-cols-3">
                         {group.items.slice(0, 3).map((entry) => {
                           const copy = localizeActivityCopy(entry, locale);
                           return (
                             <div key={entry.id} className="rounded-xl border border-white/10 bg-black/25 p-3 text-xs text-[#D1D5DB]">
                               <div className="flex items-start justify-between gap-3">
-                                <p className="font-medium text-white"><bdi dir="auto">{copy.title}</bdi></p>
+                                <p className="font-medium text-white"><bdi dir="auto">{currencyText(copy.title)}</bdi></p>
                                 <p className="shrink-0 text-[#9CA3AF]">{new Date(entry.createdAt).toLocaleTimeString(isAr ? "ar-IL-u-nu-latn" : "en-IL", { hour: "2-digit", minute: "2-digit" })}</p>
                               </div>
-                              <p className="mt-1 line-clamp-2 text-[#9CA3AF]"><bdi dir="auto">{copy.details}</bdi></p>
+                              <p className="mt-1 line-clamp-2 text-[#9CA3AF]"><bdi dir="auto">{currencyText(copy.details)}</bdi></p>
                             </div>
                           );
                         })}

@@ -22,6 +22,7 @@ import {
   localizedTimelineMessage,
   marketTrendAriaLabel,
   marketReferenceLabel,
+  normalizeDecimalInput,
   paymentMethodTradeInstruction,
   sellerAccountStatusLabel,
   spokenLanguageLabel,
@@ -33,8 +34,16 @@ const ARABIC_TEXT = /[\u0600-\u06ff]/;
 
 describe("USDT exchange localized mobile copy", () => {
   it("groups every marketplace financial amount above 999", () => {
-    expect(formatUsdt(1_000)).toBe("1,000.00 USDT");
+    expect(formatUsdt(1_000)).toBe("1,000 USDT");
+    expect(formatUsdt(1.234567)).toBe("1 USDT");
     expect(formatIls(1_050_000)).toBe("₪1,050,000.00");
+  });
+
+  it("accepts seller prices from Arabic and decimal-comma keyboards", () => {
+    expect(normalizeDecimalInput("٣٫٢٣")).toBe("3.23");
+    expect(normalizeDecimalInput("3,23")).toBe("3.23");
+    expect(normalizeDecimalInput("1,000")).toBe("1000");
+    expect(normalizeDecimalInput("3.2.3")).toBe("");
   });
 
   it("renders time-based greetings from one deterministic Israel timezone", () => {
@@ -65,16 +74,15 @@ describe("USDT exchange localized mobile copy", () => {
     expect(paymentMethodTradeInstruction("Face-to-Face (Meet in Person)", "buyer", false)).toContain("seller separately confirms USDT sent");
 
     const buyerWorkspace = readFileSync(join(process.cwd(), "src/components/sections/usdt-exchange/buyer-workspace-section.tsx"), "utf8");
-    const sellerWorkspace = readFileSync(join(process.cwd(), "src/components/sections/usdt-exchange/seller-workspace-section.tsx"), "utf8");
+    const sellerWorkspace = readFileSync(join(process.cwd(), "src/components/sections/usdt-exchange/seller-trade-request-card.tsx"), "utf8");
     expect(buyerWorkspace).toContain("Continue Cash Trade");
     expect(sellerWorkspace).toContain("Continue Cash Trade");
     expect(buyerWorkspace).not.toContain("Mark Withdrawal Ready");
-    expect(buyerWorkspace).toContain("seller confirms USDT sent and then marks the trade completed");
-    expect(sellerWorkspace).toContain("Confirm USDT sent first, then mark the trade completed with a separate button");
+    expect(buyerWorkspace).toContain("The seller completes it after sending USDT.");
+    expect(sellerWorkspace).toContain("Open the trade for your next step.");
 
     const exchangePage = readFileSync(join(process.cwd(), "src/components/sections/usdt-exchange/usdt-exchange-page.tsx"), "utf8");
-    expect(exchangePage).toContain('cashTrade ? "confirm-usdt-sent" : "release-usdt"');
-    expect(exchangePage).toContain('cashTrade && isSellerActor) action = "complete-cash-trade"');
+    expect(exchangePage).toContain('return buildTradeRoomDestination(request, sessionUser.id)');
     expect(exchangePage).toContain('!isCashTradePaymentMethod(request.paymentMethod)');
   });
 
@@ -112,6 +120,7 @@ describe("USDT exchange localized mobile copy", () => {
       "trade_locked",
       "review_unlocked",
       "dispute_opened",
+      "dispute_resolved",
       "commission_recorded",
       "commission_paid",
       "buyer_evidence_uploaded",
@@ -164,8 +173,8 @@ describe("USDT exchange localized mobile copy", () => {
     expect(marketplace).toContain('"Buy Now"');
     expect(marketplace).toContain('"Make an Offer"');
     expect(marketplace).toContain('"قدّم عرض سعر"');
-    expect(marketplace).toContain('"Up to ₪0.35 lower"');
-    expect(marketplace).toContain('"خصم حتى ₪0.35"');
+    expect(marketplace).toContain('"Within ±₪0.35 of listing price"');
+    expect(marketplace).toContain('"±₪0.35 من سعر الإعلان"');
     expect(marketplace).toContain('listing.currency.trim().toUpperCase() === "ILS"');
     expect(marketplace).toContain('seller-marketplace-action--offer');
     expect(purchaseDialog).toContain('id="buyer-offered-price"');

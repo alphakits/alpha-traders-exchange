@@ -137,6 +137,52 @@ function runtimeFixture(
 }
 
 describe("Discord worker runtime", () => {
+  it("starts the independent public monitor before the gateway and stops it with the worker", async () => {
+    const server = new FakeServer();
+    const order: string[] = [];
+    const productionHealth = {
+      start: vi.fn(async () => { order.push("monitor"); }),
+      shutdown: vi.fn(async () => undefined),
+      getSnapshot: vi.fn(),
+    };
+    const createHealthServer = vi.fn(() => server as unknown as Server);
+    const runtime = new DiscordWorkerRuntime({
+      config: { healthSecret: "x".repeat(32), port: 3000 },
+      service: {
+        getDiagnostics: () => diagnostics,
+        start: async () => { order.push("gateway"); return diagnostics; },
+        shutdown: async () => undefined,
+      },
+      productionHealth, createHealthServer,
+    });
+    await runtime.start();
+    await Promise.all([runtime.shutdown(), runtime.shutdown()]);
+    expect(order).toEqual(["monitor", "gateway"]);
+    expect(createHealthServer).toHaveBeenCalledWith(expect.objectContaining({ productionHealth }));
+    expect(productionHealth.shutdown).toHaveBeenCalledOnce();
+  });
+
+  it("keeps Discord available when the independent public monitor cannot start", async () => {
+    const server = new FakeServer();
+    const runtime = new DiscordWorkerRuntime({
+      config: { healthSecret: "x".repeat(32), port: 3000 },
+      service: {
+        getDiagnostics: () => diagnostics,
+        start: async () => diagnostics,
+        shutdown: async () => undefined,
+      },
+      productionHealth: {
+        start: async () => { throw new Error("monitor unavailable"); },
+        shutdown: async () => undefined,
+        getSnapshot: vi.fn(),
+      },
+      createHealthServer: () => server as unknown as Server,
+    });
+    await expect(runtime.start()).resolves.toEqual(diagnostics);
+    expect(server.listening).toBe(true);
+    await runtime.shutdown();
+  });
+
   it("starts health serving and the singleton service, then shuts both down once", async () => {
     const {
       runtime,

@@ -1,15 +1,19 @@
 "use client";
 
+import { brandText } from "@/components/ui/currency-text";
+
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useSearchParams } from "next/navigation";
 import { useLocale } from "next-intl";
 import { Link } from "@/i18n/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useOptionalCanonicalSession } from "@/components/auth/canonical-session-provider";
 
 export default function VerifyEmailPage() {
   const locale = useLocale();
   const isAr = locale === "ar";
+  const sessionUser = useOptionalCanonicalSession()?.user;
   const searchParams = useSearchParams();
   const token = searchParams.get("token") ?? "";
   const tokenHash = searchParams.get("token_hash") ?? "";
@@ -91,9 +95,9 @@ export default function VerifyEmailPage() {
       <div className="surface-panel mx-auto w-full max-w-xl p-6 md:p-8">
         <h1 className="page-title">{isAr ? "تأكيد البريد الإلكتروني" : "Verify Email"}</h1>
         <p className="mt-2 text-sm text-[#9CA3AF]">
-          {isAr
+          {brandText(isAr
             ? "تحقق من بريدك الإلكتروني لتفعيل حساب Alpha Traders."
-            : "Verify your email to activate your Alpha Traders account."}
+            : "Verify your email to activate your Alpha Traders account.")}
         </p>
 
         {!token && !tokenHash ? (
@@ -125,8 +129,8 @@ export default function VerifyEmailPage() {
         {statusMessage ? <p className="mt-4 text-sm text-emerald-300" role="status" aria-live="polite">{statusMessage}</p> : null}
 
         <p className="mt-6 text-sm text-[#9CA3AF]">
-          <Link href="/login" className="text-[#C9A227] hover:underline">
-            {isAr ? "العودة إلى تسجيل الدخول" : "Back to Sign In"}
+          <Link href={sessionUser ? "/profile" : "/login"} className="text-[#C9A227] hover:underline">
+            {sessionUser ? (isAr ? "العودة إلى حسابي" : "Back to My Account") : (isAr ? "العودة إلى تسجيل الدخول" : "Back to Sign In")}
           </Link>
         </p>
       </div>

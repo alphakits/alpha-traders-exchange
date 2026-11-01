@@ -4,6 +4,8 @@ import { getCurrentSessionUser } from "@/lib/auth";
 import { getFirstActiveTradeForUser, getFirstActionableTradeForUser, resolveTradeRoomRequestForNotification } from "@/lib/alpha-exchange-store";
 import { hasRole } from "@/lib/roles";
 import { buildTradeRoomDestination } from "@/lib/trade-room-destination";
+import { isOwnerApprovedSeller } from "@/lib/seller-approval";
+import { getInterfacePageDestination } from "@alpha-traders/contracts";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
@@ -22,13 +24,12 @@ export default async function TradeRoomLandingPage({
   params: Promise<{ locale: string }>;
   searchParams: Promise<{ notificationId?: string | string[]; includePending?: string | string[] }>;
 }) {
-  const { locale } = await params;
+  const locale = (await params).locale === "ar" ? "ar" : "en";
   const { notificationId, includePending } = await searchParams;
   const user = await getCurrentSessionUser();
   if (!user) {
     redirect(`/${locale}/login?redirectTo=/${locale}/trade-room`);
   }
-
   const requestedNotificationId = typeof notificationId === "string" ? notificationId.trim() : "";
   const includePendingFallback = includePending === "1" || includePending === "true";
   if (requestedNotificationId) {
@@ -56,12 +57,17 @@ export default async function TradeRoomLandingPage({
     }
   }
 
+  // Existing participant trades take precedence over profile-role navigation.
+  // Guests without a matching trade retain the ordinary profile destination.
+  const destination = getInterfacePageDestination(user, "/trade-room", locale);
+  if (destination) redirect(destination);
+
   // Redirect directly to the final role destination when no active trade exists.
   // This avoids a visible route bounce (trade-room -> dashboard -> role page).
   if (hasRole(user, "owner") || hasRole(user, "admin")) {
     redirect(`/${locale}/admin/alpha-exchange?section=purchase-requests`);
   }
-  if (hasRole(user, "approved_seller")) {
+  if (user.sellerStatus === "approved_seller" && isOwnerApprovedSeller(user)) {
     redirect(`/${locale}/dashboard/seller`);
   }
   redirect(`/${locale}/usdt-exchange?section=trade-history#my-trade-requests-section`);

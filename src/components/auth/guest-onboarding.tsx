@@ -1,13 +1,19 @@
 "use client";
 
+
+import { brandText, currencyText } from "@/components/ui/currency-text";
+import { ActionFeedback, useActionFeedbackState } from "@/components/ui/action-feedback";
 import { useEffect, useMemo, useState, type ComponentType, type ReactNode } from "react";
 import { GraduationCap, ShieldCheck, Store, UserCircle2, Sparkles, Clock3, CheckCircle2 } from "lucide-react";
 import { useRouter } from "@/i18n/navigation";
 import { navigateAfterSuccess } from "@/lib/client-success-navigation";
 import { sellerApplicationErrorMessage } from "@/lib/seller-application-errors";
 import { useOptionalCanonicalSession } from "@/components/auth/canonical-session-provider";
+import { getInterfaceAccess } from "@alpha-traders/contracts";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PhoneVerificationChannelPicker } from "@/components/auth/phone-verification-channel-picker";
+import type { PhoneVerificationChannel, PhoneVerificationChannels } from "@/lib/phone-verification-channel";
 
 const POST_ONBOARDING_KEY = "post_onboarding_redirect";
 const SELLER_METHOD_OPTIONS = [
@@ -33,8 +39,11 @@ function sellerMethodLabel(method: SellerMethod, isAr: boolean) {
 type Props = {
   locale: "ar" | "en";
   isBuyer?: boolean;
+  isStudent?: boolean;
   sellerStatus?: string;
+  sellerApprovalVerified?: boolean;
   phoneVerificationEnabled: boolean;
+  phoneVerificationChannels?: PhoneVerificationChannels;
 };
 
 type ApiErrorPayload = {
@@ -80,8 +89,8 @@ function PremiumCard({ title, subtitle, icon: Icon, accent, children }: PremiumC
           <Icon className="h-5 w-5" />
         </div>
         <div>
-          <h2 className="text-lg font-semibold text-white md:text-xl">{title}</h2>
-          <p className="mt-1 text-sm text-[#C8CDD8]">{subtitle}</p>
+          <h2 className="text-lg font-semibold text-white md:text-xl">{currencyText(title)}</h2>
+          <p className="mt-1 text-sm text-[#C8CDD8]">{currencyText(subtitle)}</p>
         </div>
       </div>
       <div className="mt-4">{children}</div>
@@ -91,25 +100,40 @@ function PremiumCard({ title, subtitle, icon: Icon, accent, children }: PremiumC
 
 export function GuestOnboarding({
   locale,
-  isBuyer = false,
-  sellerStatus,
+  isBuyer: initialIsBuyer = false,
+  isStudent: initialIsStudent = false,
+  sellerStatus: initialSellerStatus,
+  sellerApprovalVerified: initialSellerApprovalVerified = false,
   phoneVerificationEnabled,
+  phoneVerificationChannels,
 }: Props) {
   const router = useRouter();
   const canonicalSession = useOptionalCanonicalSession();
+  const canonicalUser = canonicalSession?.user;
+  const sellerStatus = canonicalUser?.sellerStatus ?? initialSellerStatus;
+  const access = getInterfaceAccess(canonicalUser ?? {
+    role: initialIsBuyer ? "buyer" : initialIsStudent ? "student" : "guest",
+    roles: [initialIsBuyer ? "buyer" : "guest", ...(initialIsStudent ? ["student"] : [])],
+    sellerStatus,
+  });
+  const isBuyer = access.buyer;
+  const isStudent = access.student;
+  const sellerApprovalVerified = canonicalUser ? canonicalUser.sellerApprovalVerified === true : initialSellerApprovalVerified;
   const isAr = locale === "ar";
   const [status, setStatus] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError, errorFeedbackKey] = useActionFeedbackState<string | null>(null);
   const [loading, setLoading] = useState<null | "student" | "buyer_activate" | "skip" | "seller_sendOtp" | "seller_verify" | "seller_apply">(null);
   const [buyer, setBuyer] = useState({ firstName: "", lastName: "", displayName: "" });
   const [seller, setSeller] = useState({ firstName: "", lastName: "", displayName: "", phone: "", token: "", preferredNetworks: [] as SellerMethod[], expectedVolume: "", notes: "" });
   const [sellerStep, setSellerStep] = useState<"idle" | "otp_sent" | "applied">("idle");
-  const [sellerError, setSellerError] = useState<string | null>(null);
+  const [phoneChannel, setPhoneChannel] = useState<PhoneVerificationChannel>("sms");
+  const [sellerError, setSellerError, sellerErrorFeedbackKey] = useActionFeedbackState<string | null>(null);
   const [sellerStatus2, setSellerStatus2] = useState<string | null>(null);
 
   const isLoading = loading !== null;
   const sellerNeedsReview = sellerStatus === "pending_seller_approval" || sellerStep === "applied";
-  const sellerIsApproved = sellerStatus === "approved_seller";
+  const sellerIsApproved = sellerStatus === "approved_seller" && sellerApprovalVerified;
+  const sellerNeedsVerificationReconciliation = sellerStatus === "approved_seller" && !sellerApprovalVerified;
 
   useEffect(() => {
     const savedWhatsappNumber = canonicalSession?.user?.whatsappNumber?.trim();
@@ -222,6 +246,7 @@ export function GuestOnboarding({
           lastName: seller.lastName,
           displayName: seller.displayName,
           phone: seller.phone,
+          channel: phoneChannel,
           locale: isAr ? "ar" : "en",
         }),
       });
@@ -256,7 +281,7 @@ export function GuestOnboarding({
       if (!res.ok) throw new Error(sellerApplicationErrorMessage(payload, isAr));
       setSellerStep("applied");
       await refreshCanonicalSession();
-      if (!navigateAfterSuccess(router, payload.destination)) consumePostOnboardingRedirect();
+      if (!navigateAfterSuccess(router, payload.destination, isAr ? "تم إرسال طلب البائع للمراجعة." : "Seller application submitted for review.")) consumePostOnboardingRedirect();
     } catch (err) {
       const detail = err instanceof Error ? err.message : "";
       setSellerError(detail || sellerApplicationErrorMessage({}, isAr));
@@ -311,6 +336,13 @@ export function GuestOnboarding({
     }
   }
 
+  if (access.administration) {
+    return <section className="section-container page-shell">
+      <p className="page-subtitle">{isAr ? "إدارة حسابك متاحة من لوحة التحكم." : "Manage your account from your dashboard."}</p>
+      <Button type="button" onClick={() => router.replace(access.dashboardHref)}>{isAr ? "فتح لوحة التحكم" : "Open dashboard"}</Button>
+    </section>;
+  }
+
   return (
     <section className="section-container page-shell">
       <div className="alpha-reveal-rise surface-panel mx-auto w-full max-w-6xl p-6 md:p-8">
@@ -322,12 +354,12 @@ export function GuestOnboarding({
                 {isAr ? "تهيئة حسابك" : "Account setup"}
               </p>
               <h1 className="mt-3 text-3xl font-semibold tracking-tight text-white md:text-4xl">
-                {isAr ? "ابدأ رحلتك في Alpha Traders" : "Start your Alpha Traders journey"}
+                {brandText(isAr ? "ابدأ رحلتك في Alpha Traders" : "Start your Alpha Traders journey")}
               </h1>
               <p className="mt-3 max-w-2xl text-sm leading-relaxed text-[#CDD2DD] md:text-base">
                 {isAr
-                  ? "اختر المسار الذي يناسبك الآن. يمكنك ترقية دورك لاحقًا من الإعدادات بدون فقدان بياناتك."
-                  : "Choose the path that fits you now. You can upgrade roles later from settings without losing your progress."}
+                  ? "اختر كيف تبدأ. يمكنك التغيير لاحقًا من الإعدادات."
+                  : "Choose how to start. You can change this later in Settings."}
               </p>
             </div>
             <div className="rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-xs text-[#A8B0BF]">
@@ -338,14 +370,18 @@ export function GuestOnboarding({
 
         <div className="mt-6 grid gap-4 sm:grid-cols-2">
           <PremiumCard
-            title={isAr ? "كن مشتريًا" : "Become a Buyer"}
-            subtitle={isAr
+            title={isBuyer ? (isAr ? "صلاحية المشتري" : "Buyer access") : (isAr ? "كن مشتريًا" : "Become a Buyer")}
+            subtitle={isBuyer ? (isAr ? "صلاحية المشتري مفعّلة في حسابك." : "Buyer access is active on your account.") : isAr
               ? "تحقق من بريدك الإلكتروني ثم فعّل وصول المشتري إلى السوق."
               : "Verify your email, then activate Buyer access to the marketplace."}
             icon={ShieldCheck}
             accent="gold"
           >
-            <div className="grid gap-2">
+            {isBuyer ? (
+              <Button type="button" className="w-full" onClick={() => router.replace("/dashboard")}>
+                {isAr ? "فتح مساحة المشتري" : "Open buyer workspace"}
+              </Button>
+            ) : <div className="grid gap-2">
               <Input
                 aria-label={isAr ? "الاسم الأول" : "First Name"}
                 placeholder={isAr ? "الاسم الأول" : "First Name"}
@@ -358,15 +394,12 @@ export function GuestOnboarding({
                 value={buyer.lastName}
                 onChange={(event) => setBuyer((prev) => ({ ...prev, lastName: event.target.value }))}
               />
-              <Input
-                aria-label={isAr ? "اسم العرض (اختياري)" : "Display Name (Optional)"}
-                placeholder={isAr ? "اسم العرض (اختياري)" : "Display Name (Optional)"}
-                value={buyer.displayName}
-                onChange={(event) => setBuyer((prev) => ({ ...prev, displayName: event.target.value }))}
-              />
+              <p className="text-xs text-[#9CA3AF]">{isAr ? "سيظهر معرّف AT كاسمك العام. تبقى معلوماتك الشخصية خاصة." : "Your AT ID will be your public name. Your personal details stay private."}</p>
               <div className="space-y-3">
                 <p className="rounded-xl border border-sky-400/25 bg-sky-500/10 px-3 py-2 text-xs text-sky-100">
-                  {isAr
+                  {phoneVerificationEnabled ? (isAr
+                    ? "فعّل صلاحية المشتري بعد تأكيد بريدك. يلزم التحقق من هاتفك قبل استخدام Alpha Exchange."
+                    : "Activate buyer access after verifying your email. Verify your phone before using Alpha Exchange.") : isAr
                     ? "التحقق من البريد الإلكتروني هو طريقة التحقق الوحيدة المطلوبة حاليًا. التحقق من الهاتف متوقف."
                     : "Email verification is the only verification method currently required. Phone verification is off."}
                 </p>
@@ -381,24 +414,48 @@ export function GuestOnboarding({
                   {isAr ? "المتابعة كمشتري" : "Continue as Buyer"}
                 </Button>
               </div>
-            </div>
-            {error ? <p className="mt-2 text-xs text-rose-300">{error}</p> : null}
-            {status ? <p className="mt-2 text-xs text-emerald-300">{status}</p> : null}
+            </div>}
+            {error ? <ActionFeedback revealKey={errorFeedbackKey} as="p" role="alert" className="mt-2 text-xs text-rose-300">{currencyText(error)}</ActionFeedback> : null}
+            {status ? <p className="mt-2 text-xs text-emerald-300">{currencyText(status)}</p> : null}
           </PremiumCard>
 
           <PremiumCard
-            title={isAr ? "التقدّم للحصول على صفة بائع" : "Apply for Seller Status"}
-            subtitle={isAr ? "قدّم كبائع وابدأ بعد الموافقة الرسمية." : "Submit as a seller and start after admin approval."}
+            title={access.sellerWorkspace || sellerNeedsReview ? (isAr ? "حساب البائع" : "Seller account") : (isAr ? "التقدّم للحصول على صفة بائع" : "Apply for Seller Status")}
+            subtitle={access.sellerWorkspace || sellerNeedsReview
+              ? (isAr ? "تابع حالة صلاحية البائع في حسابك." : "Review your seller access and account status.")
+              : (isAr ? "قدّم كبائع وابدأ بعد الموافقة الرسمية." : "Submit as a seller and start after admin approval.")}
             icon={Store}
             accent="blue"
           >
-            {sellerIsApproved ? (
+            {sellerNeedsVerificationReconciliation ? (
+                <div
+                  key="seller-verification-reconciliation"
+                  className="alpha-reveal-rise rounded-xl border border-amber-500/35 bg-amber-500/10 p-3 text-sm text-amber-100"
+                >
+                  <p className="flex items-center gap-2 font-medium"><Clock3 className="h-4 w-4" />{isAr ? "سجل التحقق يحتاج إلى مطابقة." : "Verification record reconciliation is required."}</p>
+                  <p className="mt-1 text-xs text-amber-100/90">
+                    {isAr
+                      ? "موافقة البائع تتطلب التحقق من الهوية والفيديو وملكية الهاتف وقواعد السوق."
+                      : "Seller approval requires ID, video, phone ownership, and marketplace-rules checks."}
+                  </p>
+                  <Button type="button" variant="secondary" className="mt-3 w-full" onClick={() => router.replace("/usdt-exchange")}>
+                    {isAr ? "العودة إلى Exchange" : "Return to Exchange"}
+                  </Button>
+                </div>
+              ) : sellerIsApproved ? (
                 <div
                   key="seller-approved"
                   className="alpha-reveal-rise rounded-xl border border-emerald-500/35 bg-emerald-500/10 p-3 text-sm text-emerald-200"
                 >
                   <p className="flex items-center gap-2 font-medium"><CheckCircle2 className="h-4 w-4" />{isAr ? "أنت بائع معتمد بالفعل." : "You are already an approved seller."}</p>
                   <Button type="button" className="mt-3 w-full" onClick={() => router.replace("/dashboard/seller")}>
+                    {isAr ? "فتح لوحة البائع" : "Open seller dashboard"}
+                  </Button>
+                </div>
+              ) : sellerStatus === "suspended" ? (
+                <div className="rounded-xl border border-amber-500/35 bg-amber-500/10 p-3 text-sm text-amber-100">
+                  <p>{isAr ? "إنشاء عروض جديدة متوقف. يمكنك متابعة صفقاتك الحالية وحالة حسابك." : "New listings are paused. You can review your existing trades and account status."}</p>
+                  <Button type="button" variant="secondary" className="mt-3 w-full" onClick={() => router.replace("/dashboard/seller")}>
                     {isAr ? "فتح لوحة البائع" : "Open seller dashboard"}
                   </Button>
                 </div>
@@ -447,7 +504,7 @@ export function GuestOnboarding({
                                   }`}
                                 >
                                   <div className="flex items-center justify-between gap-2">
-                                    <span>{sellerMethodLabel(option.id, isAr)}</span>
+                                    <span>{currencyText(sellerMethodLabel(option.id, isAr))}</span>
                                     {option.recommended ? <span className="rounded-full border border-[#C9A227]/30 bg-[#C9A227]/10 px-1.5 py-0.5 text-[10px] font-semibold text-[#D4AF37]">⭐</span> : null}
                                   </div>
                                 </button>
@@ -476,7 +533,7 @@ export function GuestOnboarding({
                 </div>
               ) : sellerStep === "otp_sent" ? (
                 <div key="seller-otp" className="alpha-reveal-fade grid gap-2">
-                  {sellerStatus2 ? <p className="text-xs text-emerald-300">{sellerStatus2}</p> : null}
+                  {sellerStatus2 ? <p className="text-xs text-emerald-300">{currencyText(sellerStatus2)}</p> : null}
                   <div className="rounded-xl border border-white/10 bg-black/25 p-3">
                     <p className="text-xs uppercase tracking-[0.12em] text-[#9CA3AF]">{isAr ? "طرق البيع المدعومة" : "Supported Selling Methods"}</p>
                     <div className="mt-3 grid gap-3 sm:grid-cols-2">
@@ -497,7 +554,7 @@ export function GuestOnboarding({
                                       : "border-[#374151] bg-black/20 text-[#D1D5DB] hover:border-[#C9A227]/50"
                                   }`}
                                 >
-                                  {sellerMethodLabel(option.id, isAr)}
+                                  {currencyText(sellerMethodLabel(option.id, isAr))}
                                 </button>
                               );
                             })}
@@ -567,7 +624,7 @@ export function GuestOnboarding({
                                   }`}
                                 >
                                   <div className="flex items-center justify-between gap-2">
-                                    <span>{sellerMethodLabel(option.id, isAr)}</span>
+                                    <span>{currencyText(sellerMethodLabel(option.id, isAr))}</span>
                                     {option.recommended ? <span className="rounded-full border border-[#C9A227]/30 bg-[#C9A227]/10 px-1.5 py-0.5 text-[10px] font-semibold text-[#D4AF37]">⭐ {isAr ? "موصى به" : "Recommended"}</span> : null}
                                   </div>
                                 </button>
@@ -582,20 +639,20 @@ export function GuestOnboarding({
                     <p className="font-semibold text-white">{isAr ? "ماذا يحدث بعد التقديم؟" : "What happens after you apply?"}</p>
                     <ul className="mt-2 list-disc space-y-1 ps-5">
                       <li>{isAr ? "يدخل طلبك في مراجعة يدوية." : "Your application enters manual review."}</li>
-                      <li>{isAr
+                      <li>{brandText(isAr
                         ? (phoneVerificationEnabled
                           ? "يتواصل فريق Alpha Traders عبر WhatsApp على رقمك المحقق."
                           : "يتواصل فريق Alpha Traders عبر WhatsApp باستخدام الرقم الذي تقدمه في الطلب.")
                         : (phoneVerificationEnabled
                           ? "The Alpha Traders team contacts you via WhatsApp using your verified number."
-                          : "The Alpha Traders team contacts you via WhatsApp using the number you provide in your application.")}</li>
+                          : "The Alpha Traders team contacts you via WhatsApp using the number you provide in your application."))}</li>
                       <li>{isAr ? "قد نطلب معلومات إضافية قبل الموافقة." : "Additional information may be requested before approval."}</li>
                     </ul>
                   </div>
                   <p className="rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-xs text-[#9CA3AF]">
                     {isAr
-                      ? "الموافقة على البائعين تتم يدويًا لحماية المشترين والحفاظ على سوق موثوق."
-                      : "Seller approval is performed manually to protect buyers and maintain a trusted marketplace."}
+                      ? "نراجع طلبات البائعين قبل الموافقة."
+                      : "We review seller applications before approval."}
                   </p>
                   <Input
                     aria-label={isAr ? "حجم التداول الشهري المتوقع (اختياري)" : "Expected monthly volume (optional)"}
@@ -604,15 +661,18 @@ export function GuestOnboarding({
                     onChange={(e) => setSeller((p) => ({ ...p, expectedVolume: e.target.value }))}
                   />
                   {phoneVerificationEnabled ? (
+                    <div className="space-y-3">
+                    <PhoneVerificationChannelPicker locale={locale} value={phoneChannel} onChange={setPhoneChannel} disabled={isLoading} channels={phoneVerificationChannels} />
                     <Button
                       type="button"
                       loading={loading === "seller_sendOtp"}
                       loadingLabel={isAr ? "جارٍ الإرسال..." : "Sending..."}
                       onClick={() => void sellerSendOtp()}
-                      disabled={isLoading || !seller.firstName || !seller.lastName || !seller.phone || seller.preferredNetworks.length === 0}
+                      disabled={isLoading || !seller.firstName || !seller.lastName || !seller.phone || seller.preferredNetworks.length === 0 || phoneVerificationChannels?.[phoneChannel] === false}
                     >
                       {isAr ? "إرسال رمز التحقق" : "Send verification code"}
                     </Button>
+                    </div>
                   ) : (
                     <div className="space-y-3">
                       <div className="rounded-xl border border-sky-400/25 bg-sky-500/10 px-3 py-2 text-xs text-sky-100">
@@ -633,16 +693,18 @@ export function GuestOnboarding({
                   )}
                 </div>
               )}
-            {sellerError ? <p className="mt-2 text-xs text-rose-300">{sellerError}</p> : null}
+            {sellerError ? <ActionFeedback revealKey={sellerErrorFeedbackKey} as="p" role="alert" className="mt-2 text-xs text-rose-300">{currencyText(sellerError)}</ActionFeedback> : null}
           </PremiumCard>
 
           <PremiumCard
-            title={isAr ? "انضم إلى أكاديمية Alpha" : "Join Alpha Academy"}
+            title={isStudent ? (isAr ? "حساب الأكاديمية" : "Academy access") : (isAr ? "انضم إلى أكاديمية Alpha" : "Join Alpha Academy")}
             subtitle={isAr ? "تعلم عبر فيديوهات وملفات PDF واختبارات تتبع التقدم." : "Learn through videos, PDFs, and progress-based quizzes."}
             icon={GraduationCap}
             accent="green"
           >
-            <Button
+            {isStudent ? <Button type="button" className="w-full" onClick={() => router.replace("/academy")}>
+              {isAr ? "متابعة التعلّم" : "Continue learning"}
+            </Button> : <Button
               type="button"
               className="w-full"
               loading={loading === "student"}
@@ -651,10 +713,10 @@ export function GuestOnboarding({
               disabled={isLoading}
             >
               {isAr ? "تفعيل دور الطالب" : "Become a Student"}
-            </Button>
+            </Button>}
           </PremiumCard>
 
-          <PremiumCard
+          {!access.trading && !isStudent ? <PremiumCard
             title={isAr ? "المتابعة كضيف" : "Continue as Guest"}
             subtitle={isAr ? "استكشف الواجهة الآن وحدد دورك لاحقًا." : "Explore now and choose your role later."}
             icon={UserCircle2}
@@ -671,7 +733,7 @@ export function GuestOnboarding({
             >
               {isAr ? "المتابعة كضيف" : "Continue as Guest"}
             </Button>
-          </PremiumCard>
+          </PremiumCard> : null}
         </div>
       </div>
     </section>

@@ -18,6 +18,7 @@ import {
   getTradeRoomData,
   invalidateAlphaExchangeStoreCache,
   openTradeDispute,
+  resolveTradeDisputeByAdmin,
   reportSeller,
   submitBuyerTradeReview,
   submitSellerReviewResponse,
@@ -26,6 +27,7 @@ import {
 } from "@/lib/alpha-exchange-store";
 import { DIRECT_CONTACT_CONTENT_ERROR } from "@/lib/privacy-redaction";
 import { publishRealtimeEvent } from "@/lib/realtime";
+import { getAlphaExchangeRepository } from "@/lib/alpha-exchange-repository";
 
 const BUYER_ID = "buyer-content-policy";
 const SELLER_ID = "seller-content-policy";
@@ -149,6 +151,12 @@ function reloadStoreFromSnapshot() {
   invalidateAlphaExchangeStoreCache();
 }
 
+function publishedDisputeNotices() {
+  return vi.mocked(publishRealtimeEvent).mock.calls.flatMap(([event]) =>
+    (event.type === "notification.created" || event.type === "notification.updated")
+      && event.payload.notification.title === "Dispute opened" ? [event.payload.notification] : []);
+}
+
 describe("Trade content policy", () => {
   beforeEach(() => {
     vi.mocked(publishRealtimeEvent).mockClear();
@@ -156,6 +164,23 @@ describe("Trade content policy", () => {
     globalThis.__alphaExchangeMemoryEvidenceContent = undefined as never;
     globalThis.__alphaExchangeRepositoryPromise = undefined as never;
     reloadStoreFromSnapshot();
+  });
+
+  it("saves buyer and seller feedback without full-snapshot reads or unrelated maintenance", async () => {
+    const completed = snapshot().purchaseRequests[0];
+    completed.status = "review_open";
+    completed.completedAt = new Date().toISOString();
+    const repository = await getAlphaExchangeRepository();
+    const readSelected = vi.spyOn(repository, "loadSelectedSnapshot").mockImplementation(async () => structuredClone(snapshot()) as never);
+    const readFull = vi.spyOn(repository, "loadSnapshot").mockRejectedValue(new Error("Unrelated full snapshot timed out"));
+    try {
+      const result = await submitBuyerTradeReview({ requestId: REQUEST_ID, buyerUserId: BUYER_ID, rating: 5, comment: "Done" });
+      expect(result.review.comment).toBe("Done");
+      await expect(submitSellerReviewResponse({ requestId: REQUEST_ID, sellerUserId: SELLER_ID, message: "Thank you" })).resolves.toMatchObject({ sellerReply: "Thank you" });
+      expect(readFull).not.toHaveBeenCalled();
+      expect(readSelected).toHaveBeenCalledTimes(2);
+      expect(snapshot().purchaseRequests[0].buyerReview?.comment).toBe("Done");
+    } finally { readSelected.mockRestore(); readFull.mockRestore(); }
   });
 
   it("rejects direct contact content at close, dispute, report, review, and reply write boundaries", async () => {
@@ -322,9 +347,7 @@ describe("Trade content policy", () => {
   });
 
   it("commits simultaneous identical dispute submissions exactly once", async () => {
-    for (const account of snapshot().users) {
-      account.notificationPreferences = { inApp: true, email: false, sms: false };
-    }
+    snapshot().purchaseRequests[0]!.status = "payment_sent";
     reloadStoreFromSnapshot();
 
     const submit = () => openTradeDispute({
@@ -339,16 +362,24 @@ describe("Trade content policy", () => {
     expect(saved.disputes).toHaveLength(1);
     expect(saved.purchaseRequests[0]?.timeline.filter((entry) => entry.type === "dispute_opened")).toHaveLength(1);
     expect(saved.notifications.filter((entry) => entry.title === "Dispute opened")).toHaveLength(3);
+    expect(saved.notifications.filter((entry) => entry.title === "Dispute opened").every((entry) => (
+      entry.state === "unread" && !entry.isRead && entry.whatsappChannelOnly !== true
+    ))).toBe(true);
+    expect(saved.notifications.filter((entry) => entry.title === "Dispute opened" && entry.whatsappEvent === "trade_update").map((entry) => entry.userId).sort())
+      .toEqual([BUYER_ID, SELLER_ID].sort());
     expect(saved.activityLog.filter((entry) => entry.title === "Dispute opened")).toHaveLength(1);
+    const publishedNotices = publishedDisputeNotices().map(notice => notice.id);
+    expect(publishedNotices.sort()).toEqual(saved.notifications.filter((entry) => entry.title === "Dispute opened").map((entry) => entry.id).sort());
     expect(vi.mocked(publishRealtimeEvent).mock.calls.filter(([event]) => (
       event.type === "trade.status_changed" && event.payload.request?.id === REQUEST_ID
     ))).toHaveLength(1);
   });
 
-  it("allows only one winner when buyer and seller open a dispute simultaneously", async () => {
+  it("allows only one winner when two different buyer disputes are submitted simultaneously", async () => {
     for (const account of snapshot().users) {
       account.notificationPreferences = { inApp: true, email: false, sms: false };
     }
+    snapshot().purchaseRequests[0]!.status = "payment_sent";
     reloadStoreFromSnapshot();
 
     const results = await Promise.allSettled([
@@ -359,8 +390,8 @@ describe("Trade content policy", () => {
       }),
       openTradeDispute({
         purchaseRequestId: REQUEST_ID,
-        openedByUserId: SELLER_ID,
-        reason: "Seller requests an admin review",
+        openedByUserId: BUYER_ID,
+        reason: "Buyer reports a different problem",
       }),
     ]);
 
@@ -371,9 +402,50 @@ describe("Trade content policy", () => {
     expect(saved.purchaseRequests[0]?.timeline.filter((entry) => entry.type === "dispute_opened")).toHaveLength(1);
     expect(saved.notifications.filter((entry) => entry.title === "Dispute opened")).toHaveLength(3);
     expect(saved.activityLog.filter((entry) => entry.title === "Dispute opened")).toHaveLength(1);
+    const publishedNotices = publishedDisputeNotices().map(notice => notice.id);
+    expect(publishedNotices.sort()).toEqual(saved.notifications.filter((entry) => entry.title === "Dispute opened").map((entry) => entry.id).sort());
     expect(vi.mocked(publishRealtimeEvent).mock.calls.filter(([event]) => (
       event.type === "trade.status_changed" && event.payload.request?.id === REQUEST_ID
     ))).toHaveLength(1);
+  });
+
+  it("alerts both participants once when an admin resolves their active trade dispute", async () => {
+    snapshot().purchaseRequests[0]!.status = "payment_sent";
+    reloadStoreFromSnapshot();
+    const dispute = await openTradeDispute({ purchaseRequestId: REQUEST_ID, openedByUserId: BUYER_ID, reason: "Payment needs review" });
+    const input = { disputeId: dispute.id, actorUserId: OWNER_ID, actorRole: "owner" as const, resolutionNotes: "Review complete; continue in the Trade Room" };
+    await resolveTradeDisputeByAdmin(input);
+    await resolveTradeDisputeByAdmin(input);
+    const alerts = snapshot().notifications.filter((entry) => entry.title === "Dispute review resolved");
+    expect(alerts.map((entry) => entry.userId).sort()).toEqual([BUYER_ID, SELLER_ID].sort());
+    expect(alerts.every((entry) => entry.state === "unread" && !entry.isRead && entry.whatsappChannelOnly !== true)).toBe(true);
+    expect(alerts.every((entry) => entry.whatsappEvent === "trade_update" && entry.relatedRequestId === REQUEST_ID)).toBe(true);
+  });
+
+  it("publishes no dispute notice when persistence fails and publishes each committed notice once after retry", async () => {
+    snapshot().purchaseRequests[0]!.status = "payment_sent";
+    reloadStoreFromSnapshot();
+    const repository = await getAlphaExchangeRepository();
+    const persist = repository.saveSnapshot.bind(repository);
+    let rejectedDisputeWrites = 0;
+    const save = vi.spyOn(repository, "saveSnapshot").mockImplementation(async (db, options) => {
+      if (options?.selectedTables?.includes("disputes")) {
+        rejectedDisputeWrites += 1;
+        throw new Error("Injected dispute persistence failure");
+      }
+      return persist(db, options);
+    });
+    const input = { purchaseRequestId: REQUEST_ID, openedByUserId: BUYER_ID, reason: "Payment confirmation needs review" };
+    try {
+      await expect(openTradeDispute(input)).rejects.toThrow("Injected dispute persistence failure");
+      expect(rejectedDisputeWrites).toBe(1);
+      expect(snapshot().disputes).toHaveLength(0);
+      expect(publishedDisputeNotices()).toHaveLength(0);
+    } finally { save.mockRestore(); }
+    reloadStoreFromSnapshot();
+    await openTradeDispute(input);
+    expect(publishedDisputeNotices()).toHaveLength(3);
+    expect(publishedDisputeNotices().map(notice => notice.id).sort()).toEqual(snapshot().notifications.filter(notice => notice.title === "Dispute opened").map(notice => notice.id).sort());
   });
 
   it("redacts legacy close and review content in counterparty workspace, Trade Room, and public seller profile", async () => {

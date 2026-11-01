@@ -26,6 +26,8 @@ vi.mock("@/lib/alpha-exchange-store", () => ({
 }));
 vi.mock("@/lib/phone-verification-delivery", () => ({
   sendPhoneVerificationCode: mocks.sendPhoneVerificationCode,
+  phoneVerificationDeliveryPreflight: () => null,
+  getPhoneVerificationChannels: () => ({ sms: true, whatsapp: true }),
 }));
 vi.mock("@/lib/rate-limit", () => ({ checkSharedRateLimit: mocks.checkSharedRateLimit }));
 vi.mock("@/lib/structured-logging", () => ({ logEvent: mocks.logEvent }));

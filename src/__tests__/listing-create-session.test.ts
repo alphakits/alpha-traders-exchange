@@ -1,9 +1,10 @@
+import { FxReferenceUnavailableError } from "@/lib/fx-reference-policy";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest, NextResponse } from "next/server";
 
 const mocks = vi.hoisted(() => ({
   requireApiUser: vi.fn(),
-  requireEmailVerificationForTrading: vi.fn(),
+  requireMarketplaceVerificationForTrading: vi.fn(),
   canPublishListings: vi.fn(),
   createMarketplaceListing: vi.fn(),
   getMarketplaceListings: vi.fn(),
@@ -14,7 +15,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@/lib/api-auth", () => ({
   requireApiUser: mocks.requireApiUser,
-  requireEmailVerificationForTrading: mocks.requireEmailVerificationForTrading,
+  requireMarketplaceVerificationForTrading: mocks.requireMarketplaceVerificationForTrading,
 }));
 
 vi.mock("@/lib/alpha-exchange-store", () => ({
@@ -53,7 +54,7 @@ function createRequest() {
 describe("listing create session boundary", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.requireEmailVerificationForTrading.mockReturnValue(null);
+    mocks.requireMarketplaceVerificationForTrading.mockReturnValue(null);
     mocks.canPublishListings.mockReturnValue(true);
     mocks.checkSharedRateLimit.mockResolvedValue({ allowed: true, retryAfterSeconds: 0 });
     mocks.fetchUsdIlsMarketRate.mockResolvedValue("3.05");
@@ -64,6 +65,15 @@ describe("listing create session boundary", () => {
       status: "draft",
       approvalStatus: "pending",
     });
+  });
+
+  it("returns 503 before creating any listing when the source is stale or unavailable", async () => {
+    mocks.requireApiUser.mockResolvedValue({ user: { id: "seller-1", fullName: "Seller", role: "approved_seller" }, unauthorized: null });
+    mocks.fetchUsdIlsMarketRate.mockRejectedValue(new FxReferenceUnavailableError());
+    const response = await POST(createRequest());
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({ code: "MARKET_REFERENCE_UNAVAILABLE" });
+    expect(mocks.createMarketplaceListing).not.toHaveBeenCalled();
   });
 
   it("keeps the create endpoint protected when no server session exists", async () => {
@@ -89,5 +99,40 @@ describe("listing create session boundary", () => {
     expect(payload.listing).toMatchObject({ status: "draft", approvalStatus: "pending" });
     expect(payload.destination).toBe("/usdt-exchange#seller-listing-listing-1");
     expect(mocks.createMarketplaceListing).toHaveBeenCalledWith(expect.objectContaining({ sellerId: "seller-1", actorUserId: "seller-1" }));
+  });
+
+  it("lets fifteen approved sellers sharing a network create listings independently", async () => {
+    const { checkRateLimit } = await vi.importActual<typeof import("@/lib/rate-limit")>("@/lib/rate-limit");
+    mocks.checkSharedRateLimit.mockImplementation((input) => checkRateLimit({ ...input, key: `shared-network:${input.key}` }));
+    const responses = await Promise.all(Array.from({ length: 15 }, (_, index) => {
+      mocks.requireApiUser.mockResolvedValueOnce({
+        user: { id: `network-seller-${index}`, fullName: "Seller", role: "approved_seller", emailVerified: true },
+        unauthorized: null,
+      });
+      const request = createRequest();
+      request.headers.set("x-vercel-forwarded-for", "203.0.113.15");
+      return POST(request);
+    }));
+    expect(responses.map((response) => response.status)).toEqual(Array(15).fill(201));
+    expect(mocks.createMarketplaceListing).toHaveBeenCalledTimes(15);
+  });
+
+  it("keeps one seller's limit when their network address changes", async () => {
+    const { checkRateLimit } = await vi.importActual<typeof import("@/lib/rate-limit")>("@/lib/rate-limit");
+    mocks.checkSharedRateLimit.mockImplementation((input) => checkRateLimit({ ...input, key: `rotating-network:${input.key}` }));
+    mocks.requireApiUser.mockResolvedValue({
+      user: { id: "limited-seller", fullName: "Seller", role: "approved_seller", emailVerified: true },
+      unauthorized: null,
+    });
+    const responses = await Promise.all(Array.from({ length: 11 }, (_, index) => {
+      const request = createRequest();
+      request.headers.set("x-vercel-forwarded-for", `203.0.113.${index + 1}`);
+      return POST(request);
+    }));
+    expect(responses.filter((response) => response.status === 201)).toHaveLength(10);
+    const blocked = responses.find((response) => response.status === 429);
+    expect(blocked).toBeDefined();
+    expect(Number(blocked?.headers.get("Retry-After"))).toBeGreaterThan(0);
+    expect(mocks.createMarketplaceListing).toHaveBeenCalledTimes(10);
   });
 });

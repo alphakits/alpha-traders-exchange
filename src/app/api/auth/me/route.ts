@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { AUTH_PHONE_VERIFIED_COOKIE_NAME, clearUserSession, expireAuthCookies, getCurrentSessionToken, getCurrentSessionUser } from "@/lib/auth";
+import { AUTH_PHONE_VERIFIED_COOKIE_NAME, clearUserSession, getCurrentSessionToken, getCurrentSessionUser } from "@/lib/auth";
 import { isMarketplacePhoneVerificationDisabled } from "@/lib/phone-verification";
 import { isVerified } from "@/lib/verification-bypass";
 import { toClientSessionUser } from "@/lib/client-session-user";
+import { unstable_rethrow } from "next/navigation";
+import { logEvent } from "@/lib/structured-logging";
 
 const AUTH_RESPONSE_HEADERS = { "Cache-Control": "no-store, max-age=0" };
 
@@ -11,7 +13,22 @@ export async function GET() {
   const routeStartedAt = Date.now();
   const timeline: Array<{ name: string; startTime: number; endTime: number; durationMs: number }> = [];
   const loadUserStartedAt = Date.now();
-  const user = await getCurrentSessionUser();
+  let user: Awaited<ReturnType<typeof getCurrentSessionUser>>;
+  try {
+    user = await getCurrentSessionUser();
+  } catch (error) {
+    unstable_rethrow(error);
+    logEvent("error", {
+      event: "auth_me_session_unavailable",
+      outcome: "failed",
+      reason: "session_read_failed",
+      metadata: { errorName: error instanceof Error ? error.name : typeof error },
+    });
+    return NextResponse.json({ error: "SESSION_TEMPORARILY_UNAVAILABLE" }, {
+      status: 503,
+      headers: { ...AUTH_RESPONSE_HEADERS, "Retry-After": "3" },
+    });
+  }
   const loadUserEndedAt = Date.now();
   timeline.push({
     name: "/api/auth/me",
@@ -24,8 +41,8 @@ export async function GET() {
     const token = await getCurrentSessionToken();
     if (token) {
       await clearUserSession(token);
-      const cookieStore = await cookies();
-      expireAuthCookies(cookieStore, process.env.NODE_ENV === "production");
+      // An old background read must not clear a replacement login cookie.
+      // Canonical authorization still rejects this token; logout owns expiry.
     }
     const routeMs = Date.now() - routeStartedAt;
     return NextResponse.json({ user: null }, {
@@ -46,6 +63,10 @@ export async function GET() {
       secure: process.env.NODE_ENV === "production",
       sameSite: "lax",
       path: "/",
+    });
+  } else {
+    cookieStore.set(AUTH_PHONE_VERIFIED_COOKIE_NAME, "", {
+      httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "lax", path: "/", maxAge: 0,
     });
   }
   const routeMs = Date.now() - routeStartedAt;

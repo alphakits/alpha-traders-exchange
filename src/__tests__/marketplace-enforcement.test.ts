@@ -1,4 +1,7 @@
-import { beforeEach, describe, expect, it } from "vitest";
+// Synthetic quote for lifecycle tests; feed failures and price boundaries have separate coverage.
+vi.mock("@/lib/market-service", () => ({ DEFAULT_USD_ILS_RATE: 3.05, getUsdtIlsReferenceRate: async () => 4 }));
+
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AlphaExchangeDb } from "@/types/alpha-exchange";
 
 import {
@@ -53,6 +56,18 @@ function createUser(id: string, role: "owner" | "admin" | "approved_seller") {
     sellerPrestigeRank: "bronze",
     sellerPromotionHistory: [],
     sellerAchievements: [],
+    sellerBankAccounts: role === "approved_seller" ? [{
+      id: `bank-${id}-leumi`,
+      sellerId: id,
+      accountHolderName: id,
+      bankName: "Bank Leumi",
+      branchNumber: "123",
+      accountNumber: "1234567890",
+      accountLast4: "7890",
+      isDefault: true,
+      createdAt: now,
+      updatedAt: now,
+    }] : undefined,
     ownerSettings: role === "owner"
       ? {
           marketplaceComplianceRecoveryWallet: {

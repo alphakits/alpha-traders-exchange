@@ -4,6 +4,9 @@ import { createHash } from "crypto";
 import { checkSharedRateLimit } from "@/lib/rate-limit";
 import { logEvent } from "@/lib/structured-logging";
 import { getRuntimePostgresPool } from "@/lib/postgres-runtime";
+import { formatLearningMessage, LEARNING_INTEREST_SUBJECT, LEARNING_INTEREST_TOPIC } from "@/lib/learning-interest";
+import { learningCampaignLink } from "@/lib/learning-campaign";
+import { isIctMentorshipIntakeOpen } from "@/lib/ict-mentorship-offer";
 
 const RESPONSE_HEADERS = { "Cache-Control": "no-store, max-age=0" };
 
@@ -13,16 +16,27 @@ const ContactSchema = z.object({
   subject: z.string().min(2).max(200),
   message: z.string().min(10).max(4000),
   locale: z.enum(["ar", "en"]).default("en"),
+  topic: z.literal(LEARNING_INTEREST_TOPIC).optional(),
+  campaignLinkId: z.unknown().optional(),
+  learningDetails: z.object({
+    experience: z.enum(["starting", "foundations", "studied", "practising"]),
+    availability: z.string().trim().min(2).max(160),
+  }).optional(),
   // honeypot — must be empty
   website: z.string().max(0).optional(),
 });
 
-type ContactField = "name" | "email" | "subject" | "message";
+type ContactField = "name" | "email" | "subject" | "message" | "experience" | "availability";
 
 function stableContactIssues(error: z.ZodError): Partial<Record<ContactField, string[]>> {
   const result: Partial<Record<ContactField, string[]>> = {};
   for (const issue of error.issues) {
     const field = issue.path[0];
+    if (field === "learningDetails") {
+      if (issue.path[1] === "availability") result.availability = ["LEARNING_AVAILABILITY_INVALID"];
+      else result.experience = ["LEARNING_EXPERIENCE_REQUIRED"];
+      continue;
+    }
     if (field !== "name" && field !== "email" && field !== "subject" && field !== "message") continue;
 
     let code: string;
@@ -85,7 +99,21 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const { name, email, subject, message, locale } = parsed.data;
+  const { name, email, locale } = parsed.data;
+  const isMentorshipEnquiry = parsed.data.topic === LEARNING_INTEREST_TOPIC
+    || Object.values(LEARNING_INTEREST_SUBJECT).some(subject => subject === parsed.data.subject);
+  if (isMentorshipEnquiry && !isIctMentorshipIntakeOpen()) {
+    return NextResponse.json({ error: "mentorship_intake_closed" }, { status: 409, headers: RESPONSE_HEADERS });
+  }
+  const message = parsed.data.topic === LEARNING_INTEREST_TOPIC && parsed.data.learningDetails
+    ? formatLearningMessage(parsed.data.message, parsed.data.learningDetails, locale)
+    : parsed.data.message;
+  const subject = parsed.data.topic === LEARNING_INTEREST_TOPIC
+    ? LEARNING_INTEREST_SUBJECT[locale]
+    : parsed.data.subject;
+  const campaignLinkId = parsed.data.topic === LEARNING_INTEREST_TOPIC
+    && request.headers.get("sec-gpc") !== "1" && request.headers.get("dnt") !== "1"
+    ? learningCampaignLink(parsed.data.campaignLinkId)?.id ?? null : null;
 
   const forwarded = request.headers.get("x-forwarded-for");
   const rawIp = forwarded ? forwarded.split(",")[0]?.trim() : request.headers.get("x-real-ip") ?? "unknown";
@@ -95,7 +123,13 @@ export async function POST(request: NextRequest) {
 
   if (pool) {
     try {
-      await pool.query(
+      if (parsed.data.topic === LEARNING_INTEREST_TOPIC) {
+        await pool.query(
+          `INSERT INTO public.contact_submissions (name, email, subject, message, locale, ip_hash, campaign_link_id)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+          [name, email, subject, message, locale, ipHash, campaignLinkId],
+        );
+      } else await pool.query(
         `INSERT INTO public.contact_submissions (name, email, subject, message, locale, ip_hash)
          VALUES ($1, $2, $3, $4, $5, $6)`,
         [name, email, subject, message, locale, ipHash],
@@ -115,13 +149,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "server_error" }, { status: 500, headers: RESPONSE_HEADERS });
     }
   } else {
-    // No DB configured — log server-side only
-    logEvent("warn", {
+    // Support and deletion requests must be durable before acknowledging them.
+    logEvent("error", {
       event: "contact_submission",
-      outcome: "success",
+      outcome: "failed",
       reason: "no_db_configured",
-      metadata: { name, emailDomain: email.split("@")[1], subject, locale },
+      metadata: { locale },
     });
+    return NextResponse.json(
+      { error: "service_unavailable" },
+      { status: 503, headers: RESPONSE_HEADERS },
+    );
   }
 
   return NextResponse.json({ ok: true }, { status: 200, headers: RESPONSE_HEADERS });

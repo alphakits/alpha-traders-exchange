@@ -89,11 +89,17 @@ test.describe("Seller flow · listing accountability", () => {
 
 // ── Admin flow: Listing Reliability panel renders real deterministic data ────
 test.describe("Admin flow · Listing Reliability", () => {
-  test("admin dashboard exposes the Listing Reliability panel", async ({ page }) => {
-    await login(page.request, world!.admin.email, world!.admin.password);
+  test("a generic admin cannot read the owner dashboard snapshot", async ({ request }) => {
+    await login(request, world!.admin.email, world!.admin.password);
+    const response = await request.get("/api/alpha-exchange/admin-prep");
+    expect(response.status()).toBe(403);
+  });
+
+  test("owner dashboard exposes the Listing Reliability panel", async ({ page }) => {
+    await login(page.request, process.env.E2E_OWNER_EMAIL!, process.env.E2E_OWNER_PASSWORD!);
     await page.goto("/en/admin/alpha-exchange");
     await page.getByRole("button", { name: /Open Listing Reliability/i }).click();
-    await expect(page.getByRole("heading", { name: "Listing Reliability" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Listing Reliability", exact: true })).toBeVisible({ timeout: 15_000 });
     const hasData = await page.getByText("Sellers tracked").first().isVisible().catch(() => false);
     if (hasData) {
       await expect(page.getByRole("columnheader", { name: /Cancellation %/ })).toBeVisible();
@@ -131,7 +137,7 @@ test.describe("Admin flow · mobile commission settlement", () => {
       commission,
     ];
     await writeState(page.request, state);
-    await login(page.request, world!.admin.email, world!.admin.password);
+    await login(page.request, process.env.E2E_OWNER_EMAIL!, process.env.E2E_OWNER_PASSWORD!);
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto(`/en/admin/alpha-exchange?section=commissions&commission=${encodeURIComponent(commissionId)}`);
 
@@ -152,7 +158,7 @@ test.describe("Admin flow · mobile commission settlement", () => {
 
     await expect(dialog).toBeHidden();
     await expect(card.getByText("Payment settled")).toBeVisible();
-    await expect(page.getByText("Commission marked paid. Seller confirmation was sent.")).toBeVisible();
+    await expect(page.getByText("Commission marked paid.", { exact: true })).toBeVisible();
 
     const persisted = await readState(page.request);
     const savedCommission = ((persisted.commissionRecords as Array<Record<string, unknown>> | undefined) ?? [])

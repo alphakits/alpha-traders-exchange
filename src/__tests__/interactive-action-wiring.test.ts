@@ -1,6 +1,7 @@
 // @vitest-environment node
 
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import ts from "typescript";
 import { describe, expect, it } from "vitest";
@@ -19,7 +20,11 @@ function collectTsxFiles(directory: string): string[] {
   return fs.readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
     const absolutePath = path.join(directory, entry.name);
     if (entry.isDirectory()) return collectTsxFiles(absolutePath);
-    return entry.isFile() && entry.name.endsWith(".tsx") ? [absolutePath] : [];
+    // Test fixtures intentionally include isolated controls without app actions.
+    // Keep the wiring audit scoped to shipped components, including nested ones.
+    return entry.isFile() && entry.name.endsWith(".tsx") && !/\.(test|spec)\.tsx$/.test(entry.name)
+      ? [absolutePath]
+      : [];
   });
 }
 
@@ -95,6 +100,23 @@ function findInertActions(file: string) {
 }
 
 describe("interactive action wiring", () => {
+  it("ignores test fixtures while still rejecting unwired nested application controls", () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "alpha-action-wiring-"));
+    try {
+      const nested = path.join(directory, "nested");
+      fs.mkdirSync(nested);
+      const inertComponent = path.join(nested, "broken.tsx");
+      fs.writeFileSync(inertComponent, '<button type="button">Unwired action</button>');
+      fs.writeFileSync(path.join(nested, "working.tsx"), '<button onClick={save}>Save</button>');
+      fs.writeFileSync(path.join(nested, "focus.test.tsx"), '<button role="tab">Focus fixture</button>');
+      fs.writeFileSync(path.join(directory, "focus.spec.tsx"), '<button role="tab">Another fixture</button>');
+      const findings = collectTsxFiles(directory).flatMap(findInertActions);
+      expect(findings).toEqual([`${path.relative(process.cwd(), inertComponent)}:1 <button>`]);
+    } finally {
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
   it("rejects web and native action components with no handler, submission, or navigation", () => {
     const files = [
       ...collectTsxFiles(path.join(process.cwd(), "src")),

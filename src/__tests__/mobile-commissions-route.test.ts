@@ -70,6 +70,35 @@ beforeEach(() => {
 });
 
 describe("mobile seller commission route", () => {
+  it("returns overdue payment instructions and accepts the same payment verification flow", async () => {
+    mocks.getSellerCommissionStatus.mockResolvedValueOnce({ ...commissionStatus(), status: "overdue" });
+    const overdue = await GET(request("GET"));
+    expect(overdue.status).toBe(200);
+    expect(await overdue.json()).toMatchObject({ status: "overdue", pendingCount: 1,
+      payableRecords: [expect.objectContaining({ commissionId: "commission-1", amountDue: 7.000001 })] });
+    mocks.submitSellerCommissionWalletPayment.mockResolvedValue({ verification: { verified: true, pending: false } });
+    mocks.getSellerCommissionStatus.mockResolvedValue({ status: "clear", pendingCount: 0, totalAmountDue: 0, payableRecords: [] });
+    const paid = await POST(request("POST", { commissionId: "commission-1", network: "TRC20", paymentSignature: TX_ID }));
+    expect(paid.status).toBe(200);
+    expect(mocks.submitSellerCommissionWalletPayment).toHaveBeenCalledWith(expect.objectContaining({
+      sellerUserId: "seller-1", commissionId: "commission-1", paymentSignature: TX_ID,
+    }));
+    expect(await paid.json()).toMatchObject({ status: "clear", pendingCount: 0, verification: { verified: true } });
+  });
+
+  it("ignores a forged seller ID and returns only the authenticated seller's commission data", async () => {
+    const response = await GET(new NextRequest("https://www.alphatraders.co.il/api/mobile/v1/seller/commissions?sellerId=other-seller", { headers }));
+    expect(response.status).toBe(200);
+    expect(mocks.getSellerCommissionStatus).toHaveBeenCalledExactlyOnceWith("seller-1");
+    expect(response.headers.get("cache-control")).toContain("no-store");
+  });
+
+  it("denies a buyer access to private commission records", async () => {
+    mocks.requireMobileApiUser.mockResolvedValue({ user: { id: "buyer-1", role: "buyer", sellerStatus: "buyer" }, unauthorized: null });
+    const response = await GET(request("GET"));
+    expect(response.status).toBe(403);
+    expect(mocks.getSellerCommissionStatus).not.toHaveBeenCalled();
+  });
   it("requires the exact-amount-capable mobile release and blocks installed 1.1 clients", async () => {
     const response = await GET(new NextRequest(
       "https://www.alphatraders.co.il/api/mobile/v1/seller/commissions",
@@ -107,7 +136,7 @@ describe("mobile seller commission route", () => {
         network: "TRC20",
         available: true,
         walletAddress: CANONICAL_WALLET,
-      }],
+      }, { network: "BEP20", available: true, walletAddress: "0x7088a120cde7351dbf3e7831a9da3f74058c89a0" }],
     });
   });
 

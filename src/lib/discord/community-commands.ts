@@ -1,4 +1,5 @@
 import "server-only";
+import { isUncertainPostgresConnection, rollbackFailedTransaction } from "@/lib/postgres-transaction";
 
 import { createHash } from "node:crypto";
 
@@ -14,7 +15,7 @@ import {
   type InteractionEditReplyOptions,
   type RESTPostAPIChannelMessageJSONBody,
 } from "discord.js";
-import type { Pool, PoolClient } from "pg";
+import type { Pool } from "pg";
 
 import type { DiscordGatewayClient } from "@/lib/discord/gateway-client";
 import {
@@ -35,6 +36,7 @@ import {
   SELLER_PRESTIGE_TIERS,
 } from "@/lib/seller-prestige";
 import { MAX_ACTIVE_LISTINGS_PER_SELLER } from "@/lib/marketplace-policy";
+import { ownerApprovedSellerSql } from "@/lib/discord/seller-authorization-sql";
 
 const RESPONSE_TIMEOUT_MS = 2_500;
 const RATE_LIMIT_WINDOW_MS = 60_000;
@@ -212,6 +214,7 @@ async function claimInteraction(input: {
   now?: Date;
 }): Promise<InteractionClaimOutcome> {
   const client = await input.pool.connect();
+  let destroy = false;
   const now = input.now ?? new Date();
   try {
     await client.query("begin");
@@ -289,21 +292,10 @@ async function claimInteraction(input: {
     await client.query("commit");
     return outcome;
   } catch (error) {
-    await rollback(client, error);
+    destroy = await rollbackFailedTransaction(client, error);
     throw error;
   } finally {
-    client.release();
-  }
-}
-
-async function rollback(client: PoolClient, cause: unknown): Promise<void> {
-  try {
-    await client.query("rollback");
-  } catch (rollbackError) {
-    throw new AggregateError(
-      [cause, rollbackError],
-      "Discord interaction transaction rollback failed.",
-    );
+    client.release(destroy);
   }
 }
 
@@ -413,15 +405,18 @@ export async function buildLinkedSellerStatusMessage(input: {
 }): Promise<RESTPostAPIChannelMessageJSONBody> {
   const result = await input.pool.query<{
     seller_status: string;
+    seller_approval_verified: boolean;
     availability_status: string;
     active_listings: number;
   }>(
     `select users.seller_status,
+            ${ownerApprovedSellerSql("users.seller_status")} as seller_approval_verified,
             users.availability_status,
             count(listings.id) filter (
               where listings.status = 'active'
                 and listings.payload ->> 'approvalStatus' = 'approved'
                 and (listings.expires_at is null or listings.expires_at > now())
+                and ${ownerApprovedSellerSql("users.seller_status")}
             )::int as active_listings
        from alpha_exchange.discord_identities identity
        join alpha_exchange.users users
@@ -450,8 +445,10 @@ export async function buildLinkedSellerStatusMessage(input: {
       }],
     };
   }
-  const nextAction = row.seller_status === "approved_seller"
+  const verifiedApprovedSeller = row.seller_status === "approved_seller";
+  const nextAction = verifiedApprovedSeller
     ? "Open your seller dashboard to manage listings and requests."
+
     : row.seller_status === "pending_seller_approval"
     ? "Your application is pending authoritative website review."
     : row.seller_status === "suspended"
@@ -459,7 +456,8 @@ export async function buildLinkedSellerStatusMessage(input: {
     : row.seller_status === "rejected"
     ? "Review your website account details before applying again."
     : "Complete buyer verification, then apply on the website.";
-  const dashboard = row.seller_status === "approved_seller";
+  const dashboard = verifiedApprovedSeller;
+  const displayedStatus = row.seller_status.replaceAll("_", " ");
   return {
     allowed_mentions: { parse: [] },
     embeds: [{
@@ -468,7 +466,7 @@ export async function buildLinkedSellerStatusMessage(input: {
       color: 0xc9a227,
       fields: [{
         name: "Status",
-        value: row.seller_status.replaceAll("_", " "),
+        value: displayedStatus,
         inline: true,
       }, {
         name: "Vacation Mode",
@@ -512,6 +510,7 @@ export async function buildLinkedSellerRankMessage(input: {
          on trust.seller_id = users.id
       where identity.discord_user_id = $1
         and users.seller_status = 'approved_seller'
+        and ${ownerApprovedSellerSql("users.seller_status")}
         and coalesce((users.payload ->> 'disabled')::boolean, false) = false
       limit 1`,
     [input.discordUserId],
@@ -641,6 +640,7 @@ async function listingMessage(input: {
        left join alpha_exchange.discord_identities identity
          on identity.platform_user_id = users.id
       where users.seller_status = 'approved_seller'
+        and ${ownerApprovedSellerSql("users.seller_status")}
         and coalesce((users.payload ->> 'disabled')::boolean, false) = false
         and coalesce((users.payload ->> 'isProfileHidden')::boolean, false) = false
         and coalesce((users.payload ->> 'allowProfileSearch')::boolean, true) = true
@@ -791,6 +791,7 @@ export class DiscordCommunityCommandService {
   async reconcile(): Promise<void> {
     const database = await this.pool.connect();
     let locked = false;
+    let destroyClient = false;
     try {
       await database.query(
         "select pg_advisory_lock(hashtext($1))",
@@ -975,10 +976,12 @@ export class DiscordCommunityCommandService {
         lastReconciledAt: new Date().toISOString(),
         errorCode: null,
       };
+    } catch (error) {
+      destroyClient = isUncertainPostgresConnection(error);
+      throw error;
     } finally {
-      let destroyClient = false;
       let unlockError: unknown;
-      if (locked) {
+      if (locked && !destroyClient) {
         try {
           await database.query(
             "select pg_advisory_unlock(hashtext($1))",

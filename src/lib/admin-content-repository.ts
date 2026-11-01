@@ -1,8 +1,10 @@
 import type { Pool, PoolClient } from "pg";
+import { AsyncLocalStorage } from "node:async_hooks";
 import lessonsSeed from "@/data/lessons.json";
 import mediaSeed from "@/data/media-library.json";
 import versionsSeed from "@/data/lesson-versions.json";
 import { getRuntimePostgresPool } from "@/lib/postgres-runtime";
+import { rollbackFailedTransaction } from "@/lib/postgres-transaction";
 import type { Lesson } from "@/types/academy";
 import type { LessonVersion, MediaItem } from "@/types/admin";
 
@@ -83,10 +85,13 @@ async function runSchema(target: Pool | PoolClient) {
   }
 }
 
+let memoryMutationTail = Promise.resolve();
+
 export class AdminContentRepository {
   private readonly pool: Pool | null;
   private readonly usesMemoryFallback: boolean;
   private initPromise: Promise<void> | null = null;
+  private readonly mutation = new AsyncLocalStorage<{ client?: PoolClient; snapshot?: AdminContentSnapshot }>();
 
   constructor(pool: Pool | null) {
     this.pool = pool;
@@ -102,22 +107,23 @@ export class AdminContentRepository {
           return;
         }
 
-        await runSchema(pool);
-        const [lessonCount, versionCount, mediaCount] = await Promise.all([
-          pool.query<{ count: string }>("select count(*)::text as count from admin_cms.lessons"),
-          pool.query<{ count: string }>("select count(*)::text as count from admin_cms.lesson_versions"),
-          pool.query<{ count: string }>("select count(*)::text as count from admin_cms.media_items"),
-        ]);
-
-        const isEmpty =
-          lessonCount.rows[0]?.count === "0" &&
-          versionCount.rows[0]?.count === "0" &&
-          mediaCount.rows[0]?.count === "0";
-
-        if (isEmpty) {
-          await this.saveSnapshot(DEFAULT_SNAPSHOT, { skipReadyCheck: true });
-        }
-      })();
+        const client = await pool.connect();
+        let destroy = false;
+        try {
+          await client.query("begin");
+          await client.query("select pg_advisory_xact_lock(61422918)");
+          await runSchema(client);
+          const counts = await Promise.all(["lessons", "lesson_versions", "media_items"].map(table =>
+            client.query<{ count: string }>(`select count(*)::text as count from admin_cms.${table}`)));
+          if (counts.every(result => result.rows[0]?.count === "0")) {
+            await this.persistSnapshot(client, DEFAULT_SNAPSHOT, ["lessons", "versions", "media"]);
+          }
+          await client.query("commit");
+        } catch (error) {
+          destroy = await rollbackFailedTransaction(client, error);
+          throw error;
+        } finally { client.release(destroy); }
+      })().catch(error => { this.initPromise = null; throw error; });
     }
 
     await this.initPromise;
@@ -125,10 +131,11 @@ export class AdminContentRepository {
 
   async loadSnapshot(): Promise<AdminContentSnapshot> {
     await this.ensureReady();
-    const pool = this.pool;
+    const context = this.mutation.getStore();
+    const pool = context?.client ?? this.pool;
     if (this.usesMemoryFallback || !pool) {
       ensureMemorySeed();
-      return cloneSnapshot(globalThis.__adminContentMemorySnapshot as AdminContentSnapshot);
+      return cloneSnapshot(context?.snapshot ?? globalThis.__adminContentMemorySnapshot as AdminContentSnapshot);
     }
 
     const [lessonsResult, versionsResult, mediaResult] = await Promise.all([
@@ -150,103 +157,127 @@ export class AdminContentRepository {
     };
   }
 
-  async saveSnapshot(snapshot: AdminContentSnapshot, options?: { skipReadyCheck?: boolean; selectedTables?: readonly AdminContentTableName[] }) {
+  /** All reads, writes and audit entries in an owner action share one transaction. */
+  async mutate<T>(action: () => Promise<T>): Promise<T> {
+    if (this.mutation.getStore()) return action();
+    await this.ensureReady();
     const pool = this.pool;
     if (this.usesMemoryFallback || !pool) {
-      globalThis.__adminContentMemorySnapshot = cloneSnapshot(snapshot);
-      return;
+      const previous = memoryMutationTail;
+      let release!: () => void;
+      memoryMutationTail = new Promise<void>(resolve => { release = resolve; });
+      await previous;
+      const context = { snapshot: cloneSnapshot(globalThis.__adminContentMemorySnapshot as AdminContentSnapshot) };
+      try {
+        const result = await this.mutation.run(context, action);
+        globalThis.__adminContentMemorySnapshot = cloneSnapshot(context.snapshot);
+        return result;
+      } finally { release(); }
     }
-
-    if (!options?.skipReadyCheck) {
-      await this.ensureReady();
-    } else {
-      await runSchema(pool);
-    }
-
     const client = await pool.connect();
+    let destroy = false;
     try {
       await client.query("begin");
-      try {
-        await client.query("select pg_advisory_xact_lock(61422918)");
-      } catch {
-        // Advisory locks are not available in all local database setups.
-      }
-
-      const selectedTables = options?.selectedTables ?? ["lessons", "versions", "media"];
-
-      if (selectedTables.includes("lessons")) {
-        await client.query("truncate table admin_cms.lessons");
-        for (const [index, lesson] of snapshot.lessons.entries()) {
-          await client.query(
-            `insert into admin_cms.lessons
-              (id, slug, course_id, category, status, lesson_order, updated_at, sort_index, payload)
-             values ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb)`,
-            [
-              lesson.id,
-              lesson.slug,
-              lesson.courseId,
-              lesson.category ?? "beginner",
-              lesson.status ?? "published",
-              lesson.order,
-              lesson.updatedAt ? new Date(lesson.updatedAt) : null,
-              index,
-              JSON.stringify(lesson),
-            ],
-          );
-        }
-      }
-
-      if (selectedTables.includes("versions")) {
-        await client.query("truncate table admin_cms.lesson_versions");
-        for (const [index, version] of snapshot.versions.entries()) {
-          await client.query(
-            `insert into admin_cms.lesson_versions
-              (id, lesson_id, action, role, version_timestamp, sort_index, payload)
-             values ($1,$2,$3,$4,$5,$6,$7::jsonb)`,
-            [
-              version.id,
-              version.lessonId,
-              version.action,
-              version.role,
-              new Date(version.timestamp),
-              index,
-              JSON.stringify(version),
-            ],
-          );
-        }
-      }
-
-      if (selectedTables.includes("media")) {
-        await client.query("truncate table admin_cms.media_items");
-        for (const [index, item] of snapshot.media.entries()) {
-          await client.query(
-            `insert into admin_cms.media_items
-              (id, type, provider, name, url, storage_bucket, storage_key, created_at, updated_at, sort_index, payload)
-             values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb)`,
-            [
-              item.id,
-              item.type,
-              item.provider,
-              item.name,
-              item.url,
-              item.storageBucket ?? null,
-              item.storageKey ?? null,
-              new Date(item.createdAt),
-              new Date(item.updatedAt),
-              index,
-              JSON.stringify(item),
-            ],
-          );
-        }
-      }
-
+      await client.query("select pg_advisory_xact_lock(61422918)");
+      const result = await this.mutation.run({ client }, action);
       await client.query("commit");
+      return result;
     } catch (error) {
-      await client.query("rollback");
+      destroy = await rollbackFailedTransaction(client, error);
       throw error;
-    } finally {
-      client.release();
+    } finally { client.release(destroy); }
+  }
+
+  async saveSnapshot(snapshot: AdminContentSnapshot, options?: { skipReadyCheck?: boolean; selectedTables?: readonly AdminContentTableName[] }) {
+    const selectedTables = options?.selectedTables ?? ["lessons", "versions", "media"];
+    const context = this.mutation.getStore();
+    const pool = this.pool;
+    if (this.usesMemoryFallback || !pool) {
+      const current = context?.snapshot ?? globalThis.__adminContentMemorySnapshot ?? DEFAULT_SNAPSHOT;
+      const next = cloneSnapshot(current);
+      for (const table of selectedTables) Object.assign(next, { [table]: structuredClone(snapshot[table]) });
+      if (context) context.snapshot = next;
+      else globalThis.__adminContentMemorySnapshot = next;
+      return;
     }
+    if (context?.client) {
+      await this.persistSnapshot(context.client, snapshot, selectedTables);
+      return;
+    }
+    if (!options?.skipReadyCheck) await this.ensureReady();
+    else await runSchema(pool);
+    await this.mutate(async () => {
+      await this.persistSnapshot(this.mutation.getStore()!.client!, snapshot, selectedTables);
+    });
+  }
+
+  private async persistSnapshot(client: PoolClient, snapshot: AdminContentSnapshot, selectedTables: readonly AdminContentTableName[]) {
+    if (selectedTables.includes("lessons")) {
+      await client.query("truncate table admin_cms.lessons");
+      for (const [index, lesson] of snapshot.lessons.entries()) {
+        await client.query(
+          `insert into admin_cms.lessons
+            (id, slug, course_id, category, status, lesson_order, updated_at, sort_index, payload)
+           values ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb)`,
+          [
+            lesson.id,
+            lesson.slug,
+            lesson.courseId,
+            lesson.category ?? "beginner",
+            lesson.status ?? "published",
+            lesson.order,
+            lesson.updatedAt ? new Date(lesson.updatedAt) : null,
+            index,
+            JSON.stringify(lesson),
+          ],
+        );
+      }
+    }
+
+    if (selectedTables.includes("versions")) {
+      await client.query("truncate table admin_cms.lesson_versions");
+      for (const [index, version] of snapshot.versions.entries()) {
+        await client.query(
+          `insert into admin_cms.lesson_versions
+            (id, lesson_id, action, role, version_timestamp, sort_index, payload)
+           values ($1,$2,$3,$4,$5,$6,$7::jsonb)`,
+          [
+            version.id,
+            version.lessonId,
+            version.action,
+            version.role,
+            new Date(version.timestamp),
+            index,
+            JSON.stringify(version),
+          ],
+        );
+      }
+    }
+
+    if (selectedTables.includes("media")) {
+      await client.query("truncate table admin_cms.media_items");
+      for (const [index, item] of snapshot.media.entries()) {
+        await client.query(
+          `insert into admin_cms.media_items
+            (id, type, provider, name, url, storage_bucket, storage_key, created_at, updated_at, sort_index, payload)
+           values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb)`,
+          [
+            item.id,
+            item.type,
+            item.provider,
+            item.name,
+            item.url,
+            item.storageBucket ?? null,
+            item.storageKey ?? null,
+            new Date(item.createdAt),
+            new Date(item.updatedAt),
+            index,
+            JSON.stringify(item),
+          ],
+        );
+      }
+    }
+
   }
 
   async loadLessons() {

@@ -27,7 +27,7 @@ vi.mock("@/lib/marketplace-email-events", () => ({ prepareTradeEventEmails: mock
 vi.mock("@/lib/rate-limit", () => ({ checkSharedRateLimit: mocks.checkSharedRateLimit }));
 vi.mock("@/lib/structured-logging", () => ({ logEvent: vi.fn() }));
 
-import { GET as getBankDetails } from "@/app/api/mobile/v1/trades/[requestId]/bank-details/route";
+import { POST as getBankDetails } from "@/app/api/mobile/v1/trades/[requestId]/bank-details/route";
 import { POST as uploadEvidence } from "@/app/api/mobile/v1/trades/[requestId]/evidence/route";
 
 function headers() {
@@ -95,6 +95,7 @@ beforeEach(() => {
 describe("mobile trade sensitive routes", () => {
   it("returns bank coordinates to the buyer without leaking internal bank or trade identifiers", async () => {
     const request = new NextRequest("https://www.alphatraders.co.il/api/mobile/v1/trades/purchase-1/bank-details", {
+      method: "POST",
       headers: headers(),
     });
     const response = await getBankDetails(request, { params: Promise.resolve({ requestId: "purchase-1" }) });

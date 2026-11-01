@@ -1,6 +1,7 @@
+import { FxReferenceUnavailableError } from "@/lib/fx-reference-policy";
 import { NextRequest, NextResponse } from "next/server";
 import { canPublishListings, deleteMarketplaceListingForSeller, getMarketplaceListingById, renewMarketplaceListing, updateMarketplaceListingForSeller } from "@/lib/alpha-exchange-store";
-import { requireApiUser, requireEmailVerificationForTrading } from "@/lib/api-auth";
+import { requireApiUser, requireMarketplaceVerificationForTrading } from "@/lib/api-auth";
 import { MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS, parseIsraeliBankSelection, serializeIsraeliBankSelection } from "@/lib/israeli-banks";
 import { checkSharedRateLimit } from "@/lib/rate-limit";
 import { fetchUsdIlsMarketRate, getListingPriceValidationError } from "@/lib/listing-price-validation";
@@ -8,6 +9,9 @@ import { MAX_LISTING_PAYMENT_METHODS, requiresIsraeliBankSelection, resolveListi
 import { listingEditRequiresReason, validateListingChangeReason } from "@/lib/listing-change-reasons";
 import type { SupportedNetwork } from "@/types/alpha-exchange";
 import { sellerListingWorkspaceDestination } from "@/lib/action-destinations";
+import { normalizeListingPrice } from "@/lib/price-offer";
+import { canonicalizeNonNegativeTradeAmount, canonicalizeTradeAmount } from "@/lib/trade-amount";
+import { listingMaximumAfterAmountEdit, listingMaximumForAvailableAmount } from "@/lib/listing-trade-limits";
 
 function toNumber(value: unknown) {
   return Number(String(value ?? "").replace(/[^\d.]/g, ""));
@@ -29,12 +33,12 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
   const routeStartedAt = Date.now();
   const { user, unauthorized } = await requireApiUser();
   if (!user) return unauthorized;
-  const emailVerificationRequired = requireEmailVerificationForTrading(user);
+  const emailVerificationRequired = requireMarketplaceVerificationForTrading(user);
   if (emailVerificationRequired) return emailVerificationRequired;
   if (!canPublishListings(user)) {
     return NextResponse.json({ error: "You must be approved by Alpha Traders before publishing listings." }, { status: 403 });
   }
-  const rate = await checkSharedRateLimit({ headers: request.headers, key: "exchange:update-listing", maxRequests: 30, windowMs: 60_000 });
+  const rate = await checkSharedRateLimit({ headers: request.headers, key: "exchange:update-listing", identifier: user.id, maxRequests: 30, windowMs: 60_000 });
   if (!rate.allowed) {
     return NextResponse.json({ error: "Too many update requests. Please try again shortly." }, { status: 429, headers: { "Retry-After": String(rate.retryAfterSeconds) } });
   }
@@ -42,13 +46,21 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
   try {
     const { listingId } = await context.params;
     const validationStartedAt = Date.now();
-    const existingListing = await getMarketplaceListingById(listingId);
     const body = await request.json();
+    // Hiding a listing must not depend on market quotes or old inventory/bank
+    // fields. Ownership, trade locks and seller restrictions stay in the store.
+    if (body?.status === "paused" && Object.keys(body).every((key) => key === "status")) {
+      const listing = await updateMarketplaceListingForSeller({
+        listingId, sellerId: user.id, actorUserId: user.id, status: "paused",
+      });
+      return NextResponse.json({ listing, destination: sellerListingWorkspaceDestination(listing) });
+    }
+    const existingListing = await getMarketplaceListingById(listingId);
     const action = body.action !== undefined ? String(body.action).trim() : "";
     if (action === "renew") {
       // Validate the existing listing's price against market rate before renewing.
       // A listing that was valid when created may violate the cap if market rate dropped.
-      const marketRateForRenew = await fetchUsdIlsMarketRate();
+      const marketRateForRenew = (existingListing?.currency ?? "ILS").trim().toUpperCase() === "ILS" ? await fetchUsdIlsMarketRate() : undefined;
       if (existingListing) {
         const renewPriceError = getListingPriceValidationError({
           price: existingListing.price,
@@ -81,8 +93,10 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
         },
       });
     }
-    const availableAmount = body.availableAmount !== undefined ? String(body.availableAmount).trim() : undefined;
-    const price = body.price !== undefined ? String(body.price).trim() : undefined;
+    const rawAvailableAmount = body.availableAmount !== undefined ? String(body.availableAmount).trim() : undefined;
+    const availableAmount = rawAvailableAmount !== undefined ? (canonicalizeTradeAmount(rawAvailableAmount) ?? "") : undefined;
+    const rawPrice = body.price !== undefined ? String(body.price).trim() : undefined;
+    const price = rawPrice !== undefined ? (normalizeListingPrice(rawPrice) ?? "") : undefined;
     const responseTime = body.responseTime !== undefined ? String(body.responseTime).trim() : undefined;
     const currency = body.currency !== undefined ? String(body.currency).trim() : undefined;
     const resolvedPaymentMethods = body.paymentMethods !== undefined || body.paymentMethod !== undefined
@@ -91,9 +105,15 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     const paymentMethods = resolvedPaymentMethods?.slice(0, MAX_LISTING_PAYMENT_METHODS);
     const paymentMethod = paymentMethods?.[0];
     const bankAccountId = body.bankAccountId !== undefined ? String(body.bankAccountId).trim() : undefined;
+    const bankTransferProvider = body.bankTransferProvider;
+    if (bankTransferProvider !== undefined && bankTransferProvider !== "wise" && bankTransferProvider !== "israeli_bank") throw new Error("Invalid bank transfer provider.");
+    const wiseAccountId = body.wiseAccountId !== undefined ? String(body.wiseAccountId).trim() : undefined;
+    const effectiveProvider = bankTransferProvider ?? existingListing?.bankTransferProvider;
     const bankSelection = body.bankName !== undefined ? parseIsraeliBankSelection(String(body.bankName ?? "")) : undefined;
-    const minimumTrade = body.minimumTrade !== undefined ? String(body.minimumTrade).trim() : undefined;
-    const maximumTrade = body.maximumTrade !== undefined ? String(body.maximumTrade).trim() : undefined;
+    const rawMinimumTrade = body.minimumTrade !== undefined ? String(body.minimumTrade).trim() : undefined;
+    const rawMaximumTrade = body.maximumTrade !== undefined ? String(body.maximumTrade).trim() : undefined;
+    const minimumTrade = rawMinimumTrade !== undefined ? (canonicalizeNonNegativeTradeAmount(rawMinimumTrade) ?? "") : undefined;
+    const maximumTrade = rawMaximumTrade !== undefined ? (canonicalizeTradeAmount(rawMaximumTrade) ?? "") : undefined;
     const expiresAt = body.expiresAt !== undefined ? String(body.expiresAt).trim() : undefined;
     const expirationHours = body.expirationHours !== undefined ? Number(body.expirationHours) : undefined;
     const notes = body.notes !== undefined ? String(body.notes).trim() : undefined;
@@ -103,18 +123,23 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     const status = body.status;
     const effectiveAvailableAmount = availableAmount ?? existingListing?.availableAmount;
     const effectiveMinimumTrade = minimumTrade ?? existingListing?.minimumTrade ?? "0";
-    const effectiveMaximumTrade = maximumTrade ?? existingListing?.maximumTrade ?? effectiveAvailableAmount;
+    const effectiveMaximumTrade = maximumTrade ?? listingMaximumForAvailableAmount({
+      availableAmount: effectiveAvailableAmount,
+      maximumTrade: listingMaximumAfterAmountEdit({
+        ...existingListing, maximumTrade: listingMaximumForAvailableAmount(existingListing ?? {}),
+      }, effectiveAvailableAmount ?? ""),
+    });
 
-    if (availableAmount !== undefined && (!availableAmount || toNumber(availableAmount) <= 0)) {
-      return NextResponse.json({ error: "Available amount must be greater than zero." }, { status: 400 });
+    if (availableAmount !== undefined && !availableAmount) {
+      return NextResponse.json({ error: "Available amount must be a valid positive USDT amount with no more than six decimal places." }, { status: 400 });
     }
-    if (price !== undefined && (!price || toNumber(price) <= 0)) {
+    if (rawPrice !== undefined && (!rawPrice || !price)) {
       return NextResponse.json({ error: "Price must be greater than zero." }, { status: 400 });
     }
-    const marketRate = await fetchUsdIlsMarketRate();
     const effectiveCurrency = (currency ?? existingListing?.currency ?? "ILS").trim().toUpperCase();
     const shouldValidateStoredPrice = status === "active" || currency !== undefined;
     const effectivePrice = price ?? (shouldValidateStoredPrice ? existingListing?.price : undefined) ?? "";
+    const marketRate = effectivePrice && effectiveCurrency === "ILS" ? await fetchUsdIlsMarketRate() : undefined;
     const priceValidationError = getListingPriceValidationError({ price: effectivePrice, currency: effectiveCurrency, marketRate });
     if (priceValidationError) {
       return NextResponse.json({ error: priceValidationError }, { status: 400 });
@@ -135,7 +160,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     const effectivePaymentMethods = paymentMethods?.length
       ? paymentMethods
       : resolveListingPaymentMethods(existingListing?.paymentMethods, effectivePaymentMethod);
-    if (requiresIsraeliBankSelection(effectivePaymentMethods, effectivePaymentMethod)) {
+    if (effectiveProvider !== "wise" && requiresIsraeliBankSelection(effectivePaymentMethods, effectivePaymentMethod)) {
       const effectiveBanks = bankSelection ?? parseIsraeliBankSelection(existingListing?.bankName);
       if (!effectiveBanks.length) {
         return NextResponse.json({ error: "Please choose one or two supported banks before saving the listing." }, { status: 400 });
@@ -144,10 +169,10 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
         return NextResponse.json({ error: `Select no more than ${MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS} supported banks per listing.` }, { status: 400 });
       }
     }
-    if (minimumTrade !== undefined && toNumber(minimumTrade) < 0) {
-      return NextResponse.json({ error: "Minimum trade cannot be negative." }, { status: 400 });
+    if (minimumTrade !== undefined && !minimumTrade) {
+      return NextResponse.json({ error: "Minimum trade must be a valid non-negative USDT amount with no more than six decimal places." }, { status: 400 });
     }
-    if (effectiveMaximumTrade !== undefined && toNumber(effectiveMaximumTrade) <= 0) {
+    if (maximumTrade !== undefined && !maximumTrade) {
       return NextResponse.json({ error: "Maximum trade must be greater than zero." }, { status: 400 });
     }
     if (effectiveMaximumTrade !== undefined && toNumber(effectiveMaximumTrade) < toNumber(effectiveMinimumTrade)) {
@@ -169,7 +194,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       && availableAmount === undefined && price === undefined
       && minimumTrade === undefined && maximumTrade === undefined;
     const reasonRequired = !isStatusOnlyChange && existingListing
-      ? listingEditRequiresReason(existingListing, { availableAmount, price, minimumTrade, maximumTrade })
+      ? listingEditRequiresReason({ ...existingListing, maximumTrade: listingMaximumForAvailableAmount(existingListing) }, { availableAmount, price, minimumTrade, maximumTrade })
       : false;
     let changeReason: string | undefined;
     let changeExplanation: string | undefined;
@@ -196,7 +221,9 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       paymentMethod,
       paymentMethods,
       bankAccountId,
-      bankName: requiresIsraeliBankSelection(effectivePaymentMethods, effectivePaymentMethod)
+      bankTransferProvider,
+      wiseAccountId,
+      bankName: effectiveProvider !== "wise" && requiresIsraeliBankSelection(effectivePaymentMethods, effectivePaymentMethod)
         ? serializeIsraeliBankSelection(bankSelection ?? parseIsraeliBankSelection(existingListing?.bankName)) || undefined
         : undefined,
       minimumTrade,
@@ -221,6 +248,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       },
     });
   } catch (error) {
+    if (error instanceof FxReferenceUnavailableError) return NextResponse.json({ error: error.message, code: "MARKET_REFERENCE_UNAVAILABLE" }, { status: 503, headers: { "Retry-After": "5" } });
     return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to update listing." }, { status: 400 });
   }
 }
@@ -229,7 +257,7 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
   const routeStartedAt = Date.now();
   const { user, unauthorized } = await requireApiUser();
   if (!user) return unauthorized;
-  const emailVerificationRequired = requireEmailVerificationForTrading(user);
+  const emailVerificationRequired = requireMarketplaceVerificationForTrading(user);
   if (emailVerificationRequired) return emailVerificationRequired;
   if (!canPublishListings(user)) {
     return NextResponse.json({ error: "You must be approved by Alpha Traders before publishing listings." }, { status: 403 });
@@ -268,6 +296,7 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
       },
     });
   } catch (error) {
+    if (error instanceof FxReferenceUnavailableError) return NextResponse.json({ error: error.message, code: "MARKET_REFERENCE_UNAVAILABLE" }, { status: 503, headers: { "Retry-After": "5" } });
     return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to delete listing." }, { status: 400 });
   }
 }

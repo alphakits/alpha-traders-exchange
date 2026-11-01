@@ -28,7 +28,7 @@ describe("notification platform", () => {
     ["trade_accepted", "وافق البائع على صفقتك.", "Seller accepted your trade."],
     ["payment_sent", "تم تحديد الدفع كمُرسل. تحقّق من استلام الأموال.", "Payment marked sent. Verify funds."],
     ["funds_received", "تم تأكيد استلام الأموال.", "Funds confirmed received."],
-    ["usdt_sent", "تم إرسال USDT. أكّد الاستلام.", "USDT sent. Confirm receipt."],
+    ["usdt_sent", "تم إرسال USDT. تحقّق من محفظتك؛ سيُكمل البائع الصفقة.", "USDT sent. Check your wallet; the seller will complete the trade."],
     ["trade_completed", "اكتملت الصفقة.", "Trade completed."],
   ] as const)("renders %s SMS in Arabic first and English second", (event, arabic, english) => {
     const destination = "https://alphatraders.co.il/trade-room/123";
@@ -91,6 +91,32 @@ describe("notification platform", () => {
     })).resolves.toEqual(expect.objectContaining({ ok: true }));
   });
 
+  it("rejects an SMS to the sending number before contacting Twilio", async () => {
+    vi.stubEnv("ALPHA_EXCHANGE_TWILIO_OTP_SEND_ENABLED", "true");
+    vi.stubEnv("TWILIO_ACCOUNT_SID", "ACtest");
+    vi.stubEnv("TWILIO_AUTH_TOKEN", "token");
+    vi.stubEnv("TWILIO_PHONE_NUMBER", "+972501234567");
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    expect(await sendTwilioMessageWithRetry({ to: "+972501234567", body: "OTP", purpose: "verification", maxAttempts: 1 })).toMatchObject({ ok: false, providerCode: "21266", retryable: false });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it.each(["identity", "service"])("sends SMS with the explicitly configured %s rather than the personal number", async senderKind => {
+    vi.stubEnv("ALPHA_EXCHANGE_TWILIO_OTP_SEND_ENABLED", "true");
+    vi.stubEnv("TWILIO_ACCOUNT_SID", "ACtest");
+    vi.stubEnv("TWILIO_AUTH_TOKEN", "token");
+    vi.stubEnv("TWILIO_PHONE_NUMBER", "+972501234567");
+    vi.stubEnv(senderKind === "identity" ? "TWILIO_SMS_FROM" : "TWILIO_SMS_MESSAGING_SERVICE_SID", senderKind === "identity" ? "AlphaTrader" : `MG${"a".repeat(32)}`);
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ sid: "SM1", status: "queued" }), { status: 201 }));
+    vi.stubGlobal("fetch", fetchMock);
+    expect((await sendTwilioMessageWithRetry({ to: "+972501234567", body: "OTP", purpose: "verification", maxAttempts: 1 })).ok).toBe(true);
+    const payload = new URLSearchParams(String(fetchMock.mock.calls[0][1].body));
+    expect(payload.get("To")).toBe("+972501234567");
+    expect(payload.get("From")).toBe(senderKind === "identity" ? "AlphaTrader" : null);
+    expect(payload.get("MessagingServiceSid")).toBe(senderKind === "service" ? `MG${"a".repeat(32)}` : null);
+  });
+
   it("maps provider statuses without treating unknown statuses as delivery", () => {
     expect(mapTwilioStatus("queued")).toBe("queued");
     expect(mapTwilioStatus("delivered")).toBe("delivered");
@@ -105,6 +131,28 @@ describe("notification platform", () => {
     const signature = createHmac("sha1", "test-token").update(`${url}MessageSidSM1MessageStatusdelivered`).digest("base64");
     expect(validateTwilioSignature({ signature, url, params })).toBe(true);
     expect(validateTwilioSignature({ signature: "wrong", url, params })).toBe(false);
+  });
+
+  it("allows requested OTP messages without enabling trade notification SMS", async () => {
+    vi.stubEnv("ALPHA_EXCHANGE_TWILIO_SEND_ENABLED", "false");
+    vi.stubEnv("ALPHA_EXCHANGE_TWILIO_OTP_SEND_ENABLED", "true");
+    vi.stubEnv("TWILIO_ACCOUNT_SID", "ACtest");
+    vi.stubEnv("TWILIO_AUTH_TOKEN", "token");
+    vi.stubEnv("TWILIO_PHONE_NUMBER", "+15551234567");
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ sid: "SM1", status: "queued" }), { status: 201 }));
+    vi.stubGlobal("fetch", fetchMock);
+    expect((await sendTwilioMessageWithRetry({ to: "+15557654321", body: "OTP", purpose: "verification", maxAttempts: 1 })).ok).toBe(true);
+    expect((await sendTwilioMessageWithRetry({ to: "+15557654321", body: "Trade alert" })).ok).toBe(false);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not treat an immediately failed Twilio message as a successful send", async () => {
+    vi.stubEnv("ALPHA_EXCHANGE_TWILIO_SEND_ENABLED", "true");
+    vi.stubEnv("TWILIO_ACCOUNT_SID", "ACtest");
+    vi.stubEnv("TWILIO_AUTH_TOKEN", "token");
+    vi.stubEnv("TWILIO_PHONE_NUMBER", "+15551234567");
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ sid: "SM1", status: "failed" }), { status: 201 })));
+    expect((await sendTwilioMessageWithRetry({ to: "+15557654321", body: "OTP", maxAttempts: 1 })).ok).toBe(false);
   });
 
   it("retries transient Twilio failures once", async () => {

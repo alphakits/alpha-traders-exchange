@@ -157,7 +157,8 @@ describe("mobile trades collection route", () => {
 
   it("creates a request from the authenticated identity and ignores forged contact fields", async () => {
     const response = await POST(mobileRequest("POST", {
-      listingId: "listing-1",
+      feePolicyVersion: "buyer_seller_1pct_v1",
+        listingId: "listing-1",
       usdtAmount: "500",
       receivingWalletAddress: "TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE",
       paymentMethod: "Bank Transfer",
@@ -172,7 +173,8 @@ describe("mobile trades collection route", () => {
     expect(mocks.createPurchaseRequest).toHaveBeenCalledWith(expect.objectContaining({
       buyerId: "buyer-1",
       buyerName: "Buyer One",
-      listingId: "listing-1",
+      feePolicyVersion: "buyer_seller_1pct_v1",
+        listingId: "listing-1",
       priceMode: "listing_price",
       offeredPrice: undefined,
     }));
@@ -197,7 +199,8 @@ describe("mobile trades collection route", () => {
     });
 
     const response = await POST(mobileRequest("POST", {
-      listingId: "listing-1",
+      feePolicyVersion: "buyer_seller_1pct_v1",
+        listingId: "listing-1",
       usdtAmount: "500",
       receivingWalletAddress: "TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE",
       paymentMethod: "Bank Transfer",
@@ -214,7 +217,8 @@ describe("mobile trades collection route", () => {
     mocks.hasRole.mockReturnValue(false);
 
     const response = await POST(mobileRequest("POST", {
-      listingId: "listing-1",
+      feePolicyVersion: "buyer_seller_1pct_v1",
+        listingId: "listing-1",
       usdtAmount: "500",
       receivingWalletAddress: "wallet-value",
       paymentMethod: "Bank Transfer",
@@ -227,11 +231,26 @@ describe("mobile trades collection route", () => {
     expect(mocks.createPurchaseRequest).not.toHaveBeenCalled();
   });
 
+  it.each(["en", "ar"])("rejects a code that does not cover the claimed USDT in %s", async (locale) => {
+    const failure = Object.assign(new Error("ATM amount mismatch"), { name: "TradeBlockedError", code: "CARDLESS_PAYMENT_AMOUNT_MISMATCH", details: { requiredTotal: "1315.02", enteredAmount: "1300" } });
+    mocks.createPurchaseRequest.mockRejectedValue(failure);
+    const request = mobileRequest("POST", { feePolicyVersion: "buyer_seller_1pct_v1", listingId: "listing-1", usdtAmount: "420",
+      receivingWalletAddress: "TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE", paymentMethod: "Cardless ATM Withdrawal", priceMode: "listing_price" });
+    request.headers.set("accept-language", locale);
+    const response = await POST(request);
+    expect(response.status).toBe(400);
+    const payload = await response.json();
+    expect(payload.error.code).toBe("CARDLESS_DETAILS_REQUIRED");
+    expect(payload.error.message).toContain("1,315.02");
+    expect(payload.error.message).toContain(locale === "ar" ? "بالضبط" : "exactly");
+  });
+
   it("maps wallet validation failures to a stable localized mobile error", async () => {
     mocks.createPurchaseRequest.mockRejectedValue(new Error("TRC20 requires a valid 34-character Tron address beginning with T."));
 
     const response = await POST(mobileRequest("POST", {
-      listingId: "listing-1",
+      feePolicyVersion: "buyer_seller_1pct_v1",
+        listingId: "listing-1",
       usdtAmount: "500",
       receivingWalletAddress: "invalid-wallet",
       paymentMethod: "Bank Transfer",

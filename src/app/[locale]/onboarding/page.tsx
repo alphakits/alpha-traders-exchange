@@ -1,9 +1,11 @@
 import { redirect } from "next/navigation";
 import { GuestOnboarding } from "@/components/auth/guest-onboarding";
+import { getPhoneVerificationChannels } from "@/lib/phone-verification-delivery";
 import { getCurrentSessionUser } from "@/lib/auth";
 import { isMarketplacePhoneVerificationEnabled } from "@/lib/phone-verification";
 import { buildPageMetadata } from "@/lib/seo";
-import { hasRole } from "@/lib/roles";
+import { getInterfaceAccess } from "@alpha-traders/contracts";
+import { isOwnerApprovedSeller } from "@/lib/seller-approval";
 
 export const dynamic = "force-dynamic";
 
@@ -32,24 +34,21 @@ export default async function OnboardingPage({
     redirect(`/${locale}/login?redirectTo=/${locale}/onboarding`);
   }
   const hasSelectedRole = Boolean(user.onboardingSelection || user.onboardingCompletedAt);
-  const canManageRoles = !hasRole(user, "owner") && !hasRole(user, "admin");
-  const shouldShowOnboarding = !hasSelectedRole && hasRole(user, "guest");
-  if (!canManageRoles) {
-    if (hasRole(user, "admin") || hasRole(user, "owner")) redirect(`/${locale}/admin/alpha-exchange`);
-    if (hasRole(user, "approved_seller")) redirect(`/${locale}/dashboard/seller`);
-    redirect(`/${locale}/usdt-exchange`);
-  }
-  if (!shouldShowOnboarding && !manageMode) {
-    if (hasRole(user, "approved_seller")) redirect(`/${locale}/dashboard/seller`);
-    redirect(`/${locale}/usdt-exchange`);
+  const access = getInterfaceAccess(user);
+  const shouldShowOnboarding = !hasSelectedRole && !access.trading && !access.student;
+  if (access.administration || (!shouldShowOnboarding && !manageMode)) {
+    redirect(`/${locale}${access.dashboardHref}`);
   }
 
   return (
     <GuestOnboarding
       locale={locale as "ar" | "en"}
-      isBuyer={hasRole(user, "buyer")}
+      isBuyer={access.buyer}
+      isStudent={access.student}
       sellerStatus={user.sellerStatus}
+      sellerApprovalVerified={isOwnerApprovedSeller(user)}
       phoneVerificationEnabled={isMarketplacePhoneVerificationEnabled()}
+      phoneVerificationChannels={getPhoneVerificationChannels()}
     />
   );
 }

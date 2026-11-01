@@ -1,5 +1,5 @@
 import { after, NextRequest } from "next/server";
-import { getTradeRoomData, getTradeRoomRevision, updatePurchaseRequestStatus } from "@/lib/alpha-exchange-store";
+import { TradeBlockedError, updateTradeTerms, recalculateCardlessTradeAmount, getTradeRoomData, getTradeRoomRevision, updatePurchaseRequestStatus } from "@/lib/alpha-exchange-store";
 import { requireMobileApiUser } from "@/lib/mobile-api-auth";
 import {
   createMobileRequestId,
@@ -106,11 +106,25 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
 
     const body = await readMobileJsonBody(request);
     const action = String(body?.action ?? "").trim();
-    if (action && action !== "complete_cash_trade" && action !== "complete_face_to_face") {
+    if (["counter_offer", "propose_amount", "propose_ils_amount", "accept_amount", "decline_terms", "withdraw_terms"].includes(action)) {
+      const rate = checkRateLimit({ headers: request.headers, key: "mobile:trade:terms", identifier: auth.user.id, maxRequests: 20, windowMs: 60_000 });
+      if (!rate.allowed) return mobileError("RATE_LIMITED", requestId, locale, 429);
+      const updated = await updateTradeTerms({ clientPlatform: "mobile", requestId: params.requestId, actorUserId: auth.user.id, action: action as Parameters<typeof updateTradeTerms>[0]["action"], value: String(body?.value ?? ""), proposalId: String(body?.proposalId ?? ""), expectedUpdatedAt: String(body?.expectedUpdatedAt ?? ""), safetyAcknowledged: body?.safetyAcknowledged === true });
+      return mobileJson({ trade: toMobileTradeSummary(updated, auth.user.id), actions: toMobileTradeActions(updated, auth.user.id) }, requestId);
+    }
+    if (action === "recalculate_cardless_amount") {
+      const rate = checkRateLimit({ headers: request.headers, key: "mobile:trade:adjust", identifier: auth.user.id, maxRequests: 20, windowMs: 60_000 });
+      if (!rate.allowed) return mobileError("RATE_LIMITED", requestId, locale, 429);
+      const updated = await recalculateCardlessTradeAmount({ requestId: params.requestId, actorUserId: auth.user.id, ilsAmount: typeof body?.ilsAmount === "string" ? body.ilsAmount : undefined });
+      return mobileJson({ trade: toMobileTradeSummary(updated, auth.user.id), actions: toMobileTradeActions(updated, auth.user.id) }, requestId);
+    }
+    if (action && action !== "accept_counter_offer" && action !== "complete_cash_trade" && action !== "complete_trade" && action !== "complete_face_to_face" && action !== "submit_cardless_code") {
       return mobileError("INVALID_REQUEST", requestId, locale, 400);
     }
+    const isSellerCompletion = action === "complete_trade";
     const isCashTradeCompletion = action === "complete_cash_trade" || action === "complete_face_to_face";
-    const nextStatus = (isCashTradeCompletion ? "completed" : String(body?.status ?? "")) as PurchaseRequestStatus;
+    const isCardlessCodeSubmission = action === "submit_cardless_code";
+    const nextStatus = (action === "accept_counter_offer" ? "accepted" : (isCashTradeCompletion || isSellerCompletion) ? "completed" : isCardlessCodeSubmission ? "payment_sent" : String(body?.status ?? "")) as PurchaseRequestStatus;
     if (!MOBILE_MUTABLE_STATUSES.has(nextStatus)) {
       return mobileError("INVALID_REQUEST", requestId, locale, 400);
     }
@@ -129,12 +143,20 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     }
 
     const updated = await updatePurchaseRequestStatus({
+      clientPlatform: "mobile",
       requestId: params.requestId,
       actorUserId: auth.user.id,
       actorRole: auth.user.role,
+      acceptCounterOfferId: action === "accept_counter_offer" ? String(body?.proposalId ?? "") : undefined,
       nextStatus,
-      completionMode: isCashTradeCompletion ? "cash_trade" : undefined,
+      completionMode: isSellerCompletion ? "seller" : isCashTradeCompletion ? "cash_trade" : undefined,
+      usdtSentConfirmed: body?.usdtSentConfirmed === true,
       safetyAcknowledged: body?.safetyAcknowledged === true,
+      cardlessWithdrawalCode: isCardlessCodeSubmission ? String(body?.withdrawalCode ?? "") : undefined,
+      cardlessVerificationKind: isCardlessCodeSubmission ? String(body?.verificationKind ?? "") : undefined,
+      cardlessVerificationValue: isCardlessCodeSubmission ? String(body?.verificationValue ?? "") : undefined,
+      usePreparedCardlessDetails: isCardlessCodeSubmission && body?.usePreparedDetails === true,
+      clientOperationId: isCardlessCodeSubmission ? String(body?.clientOperationId ?? "") : undefined,
     });
 
     if (updated.deferredTrustWrite) {
@@ -185,6 +207,9 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       actions: toMobileTradeActions(updated.request, auth.user.id),
     }, requestId);
   } catch (error) {
+    if (error instanceof TradeBlockedError && ["trade-terms-invalid", "stale-counter-offer", "trade-terms-pending"].includes(error.code)) {
+      return mobileJson({ error: { code: "INVALID_REQUEST", message: locale === "ar" ? "تعذر تأكيد تغيير الشروط. تحقق من المبلغ وحدود العرض وحدّث الصفقة. للسحب دون بطاقة يجب مطابقة مبلغ رمز المشتري." : error.message } }, requestId, { status: 409 });
+    }
     const code = mobileTradeErrorCode(error);
     if (code) return mobileError(code, requestId, locale, mobileTradeErrorStatus(code));
     logEvent("error", {

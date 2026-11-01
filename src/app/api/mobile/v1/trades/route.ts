@@ -1,4 +1,5 @@
 import { after, NextRequest } from "next/server";
+import { cardlessPaymentAmountNotice } from "@alpha-traders/contracts";
 import { createPurchaseRequest, getMyPurchaseRequests } from "@/lib/alpha-exchange-store";
 import { requireMobileApiUser } from "@/lib/mobile-api-auth";
 import {
@@ -112,12 +113,22 @@ export async function POST(request: NextRequest) {
       });
     }
 
+    if (body?.feePolicyVersion !== "buyer_seller_1pct_v1") return mobileError("APP_UPDATE_REQUIRED", requestId, locale, 426);
+
     const created = await createPurchaseRequest({
+      clientPlatform: "mobile",
+      feePolicyVersion: "buyer_seller_1pct_v1",
       buyerId: auth.user.id,
       listingId,
       usdtAmount,
       buyerName: auth.user.fullName.trim(),
       buyerReceivingWalletAddress: receivingWalletAddress,
+      receivingNetwork: body?.receivingNetwork == null ? undefined : String(body.receivingNetwork),
+      bankName: String(body?.bankName ?? "").trim() || undefined,
+      cardlessWithdrawalCode: String(body?.cardlessWithdrawalCode ?? ""),
+      cardlessVerificationKind: String(body?.cardlessVerificationKind ?? ""),
+      cardlessVerificationValue: String(body?.cardlessVerificationValue ?? ""),
+      cardlessIlsAmount: String(body?.cardlessIlsAmount ?? ""),
       paymentMethod,
       safetyAcknowledged,
       priceMode,
@@ -159,7 +170,12 @@ export async function POST(request: NextRequest) {
     );
   } catch (error) {
     const code = mobileTradeErrorCode(error);
-    if (code) return mobileError(code, requestId, locale, mobileTradeErrorStatus(code));
+    if (code) {
+      const failure = error as { code?: string; details?: Record<string, unknown> };
+      const message = failure.code === "CARDLESS_PAYMENT_AMOUNT_MISMATCH" && typeof failure.details?.requiredTotal === "string"
+        ? cardlessPaymentAmountNotice(failure.details.enteredAmount, failure.details.requiredTotal, locale) ?? undefined : undefined;
+      return mobileError(code, requestId, locale, mobileTradeErrorStatus(code), { message });
+    }
     logEvent("error", {
       event: "mobile_trade_create",
       outcome: "failed",

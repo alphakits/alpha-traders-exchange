@@ -1,8 +1,11 @@
 import { test, expect, request as pwRequest, type APIRequestContext, type Page } from "@playwright/test";
 import { randomBytes, randomUUID, scrypt as scryptCb } from "node:crypto";
 import { promisify } from "node:util";
-import { resolveBuyerFixture, cleanupBuyerFixture, type BuyerFixture } from "./support/buyer-fixture";
 import { E2E_BASE_URL } from "./support/base-url";
+import { createE2eSellerApprovalVerification } from "./support/seller-verification";
+import type { MarketSnapshot } from "../src/types/market";
+import type { MarketChartSnapshot } from "../src/types/market-chart";
+import { isFxPairUsable } from "../packages/contracts/src/usd-ils-reference";
 
 const scrypt = promisify(scryptCb);
 const H = { "x-alpha-test-support": "enabled" };
@@ -14,11 +17,15 @@ async function hashPassword(password: string) {
   return `${salt}:${derived.toString("hex")}`;
 }
 
-let buyer: BuyerFixture | undefined;
+// A whole-file diagnostic retry must not reuse the preceding worker's login
+// budget. Give this serial scenario its own ordinary, verified buyer, just as
+// its sellers and admin already have isolated identities.
+const buyerPassword = `Pv!${randomBytes(18).toString("base64url")}`;
 const sellerPassword = `Pv!${randomBytes(18).toString("base64url")}`;
 const formsPassword = `Pv!${randomBytes(18).toString("base64url")}`;
 const adminPassword = `Pv!${randomBytes(18).toString("base64url")}`;
 const ids = {
+  buyer: `pv-buyer-${randomUUID()}`,
   sellerOnline: `pv-online-${randomUUID()}`,
   sellerForms: `pv-forms-${randomUUID()}`,
   sellerRecent: `pv-recent-${randomUUID()}`,
@@ -34,6 +41,7 @@ const ids = {
   prActive: `pv-pr-active-${randomUUID()}`,
   prDone: `pv-pr-done-${randomUUID()}`,
 };
+const buyer = { email: `${ids.buyer}@example.test`, password: buyerPassword };
 const sellerEmail = `${ids.sellerOnline}@example.test`;
 const formsEmail = `${ids.sellerForms}@example.test`;
 const adminEmail = `${ids.admin}@example.test`;
@@ -46,10 +54,24 @@ function mkUser(id: string, name: string, o: Record<string, unknown>) {
     id, fullName: name, email: `${id}@example.test`, passwordHash: "x",
     whatsappNumber: "+972500000000", role: "approved_seller", roles: ["approved_seller"],
     sellerStatus: "approved_seller", availabilityStatus: "available", onlineStatus: "offline",
+    sellerApprovalVerification: createE2eSellerApprovalVerification(now),
     preferredNetworks: ["TRC20"], preferredPaymentMethods: ["Bank Transfer"], profilePhotoUrl: "",
     languages: ["English"], bio: "PV seller", country: "Israel", createdAt: now, updatedAt: now,
     emailVerified: true, emailVerifiedAt: now, verifiedPhone: "+972500000000", phoneVerifiedAt: now,
-    isProfileHidden: false, sellerPrestigeRank: "bronze", ...o,
+    isProfileHidden: false, sellerPrestigeRank: "bronze",
+    sellerBankAccounts: [{
+      id: `bank-${id}`,
+      sellerId: id,
+      accountHolderName: name,
+      bankName: "Bank Hapoalim",
+      branchNumber: "123",
+      accountNumber: "9000000000",
+      accountLast4: "0000",
+      isDefault: true,
+      createdAt: now,
+      updatedAt: now,
+    }],
+    ...o,
   };
 }
 function mkListing(id: string, sellerId: string, name: string, amount: string, expiresInMs: number) {
@@ -57,6 +79,7 @@ function mkListing(id: string, sellerId: string, name: string, amount: string, e
   return {
     id, sellerId, sellerDisplayName: name, photos: [], originalAmount: amount, availableAmount: amount,
     price: "3.60", currency: "ILS", network: "TRC20", paymentMethod: "Bank Transfer", paymentMethods: ["Bank Transfer"],
+    bankAccountId: `bank-${sellerId}`,
     bankName: "Bank Hapoalim", minimumTrade: "100", maximumTrade: amount, expiresAt: iso(expiresInMs),
     sellerDescription: "PV listing.", responseTime: "5 min", status: "active", approvalStatus: "approved",
     createdAt: now, updatedAt: now,
@@ -72,15 +95,27 @@ function mkTrade(id: string, sellerId: string, listingId: string, status: string
 }
 
 async function provision(request: APIRequestContext) {
+  const buyerHash = await hashPassword(buyerPassword);
   const sellerHash = await hashPassword(sellerPassword);
   const formsHash = await hashPassword(formsPassword);
   const adminHash = await hashPassword(adminPassword);
   const db = (await (await request.get("/api/testing/alpha-exchange-state", { headers: H })).json()) as Record<string, unknown>;
   db.users = [
     ...(Array.isArray(db.users) ? db.users : []),
+    {
+      id: ids.buyer, fullName: "PV Buyer", email: buyer.email, passwordHash: buyerHash,
+      role: "buyer", roles: ["buyer"], sellerStatus: "buyer",
+      emailVerified: true, emailVerifiedAt: iso(0),
+      whatsappNumber: "+972500000097", verifiedPhone: "+972500000097", phoneVerifiedAt: iso(0),
+      buyerVerificationStatus: "verified", buyerFirstName: "PV", buyerLastName: "Buyer", buyerDisplayName: "PV Buyer",
+      onboardingSelection: "buyer", onboardingCompletedAt: iso(0),
+      preferredNetworks: [], languages: ["English"], profilePhotoUrl: "", bio: "",
+      onlineStatus: "online", availabilityStatus: "available", isFoundingSeller: false,
+      createdAt: iso(0), updatedAt: iso(0),
+    },
     mkUser(ids.sellerOnline, "PV Online", { onlineStatus: "online", lastActiveAt: iso(-30 * 1000), emailVerified: true, passwordHash: sellerHash }),
     mkUser(ids.sellerForms, "PV Forms", { onlineStatus: "online", lastActiveAt: iso(-30 * 1000), emailVerified: true, passwordHash: formsHash }),
-    mkUser(ids.sellerRecent, "PV Recent", { onlineStatus: "offline", lastActiveAt: iso(-25 * 60 * 1000), emailVerified: true }),
+    mkUser(ids.sellerRecent, "PV Recent", { onlineStatus: "offline", lastActiveAt: iso(-25 * 60 * 1000), emailVerified: true, passwordHash: sellerHash }),
     mkUser(ids.sellerOffline, "PV Offline", { onlineStatus: "offline", lastActiveAt: iso(-3 * 24 * 60 * 60 * 1000), emailVerified: true }),
     mkUser(ids.sellerUnverified, "PV Unverified", { onlineStatus: "online", lastActiveAt: iso(-30 * 1000), emailVerified: false }),
     mkUser(ids.admin, "PV Admin", { role: "admin", roles: ["admin"], sellerStatus: "buyer", lastActiveAt: iso(-60 * 1000), passwordHash: adminHash }),
@@ -110,45 +145,34 @@ async function cleanup(request: APIRequestContext) {
     : Array.isArray(v) ? v.some(refs)
     : v && typeof v === "object" ? Object.values(v as Record<string, unknown>).some(refs) : false;
   for (const [k, v] of Object.entries(db)) if (Array.isArray(v)) db[k] = v.filter((r) => !refs(r));
-  await request.put("/api/testing/alpha-exchange-state", { headers: H, data: db });
+  const response = await request.put("/api/testing/alpha-exchange-state", { headers: H, data: db });
+  expect(response.ok(), await response.text()).toBeTruthy();
 }
 
 async function login(ctx: APIRequestContext, email: string, password: string) {
-  let lastStatus: number | null = null;
-  let lastBody = "";
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    const r = await ctx.post("/api/auth/login", { headers: { "x-forwarded-for": "198.51.100.17" }, data: { email, password, rememberMe: true } });
-    if (r.ok()) return;
-    lastStatus = r.status();
-    lastBody = await r.text().catch(() => "");
-    if (attempt < 2) {
-      await new Promise((resolve) => setTimeout(resolve, 300));
-    }
-  }
-  throw new Error(`login ${email} failed (${lastStatus ?? "unknown"}): ${lastBody}`);
+  const response = await ctx.post("/api/auth/login", { headers: { "x-forwarded-for": "198.51.100.17" }, data: { email, password, rememberMe: true } });
+  expect(response.ok(), `login ${email} failed (${response.status()}): ${await response.text()}`).toBeTruthy();
 }
 async function gotoMarketplace(page: Page) {
   await page.goto("/en/usdt-exchange");
   await page.getByRole("button", { name: /Buy USDT from/i }).first().waitFor({ state: "visible", timeout: 30000 });
 }
-function cardFor(page: Page, sellerName: string) {
-  return page.locator(".seller-listing-shell").filter({ hasText: sellerName }).first();
+function cardFor(page: Page, listingId: string) {
+  // Marketplace identity is public AT identity, rather than the seller's
+  // private name. The persisted listing ID identifies the exact card.
+  return page.locator(`#listing-${listingId}`);
 }
 
 test.describe.configure({ mode: "serial" });
 
 test.beforeAll(async () => {
   const ctx = await pwRequest.newContext({ baseURL: E2E_BASE_URL });
-  await provision(ctx);
-  await ctx.dispose();
-  buyer = await resolveBuyerFixture((process.env.E2E_BUYER_EMAIL ?? "").toLowerCase(), process.env.E2E_BUYER_PASSWORD ?? "");
+  try { await provision(ctx); } finally { await ctx.dispose(); }
 });
 
 test.afterAll(async () => {
   const ctx = await pwRequest.newContext({ baseURL: E2E_BASE_URL });
-  await cleanup(ctx);
-  await ctx.dispose();
-  await cleanupBuyerFixture(buyer);
+  try { await cleanup(ctx); } finally { await ctx.dispose(); }
 });
 
 // ── MOBILE ──────────────────────────────────────────────────────────────────
@@ -188,25 +212,69 @@ test.describe("Marketplace Pulse", () => {
   const summaryMetricValue = (page: Page, label: string) =>
     page.locator("p", { hasText: label }).first().locator("xpath=following-sibling::p[1]");
 
-  test("tiles reflect the real pulse API; no fabricated/placeholder values", async ({ page }) => {
+  test("tiles match real reference quotes and five-minute candles with accurate feed status", async ({ page }) => {
+    const seller = await pwRequest.newContext({ baseURL: E2E_BASE_URL });
+    try {
+      await login(seller, sellerEmail, sellerPassword);
+      expect((await seller.post("/api/alpha-exchange/presence", { data: { clientId: randomUUID(), sequence: 1, active: true, activity: true } })).ok()).toBe(true);
+    } finally {
+      await seller.dispose();
+    }
     await login(page.request, buyer!.email, buyer!.password);
     const api = await (await page.request.get("/api/alpha-exchange/marketplace-pulse")).json() as {
       sellersOnline: number; buyersOnline: number; activeTrades: number; activeListings: number;
       totalUsdtAvailable: number; completedTrades: number; lastCompletedTrade: { network: string } | null; recentActivity: unknown[];
     };
     expect(api.activeListings).toBeGreaterThanOrEqual(6);
-    expect(api.sellersOnline).toBeGreaterThanOrEqual(2);
+    // An authenticated heartbeat above establishes fresh presence without
+    // depending on the order of earlier cases in this sequential suite.
+    expect(api.sellersOnline).toBeGreaterThanOrEqual(1);
     expect(api.activeTrades).toBeGreaterThanOrEqual(1);
     expect(api.completedTrades).toBeGreaterThanOrEqual(1);
     expect(api.lastCompletedTrade).not.toBeNull();
     expect(api.recentActivity.length).toBeGreaterThan(0);
 
+    // Bind this rendering check to one real backend snapshot. Live refreshes
+    // may legitimately change a price while the sequential tile assertions run.
+    const marketResponse = await page.request.get("/api/market/center");
+    expect(marketResponse.ok()).toBe(true);
+    const marketPayload = await marketResponse.json() as { snapshot: MarketSnapshot };
+    await page.route("**/api/market/center", route => route.fulfill({ json: marketPayload }));
+    // Freeze real history responses for exact price assertions. Stream updates
+    // and rollover are covered separately; a new tick must not race this check.
+    await page.addInitScript(() => Object.defineProperty(window, "WebSocket", { value: undefined, configurable: true }));
+    const charts = await Promise.all((["BTCUSDT", "ETHUSDT"] as const).map(async symbol => {
+      const response = await page.request.get(`/api/market/chart?symbol=${symbol}`);
+      expect(response.ok()).toBe(true);
+      const payload = await response.json() as { chart: MarketChartSnapshot };
+      expect(payload.chart.interval).toBe("5m");
+      expect(payload.chart.candles.length).toBeGreaterThan(2);
+      await page.route(`**/api/market/chart?symbol=${symbol}`, route => route.fulfill({ json: payload }));
+      return payload.chart;
+    }));
     await gotoMarketplace(page);
+    const { snapshot } = marketPayload;
+    expect(["live", "degraded"]).toContain(snapshot.status);
     const overview = page.locator("#market-overview");
-    await expect(overview.getByText(/^live$/i).first()).toBeVisible({ timeout: 20000 });
-    await expect(overview.getByText("USDT / ILS", { exact: true })).toBeVisible();
-    await expect(overview.getByText("BTC / USDT", { exact: true })).toBeVisible();
-    await expect(overview.getByText("ETH / USDT", { exact: true })).toBeVisible();
+    await expect(overview.locator("summary, details, button, a, iframe")).toHaveCount(0);
+    const reference = overview.locator('[data-market-chart="USDTILS"]');
+    await reference.scrollIntoViewIfNeeded();
+    const fxPair = snapshot.pairs.usdtIls;
+    await expect(reference.getByText(fxPair.price > 0 ? `₪${fxPair.price.toFixed(5)}` : "—", { exact: true })).toBeVisible();
+    const referenceFresh = isFxPairUsable(fxPair) && !snapshot.unavailablePairs.includes("usdtIls");
+    const referenceStatus = referenceFresh
+      ? (fxPair.quoteStatus === "closed" ? "Market closed · last close" : "History since this page opened")
+      : "Reference update delayed";
+    await expect(reference.getByText(referenceStatus, { exact: true })).toBeVisible();
+    for (const chart of charts) {
+      const tile = overview.locator(`[data-market-chart="${chart.symbol}"]`);
+      await tile.scrollIntoViewIfNeeded();
+      const last = chart.candles[chart.candles.length - 1];
+      const expectedPrice = `$${last.close.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+      await expect(tile.getByText(expectedPrice, { exact: true })).toBeVisible();
+      await expect(tile.getByRole("img")).toHaveAttribute("data-candle-count", String(chart.candles.length));
+      await expect(tile.getByRole("status")).toHaveText(chart.stale ? "Delayed update" : "Auto-refresh");
+    }
   });
 
   test("pulse reflects real backend changes (delta)", async ({ page }) => {
@@ -226,12 +294,37 @@ test.describe("Marketplace Pulse", () => {
 // ── SELLER CARDS ─────────────────────────────────────────────────────────────
 test.describe("Seller cards", () => {
   test("presence: online green / recent / offline grey", async ({ page }) => {
-    await login(page.request, buyer!.email, buyer!.password);
-    await gotoMarketplace(page);
-    await expect(cardFor(page, "PV Online").locator(".seller-presence--online")).toBeVisible();
-    await expect(cardFor(page, "PV Recent").locator(".seller-presence--recent")).toBeVisible();
-    await expect(cardFor(page, "PV Recent").getByText(/Active \d+ min ago/)).toBeVisible();
-    await expect(cardFor(page, "PV Offline").locator(".seller-presence--idle")).toBeVisible();
+    const online = await pwRequest.newContext({ baseURL: E2E_BASE_URL });
+    const recent = await pwRequest.newContext({ baseURL: E2E_BASE_URL });
+    try {
+      // Only authenticated heartbeat rows may make someone green. Profile
+      // onlineStatus/lastActiveAt fields are not presence evidence.
+      await login(online, sellerEmail, sellerPassword);
+      await login(recent, `${ids.sellerRecent}@example.test`, sellerPassword);
+      const clientId = randomUUID();
+      const active = { clientId, sequence: 1, active: true, activity: true };
+      expect((await online.post("/api/alpha-exchange/presence", { data: active })).ok()).toBeTruthy();
+      expect((await recent.post("/api/alpha-exchange/presence", { data: active })).ok()).toBeTruthy();
+      expect((await recent.post("/api/alpha-exchange/presence", {
+        data: { clientId, sequence: 2, active: false, activity: false },
+      })).ok()).toBeTruthy();
+      await login(page.request, buyer!.email, buyer!.password);
+      const presence = await (await page.request.get("/api/alpha-exchange/presence?ids="
+        + [ids.sellerOnline, ids.sellerRecent, ids.sellerOffline].join(","))).json();
+      expect(presence.users[ids.sellerOnline].onlineStatus).toBe("online");
+      expect(presence.users[ids.sellerRecent]).toMatchObject({ onlineStatus: "offline", lastActiveAt: expect.any(String) });
+      expect(presence.users[ids.sellerOffline]).toMatchObject({ onlineStatus: "offline", lastActiveAt: null });
+      await gotoMarketplace(page);
+      await expect(cardFor(page, ids.lUrgent).locator(".seller-presence--online")).toBeVisible();
+      await expect(cardFor(page, ids.lRecent).locator(".seller-presence--recent")).toBeVisible();
+      await expect(cardFor(page, ids.lRecent).locator(".seller-presence--recent")).toContainText(/Active (just now|\d+ min ago)/);
+      await expect(cardFor(page, ids.lOffline).locator(".seller-presence--idle")).toBeVisible();
+    } finally {
+      await online.post("/api/auth/logout");
+      await recent.post("/api/auth/logout");
+      await online.dispose();
+      await recent.dispose();
+    }
   });
 
   test("countdown: urgent <4h, neutral 4-12h, hidden >12h", async ({ page }) => {
@@ -239,20 +332,20 @@ test.describe("Seller cards", () => {
     await gotoMarketplace(page);
     await expect(page.locator(".seller-listing-countdown--urgent").first()).toBeVisible();
     await expect(page.locator(".seller-listing-countdown--neutral").first()).toBeVisible();
-    await expect(cardFor(page, "PV Offline").locator(".seller-listing-countdown")).toHaveCount(0);
+    await expect(cardFor(page, ids.lOffline).locator(".seller-listing-countdown")).toHaveCount(0);
   });
 
   test("Verified Email badge only when verified", async ({ page }) => {
     await login(page.request, buyer!.email, buyer!.password);
     await gotoMarketplace(page);
-    await expect(cardFor(page, "PV Online").getByText("Verified Email")).toBeVisible();
-    await expect(cardFor(page, "PV Unverified").getByText("Verified Email")).toHaveCount(0);
+    await expect(cardFor(page, ids.lUrgent).getByText("Verified Email")).toBeVisible();
+    await expect(cardFor(page, ids.lUnverif).getByText("Verified Email")).toHaveCount(0);
   });
 
   test("Approved Seller badge present on visible listings", async ({ page }) => {
     await login(page.request, buyer!.email, buyer!.password);
     await gotoMarketplace(page);
-    await expect(cardFor(page, "PV Online").getByText(/Approved Seller/i).first()).toBeVisible();
+    await expect(cardFor(page, ids.lUrgent).getByText(/Approved Seller/i).first()).toBeVisible();
   });
 });
 
@@ -331,8 +424,8 @@ test.describe("Journeys", () => {
     await expect(page.getByRole("heading", { name: /Create Listing/i }).first()).toBeVisible({ timeout: 30000 });
   });
 
-  test("admin reaches Listing Reliability panel", async ({ page }) => {
-    await login(page.request, adminEmail, adminPassword);
+  test("owner reaches Listing Reliability panel", async ({ page }) => {
+    await login(page.request, process.env.E2E_OWNER_EMAIL!, process.env.E2E_OWNER_PASSWORD!);
     await page.goto("/en/admin/alpha-exchange");
     await page.getByRole("button", { name: /Listing Reliability/ }).click();
     await expect(page.getByText("Sellers tracked")).toBeVisible({ timeout: 15000 });

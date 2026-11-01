@@ -1,0 +1,35 @@
+// @vitest-environment node
+import { NextRequest, NextResponse } from "next/server";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
+const mocks=vi.hoisted(()=>({auth:vi.fn(),token:vi.fn(),prefs:vi.fn(),claim:vi.fn(),snooze:vi.fn(),config:vi.fn(),parse:vi.fn(),save:vi.fn(),remove:vi.fn(),rate:vi.fn()}));
+vi.mock("@/lib/api-auth",()=>({requireApiUser:mocks.auth}));
+vi.mock("@/lib/auth",()=>({getCurrentSessionToken:mocks.token}));
+vi.mock("@/lib/alpha-exchange-store",()=>({updateNotificationPreferences:mocks.prefs}));
+vi.mock("@/lib/notification-engagement",()=>({claimNotificationReminder:mocks.claim,snoozeNotificationReminder:mocks.snooze}));
+vi.mock("@/lib/browser-push",()=>({browserPushConfiguration:mocks.config,parseBrowserPushSubscription:mocks.parse,saveBrowserPush:mocks.save,removeBrowserPush:mocks.remove}));
+vi.mock("@/lib/rate-limit",()=>({checkSharedRateLimit:mocks.rate,createRateLimitResponse:()=>NextResponse.json({error:"rate"},{status:429})}));
+import { GET, POST as remind } from "@/app/api/alpha-exchange/notification-engagement/route";
+import { POST as register } from "@/app/api/alpha-exchange/browser-push/route";
+const user={id:"user",emailVerified:true,notificationPreferences:{email:true,inApp:true,browserPush:true}};
+const subscription={endpoint:"https://fcm.googleapis.com/fcm/send/test",keys:{p256dh:"key",auth:"auth"}};
+const req=(body:unknown,headers:Record<string,string>={})=>new NextRequest("https://www.alphatraders.co.il/api/alpha-exchange/browser-push",{method:"POST",headers:{"Content-Type":"application/json",...headers},body:JSON.stringify(body)});
+beforeEach(()=>{vi.resetAllMocks();mocks.auth.mockResolvedValue({user,unauthorized:null});mocks.token.mockResolvedValue("session");mocks.config.mockReturnValue({publicKey:"public",privateKey:"NEVER_RETURN"});mocks.parse.mockReturnValue(subscription);mocks.rate.mockResolvedValue({allowed:true});mocks.claim.mockResolvedValue(true);mocks.save.mockResolvedValue(true);});
+afterEach(()=>vi.restoreAllMocks());
+it("returns only public configuration with no-store",async()=>{const response=await GET();expect(response.headers.get("cache-control")).toContain("no-store");expect(JSON.stringify(await response.json())).not.toContain("NEVER_RETURN");});
+it("does not claim for healthy users; claims when the device is off",async()=>{expect((await (await remind(req({action:"claim",needsPush:false}))).json()).show).toBe(false);expect(mocks.claim).not.toHaveBeenCalled();expect((await (await remind(req({action:"claim",needsPush:true}))).json()).show).toBe(true);});
+it("requires authentication",async()=>{mocks.auth.mockResolvedValue({user:null,unauthorized:NextResponse.json({}, {status:401})});expect((await register(req({}))).status).toBe(401);expect((await remind(req({action:"claim"}))).status).toBe(401);expect(mocks.save).not.toHaveBeenCalled();});
+it("rejects cross-site writes",async()=>{for(const route of [register,remind])expect((await route(req({}, {origin:"https://evil.example"}))).status).toBe(403);expect(mocks.auth).not.toHaveBeenCalled();});
+it("does not re-enable preferences during background token renewal",async()=>{expect((await register(req({action:"refresh",subscription,locale:"en"}))).status).toBe(200);expect(mocks.prefs).not.toHaveBeenCalled();});
+it("enables push only after successful explicit registration",async()=>{expect((await register(req({action:"subscribe",subscription,locale:"en"}))).status).toBe(200);expect(mocks.prefs).toHaveBeenCalledWith({userId:"user",preferences:{browserPush:true,inApp:true}});});
+it.each(["subscribe", "refresh"])("requires a replacement for retired subscriptions during %s without enabling consent", async action => {
+  mocks.save.mockResolvedValue(false);
+  const response = await register(req({ action, subscription, locale: "en" }));
+  expect(response.status).toBe(409);
+  expect(await response.json()).toMatchObject({ registered: false, code: "subscription_inactive" });
+  expect(response.headers.get("cache-control")).toContain("no-store");
+  expect(mocks.prefs).not.toHaveBeenCalled();
+});
+it("reports storage failure without changing consent",async()=>{mocks.save.mockRejectedValue(new Error("private server detail"));const response=await register(req({action:"subscribe",subscription,locale:"en"}));expect(response.status).toBe(503);expect(mocks.prefs).not.toHaveBeenCalled();expect(JSON.stringify(await response.json())).not.toContain("private server detail");});
+it("validates malformed input and honors throttling",async()=>{mocks.parse.mockReturnValue(null);expect((await register(req({}))).status).toBe(400);expect((await remind(req({action:"claim",needsPush:"yes"}))).status).toBe(400);mocks.rate.mockResolvedValue({allowed:false});expect((await remind(req({action:"claim"}))).status).toBe(429);});
+it("rejects delayed registration from another account",async()=>{expect((await register(req({action:"subscribe",subscription,locale:"en",expectedUserId:"previous-user"}))).status).toBe(409);expect(mocks.save).not.toHaveBeenCalled();expect(mocks.prefs).not.toHaveBeenCalled();});
+it("rejects a delayed reminder claim or snooze after an account switch",async()=>{for(const action of ["claim","snooze"])expect((await remind(req({action,needsPush:true,expectedUserId:"previous-user"}))).status).toBe(409);expect(mocks.claim).not.toHaveBeenCalled();expect(mocks.snooze).not.toHaveBeenCalled();});

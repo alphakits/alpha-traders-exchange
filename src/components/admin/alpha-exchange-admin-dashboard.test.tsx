@@ -1,12 +1,13 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AlphaExchangeAdminDashboard } from "@/components/admin/alpha-exchange-admin-dashboard";
 
-const navigationState = vi.hoisted(() => ({ search: "" }));
+const navigationState = vi.hoisted(() => ({ search: "", router: { refresh: vi.fn() } }));
 
 vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(navigationState.search),
+  useRouter: () => navigationState.router,
 }));
 
 const listing = {
@@ -23,12 +24,26 @@ const listing = {
   createdAt: "2026-08-22T00:00:00.000Z",
 };
 
+const smsDelivery = {
+  id: "sms-test-1",
+  eventKey: "trade-test:completed",
+  eventType: "trade_completed",
+  recipientUserId: "test-buyer",
+  recipientPhoneMasked: "+97•••01",
+  status: "delivered",
+  retryCount: 0,
+  createdAt: "2026-10-24T00:00:00Z",
+  updatedAt: "2026-10-24T00:01:00Z",
+  deliveredAt: "2026-10-24T00:01:00Z",
+};
+
 function adminPayload(
   listings = [listing],
   approvedSellers: Array<Record<string, unknown>> = [],
   commissionRecords: Array<Record<string, unknown>> = [],
 ) {
   return {
+    users: [],
     applications: [],
     approvedSellers,
     listings,
@@ -88,6 +103,10 @@ describe("AlphaExchangeAdminDashboard admin destinations", () => {
   const scrollIntoView = vi.fn();
 
   beforeEach(() => {
+    navigationState.router.refresh.mockReset();
+    sessionStorage.clear();
+    Object.defineProperty(HTMLDialogElement.prototype, "showModal", { configurable: true, value() { this.open = true; } });
+    Object.defineProperty(HTMLDialogElement.prototype, "close", { configurable: true, value() { this.open = false; } });
     navigationState.search = "section=marketplace-listings&listing=listing-123";
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       if (String(input).includes("sms-deliveries")) return Response.json({ deliveries: [] });
@@ -107,6 +126,462 @@ describe("AlphaExchangeAdminDashboard admin destinations", () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+  });
+
+  it.each(["en", "ar"] as const)("keeps account security reachable while the dashboard read is pending or unavailable (%s)", async locale => {
+    navigationState.search = "";
+    let finishRead!: (response: Response) => void;
+    vi.mocked(fetch).mockImplementation(() => new Promise<Response>(resolve => { finishRead = resolve; }));
+    const view = render(<AlphaExchangeAdminDashboard isOwner locale={locale} />);
+    try {
+      const queue = screen.getByRole("region", { name: locale === "ar" ? "قائمة متابعة المالك" : "Owner attention queue" });
+      const security = within(queue).getByRole("link", { name: locale === "ar" ? "أمان حساب المالك" : "Owner account security" });
+      expect(security.getAttribute("href")).toBe(`/${locale}/settings?tab=security`);
+      expect(queue.getAttribute("aria-busy")).toBe("true");
+      expect(within(queue).getByRole("status").textContent).toBe(locale === "ar" ? "جارٍ تحميل أولويات المتابعة…" : "Loading follow-up priorities…");
+      expect(within(queue).queryByText("(0)")).toBeNull();
+      expect(within(queue).queryByRole("button")).toBeNull();
+      await act(async () => finishRead(new Response(null, { status: 503 })));
+      expect(queue.getAttribute("aria-busy")).toBe("false");
+      expect(within(queue).getByRole("link").getAttribute("href")).toBe(`/${locale}/settings?tab=security`);
+      expect(within(queue).getByRole("status").textContent).toBe(locale === "ar" ? "أولويات المتابعة غير متاحة. أعد تحديث اللوحة." : "Follow-up priorities are unavailable. Refresh the dashboard.");
+      expect(within(queue).queryByText("(0)")).toBeNull();
+      expect(navigationState.router.refresh).not.toHaveBeenCalled();
+    } finally {
+      view.unmount();
+      await act(async () => finishRead(new Response(null, { status: 503 })));
+    }
+  });
+
+  it("loads owner account data without waiting for the optional SMS request", async () => {
+    let resolveSms!: (response: Response) => void;
+    vi.mocked(fetch).mockImplementation(async input => String(input).includes("sms-deliveries")
+      ? new Promise<Response>(resolve => { resolveSms = resolve; }) : Response.json(adminPayload()));
+    render(<AlphaExchangeAdminDashboard isOwner />);
+    expect(await screen.findByRole("heading", { name: "Marketplace Listings" })).toBeTruthy();
+    await act(async () => resolveSms(Response.json({ deliveries: [] })));
+  });
+
+  it.each(["en", "ar"] as const)("shows SMS history loading until an empty read is confirmed (%s)", async locale => {
+    navigationState.search = "section=sms-deliveries";
+    let finishSms!: (response: Response) => void;
+    vi.mocked(fetch).mockImplementation(async input => String(input).includes("sms-deliveries")
+      ? new Promise<Response>(resolve => { finishSms = resolve; }) : Response.json(adminPayload()));
+    render(<AlphaExchangeAdminDashboard isOwner locale={locale} />);
+    expect(await screen.findByText(locale === "ar" ? "جارٍ تحميل سجل رسائل SMS…" : "Loading SMS delivery history…")).toBeTruthy();
+    const empty = locale === "ar" ? "لا توجد رسائل SMS مسجّلة بعد." : "No SMS deliveries recorded yet.";
+    expect(screen.queryByText(empty)).toBeNull();
+    await act(async () => finishSms(Response.json({ deliveries: [] })));
+    expect(await screen.findByText(empty)).toBeTruthy();
+  });
+
+  it.each([
+    ["en", "http"], ["ar", "http"], ["en", "transport"], ["ar", "transport"],
+    ["en", "shape"], ["ar", "shape"],
+  ] as const)("does not present failed SMS history as empty (%s, %s)", async (locale, failure) => {
+    navigationState.search = "section=sms-deliveries";
+    vi.mocked(fetch).mockImplementation(async input => {
+      if (!String(input).includes("sms-deliveries")) return Response.json(adminPayload());
+      if (failure === "transport") throw new TypeError("private provider diagnostic");
+      return failure === "http" ? new Response(null, { status: 503 }) : Response.json({ deliveries: null });
+    });
+    render(<AlphaExchangeAdminDashboard isOwner locale={locale} />);
+    expect(await screen.findByText(locale === "ar" ? "تعذر تحميل سجل رسائل SMS. أعد المحاولة." : "SMS delivery history could not be loaded. Try again.")).toBeTruthy();
+    expect(screen.queryByText(locale === "ar" ? "لا توجد رسائل SMS مسجّلة بعد." : "No SMS deliveries recorded yet.")).toBeNull();
+    expect(screen.queryByText("private provider diagnostic")).toBeNull();
+    expect(navigationState.router.refresh).not.toHaveBeenCalled();
+  });
+
+  it.each(["en", "ar"] as const)("retries SMS history with a read only and reports confirmed empty history (%s)", async locale => {
+    navigationState.search = "section=sms-deliveries";
+    let attempts = 0;
+    vi.mocked(fetch).mockImplementation(async input => {
+      if (!String(input).includes("sms-deliveries")) return Response.json(adminPayload());
+      return ++attempts === 1 ? new Response(null, { status: 503 }) : Response.json({ deliveries: [] });
+    });
+    render(<AlphaExchangeAdminDashboard isOwner locale={locale} />);
+    fireEvent.click(await screen.findByRole("button", { name: locale === "ar" ? "إعادة تحميل سجل رسائل SMS" : "Retry SMS history" }));
+    expect(await screen.findByText(locale === "ar" ? "لا توجد رسائل SMS مسجّلة بعد." : "No SMS deliveries recorded yet.")).toBeTruthy();
+    expect(attempts).toBe(2);
+    expect(vi.mocked(fetch).mock.calls.filter(([input]) => String(input).includes("admin-prep"))).toHaveLength(1);
+    expect(vi.mocked(fetch).mock.calls.every(([, init]) => !init?.method || init.method === "GET")).toBe(true);
+  });
+
+  it("renders a confirmed SMS history record with its masked recipient", async () => {
+    navigationState.search = "section=sms-deliveries";
+    vi.mocked(fetch).mockImplementation(async input => Response.json(String(input).includes("sms-deliveries")
+      ? { deliveries: [smsDelivery] } : adminPayload()));
+    render(<AlphaExchangeAdminDashboard isOwner />);
+    expect(await screen.findByText(smsDelivery.recipientPhoneMasked)).toBeTruthy();
+    expect(screen.getByText("Delivered")).toBeTruthy();
+    expect(screen.queryByText("No SMS deliveries recorded yet.")).toBeNull();
+  });
+
+  it.each([
+    null,
+    { ...smsDelivery, updatedAt: "not-a-date" },
+    { ...smsDelivery, lastError: { diagnostic: "not display text" } },
+    { ...smsDelivery, status: "unknown" },
+  ])("rejects a malformed SMS history row without rendering an empty-success state (%j)", async delivery => {
+    navigationState.search = "section=sms-deliveries";
+    vi.mocked(fetch).mockImplementation(async input => Response.json(String(input).includes("sms-deliveries")
+      ? { deliveries: [delivery] } : adminPayload()));
+    render(<AlphaExchangeAdminDashboard isOwner />);
+    expect(await screen.findByText("SMS delivery history could not be loaded. Try again.")).toBeTruthy();
+    expect(screen.queryByText("No SMS deliveries recorded yet.")).toBeNull();
+  });
+
+  it.each([401, 403])("clears owner records when SMS history confirms access loss (%s)", async status => {
+    let finishSms!: (response: Response) => void;
+    vi.mocked(fetch).mockImplementation(async input => String(input).includes("sms-deliveries")
+      ? new Promise<Response>(resolve => { finishSms = resolve; }) : Response.json(adminPayload()));
+    render(<AlphaExchangeAdminDashboard isOwner />);
+    expect(await screen.findByText("Verified Seller")).toBeTruthy();
+    await act(async () => finishSms(new Response(null, { status })));
+    expect(screen.queryByText("Verified Seller")).toBeNull();
+    expect(navigationState.router.refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["success", "failure"])("ignores an older SMS history %s after a newer dashboard read", async result => {
+    navigationState.search = "section=sms-deliveries";
+    let finishOld!: (response: Response) => void;
+    let smsReads = 0;
+    vi.mocked(fetch).mockImplementation(async input => {
+      if (!String(input).includes("sms-deliveries")) return Response.json(adminPayload());
+      if (++smsReads === 1) return new Promise<Response>(resolve => { finishOld = resolve; });
+      return Response.json({ deliveries: [smsDelivery] });
+    });
+    const { rerender } = render(<AlphaExchangeAdminDashboard isOwner />);
+    await screen.findByText("Loading SMS delivery history…");
+    rerender(<AlphaExchangeAdminDashboard isOwner locale="ar" />);
+    expect(await screen.findByText(smsDelivery.recipientPhoneMasked)).toBeTruthy();
+    await act(async () => finishOld(result === "success"
+      ? Response.json({ deliveries: [{ ...smsDelivery, id: "sms-old", recipientPhoneMasked: "+97•••99" }] })
+      : new Response(null, { status: 503 })));
+    expect(screen.getByText(smsDelivery.recipientPhoneMasked)).toBeTruthy();
+    expect(screen.queryByText("+97•••99")).toBeNull();
+    expect(screen.queryByText("SMS delivery history could not be loaded. Try again.")).toBeNull();
+    expect(screen.queryByText("تعذر تحميل سجل رسائل SMS. أعد المحاولة.")).toBeNull();
+  });
+
+  it("shows buyer and suspended-account names beside AT IDs in audit and notification history", async () => {
+    navigationState.search = "section=audit-logs";
+    const buyer = { id: "identity-buyer", fullName: "AT-100001 (Private Buyer)", role: "buyer" };
+    const suspended = { id: "identity-suspended", fullName: "AT-200002 (Private Suspended Seller)", role: "buyer", sellerStatus: "suspended" };
+    vi.mocked(fetch).mockImplementation(async input => String(input).includes("sms-deliveries") ? Response.json({ deliveries: [] }) : Response.json({
+      ...adminPayload(), users: [buyer, suspended],
+      auditLogs: [{ id: "audit-identity", actorUserId: buyer.id, targetUserId: suspended.id, action: "admin_override", details: "Account action", createdAt: "2026-09-26T12:00:00Z" }],
+      notifications: [{ id: "notification-identity", userId: buyer.id, title: "Notice", message: "Updated", category: "system", isRead: false, createdAt: "2026-09-26T12:00:00Z" }],
+    }));
+    render(<AlphaExchangeAdminDashboard isOwner />);
+    expect((await screen.findAllByText(buyer.fullName)).length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByText(suspended.fullName)).toBeTruthy();
+    expect(screen.queryByText(buyer.id)).toBeNull();
+    expect(screen.queryByText(suspended.id)).toBeNull();
+  });
+
+  it("sends a listing approval once and clears recovery only after dashboard readback", async () => {
+    let resolveWrite!: (response: Response) => void;
+    let approved = false;
+    vi.mocked(fetch).mockImplementation(async (input, init) => {
+      if (init?.method === "PATCH") return new Promise<Response>(resolve => { resolveWrite = resolve; });
+      if (String(input).includes("sms-deliveries")) return Response.json({ deliveries: [] });
+      return Response.json(adminPayload([{ ...listing, status: approved ? "active" : "draft" }]));
+    });
+    render(<AlphaExchangeAdminDashboard isOwner />);
+    const approve = await screen.findByRole("button", { name: "Approve" });
+    fireEvent.click(approve); fireEvent.click(approve);
+    expect(vi.mocked(fetch).mock.calls.filter(([, init]) => init?.method === "PATCH")).toHaveLength(1);
+    approved = true;
+    await act(async () => resolveWrite(Response.json({ listing: { ...listing, status: "active" } })));
+    expect(await screen.findByText("Listing approved.")).toBeTruthy();
+    expect(JSON.parse(sessionStorage.getItem("alpha-owner-pending-operations-v1")!)).toEqual([]);
+  });
+
+  it("retains an ambiguous listing action across remount without repeating it", async () => {
+    vi.mocked(fetch).mockImplementation(async (input, init) => init?.method === "PATCH"
+      ? Response.json({ listing: { id: "wrong-listing" } })
+      : String(input).includes("sms-deliveries") ? Response.json({ deliveries: [] }) : Response.json(adminPayload()));
+    const view = render(<AlphaExchangeAdminDashboard isOwner />);
+    fireEvent.click(await screen.findByRole("button", { name: "Approve" }));
+    await screen.findByText(/This action is awaiting verification/);
+    expect(screen.queryByText("Listing approved.")).toBeNull();
+    view.unmount();
+    render(<AlphaExchangeAdminDashboard isOwner />);
+    fireEvent.click(await screen.findByRole("button", { name: "Approve" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Verify current state" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Cancel" }));
+    expect(JSON.parse(sessionStorage.getItem("alpha-owner-pending-operations-v1")!)).toHaveLength(1);
+    expect(vi.mocked(fetch).mock.calls.filter(([, init]) => init?.method === "PATCH")).toHaveLength(1);
+  });
+
+  it("keeps a saved action when the follow-up read fails, then recovers with reads only", async () => {
+    let failedRead = false;
+    vi.mocked(fetch).mockImplementation(async (input, init) => {
+      if (init?.method === "PATCH") { failedRead = true; return Response.json({ listing }); }
+      if (String(input).includes("sms-deliveries")) return Response.json({ deliveries: [] });
+      return failedRead ? new Response(null, { status: 503 }) : Response.json(adminPayload());
+    });
+    render(<AlphaExchangeAdminDashboard isOwner />);
+    fireEvent.click(await screen.findByRole("button", { name: "Approve" }));
+    await screen.findByText(/The server confirmed the action, but the dashboard could not refresh/);
+    expect(JSON.parse(sessionStorage.getItem("alpha-owner-pending-operations-v1")!)[0].outcome).toBe("saved");
+    failedRead = false;
+    fireEvent.click(screen.getByRole("button", { name: "Verify current state" }));
+    await waitFor(() => expect(JSON.parse(sessionStorage.getItem("alpha-owner-pending-operations-v1")!)).toEqual([]));
+    expect(vi.mocked(fetch).mock.calls.filter(([, init]) => init?.method === "PATCH")).toHaveLength(1);
+  });
+
+  it("retains an ambiguous rank receipt until the owner acknowledges audit verification, without replaying a write", async () => {
+    const seller = { id: "rank-seller", fullName: "AT-123456 (Test Seller)", role: "approved_seller", roles: ["approved_seller"], sellerPrestigeRank: "gold" };
+    sessionStorage.setItem("alpha-owner-pending-operations-v1", JSON.stringify([{ id: "pending-rank", targetId: seller.id, command: "rank", value: "gold", outcome: "unknown" }]));
+    vi.mocked(fetch).mockImplementation(async input => String(input).includes("sms-deliveries")
+      ? Response.json({ deliveries: [] }) : Response.json({ ...adminPayload([listing], [seller]), users: [seller] }));
+    render(<AlphaExchangeAdminDashboard isOwner />);
+    fireEvent.click(await screen.findByRole("button", { name: "Verify current state" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Cancel" }));
+    expect(JSON.parse(sessionStorage.getItem("alpha-owner-pending-operations-v1")!)).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "Verify current state" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Confirm" }));
+    await waitFor(() => expect(JSON.parse(sessionStorage.getItem("alpha-owner-pending-operations-v1")!)).toHaveLength(0));
+    expect(vi.mocked(fetch).mock.calls.every(([, init]) => !init?.method || init.method === "GET")).toBe(true);
+  });
+
+  it("does not let a slower old dashboard refresh overwrite a newer response", async () => {
+    let resolveOld!: (response: Response) => void; let reads = 0;
+    vi.mocked(fetch).mockImplementation(async input => {
+      if (String(input).includes("sms-deliveries")) return Response.json({ deliveries: [] });
+      if (++reads === 1) return new Promise<Response>(resolve => { resolveOld = resolve; });
+      return Response.json(adminPayload([{ ...listing, sellerDisplayName: "New seller state" }]));
+    });
+    const view = render(<AlphaExchangeAdminDashboard isOwner />);
+    view.rerender(<AlphaExchangeAdminDashboard isOwner locale="ar" />);
+    await screen.findByText("New seller state");
+    await act(async () => resolveOld(Response.json(adminPayload([{ ...listing, sellerDisplayName: "Stale seller state" }]))));
+    expect(screen.queryByText("Stale seller state")).toBeNull();
+    expect(screen.getByText("New seller state")).toBeTruthy();
+  });
+
+  it.each(["en", "ar"] as const)("shows only in-progress trades from the active destination and keeps history accessible (%s)", async (locale) => {
+    navigationState.search = "section=purchase-requests&status=active";
+    const active = ["accepted", "payment_sent", "funds_received", "usdt_release_pending", "usdt_sent"];
+    const inactive = ["pending", "completed", "review_open", "locked", "cancelled", "declined"];
+    const purchaseRequests = [...active, ...inactive].map(status => ({
+      id: `request-${status}`, buyerId: "buyer-1", buyerName: `Buyer ${status}`, sellerId: "seller-1", listingId: listing.id,
+      status, usdtAmount: "100", fiatAmount: "320", currency: "ILS", paymentMethod: "Bank Transfer", network: "TRC20",
+      timeline: [], createdAt: "2026-09-23T00:00:00.000Z", updatedAt: "2026-09-23T00:00:00.000Z",
+    }));
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ ...adminPayload(), purchaseRequests })));
+    const view = render(<AlphaExchangeAdminDashboard isOwner locale={locale} />);
+    await screen.findByRole("heading", { name: locale === "ar" ? "الصفقات النشطة" : "Active Trades" });
+    const rows = within(screen.getByRole("table"));
+    for (const status of active) expect(rows.getByText(`Buyer ${status}`)).toBeTruthy();
+    for (const status of inactive) expect(rows.queryByText(`Buyer ${status}`)).toBeNull();
+    expect(screen.queryByText(locale === "ar" ? "سجل انتهاء المهلة" : "Timeout History")).toBeNull();
+    const filter = screen.getByRole("combobox", { name: locale === "ar" ? "تصفية الصفقات حسب الحالة" : "Filter trades by status" });
+    expect((filter as HTMLSelectElement).value).toBe("active");
+    fireEvent.change(filter, { target: { value: "completed" } });
+    expect(rows.getAllByRole("button", { name: locale === "ar" ? "عرض التفاصيل" : "View Details" })).toHaveLength(3);
+    expect(rows.getByText("Buyer completed")).toBeTruthy();
+    navigationState.search = "section=purchase-requests&status=active&requestId=request-cancelled&details=1";
+    view.rerender(<AlphaExchangeAdminDashboard isOwner locale={locale} />);
+    expect(await screen.findByRole("dialog", { name: locale === "ar" ? "تفاصيل طلب الشراء" : "Purchase Request Details" })).toBeTruthy();
+    expect((filter as HTMLSelectElement).value).toBe("all");
+    expect(vi.mocked(fetch).mock.calls.every(([, init]) => !init?.method || init.method === "GET")).toBe(true);
+  });
+
+  it.each(["en", "ar"] as const)("reconciles analytics totals with active and completed trade filters (%s)", async (locale) => {
+    navigationState.search = "section=analytics";
+    const statuses = ["accepted", "payment_sent", "funds_received", "usdt_release_pending", "usdt_sent", "pending", "completed", "review_open", "locked", "cancelled", "declined"];
+    const purchaseRequests = statuses.map(status => ({
+      id: `request-${status}`, buyerId: "buyer-1", buyerName: `Buyer ${status}`, sellerId: "seller-1", listingId: listing.id,
+      status, usdtAmount: "100", fiatAmount: "320", currency: "ILS", paymentMethod: "Bank Transfer", network: "TRC20",
+      timeline: [], createdAt: "2026-09-23T00:00:00.000Z", updatedAt: "2026-09-23T00:00:00.000Z",
+    }));
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({
+      ...adminPayload(), purchaseRequests,
+      ownerBusiness: {
+        today: { estimatedCommission: 0, tradeVolumeUsdt: 0 },
+        thisWeek: { topSeller: "" },
+        financialOverview: { estimatedCommissionThisWeek: 0, estimatedCommissionThisMonth: 0 },
+      },
+    })));
+    render(<AlphaExchangeAdminDashboard isOwner locale={locale} />);
+    await screen.findByRole("heading", { name: locale === "ar" ? "التحليلات" : "Analytics" });
+    const activeCard = screen.getByText(locale === "ar" ? "الصفقات النشطة" : "Active Trades").parentElement!;
+    const completedCard = screen.getByText(locale === "ar" ? "الصفقات المكتملة" : "Completed Trades").parentElement!;
+    expect(within(activeCard).getByRole("heading").textContent).toBe("5");
+    expect(within(completedCard).getByRole("heading").textContent).toBe("3");
+    fireEvent.click(screen.getByRole("button", { name: locale === "ar" ? "فتح طلبات الشراء والصفقات" : "Open Purchase Requests" }));
+    const filter = await screen.findByRole("combobox", { name: locale === "ar" ? "تصفية الصفقات حسب الحالة" : "Filter trades by status" });
+    fireEvent.change(filter, { target: { value: "active" } });
+    expect(within(screen.getByRole("table")).getAllByRole("button")).toHaveLength(5);
+    fireEvent.change(filter, { target: { value: "completed" } });
+    expect(within(screen.getByRole("table")).getAllByRole("button")).toHaveLength(3);
+  });
+
+  it.each([
+    ["en", undefined], ["ar", undefined],
+    ["en", null], ["ar", null],
+    ["en", "Recorded Trade Bank"], ["ar", "Recorded Trade Bank"],
+  ] as const)("shows only the historical trade bank in the owner table (%s, %s)", async (locale, bankName) => {
+    navigationState.search = "section=purchase-requests";
+    const purchaseRequests = [{
+      id: "request-bank-history", buyerId: "buyer-1", buyerName: "Historical Buyer", sellerId: "seller-1", listingId: listing.id,
+      bankName, status: "review_open", usdtAmount: "100", fiatAmount: "320", currency: "ILS", paymentMethod: "Bank Transfer", network: "TRC20",
+      timeline: [], createdAt: "2026-09-23T00:00:00.000Z", updatedAt: "2026-09-23T00:00:00.000Z",
+    }];
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({
+      ...adminPayload(), listings: [{ ...listing, bankName: "Changed Current Listing Bank" }], purchaseRequests,
+    })));
+    render(<AlphaExchangeAdminDashboard isOwner locale={locale} />);
+    await screen.findByRole("heading", { name: locale === "ar" ? "طلبات الشراء والصفقات" : "Purchase Requests" });
+    const row = within(screen.getByRole("table")).getAllByRole("row")[1]!;
+    const bankCell = within(row).getAllByRole("cell")[5]!;
+    expect(bankCell.textContent).toBe(bankName ?? (locale === "ar" ? "غير مسجّل" : "Not recorded"));
+    expect(row.textContent).not.toContain("Changed Current Listing Bank");
+    expect(vi.mocked(fetch).mock.calls.every(([, init]) => !init?.method || init.method === "GET")).toBe(true);
+  });
+
+  it("labels a Wise request price in USD in the queue and details", async () => {
+    navigationState.search = "section=purchase-requests";
+    const request = { id: "wise-request", buyerId: "buyer-1", buyerName: "Wise Buyer", sellerId: "seller-1", listingId: listing.id,
+      status: "pending", usdtAmount: "100", fiatAmount: "102", pricePerUsdt: "1.02", currency: "USD", bankTransferProvider: "wise", paymentMethod: "Bank Transfer", network: "TRC20",
+      timeline: [], createdAt: "2026-09-23T00:00:00.000Z", updatedAt: "2026-09-23T00:00:00.000Z" };
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ ...adminPayload(), purchaseRequests: [request] })));
+    render(<AlphaExchangeAdminDashboard isOwner />);
+    expect(await screen.findByText((_, element) => element?.tagName === "P" && element.textContent === "Price 1.02 USD", {}, { timeout: 10000 })).toBeTruthy();
+    expect(screen.queryByText("₪1.02")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "View Details" }));
+    const dialog = await screen.findByRole("dialog", { name: "Purchase Request Details" });
+    expect(within(dialog).getByText("1.02 USD")).toBeTruthy();
+  });
+
+  it("keeps commission trade currencies in the card and CSV without guessing an orphan's currency", async () => {
+    navigationState.search = "section=commissions";
+    const request = { id: "wise-request", buyerId: "buyer-1", buyerName: "Wise Buyer", sellerId: "seller-1", listingId: listing.id,
+      status: "completed", usdtAmount: "100", fiatAmount: "102", pricePerUsdt: "1.02", currency: "USD", bankTransferProvider: "wise", paymentMethod: "Bank Transfer", network: "TRC20",
+      timeline: [], createdAt: "2026-09-23T00:00:00.000Z", updatedAt: "2026-09-23T00:00:00.000Z" };
+    const record = { id: "wise-commission", source: "trade", purchaseRequestId: request.id, sellerId: request.sellerId, buyerId: request.buyerId, rate: 0.02, grossAmount: 102, commissionAmount: 2, paymentStatus: "pending", createdAt: request.createdAt, updatedAt: request.updatedAt };
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ ...adminPayload([listing], [], [record, { ...record, id: "orphan-commission", purchaseRequestId: "missing-request" }, { ...record, id: "snapshot-commission", purchaseRequestId: "pruned-request", grossCurrency: "USD" }]), purchaseRequests: [request] })));
+    const blobs: Blob[] = [];
+    vi.stubGlobal("URL", class extends URL {
+      static createObjectURL = vi.fn((blob: Blob) => { blobs.push(blob); return "blob:synthetic-export"; });
+      static revokeObjectURL = vi.fn();
+    });
+    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    try {
+      render(<AlphaExchangeAdminDashboard isOwner />);
+      const card = await screen.findByTestId("commission-card-wise-commission");
+      expect(within(card).getByText("102.00 USD")).toBeTruthy();
+      const orphan = screen.getByTestId("commission-card-orphan-commission");
+      expect(within(orphan).getByText("Currency unavailable")).toBeTruthy();
+      expect(orphan.textContent).not.toContain("₪");
+      expect(within(screen.getByTestId("commission-card-snapshot-commission")).getByText("102.00 USD")).toBeTruthy();
+      fireEvent.click(screen.getByRole("button", { name: "Export CSV" }));
+      const csv = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.onerror = reject; reader.readAsText(blobs[0]);
+      });
+      expect(csv.split("\n")[0]).toContain("Trade Currency");
+      expect(csv).toContain('"102.00","USD","2"');
+      expect(csv).toContain("Currency unavailable");
+    } finally { click.mockRestore(); }
+  });
+
+  it.each([
+    ["en", "purchase-requests"], ["ar", "purchase-requests"],
+    ["en", "commissions"], ["ar", "commissions"],
+  ] as const)("exports every filtered %s %s result across pages in selected order", async (locale, section) => {
+    navigationState.search = `section=${section}`;
+    const t = (en: string, ar: string) => locale === "ar" ? ar : en;
+    const purchaseRequests = Array.from({ length: 12 }, (_, i) => ({
+      id: `request-export-${i}`, buyerId: `buyer-${i}`, buyerName: `${i === 10 ? "Excluded" : "Kept"} Buyer ${String(i + 1).padStart(2, "0")}`,
+      sellerId: "seller-1", listingId: listing.id, status: i === 11 ? "pending" : "review_open",
+      usdtAmount: 100, fiatAmount: 320, currency: "ILS", paymentMethod: "Bank Transfer", network: "TRC20",
+      timeline: [], createdAt: `2026-09-${String(i + 1).padStart(2, "0")}T00:00:00.000Z`, updatedAt: "2026-09-23T00:00:00.000Z",
+    }));
+    const commissionRecords = Array.from({ length: 11 }, (_, i) => ({
+      id: `commission-export-${i}`, source: "admin_manual", sellerId: "seller-1", issuedByUserId: "owner-1",
+      issueReason: `${i === 10 ? "Excluded" : "Kept"} reason ${String(i + 1).padStart(2, "0")}`,
+      rate: 0, grossAmount: 0, commissionAmount: i + 1, paymentStatus: "pending",
+      createdAt: `2026-09-${String(i + 1).padStart(2, "0")}T00:00:00.000Z`, updatedAt: "2026-09-23T00:00:00.000Z",
+    }));
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ ...adminPayload([listing], [], commissionRecords), purchaseRequests })));
+    const blobs: Blob[] = [];
+    vi.stubGlobal("URL", class extends URL {
+      static createObjectURL = vi.fn((blob: Blob) => { blobs.push(blob); return "blob:synthetic-export"; });
+      static revokeObjectURL = vi.fn();
+    });
+    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    try {
+      render(<AlphaExchangeAdminDashboard isOwner locale={locale}/>);
+      await screen.findByRole("heading", { name: section === "commissions" ? t("Commissions", "العمولات") : t("Purchase Requests", "طلبات الشراء والصفقات") });
+      fireEvent.change(screen.getByPlaceholderText(section === "commissions"
+        ? t("Search commission, trade, seller, reason...", "ابحث بالعمولة أو الصفقة أو البائع أو السبب...")
+        : t("Search buyer, seller, listing...", "ابحث بالمشتري أو البائع أو العرض...")), { target: { value: "Kept" } });
+      if (section === "purchase-requests") fireEvent.change(screen.getByRole("combobox", { name: t("Filter trades by status", "تصفية الصفقات حسب الحالة") }), { target: { value: "completed" } });
+      const sort = screen.getAllByRole("combobox").find(element => within(element).queryByRole("option", { name: t("Sort: Oldest", "الترتيب: الأقدم") }));
+      fireEvent.change(sort!, { target: { value: "oldest" } });
+      fireEvent.click(screen.getByRole("button", { name: t("Next", "التالي") }));
+      const exportButton = screen.getByRole("button", { name: section === "commissions" ? t("Export CSV", "تصدير CSV") : t("Export Trades", "تصدير الصفقات") });
+      fireEvent.click(exportButton);
+      const csv = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.onerror = reject; reader.readAsText(blobs[0]);
+      });
+      const lines = csv.split("\n");
+      expect(lines).toHaveLength(11);
+      expect(csv).not.toContain("Excluded");
+      expect(csv).not.toContain("Kept Buyer 12");
+      for (let i = 1; i <= 10; i++) expect(lines[i]).toContain(`Kept ${section === "commissions" ? "reason" : "Buyer"} ${String(i).padStart(2, "0")}`);
+      expect(vi.mocked(fetch).mock.calls.every(([, init]) => !init?.method || init.method === "GET")).toBe(true);
+    } finally { click.mockRestore(); }
+  });
+
+  it.each(["en", "ar"] as const)("shows a clear empty active list (%s)", async (locale) => {
+    navigationState.search = "section=purchase-requests&status=active";
+    render(<AlphaExchangeAdminDashboard isOwner locale={locale} />);
+    expect(await screen.findByText(locale === "ar" ? "لا توجد صفقات نشطة الآن." : "No active trades right now.")).toBeTruthy();
+    expect(screen.queryByText(locale === "ar" ? "سجل انتهاء المهلة" : "Timeout History")).toBeNull();
+  });
+
+  it("includes review-open and locked trades in Completed and links owner details to the read-only room", async () => {
+    navigationState.search = "section=purchase-requests";
+    const purchaseRequests = ["review_open", "locked", "completed", "pending"].map((status, index) => ({
+      id: `request-${index}`, buyerId: "buyer-1", buyerName: `Buyer ${index}`, sellerId: "seller-1", listingId: listing.id,
+      status, usdtAmount: "100", fiatAmount: "320", currency: "ILS", paymentMethod: "Bank Transfer", network: "TRC20",
+      timeline: [], createdAt: "2026-09-23T00:00:00.000Z", updatedAt: "2026-09-23T00:00:00.000Z",
+    }));
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ ...adminPayload(), purchaseRequests })));
+    render(<AlphaExchangeAdminDashboard isOwner />);
+    await screen.findByRole("heading", { name: "Purchase Requests" });
+    const statusFilter = screen.getAllByRole("combobox").find((element) => within(element).queryByRole("option", { name: "Status: All" }));
+    expect(statusFilter).toBeTruthy();
+    fireEvent.change(statusFilter!, { target: { value: "completed" } });
+    expect(screen.getAllByRole("button", { name: "View Details" })).toHaveLength(3);
+    expect(screen.queryByText("Buyer 3")).toBeNull();
+    fireEvent.click(screen.getAllByRole("button", { name: "View Details" })[0]);
+    const dialog = screen.getByRole("dialog", { name: "Purchase Request Details" });
+    expect(within(dialog).getByRole("link", { name: "Open trade room history" }).getAttribute("href")).toBe("/en/trade-room/request-0?view=history");
+  });
+
+  it.each(["completed", "review_open", "locked"])("returns from %s history with owner controls and safe completion state", async (status) => {
+    navigationState.search = "section=purchase-requests&requestId=history-request&details=1";
+    const purchaseRequests = [{
+      id: "history-request", buyerId: "buyer-1", buyerName: "Historical Buyer", sellerId: "seller-1", listingId: listing.id,
+      status, usdtAmount: "100", fiatAmount: "320", currency: "ILS", paymentMethod: "Bank Transfer", network: "TRC20",
+      timeline: [], createdAt: "2026-09-23T00:00:00.000Z", updatedAt: "2026-09-23T00:00:00.000Z",
+    }];
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ ...adminPayload(), purchaseRequests })));
+    const { rerender } = render(<AlphaExchangeAdminDashboard isOwner />);
+    const dialog = await screen.findByRole("dialog", { name: "Purchase Request Details" });
+    expect(within(dialog).getByText("Historical Buyer")).toBeTruthy();
+    expect(within(dialog).getByRole("link", { name: "Open trade room history" }).getAttribute("href")).toBe("/en/trade-room/history-request?view=history");
+    expect((within(dialog).getByRole("button", { name: "Mark as completed" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((within(dialog).getByRole("button", { name: "Force close trade" }) as HTMLButtonElement).disabled).toBe(false);
+    expect(within(dialog).getByRole("button", { name: "Unlock Review" })).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Close request details" }));
+    rerender(<AlphaExchangeAdminDashboard isOwner />);
+    expect(screen.queryByRole("dialog", { name: "Purchase Request Details" })).toBeNull();
   });
 
   it("selects, filters, focuses, and scrolls to an exact listing target once per navigation", async () => {
@@ -269,6 +744,7 @@ describe("AlphaExchangeAdminDashboard admin destinations", () => {
     const issueButton = screen.getByRole("button", { name: "Issue Commission & Notify Seller" }) as HTMLButtonElement;
     expect(issueButton.disabled).toBe(false);
     fireEvent.click(issueButton);
+    fireEvent.click(await screen.findByRole("button", { name: "Confirm" }));
 
     await waitFor(() => {
       const request = vi.mocked(fetch).mock.calls.find(([input, init]) => String(input).endsWith("/api/alpha-exchange/admin/commissions") && init?.method === "POST");
@@ -277,6 +753,7 @@ describe("AlphaExchangeAdminDashboard admin destinations", () => {
         sellerId: seller.id,
         commissionAmount: 12.5,
         reason: "Documented settlement adjustment",
+        clientOperationId: expect.stringMatching(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/),
       });
     });
     expect(await screen.findByText("Admin-issued")).toBeTruthy();
@@ -339,7 +816,7 @@ describe("AlphaExchangeAdminDashboard admin destinations", () => {
     const cardList = screen.getByTestId("commission-card-list");
     const card = within(cardList).getByTestId(`commission-card-${commission.id}`);
     expect(within(card).getByText("Rayan Mariah")).toBeTruthy();
-    expect(within(card).getByText("4.180001 USDT")).toBeTruthy();
+    expect(within(card).getByText((_, element) => element?.textContent === "4.180001 USDT" && !Array.from(element.children).some(child => child.textContent === "4.180001 USDT"))).toBeTruthy();
     expect(screen.queryByRole("table")).toBeNull();
 
     const markPaid = within(card).getByRole("button", { name: "Mark Paid" });
@@ -349,7 +826,7 @@ describe("AlphaExchangeAdminDashboard admin destinations", () => {
 
     const dialog = await screen.findByRole("dialog", { name: "Confirm commission payment" });
     expect(within(dialog).getByText("Rayan Mariah")).toBeTruthy();
-    expect(within(dialog).getByText("4.180001 USDT")).toBeTruthy();
+    expect(within(dialog).getByText((_, element) => element?.textContent === "4.180001 USDT" && !Array.from(element.children).some(child => child.textContent === "4.180001 USDT"))).toBeTruthy();
     const reason = within(dialog).getByLabelText("Payment reference or reason") as HTMLTextAreaElement;
     fireEvent.change(reason, { target: { value: "Received via Binance internal transfer 410678442518." } });
     fireEvent.click(within(dialog).getByRole("button", { name: "Confirm & Mark Paid" }));
@@ -369,10 +846,10 @@ describe("AlphaExchangeAdminDashboard admin destinations", () => {
     });
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Confirm commission payment" })).toBeNull());
     expect(await screen.findByText("Payment settled")).toBeTruthy();
-    expect(screen.getByText("Commission marked paid. Seller confirmation was sent.")).toBeTruthy();
+    expect(screen.getByText("Commission marked paid.")).toBeTruthy();
   });
 
-  it("keeps the payment dialog open and shows the API error when settlement fails", async () => {
+  it("keeps the payment dialog open and prevents replay when settlement has no confirmed outcome", async () => {
     navigationState.search = "section=commissions";
     const seller = {
       id: "seller-payment-error",
@@ -413,9 +890,10 @@ describe("AlphaExchangeAdminDashboard admin destinations", () => {
     const dialog = await screen.findByRole("dialog", { name: "Confirm commission payment" });
     fireEvent.click(within(dialog).getByRole("button", { name: "Confirm & Mark Paid" }));
 
-    expect((await within(dialog).findByRole("alert")).textContent).toContain("Commission record changed. Refresh and try again.");
+    expect((await within(dialog).findByRole("alert")).textContent).toContain("Payment action not confirmed.");
     expect(screen.getByRole("dialog", { name: "Confirm commission payment" })).toBeTruthy();
-    expect((within(dialog).getByRole("button", { name: "Confirm & Mark Paid" }) as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(within(dialog).getByRole("button", { name: "Confirm & Mark Paid" }));
+    expect(vi.mocked(fetch).mock.calls.filter(([, init]) => init?.method === "PATCH")).toHaveLength(1);
   });
 
   it("requires and submits both language editions for an emergency broadcast", async () => {
@@ -442,6 +920,9 @@ describe("AlphaExchangeAdminDashboard admin destinations", () => {
     fireEvent.change(screen.getByLabelText("النص بالعربية"), { target: { value: "سيتوقف التداول لفترة قصيرة." } });
     expect(broadcastButton.disabled).toBe(false);
     fireEvent.click(broadcastButton);
+    fireEvent.click(await screen.findByRole("button", { name: "تأكيد" }));
+    fireEvent.change(await screen.findByRole("textbox", { name: "سبب هذا الإرسال:" }), { target: { value: "Operational notice" } });
+    fireEvent.click(screen.getByRole("button", { name: "تأكيد" }));
 
     await waitFor(() => {
       const broadcastRequest = vi.mocked(fetch).mock.calls.find(([input, init]) => String(input).endsWith("/notifications/broadcast") && init?.method === "POST");
@@ -474,6 +955,66 @@ describe("AlphaExchangeAdminDashboard admin destinations", () => {
 
     expect(await screen.findByRole("heading", { name: "Purchase Requests" })).toBeTruthy();
     expect((screen.getByPlaceholderText("Search buyer, seller, listing...") as HTMLInputElement).value).toBe("request-1");
+  });
+
+  it.each([401, 403])("clears old health data and refreshes canonical access after HTTP %s", async status => {
+    navigationState.search = "section=system-health";
+    let denied = false;
+    vi.mocked(fetch).mockImplementation(async input => {
+      if (String(input).includes("sms-deliveries")) return Response.json({ deliveries: [] });
+      if (String(input).includes("/api/admin/system-health")) {
+        return denied ? Response.json({ error: "Access unavailable" }, { status }) : Response.json(systemHealthPayload());
+      }
+      return Response.json(adminPayload());
+    });
+    render(<AlphaExchangeAdminDashboard isOwner />);
+    expect(await screen.findByText("Marketplace Operational Guard")).toBeTruthy();
+    denied = true;
+    fireEvent.click(screen.getByRole("button", { name: /^Check Now$/ }));
+    await waitFor(() => expect(navigationState.router.refresh).toHaveBeenCalledOnce());
+    expect(screen.queryByText("Marketplace Operational Guard")).toBeNull();
+    expect(screen.queryByText("Website health could not be loaded. Try again.")).toBeNull();
+  });
+
+  it("preserves owner data through a temporary health error and recovers with a read", async () => {
+    navigationState.search = "section=system-health";
+    let unavailable = false;
+    vi.mocked(fetch).mockImplementation(async input => {
+      if (String(input).includes("sms-deliveries")) return Response.json({ deliveries: [] });
+      if (String(input).includes("/api/admin/system-health")) {
+        return unavailable ? Response.json({ error: "Unavailable" }, { status: 503 }) : Response.json(systemHealthPayload());
+      }
+      return Response.json(adminPayload());
+    });
+    render(<AlphaExchangeAdminDashboard isOwner />);
+    expect(await screen.findByText("Marketplace Operational Guard")).toBeTruthy();
+    unavailable = true;
+    fireEvent.click(screen.getByRole("button", { name: /^Check Now$/ }));
+    expect(await screen.findByText("Website health could not be loaded. Try again.")).toBeTruthy();
+    expect(screen.getByText("Marketplace Operational Guard")).toBeTruthy();
+    expect(navigationState.router.refresh).not.toHaveBeenCalled();
+    unavailable = false;
+    fireEvent.click(screen.getByRole("button", { name: /^Check Now$/ }));
+    await waitFor(() => expect(screen.queryByText("Website health could not be loaded. Try again.")).toBeNull());
+    expect(screen.getByText("Marketplace Operational Guard")).toBeTruthy();
+  });
+
+  it("ignores an earlier health response after the dashboard loses access", async () => {
+    navigationState.search = "section=system-health";
+    let dashboardReads = 0;
+    const healthResolvers: Array<(response: Response) => void> = [];
+    vi.mocked(fetch).mockImplementation(async input => {
+      if (String(input).includes("sms-deliveries")) return Response.json({ deliveries: [] });
+      if (String(input).includes("/api/admin/system-health")) return new Promise<Response>(resolve => healthResolvers.push(resolve));
+      return ++dashboardReads === 1 ? Response.json(adminPayload()) : Response.json({ error: "Signed out" }, { status: 401 });
+    });
+    const view = render(<AlphaExchangeAdminDashboard isOwner />);
+    await waitFor(() => expect(healthResolvers.length).toBe(1));
+    view.rerender(<AlphaExchangeAdminDashboard isOwner locale="ar" />);
+    await waitFor(() => expect(navigationState.router.refresh).toHaveBeenCalledOnce());
+    await act(async () => healthResolvers.forEach(resolve => resolve(Response.json(systemHealthPayload()))));
+    expect(screen.queryByText("Marketplace Operational Guard")).toBeNull();
+    expect(screen.queryByText("مراقبة عمليات السوق")).toBeNull();
   });
 
   it("renders the operational guard completely in Arabic", async () => {

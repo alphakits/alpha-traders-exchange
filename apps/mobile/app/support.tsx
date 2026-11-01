@@ -1,4 +1,5 @@
-import { StyleSheet, Text, View } from "react-native";
+import { BrandedText as Text } from "../src/components/branded-text";
+import { StyleSheet, View } from "react-native";
 import { colors, radius, spacing, typography } from "@alpha-traders/design-tokens";
 import { NativeContactForm } from "../src/components/native-contact-form";
 import { NativePageShell } from "../src/components/native-page-shell";

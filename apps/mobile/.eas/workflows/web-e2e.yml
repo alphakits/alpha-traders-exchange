@@ -1,0 +1,34 @@
+name: Alpha Exchange Browser Reliability
+run_name: Browser reliability • ${{ github.sha }}
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  browser_e2e:
+    name: Run 148 Chromium exchange flows
+    runs_on: linux-medium
+    env:
+      CI: "1"
+      GIT_LFS_SKIP_SMUDGE: "1"
+      PLAYWRIGHT_HTML_OPEN: never
+      PLAYWRIGHT_HTML_OUTPUT_DIR: apps/mobile/playwright-report
+    steps:
+      - uses: eas/checkout
+      - uses: eas/install_node_modules
+      - name: Install Chromium and system dependencies
+        run: npx playwright install --with-deps chromium
+        working_directory: ../..
+      - name: Run production-mode browser reliability suite
+        run: npx playwright test --reporter=list,html --output=apps/mobile/playwright-results
+        working_directory: ../..
+      - name: Upload browser evidence
+        uses: eas/upload_artifact
+        if: ${{ always() }}
+        with:
+          type: other
+          name: alpha-exchange-browser-evidence
+          path: |
+            playwright-report/**/*
+            playwright-results/**/*
+          ignore_error: true

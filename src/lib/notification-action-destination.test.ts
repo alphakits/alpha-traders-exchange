@@ -5,6 +5,25 @@ import {
 } from "@/lib/notification-action-destination";
 
 describe("explicit notification action destinations", () => {
+  it.each([
+    { reason: "new_listing_published", title: "New listing" },
+    { title: "🟢 New USDT Listing Available" },
+  ])("repairs stored listing management links for broadcasts: %j", (event) => {
+    const notice = {
+      ...event, category: "listing" as const, relatedListingId: "listing-public",
+      actionHref: "/admin/alpha-exchange?section=marketplace-listings",
+      relatedHref: "/usdt-exchange#seller-listing-listing-public",
+    };
+    expect(getSafeInternalNotificationDestination(notice)).toBe("/usdt-exchange#listing-listing-public");
+    expect(getExplicitNonTradeRoomNotificationDestination(notice)).toBe("/usdt-exchange#listing-listing-public");
+  });
+
+  it("falls back to the marketplace when an old broadcast has no listing ID", () => {
+    expect(getSafeInternalNotificationDestination({
+      category: "listing", reason: "new_listing_published", actionHref: "/dashboard/seller",
+    })).toBe("/usdt-exchange");
+  });
+
   it("preserves exact internal admin targets ahead of category-based trade inference", () => {
     expect(getExplicitNonTradeRoomNotificationDestination({
       relatedHref: "/admin/alpha-exchange?section=purchase-requests&requestId=request-123",

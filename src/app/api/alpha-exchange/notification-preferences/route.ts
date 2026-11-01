@@ -12,6 +12,7 @@ import {
 import type { NotificationPreferences } from "@/types/alpha-exchange";
 import { isTwilioSendEnabled } from "@/lib/notification-platform";
 import { isMarketplacePhoneVerificationEnabled } from "@/lib/phone-verification";
+import { getPhoneVerificationChannels } from "@/lib/phone-verification-delivery";
 
 const traditionalPreferenceKeys = [
   "inApp",
@@ -77,24 +78,33 @@ async function whatsappPayload(userId: string, locale?: string) {
   };
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   const { user, unauthorized } = await requireApiUser();
   if (!user) return unauthorized;
+  const expectedUserId = request.headers.get("x-alpha-expected-user-id");
+  if (expectedUserId && expectedUserId !== user.id) {
+    return NextResponse.json({ error: "Account changed. Please retry." }, { status: 409, headers: { "Cache-Control": "private, no-store" } });
+  }
   return NextResponse.json({
     preferences: traditionalPayload(user),
     whatsapp: await whatsappPayload(user.id, user.preferredLocale),
     phone: phonePayload(user),
     capabilities: {
       phoneVerification: isMarketplacePhoneVerificationEnabled(),
+      phoneVerificationChannels: getPhoneVerificationChannels(),
       sms: isTwilioSendEnabled(),
     },
-  });
+  }, { headers: { "Cache-Control": "private, no-store", Vary: "Cookie" } });
 }
 
 export async function PATCH(request: NextRequest) {
   const { user, unauthorized } = await requireApiUser();
   if (!user) return unauthorized;
-  const rate = await checkSharedRateLimit({ headers: request.headers, key: "exchange:notification-preferences", maxRequests: 12, windowMs: 60_000 });
+  const expectedUserId = request.headers.get("x-alpha-expected-user-id");
+  if (expectedUserId && expectedUserId !== user.id) {
+    return NextResponse.json({ error: "Account changed. Please retry." }, { status: 409, headers: { "Cache-Control": "private, no-store" } });
+  }
+  const rate = await checkSharedRateLimit({ headers: request.headers, key: "exchange:notification-preferences", identifier: user.id, maxRequests: 12, windowMs: 60_000 });
   if (!rate.allowed) return createRateLimitResponse(rate.retryAfterSeconds);
 
   try {

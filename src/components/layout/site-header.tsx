@@ -1,14 +1,21 @@
 import Image from "next/image";
+import { Suspense } from "react";
 import { getTranslations } from "next-intl/server";
 import type { AppLocale } from "@/i18n/routing";
 import { Link } from "@/i18n/navigation";
-import { getTradeHeaderStateForUser } from "@/lib/alpha-exchange-store";
+import { getOwnerActiveTradeHeaderState, getSellerActiveTradeHeaderState, getTradeHeaderStateForUser } from "@/lib/alpha-exchange-store";
 import { hasRole } from "@/lib/roles";
 import { HeaderNav } from "@/components/layout/header-nav";
 import { HeaderAuthArea } from "@/components/layout/header-auth-area";
 import type { AlphaExchangeUser } from "@/types/alpha-exchange";
 import { BRAND_DESCRIPTOR, BRAND_DESCRIPTOR_AR, BRAND_NAME, BRAND_PRIMARY_NAME } from "@/lib/brand";
-import { getLocalizedTradeReminderDisplay } from "@/lib/trade-reminder-localization";
+import { toTradeHeaderActivity } from "@/lib/trade-header-activity";
+import { TradeHeaderNotice } from "./trade-header-notice";
+import { OwnerActiveTradeNotices } from "./owner-active-trade-notices";
+import { SellerActiveTradeNotices } from "./seller-active-trade-notices";
+import { usesSellerActiveTradeHeader } from "@/lib/seller-active-trades";
+import { journalEnabled } from "@/lib/journal/feature";
+import { demandEnabled } from "@/lib/usdt-demand-policy";
 
 async function getNonBlockingTradeHeaderState(sessionUser: AlphaExchangeUser | null) {
   if (!sessionUser) {
@@ -25,6 +32,31 @@ async function getNonBlockingTradeHeaderState(sessionUser: AlphaExchangeUser | n
   }
 }
 
+async function TradeHeaderStatus({
+  locale,
+  sessionUser,
+}: {
+  locale: AppLocale;
+  sessionUser: AlphaExchangeUser | null;
+}) {
+  if (!sessionUser) return null;
+  if (hasRole(sessionUser, "owner")) {
+    const trades = await getOwnerActiveTradeHeaderState(sessionUser.id, "owner").catch(() => []);
+    return <OwnerActiveTradeNotices key={sessionUser.id} locale={locale} actorId={sessionUser.id} initialTrades={trades} />;
+  }
+  if (usesSellerActiveTradeHeader(sessionUser)) {
+    const trades = await getSellerActiveTradeHeaderState(sessionUser.id).catch(() => []);
+    return <SellerActiveTradeNotices key={sessionUser.id} locale={locale} actorId={sessionUser.id} initialTrades={trades} />;
+  }
+  const { activeTrade } = await getNonBlockingTradeHeaderState(sessionUser);
+  const activeTradeCounterparty = activeTrade
+    ? (activeTrade.sellerId === sessionUser.id ? activeTrade.buyerName : (locale === "ar" ? "البائع" : "seller"))
+    : null;
+  return <TradeHeaderNotice locale={locale} actorId={sessionUser.id}
+    initialTrade={activeTrade ? toTradeHeaderActivity(activeTrade) : null}
+    counterpartyName={activeTradeCounterparty} />;
+}
+
 export async function SiteHeader({
   locale,
   sessionUser,
@@ -37,22 +69,19 @@ export async function SiteHeader({
    */
   sessionUser: AlphaExchangeUser | null;
 }) {
-  const [t, rootTranslations, tradeState] = await Promise.all([
+  const [t, rootTranslations] = await Promise.all([
     getTranslations({ locale, namespace: "nav" }),
     getTranslations({ locale }),
-    getNonBlockingTradeHeaderState(sessionUser),
   ]);
   const brand = rootTranslations("brand");
-  const { activeTrade, tradeReminder } = tradeState;
-  const tradeReminderDisplay = tradeReminder ? getLocalizedTradeReminderDisplay(tradeReminder, locale) : null;
-  const activeTradeCounterparty = activeTrade
-    ? (activeTrade.sellerId === sessionUser?.id ? activeTrade.buyerName : (locale === "ar" ? "البائع" : "seller"))
-    : null;
 
   const nav = [
     { href: "/", label: t("home") },
     { href: "/academy", label: t("academy") },
+    ...(sessionUser && journalEnabled() ? [{ href: "/journal", label: locale === "ar" ? "سجل التداول" : "Trading Journal" }] : []),
+    { href: "/prop-firms", label: locale === "ar" ? "الشركات المموّلة" : "Prop Firms" },
     { href: "/community", label: t("community") },
+    { href: "/news", label: locale === "ar" ? "الأخبار" : "News" },
     { href: "/contact", label: t("contact") },
     { href: "/usdt-exchange", label: t("alphaExchange"), cta: true },
     ...(sessionUser && hasRole(sessionUser, "admin")
@@ -61,10 +90,10 @@ export async function SiteHeader({
   ];
 
   return (
-    <header className="sticky top-0 z-40 border-b border-white/10 bg-gradient-to-b from-[#070707]/95 to-[#050505]/85 shadow-[0_14px_40px_rgba(0,0,0,0.35)] backdrop-blur-xl">
-      <div className="section-container relative flex h-16 items-center justify-between gap-1.5 sm:gap-3">
+    <header className="alpha-site-header sticky top-0 z-40 border-b border-white/10 bg-gradient-to-b from-[#070707]/95 to-[#050505]/85 shadow-[0_14px_40px_rgba(0,0,0,0.35)] backdrop-blur-xl">
+      <div className="section-container relative flex min-h-16 flex-wrap items-center justify-between gap-x-1.5 gap-y-2 py-2 sm:gap-x-3">
         <div className="pointer-events-none absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-[#C9A227]/45 to-transparent" />
-        <Link href="/" locale={locale} className="inline-flex shrink-0 items-center gap-1.5 text-lg font-semibold tracking-wide text-white min-[390px]:gap-2 sm:gap-3">
+        <Link href="/" locale={locale} className="alpha-brand-link inline-flex shrink-0 items-center gap-1.5 text-lg font-semibold tracking-wide text-white min-[390px]:gap-2 sm:gap-3">
           <Image
             src="/images/brand/alpha-traders-logo.webp"
             alt={locale === "ar" ? `شعار ${BRAND_PRIMARY_NAME}` : `${BRAND_NAME} logo`}
@@ -74,14 +103,14 @@ export async function SiteHeader({
             className="h-10 w-10 rounded-xl border border-[#C9A227]/45 bg-black/35 object-cover shadow-[0_4px_16px_rgba(0,0,0,0.45)] min-[390px]:h-11 min-[390px]:w-11 sm:h-12 sm:w-12"
           />
           <span className="flex shrink-0 flex-col" aria-label={brand}>
-            <span className="gold-gradient whitespace-nowrap bg-clip-text pb-px text-[0.78rem] leading-[1.15] text-transparent min-[390px]:text-[0.86rem] sm:text-[1.02rem]">{BRAND_PRIMARY_NAME}</span>
+            <span className="brand-alpha-traders gold-gradient whitespace-nowrap bg-clip-text pb-px text-[0.78rem] leading-[1.15] text-transparent min-[390px]:text-[0.86rem] sm:text-[1.02rem]">{BRAND_PRIMARY_NAME}</span>
             <span className="whitespace-nowrap text-[0.42rem] font-semibold uppercase leading-tight tracking-[0.09em] text-[#D4AF37] min-[390px]:text-[0.48rem] sm:text-[0.55rem] sm:tracking-[0.16em]">{locale === "ar" ? BRAND_DESCRIPTOR_AR : BRAND_DESCRIPTOR}</span>
           </span>
         </Link>
-        <HeaderNav items={nav} locale={locale} />
         <HeaderAuthArea
           locale={locale}
           navItems={nav}
+          buyRequestsEnabled={demandEnabled()}
           initialSessionUser={sessionUser ? { id: sessionUser.id, fullName: sessionUser.fullName, role: sessionUser.role, roles: sessionUser.roles ?? [sessionUser.role], sellerStatus: sessionUser.sellerStatus } : null}
           labels={{
             signIn: t("signIn"),
@@ -94,29 +123,12 @@ export async function SiteHeader({
           }}
         />
       </div>
-      {sessionUser && (tradeReminder || activeTrade) ? (
-      <div className="section-container pb-2">
-        <div className={`flex flex-col items-stretch justify-between gap-2 rounded-xl px-3 py-2 text-xs sm:flex-row sm:items-center ${tradeReminder ? "border border-amber-400/35 bg-amber-500/10 text-amber-100" : "border border-emerald-400/35 bg-emerald-500/10 text-emerald-100"}`}>
-          <p className="min-w-0 leading-5">
-            {tradeReminder && tradeReminderDisplay ? (
-              <>
-                🔔 <span className="font-semibold text-white">{tradeReminderDisplay.title}</span> — {tradeReminderDisplay.messageBeforeReference}{" "}
-                <bdi dir="ltr" className="font-semibold text-white">{tradeReminderDisplay.reference}</bdi>{" "}
-                {tradeReminderDisplay.messageAfterReference}
-              </>
-            ) : (
-              <>
-                🟢 {locale === "ar" ? "صفقة نشطة" : "Active Trade"} — {locale === "ar" ? "تابع الصفقة مع" : "Continue trade with"}{" "}
-                <span className="font-semibold text-white">{activeTradeCounterparty}</span>
-              </>
-            )}
-          </p>
-          <Link href={tradeReminder?.actionHref ?? `/trade-room/${activeTrade!.id}`} locale={locale} className="inline-flex min-h-11 shrink-0 items-center justify-center rounded-full border border-current/40 bg-white/10 px-4 py-2 text-center text-xs font-semibold transition hover:bg-white/15 sm:min-h-0 sm:py-1">
-            {tradeReminderDisplay?.actionLabel ?? (locale === "ar" ? "استئناف الصفقة" : "Resume Trade")}
-          </Link>
-        </div>
-      </div>
-      ) : null}
+      {/* Full navigation has its own row: owner/seller actions must never be
+          squeezed off-screen when desktop navigation becomes visible. */}
+      <HeaderNav items={nav} locale={locale} />
+      <Suspense fallback={null}>
+        <TradeHeaderStatus locale={locale} sessionUser={sessionUser} />
+      </Suspense>
     </header>
   );
 }

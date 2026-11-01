@@ -22,5 +22,5 @@ export async function GET(request: NextRequest) {
     commissionWalletConfiguration: getCommissionWalletConfiguration(),
     qaCommissionModeEnabled: getCommissionQaModeStatus(),
     qaCommissionResetEnabled: getCommissionQaResetStatus(),
-  });
+  }, { headers: { "Cache-Control": "private, no-store, max-age=0", Vary: "Cookie" } });
 }

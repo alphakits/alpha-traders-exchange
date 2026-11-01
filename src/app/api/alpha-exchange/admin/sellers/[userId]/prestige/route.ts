@@ -1,3 +1,4 @@
+import { isPublicOwnerIdentity } from "@/lib/public-account-identity";
 import { NextRequest, NextResponse } from "next/server";
 import { requireApiAdmin } from "@/lib/api-auth";
 import { overrideSellerPrestigeByAdmin } from "@/lib/alpha-exchange-store";
@@ -39,7 +40,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       targetUserId: userId,
       outcome: "success",
     });
-    return NextResponse.json({ seller: toAdminSellerSummary(seller) });
+    return NextResponse.json({ seller: toAdminSellerSummary(seller, isPublicOwnerIdentity(user)) });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to update seller prestige.";
     logEvent("error", {

@@ -219,10 +219,11 @@ export function GlobalBlockchainBackground() {
     };
   }, []);
 
-  // Keep the decorative DOM stable across server render and hydration. Mobile
-  // reduction is handled by the CSS media query, which is available before
-  // first paint; runtime preference changes only affect behavior, not markup.
-  const shouldShowCryptoLayer = showCryptoOverlay;
+  // The dense crypto layer is desktop decoration only. It used to render and
+  // hydrate dozens of hidden SVG/animation nodes inside every mobile WebView;
+  // mounting it after the desktop media query resolves preserves the desktop
+  // design while keeping the app's initial mobile tree substantially lighter.
+  const shouldShowCryptoLayer = showCryptoOverlay && isDesktop;
   const shouldEnableCryptoParallax = shouldShowCryptoLayer && isDesktop && !reduceMotion && !lowPower;
 
   useEffect(() => {

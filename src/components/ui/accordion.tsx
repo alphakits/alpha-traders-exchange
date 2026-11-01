@@ -31,7 +31,7 @@ export function Accordion({ items }: { items: AccordionItem[] }) {
               <ChevronDown className={cn("h-4 w-4 text-[#9CA3AF] transition-transform", isActive && "rotate-180")} />
             </button>
             {isActive ? (
-              <p id={`accordion-content-${item.id}`} role="region" aria-labelledby={`accordion-trigger-${item.id}`} className="mt-3 text-sm text-[#9CA3AF]">
+              <p id={`accordion-content-${item.id}`} role="region" aria-labelledby={`accordion-trigger-${item.id}`} className="alpha-accordion-content mt-3 text-sm text-[#9CA3AF]">
                 {item.answer}
               </p>
             ) : null}

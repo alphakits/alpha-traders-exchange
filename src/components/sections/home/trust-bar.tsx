@@ -42,8 +42,8 @@ const ITEMS: TrustItem[] = [
   },
   {
     icon: <Globe className="h-5 w-5" aria-hidden="true" />,
-    titleEn: "Global Access",
-    titleAr: "وصول عالمي",
+    titleEn: "Israel Access",
+    titleAr: "وصول داخل إسرائيل",
     subtitleEn: "English & Arabic",
     subtitleAr: "عربي وإنجليزي",
   },

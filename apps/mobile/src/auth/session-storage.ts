@@ -1,18 +1,20 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Crypto from "expo-crypto";
 import * as SecureStore from "expo-secure-store";
-import type { MobileAuthTokens } from "@alpha-traders/contracts";
+import { parseRememberedLogin, type MobileAuthTokens, type RememberedLogin } from "@alpha-traders/contracts";
 
 const INSTALL_MARKER_KEY = "alpha.mobile.install.v1";
 const INSTALL_MARKER_VALUE = "initialized";
 const SESSION_STORAGE_KEY = "alpha.mobile.session.v1";
 const DEVICE_ID_STORAGE_KEY = "alpha.mobile.device-id.v1";
+const REMEMBERED_LOGIN_KEY = "alpha.mobile.remembered-login.v1";
 const secureOptions: SecureStore.SecureStoreOptions = {
   keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
 };
 
 let installationPromise: Promise<void> | null = null;
 let deviceIdPromise: Promise<string> | null = null;
+let rememberedLoginQueue: Promise<void> = Promise.resolve();
 
 export function initializeSecureStorageForInstall() {
   if (!installationPromise) {
@@ -22,6 +24,7 @@ export function initializeSecureStorageForInstall() {
       await Promise.all([
         SecureStore.deleteItemAsync(SESSION_STORAGE_KEY),
         SecureStore.deleteItemAsync(DEVICE_ID_STORAGE_KEY),
+        SecureStore.deleteItemAsync(REMEMBERED_LOGIN_KEY),
       ]);
       await AsyncStorage.setItem(INSTALL_MARKER_KEY, INSTALL_MARKER_VALUE);
     })().catch((error) => {
@@ -69,6 +72,40 @@ export async function saveStoredTokens(tokens: MobileAuthTokens) {
 
 export async function clearStoredTokens() {
   await SecureStore.deleteItemAsync(SESSION_STORAGE_KEY);
+}
+
+// Serialize reads/writes so a late save cannot undo a later opt-out. The
+// remembered credentials are deliberately separate from revocable sessions:
+// signing out stays signed out, while the next login can fill the form.
+function withRememberedLogin<T>(operation: () => Promise<T>): Promise<T> {
+  const task = rememberedLoginQueue.then(async () => {
+    await initializeSecureStorageForInstall();
+    return operation();
+  });
+  rememberedLoginQueue = task.then(() => undefined, () => undefined);
+  return task;
+}
+
+export function loadRememberedLogin() {
+  return withRememberedLogin(async () => {
+    const stored = await SecureStore.getItemAsync(REMEMBERED_LOGIN_KEY);
+    if (!stored) return null;
+    const credentials = parseRememberedLogin(stored);
+    if (!credentials) await SecureStore.deleteItemAsync(REMEMBERED_LOGIN_KEY);
+    return credentials;
+  });
+}
+
+export function saveRememberedLogin(input: RememberedLogin) {
+  return withRememberedLogin(async () => {
+    const credentials = parseRememberedLogin(input);
+    if (!credentials) throw new Error("Invalid remembered login");
+    await SecureStore.setItemAsync(REMEMBERED_LOGIN_KEY, JSON.stringify(credentials), secureOptions);
+  });
+}
+
+export function clearRememberedLogin() {
+  return withRememberedLogin(() => SecureStore.deleteItemAsync(REMEMBERED_LOGIN_KEY));
 }
 
 export async function getOrCreateDeviceId() {

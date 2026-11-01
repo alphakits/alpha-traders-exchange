@@ -1,64 +1,19 @@
 import { NextResponse } from "next/server";
 import { getRuntimePostgresPool } from "@/lib/postgres-runtime";
 import { isProductionSecurityRuntime } from "@/lib/runtime-safety";
+import { resolveClientIp } from "@/lib/client-ip";
+export { resolveClientIp } from "@/lib/client-ip";
 
 type RateLimitWindow = {
   count: number;
   windowStart: number;
+  expiresAt: number;
 };
 
 const buckets = new Map<string, RateLimitWindow>();
+const MAX_LOCAL_BUCKETS = 20_000;
+let lastBucketCleanup = 0;
 let sharedRateLimitSchema: Promise<void> | null = null;
-
-const IPV4_PATTERN = /^(?:\d{1,3}\.){3}\d{1,3}$/;
-
-function normalizeIp(raw: string | null | undefined) {
-  if (!raw) return null;
-  const value = raw.trim();
-  if (!value) return null;
-  if (value.startsWith("::ffff:")) {
-    return value.slice(7);
-  }
-  return value;
-}
-
-function isLikelyPrivateIp(ip: string) {
-  if (ip === "unknown" || ip === "127.0.0.1" || ip === "::1") return true;
-  if (IPV4_PATTERN.test(ip)) {
-    const [a, b] = ip.split(".").map((part) => Number(part));
-    if (a === 10) return true;
-    if (a === 127) return true;
-    if (a === 169 && b === 254) return true;
-    if (a === 172 && b >= 16 && b <= 31) return true;
-    if (a === 192 && b === 168) return true;
-  }
-  return false;
-}
-
-export function resolveClientIp(headers: Headers) {
-  const directCandidates = [
-    headers.get("x-vercel-forwarded-for"),
-    headers.get("cf-connecting-ip"),
-    headers.get("x-real-ip"),
-  ];
-  for (const candidate of directCandidates) {
-    const ip = normalizeIp(candidate);
-    if (ip) return ip;
-  }
-
-  const forwarded = headers.get("x-forwarded-for");
-  if (forwarded) {
-    const chain = forwarded
-      .split(",")
-      .map((part) => normalizeIp(part))
-      .filter((part): part is string => Boolean(part));
-    const publicCandidate = chain.find((candidate) => !isLikelyPrivateIp(candidate));
-    if (publicCandidate) return publicCandidate;
-    if (chain.length > 0) return chain[0];
-  }
-
-  return "unknown";
-}
 
 function envKeyForRateLimit(baseKey: string, field: "MAX" | "WINDOW_MS") {
   const normalized = baseKey
@@ -96,10 +51,18 @@ export function checkRateLimit(input: {
   const identifier = input.identifier?.trim() || ip;
   const config = resolveRateLimitConfig(input);
   const now = Date.now();
+  if (now - lastBucketCleanup >= 60_000 || (buckets.size >= MAX_LOCAL_BUCKETS && now - lastBucketCleanup >= 1_000)) {
+    for (const [key, bucket] of buckets) if (bucket.expiresAt <= now) buckets.delete(key);
+    lastBucketCleanup = now;
+  }
   const bucketKey = `${input.key}:${identifier}`;
   const existing = buckets.get(bucketKey);
-  if (!existing || now - existing.windowStart > config.windowMs) {
-    buckets.set(bucketKey, { count: 1, windowStart: now });
+  if (!existing || now - existing.windowStart >= config.windowMs) {
+    // Never evict a live bucket: rotating identifiers must not erase limits.
+    if (!existing && buckets.size >= MAX_LOCAL_BUCKETS) {
+      return { allowed: false, retryAfterSeconds: 30, reason: "limiter_unavailable" as string };
+    }
+    buckets.set(bucketKey, { count: 1, windowStart: now, expiresAt: now + config.windowMs });
     return { allowed: true, retryAfterSeconds: 0, reason: null as string | null };
   }
   if (existing.count >= config.maxRequests) {
@@ -107,6 +70,7 @@ export function checkRateLimit(input: {
     return { allowed: false, retryAfterSeconds, reason: "limit_reached" as string };
   }
   existing.count += 1;
+  existing.expiresAt = existing.windowStart + config.windowMs;
   buckets.set(bucketKey, existing);
   return { allowed: true, retryAfterSeconds: 0, reason: null as string | null };
 }

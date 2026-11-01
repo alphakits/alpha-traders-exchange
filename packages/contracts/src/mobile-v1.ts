@@ -1,3 +1,4 @@
+import type { SellerMetricEvidence } from "./seller-metrics";
 export const MOBILE_API_VERSION = "v1" as const;
 export const MOBILE_CURRENT_APP_VERSION = "1.2.0" as const;
 export const MOBILE_MINIMUM_SUPPORTED_APP_VERSION = "1.0.0" as const;
@@ -23,11 +24,15 @@ export type MobileSellerStatus =
   | "suspended";
 
 export type MobileApiErrorCode =
+  | "NETWORK_RESTRICTED"
+  | "NETWORK_CHECK_UNAVAILABLE"
   | "INVALID_REQUEST"
   | "DEVICE_HEADERS_REQUIRED"
   | "APP_UPDATE_REQUIRED"
   | "INVALID_CREDENTIALS"
   | "EMAIL_VERIFICATION_REQUIRED"
+  | "PHONE_VERIFICATION_REQUIRED"
+  | "AGE_CONFIRMATION_REQUIRED"
   | "ACCOUNT_DISABLED"
   | "BUYER_ROLE_REQUIRED"
   | "SELLER_ROLE_REQUIRED"
@@ -41,6 +46,7 @@ export type MobileApiErrorCode =
   | "LISTING_ACTION_NOT_ALLOWED"
   | "TRADE_NOT_FOUND"
   | "TRADE_ACTION_NOT_ALLOWED"
+  | "CARDLESS_DETAILS_REQUIRED"
   | "TRADE_AMOUNT_INVALID"
   | "WALLET_ADDRESS_INVALID"
   | "PAYMENT_METHOD_INVALID"
@@ -56,8 +62,10 @@ export type MobileApiErrorCode =
   | "EVIDENCE_INVALID"
   | "DISPUTE_INVALID"
   | "REVIEW_INVALID"
+  | "PRIVATE_CONTACT_REQUIRED"
   | "PROFILE_INVALID"
   | "PROFILE_UPDATE_FAILED"
+  | "PROFILE_NAME_COOLDOWN"
   | "SERVICE_UNAVAILABLE"
   | "INTERNAL_ERROR";
 
@@ -88,6 +96,8 @@ export interface MobileSessionUser {
   role: MobileUserRole;
   roles: MobileUserRole[];
   sellerStatus: MobileSellerStatus;
+  /** Server-computed seller authorization; no identity document data is exposed. */
+  sellerApprovalVerified: boolean;
   preferredLocale: MobileLocale;
   profilePhotoUrl: string;
   emailVerified: boolean;
@@ -167,6 +177,7 @@ export interface MobileSellerApplicationResponse {
 
 export interface MobileAccountProfile {
   id: string;
+  nextNameChangeAt?: string;
   fullName: string;
   username: string;
   email: string;
@@ -175,12 +186,15 @@ export interface MobileAccountProfile {
   role: MobileUserRole;
   sellerStatus: MobileSellerStatus;
   onlineStatus: "online" | "offline";
+  lastSeenAt?: string;
+  presenceHidden?: boolean;
   bio: string;
   country: string;
   language: string;
   whatsappNumber: string;
   memberSince: string;
   lastLogin: string;
+  lastActiveAt?: string;
   showTradeStats: boolean;
   showLastActive: boolean;
   allowDirectMessages: boolean;
@@ -223,7 +237,7 @@ export type MobileAccountStats =
       requiredVolumeUsdt: number;
       progressToNextLevelPercent: number;
     }
-  | {
+  | SellerMetricEvidence & {
       kind: "seller";
       level: "bronze" | "silver" | "gold" | "diamond" | "elite";
       lifetimeCompletedVolumeUsdt: number;
@@ -231,6 +245,7 @@ export type MobileAccountStats =
       activeListings: number;
       pendingListings: number;
       averageRating: number;
+      responseTimeMinutes?: number;
       trustScore: number;
       nextLevel?: "bronze" | "silver" | "gold" | "diamond" | "elite";
       amountToNextLevelUsdt: number;
@@ -492,6 +507,7 @@ export interface MobileNotificationPreferencesResponse {
   };
   capabilities: {
     phoneVerification: boolean;
+    phoneVerificationChannels?: { sms: boolean; whatsapp: boolean };
     sms: boolean;
   };
   requestId: string;
@@ -523,9 +539,10 @@ export interface MobileMarketplaceFilters {
 }
 
 export interface MobileMarketplaceListing {
+  bankName?: string;
   id: string;
   displayNumber?: number;
-  seller: {
+  seller: SellerMetricEvidence & {
     displayName: string;
     profilePhotoUrl: string;
     isCurrentUser: boolean;
@@ -533,7 +550,10 @@ export interface MobileMarketplaceListing {
     isFoundingSeller: boolean;
     isFeaturedSeller: boolean;
     emailVerified: boolean;
+    isPhoneVerified?: boolean;
     onlineStatus: "online" | "offline";
+  lastSeenAt?: string;
+  presenceHidden?: boolean;
     availabilityStatus: "available" | "away" | "vacation";
     lastActiveAt?: string;
     country?: string;
@@ -726,15 +746,30 @@ export type MobileAdminReviewRequest =
   | {
       target: "seller_application";
       id: string;
-      decision: "approve" | "reject";
+      decision: "approve";
+      reason: string;
+      verification: {
+        identityDocumentReviewed: true;
+        liveIdentityVideoReviewed: true;
+        contactOwnershipConfirmed: true;
+        marketplaceRulesAccepted: true;
+      };
+    }
+  | {
+      target: "seller_application";
+      id: string;
+      decision: "reject";
       reason: string;
     };
 
-export type MobileCommissionNetwork = "TRC20";
+export type MobileCommissionNetwork = "TRC20" | "BEP20";
 
 export interface MobileSellerCommissionRecord {
+    feePolicyVersion?: "buyer_seller_1pct_v1";
+    sellerFeeAmount?: number;
+    buyerFeeCollectedAmount?: number;
   commissionId: string;
-  source?: "trade" | "admin_manual";
+  source?: "trade" | "admin_manual" | "tolerance_carry_forward";
   issueReason?: string;
   /** Exact USDT amount to transfer; includes the six-decimal verification suffix. */
   amountDue: number;
@@ -745,6 +780,7 @@ export interface MobileSellerCommissionRecord {
   paymentSignature?: string;
   paymentSubmittedAt?: string;
   /** Whether the submitted TxID may be replaced while automatic verification is pending. */
+  paymentNetwork?: string;
   paymentExpectedAmountMode?: "unique_v1" | "legacy_base";
   dueAt?: string;
   relatedRequestId?: string;
@@ -832,7 +868,8 @@ export interface MobileSellerProfileReview {
   };
 }
 
-export interface MobileSellerProfile {
+export interface MobileSellerProfile extends SellerMetricEvidence {
+  lastActiveAt?: string;
   listingId: string;
   displayName: string;
   isCurrentUser: boolean;
@@ -842,8 +879,11 @@ export interface MobileSellerProfile {
   languages: string[];
   country: string;
   onlineStatus: "online" | "offline";
+  lastSeenAt?: string;
+  presenceHidden?: boolean;
   availabilityStatus: "available" | "away" | "vacation";
   isEmailVerified: boolean;
+  isPhoneVerified?: boolean;
   isOwner: boolean;
   isFoundingMember: boolean;
   isFoundingSeller: boolean;
@@ -888,6 +928,7 @@ export type MobileTradeTimelineEvent =
   | "price_offer_accepted"
   | "payment_sent"
   | "seller_confirmed_funds"
+  | "buyer_confirmed_funds"
   | "usdt_release_started"
   | "usdt_sent"
   | "trade_completed"
@@ -895,6 +936,7 @@ export type MobileTradeTimelineEvent =
   | "trade_locked"
   | "review_unlocked"
   | "dispute_opened"
+  | "dispute_resolved"
   | "commission_recorded"
   | "commission_paid"
   | "buyer_evidence_uploaded"
@@ -908,7 +950,22 @@ export type MobileTradeTimelineEvent =
   | "trade_inactivity_warning_sent"
   | "bank_details_revealed";
 
+export interface TradeTermsProposal {
+  id: string;
+  kind: "counter_offer" | "amount_correction";
+  status: "pending" | "accepted" | "declined" | "withdrawn";
+  pricePerUsdt: string;
+  usdtAmount: string;
+  fiatAmount: string;
+  createdAt: string;
+  resolvedAt?: string;
+}
+
 export interface MobileTradeSummary {
+  feePolicyVersion?: "buyer_seller_1pct_v1";
+  amountAdjustmentCount?: number;
+  termsProposal?: TradeTermsProposal;
+  bankName?: string;
   id: string;
   displayNumber?: number;
   side: "buyer" | "seller";
@@ -926,7 +983,12 @@ export interface MobileTradeSummary {
 }
 
 export interface MobileTradeMessage {
+  credentialKind?: "cardless_code";
   sender: "you" | "counterparty" | "system";
+  senderPublicId?: string;
+  participantRole?: import("./trade-chat").TradeChatParticipantRole;
+  isOwnerMessage?: boolean;
+  status?: import("./trade-chat").TradeChatStatus;
   message: string;
   createdAt: string;
 }
@@ -942,7 +1004,10 @@ export interface MobileTradeReview {
 }
 
 export interface MobileTradeDetail extends MobileTradeSummary {
+  completionReceipt?: import("./trade-receipt").TradeCompletionReceipt;
+  sellerCommissionDue?: { count: number; amount: number };
   counterpartyDisplayName: string;
+  participants?: { buyerPublicId: string; sellerPublicId: string };
   receivingWalletAddress?: string;
   timeline: Array<{
     type: MobileTradeTimelineEvent;
@@ -955,12 +1020,16 @@ export interface MobileTradeDetail extends MobileTradeSummary {
   timeRemainingSeconds: number | null;
   hasOpenDispute: boolean;
   buyerReview?: MobileTradeReview;
+  sellerBuyerReview?: MobileTradeReview;
   actions: {
     canAccept: boolean;
     canDecline: boolean;
     canCancel: boolean;
+    /** New servers emit this independently of cancellation; older payloads may omit it. */
+    canAdjustAmounts?: boolean;
     canViewBankDetails: boolean;
     canMarkPaymentSent: boolean;
+    canConfirmPreparedCardlessCode?: boolean;
     canUploadPaymentEvidence: boolean;
     canConfirmFunds: boolean;
     canBeginRelease: boolean;
@@ -968,13 +1037,22 @@ export interface MobileTradeDetail extends MobileTradeSummary {
     canUploadReleaseEvidence: boolean;
     canConfirmReceived: boolean;
     canCompleteFaceToFace: boolean;
+    canCompleteTrade?: boolean;
     canOpenDispute: boolean;
     canSubmitReview: boolean;
+    canReviewBuyer?: boolean;
     canRespondToReview: boolean;
   };
 }
 
 export interface MobileCreateTradeRequest {
+  feePolicyVersion?: "buyer_seller_1pct_v1";
+  bankName?: string;
+  receivingNetwork?: MobileSupportedNetwork;
+  cardlessWithdrawalCode?: string;
+  cardlessVerificationKind?: "id_number" | "date_of_birth";
+  cardlessVerificationValue?: string;
+  cardlessIlsAmount?: string;
   listingId: string;
   usdtAmount: string;
   receivingWalletAddress: string;

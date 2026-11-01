@@ -13,6 +13,7 @@
 
 # testing
 /coverage
+__pycache__/
 
 # next.js
 /.next/
@@ -50,6 +51,7 @@ next-env.d.ts
 # Runtime database (seeded from data/alpha-exchange-db.json)
 /data/alpha-exchange-evidence/
 /data/alpha-exchange-repo-trace.log
+/data/alpha-exchange-db.json.bak
 
 # Railway discord-worker deploy context: exclude large web static bundle not used by Dockerfile.discord-worker
 /public/files/

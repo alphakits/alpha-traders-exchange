@@ -1,10 +1,22 @@
 "use client";
+import { formatMeasuredResponseTime, sellerRatingDisplay, sellerScoreDisplay, type SellerMetricEvidence } from "@alpha-traders/contracts";
+import { PAGE_SECTION_NAVIGATION_EVENT, pageSectionFromEvent } from "@/lib/page-section-navigation";
+import { useLiveUserPresence } from "@/lib/user-presence-client";
 
-import Image from "next/image";
+import { requiresBuyerContact } from "@/lib/buyer-contact";
+
+import { publicAccountId } from "@/lib/public-account-identity";
+
+import { brandText, currencyText } from "@/components/ui/currency-text";
+import { ActionFeedback, useActionFeedbackState } from "@/components/ui/action-feedback";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
-import { Crown, Globe, ShieldCheck, Sparkles, TrendingUp, Trophy } from "lucide-react";
+import { Crown, Trophy } from "lucide-react";
 import { Link } from "@/i18n/navigation";
+import { rankSurfaceTone, rankVisualKey } from "@/lib/rank-identity";
 import { RoleBadge, type RoleBadgeVariant } from "@/components/ui/role-badge";
+import { RankBadge } from "@/components/ui/rank-badge";
+import { SellerRankCard } from "@/components/ui/seller-rank-card";
+import { normalizeSellerLevel } from "@/types/alpha-exchange";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -13,6 +25,13 @@ import { cn } from "@/lib/utils";
 import { useOptionalCanonicalSession } from "@/components/auth/canonical-session-provider";
 import { useAuthenticatedNotificationStream } from "@/components/notifications/use-authenticated-notification-stream";
 import { deriveBuyerRankSummary } from "@/lib/buyer-rank";
+import { ProfileQuickActions, ProfileSectionTabs, type ProfileSection } from "@/components/profile/profile-navigation";
+import "./profile-workspace.css";
+import { PrivateProfileHeader } from "@/components/profile/private-profile-header";
+import { AccountNotificationPreferences } from "@/components/profile/account-notification-preferences";
+import { NewsPreferences } from "@/components/news/news-preferences";
+import { getInterfaceAccess } from "@alpha-traders/contracts";
+import { runClientRequest } from "@/lib/client-request-deadline";
 
 type AccountProfilePayload = {
   profile: {
@@ -20,6 +39,7 @@ type AccountProfilePayload = {
     profilePhotoUrl: string;
     coverBannerUrl?: string;
     fullName: string;
+    nextNameChangeAt?: string;
     username: string;
     email: string;
     role: string;
@@ -28,6 +48,8 @@ type AccountProfilePayload = {
     onboardingCompletedAt?: string;
     memberSince: string;
     lastLogin: string;
+    lastActiveAt?: string;
+    lastSeenAt?: string;
     onlineStatus: "online" | "offline";
     bio: string;
     country: string;
@@ -41,8 +63,9 @@ type AccountProfilePayload = {
     showEmailPublic?: boolean;
   };
   stats:
-    | {
+    | SellerMetricEvidence & {
         kind: "seller";
+        responseTimeMinutes?: number;
         sellerLevel: string;
         nextLevel?: string;
         progressToNextLevelPercent: number;
@@ -217,6 +240,13 @@ type ProfileFormState = {
   showEmailPublic: boolean;
 };
 
+type ProfileRead = {
+  scope: string | null | undefined;
+  epoch: number;
+  controller: AbortController;
+  promise: Promise<AccountProfilePayload>;
+};
+
 function normalizeRoleValues(values: Array<string | undefined>) {
   return values.map((value) => String(value ?? "").toLowerCase().trim()).filter(Boolean);
 }
@@ -224,7 +254,12 @@ function normalizeRoleValues(values: Array<string | undefined>) {
 function resolveAdminProfileAccess(input: {
   payload: AccountProfilePayload | null;
   sessionRoles: string[];
+  authoritativeRoles?: string[];
 }) {
+  if (input.authoritativeRoles) {
+    const isOwner = input.authoritativeRoles.includes("owner");
+    return { isOwner, hasAdminDashboardAccess: isOwner || input.authoritativeRoles.includes("admin"), payloadRoles: input.authoritativeRoles };
+  }
   const payloadRoles = input.payload
     ? normalizeRoleValues([...(input.payload.profile.roles ?? []), input.payload.profile.role])
     : [];
@@ -245,9 +280,9 @@ function AdministrationCard({ isAr, isOwner }: { isAr: boolean; isOwner: boolean
       <CardHeader>
         <CardTitle>{isAr ? "الإدارة" : "Administration"}</CardTitle>
         <CardDescription>
-          {isAr
+          {brandText(isAr
             ? "إدارة منصة Alpha Traders والسوق والمستخدمين والصفقات والعمولات والمراجعات والثقة وعمليات النظام."
-            : "Manage the Alpha Traders platform, marketplace, users, trades, commissions, moderation, trust, and system operations."}
+            : "Manage the Alpha Traders platform, marketplace, users, trades, commissions, moderation, trust, and system operations.")}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -277,18 +312,13 @@ function tierLabel(level: string, isAr: boolean) {
   if (normalized === "gold") return isAr ? "ذهبي" : "Gold";
   if (normalized === "platinum") return isAr ? "بلاتيني" : "Platinum";
   if (normalized === "diamond") return isAr ? "ألماسي" : "Diamond";
+  if (normalized === "elite") return isAr ? "نخبة Alpha" : "Alpha Elite";
   if (normalized === "legendary") return isAr ? "أسطوري" : "Legendary";
   return level;
 }
 
 function tierVisualKey(level: string) {
-  const normalized = level.toLowerCase();
-  if (normalized === "silver") return "silver";
-  if (normalized === "gold") return "gold";
-  if (normalized === "platinum") return "platinum";
-  if (normalized === "diamond") return "diamond";
-  if (normalized === "legendary") return "legendary";
-  return "bronze";
+  return rankSurfaceTone(level);
 }
 
 function profileTheme(variant: RoleBadgeVariant) {
@@ -328,18 +358,71 @@ function profileTheme(variant: RoleBadgeVariant) {
   };
 }
 
-export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { locale: "ar" | "en"; initialSessionRoles?: string[] }) {
+export function AccountProfilePanel({ locale, initialSessionRoles = [], journalEnabled = false }: { locale: "ar" | "en"; initialSessionRoles?: string[]; journalEnabled?: boolean }) {
   const isAr = locale === "ar";
   const canonicalSession = useOptionalCanonicalSession();
   const canonicalUser = canonicalSession?.user;
+  const authoritativeRoles = canonicalSession
+    ? normalizeRoleValues([...(canonicalUser?.roles ?? []), canonicalUser?.role])
+    : undefined;
   const hasCanonicalSession = Boolean(canonicalSession);
   const canonicalSessionResolving = canonicalSession?.isResolving ?? false;
   const canonicalSessionError = canonicalSession?.error ?? false;
   const refreshCanonicalSession = canonicalSession?.refresh;
-  const [payload, setPayload] = useState<AccountProfilePayload | null>(null);
+  const [storedPayload, setPayload] = useState<AccountProfilePayload | null>(null);
+  // Hide another account's private profile in this render, before effect cleanup.
+  const payload = !hasCanonicalSession || storedPayload?.profile.id === canonicalUser?.id ? storedPayload : null;
+  const profileScope = hasCanonicalSession ? canonicalUser?.id ?? null : undefined;
+  const profileScopeRef = useRef(profileScope);
+  const sessionResolvingRef = useRef(canonicalSessionResolving);
+  profileScopeRef.current = profileScope;
+  sessionResolvingRef.current = canonicalSessionResolving;
+  const profileReadRef = useRef<ProfileRead | null>(null);
+  const profileReadEpochRef = useRef(0);
+  const [profileRefreshError, setProfileRefreshError] = useState(false);
+  const presence = useLiveUserPresence(payload?.profile.id, payload?.profile);
   const [sessionRoles, setSessionRoles] = useState<string[]>(initialSessionRoles);
   const [loading, setLoading] = useState(true);
-  const [message, setMessage] = useState<string | null>(null);
+  const [activeSection, setActiveSection] = useState<ProfileSection>("overview");
+  const [alertsVisited, setAlertsVisited] = useState(false);
+  const pendingSectionTarget = useRef<string | null>(null);
+  const savedFormRef = useRef<{ id: string; value: ProfileFormState } | null>(null);
+  const selectSection = useCallback((section: ProfileSection) => {
+    setActiveSection(section);
+    if (section === "alerts") setAlertsVisited(true);
+  }, []);
+
+  useEffect(() => {
+    // Listen during loading too: shared navigation can arrive before the
+    // profile response. Retain the selected tab until its content is ready.
+    const revealHash = (event?: Event) => {
+      const hash = `#${pageSectionFromEvent(event)}`;
+      if (["#contact-details", "#edit-profile", "#profile-panel-edit"].includes(hash)) {
+        pendingSectionTarget.current = hash === "#edit-profile" ? "profile-panel-edit" : hash.slice(1);
+        selectSection("edit");
+      }
+      if (["#notification-preferences", "#news-preferences", "#profile-panel-alerts"].includes(hash)) {
+        pendingSectionTarget.current = hash.slice(1);
+        selectSection("alerts");
+      }
+    };
+    revealHash();
+    window.addEventListener("hashchange", revealHash);
+    window.addEventListener(PAGE_SECTION_NAVIGATION_EVENT, revealHash);
+    return () => {
+      window.removeEventListener("hashchange", revealHash);
+      window.removeEventListener(PAGE_SECTION_NAVIGATION_EVENT, revealHash);
+    };
+  }, [selectSection]);
+  useEffect(() => {
+    if (loading || !pendingSectionTarget.current) return;
+    const target = document.getElementById(pendingSectionTarget.current);
+    if (!target || target.closest("[hidden]")) return;
+    pendingSectionTarget.current = null;
+    if (target.matches('[role="tabpanel"]')) target.focus({ preventScroll: true });
+    target.scrollIntoView?.({ block: "start", behavior: "instant" });
+  }, [activeSection, loading]);
+  const [message, setMessage, messageFeedbackKey] = useActionFeedbackState<string | null>(null);
   const [avatarUrl, setAvatarUrl] = useState("");
   const [coverUrl, setCoverUrl] = useState("");
   const [photoUploading, setPhotoUploading] = useState(false);
@@ -348,8 +431,8 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
   const [coverRemoving, setCoverRemoving] = useState(false);
   const [profileSaving, setProfileSaving] = useState(false);
   const [roleActionLoading, setRoleActionLoading] = useState<null | "student" | "guest">(null);
-  const [photoError, setPhotoError] = useState<string | null>(null);
-  const [coverError, setCoverError] = useState<string | null>(null);
+  const [photoError, setPhotoError, photoErrorFeedbackKey] = useActionFeedbackState<string | null>(null);
+  const [coverError, setCoverError, coverErrorFeedbackKey] = useActionFeedbackState<string | null>(null);
   const photoInputRef = useRef<HTMLInputElement>(null);
   const coverInputRef = useRef<HTMLInputElement>(null);
   const profileRefreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -367,11 +450,27 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
     showEmailPublic: false,
   });
 
-  const applyProfilePayload = useCallback((data: AccountProfilePayload) => {
+  const cancelProfileRead = useCallback(() => {
+    profileReadEpochRef.current += 1;
+    profileReadRef.current?.controller.abort();
+    profileReadRef.current = null;
+  }, []);
+
+  useEffect(() => {
+    cancelProfileRead();
+    setProfileRefreshError(false);
+    return cancelProfileRead;
+  }, [cancelProfileRead, profileScope]);
+
+  const applyProfilePayload = useCallback((data: AccountProfilePayload, resetDraft = false) => {
+    if (!data?.profile?.id || (profileScopeRef.current !== undefined && data.profile.id !== profileScopeRef.current)) return false;
+    // A completed save supersedes any older read that began before the write.
+    if (resetDraft) cancelProfileRead();
     setPayload(data);
+    setProfileRefreshError(false);
     setAvatarUrl(data.profile.profilePhotoUrl ?? "");
     setCoverUrl(data.profile.coverBannerUrl ?? "");
-    setForm({
+    const nextForm: ProfileFormState = {
       fullName: data.profile.fullName ?? "",
       bio: data.profile.bio ?? "",
       country: data.profile.country ?? "",
@@ -383,22 +482,48 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
       allowProfileSearch: data.profile.allowProfileSearch !== false,
       showPhonePublic: data.profile.showPhonePublic === true,
       showEmailPublic: data.profile.showEmailPublic === true,
-    });
+    };
+    const previousSaved = savedFormRef.current;
+    savedFormRef.current = { id: data.profile.id, value: nextForm };
+    setForm((current) => resetDraft || !previousSaved || previousSaved.id !== data.profile.id || JSON.stringify(current) === JSON.stringify(previousSaved.value) ? nextForm : current);
     const profileRoles = (data.profile as { roles?: string[] }).roles ?? [];
     if (profileRoles.length) {
       setSessionRoles(normalizeRoleValues(profileRoles));
     }
-  }, []);
+    return true;
+  }, [cancelProfileRead]);
 
-  const refreshProfile = useCallback(async (signal?: AbortSignal) => {
-    const response = await fetch("/api/auth/profile", { cache: "no-store", signal });
-    if (!response.ok) {
-      if (response.status === 401) void refreshCanonicalSession?.({ force: true });
-      throw new Error("PROFILE_FETCH_FAILED");
-    }
-    const data = (await response.json()) as AccountProfilePayload;
-    applyProfilePayload(data);
-    return data;
+  const refreshProfile = useCallback((): Promise<AccountProfilePayload> => {
+    const scope = profileScopeRef.current;
+    if (scope === null || sessionResolvingRef.current) return Promise.reject(new Error("PROFILE_SESSION_UNAVAILABLE"));
+    const current = profileReadRef.current;
+    if (current && current.scope === scope && !current.controller.signal.aborted) return current.promise;
+    current?.controller.abort();
+    const epoch = ++profileReadEpochRef.current;
+    const controller = new AbortController();
+    const pending: ProfileRead = { scope, epoch, controller, promise: Promise.resolve(null as never) };
+    profileReadRef.current = pending;
+    pending.promise = (async () => {
+      try {
+        const data = await runClientRequest(controller, 15_000, async (signal) => {
+          const response = await fetch("/api/auth/profile", { cache: "no-store", signal });
+          if (!response.ok) {
+            if (response.status === 401 && profileReadEpochRef.current === epoch && profileScopeRef.current === scope) void refreshCanonicalSession?.({ force: true });
+            throw new Error("PROFILE_FETCH_FAILED");
+          }
+          return await response.json() as AccountProfilePayload;
+        });
+        if (controller.signal.aborted || profileReadEpochRef.current !== epoch || profileScopeRef.current !== scope) throw new DOMException("Request cancelled", "AbortError");
+        if (!applyProfilePayload(data)) throw new Error("PROFILE_IDENTITY_MISMATCH");
+        return data;
+      } catch (error) {
+        if (profileReadEpochRef.current === epoch && profileScopeRef.current === scope && !(error instanceof DOMException && error.name === "AbortError")) setProfileRefreshError(true);
+        throw error;
+      } finally {
+        if (profileReadRef.current === pending) profileReadRef.current = null;
+      }
+    })();
+    return pending.promise;
   }, [applyProfilePayload, refreshCanonicalSession]);
 
   useEffect(() => {
@@ -407,14 +532,20 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
   }, [canonicalUser]);
 
   useEffect(() => {
+    const keepCurrentProfile = Boolean(savedFormRef.current
+      && (!hasCanonicalSession || savedFormRef.current.id === canonicalUser?.id));
     if (canonicalSessionResolving) {
-      setLoading(true);
+      if (!keepCurrentProfile) setLoading(true);
       return;
     }
     if (hasCanonicalSession && !canonicalUser) {
       // The profile payload can contain private account data. Never retain it
       // after the canonical server session has become anonymous.
       setPayload(null);
+      savedFormRef.current = null;
+      setActiveSection("overview");
+      pendingSectionTarget.current = null;
+      setAlertsVisited(false);
       setSessionRoles([]);
       setAvatarUrl("");
       setCoverUrl("");
@@ -437,23 +568,26 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
       setLoading(false);
       return;
     }
-    const controller = new AbortController();
     let mounted = true;
 
     void (async () => {
-      setLoading(true);
-      setMessage(null);
+      // Refresh the same account in place. A successful save or background
+      // session check must not unmount the editor, move focus, or erase feedback.
+      if (!keepCurrentProfile) {
+        setLoading(true);
+        setMessage(null);
+      }
 
       for (let attempt = 0; attempt < 2; attempt += 1) {
         try {
-          await refreshProfile(controller.signal);
+          await refreshProfile();
           if (!mounted) return;
           setLoading(false);
           return;
         } catch {
-          if (!mounted || controller.signal.aborted) return;
+          if (!mounted) return;
           if (attempt === 0) continue;
-          setMessage(isAr ? "تعذر تحميل الهوية." : "Failed to load identity.");
+          if (!keepCurrentProfile) setMessage(isAr ? "تعذر تحميل الهوية." : "Failed to load identity.");
           setLoading(false);
         }
       }
@@ -461,54 +595,51 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
 
     return () => {
       mounted = false;
-      controller.abort();
     };
-  }, [canonicalSessionError, canonicalSessionResolving, canonicalUser, hasCanonicalSession, isAr, refreshProfile]);
+  }, [canonicalSessionError, canonicalSessionResolving, canonicalUser, hasCanonicalSession, isAr, refreshProfile, setMessage]);
 
-  const scheduleProfileRefreshFromNotification = useCallback(() => {
+  const scheduleProfileRefresh = useCallback(() => {
+    if (document.visibilityState === "hidden" || navigator.onLine === false) return;
     if (profileRefreshTimeoutRef.current) clearTimeout(profileRefreshTimeoutRef.current);
     profileRefreshTimeoutRef.current = setTimeout(() => {
+      profileRefreshTimeoutRef.current = null;
+      if (document.visibilityState === "hidden" || navigator.onLine === false) return;
       void refreshProfile().catch(() => undefined);
     }, 150);
   }, [refreshProfile]);
 
   useAuthenticatedNotificationStream({
-    enabled: Boolean(payload),
-    onNotifications: scheduleProfileRefreshFromNotification,
+    enabled: Boolean(payload) && !canonicalSessionResolving,
+    onNotifications: scheduleProfileRefresh,
   });
 
+  const profileId = payload?.profile.id;
   useEffect(() => {
-    if (!payload) return;
-
-    const controller = new AbortController();
-    let active = true;
-    const scheduleRefresh = () => {
-      if (!active) return;
-      if (profileRefreshTimeoutRef.current) clearTimeout(profileRefreshTimeoutRef.current);
-      profileRefreshTimeoutRef.current = setTimeout(() => {
-        if (!active) return;
-        void refreshProfile(controller.signal).catch(() => undefined);
-      }, 150);
-    };
-    const onFocus = () => scheduleRefresh();
+    if (!profileId) return;
     const onVisibilityChange = () => {
-      if (document.visibilityState === "visible") scheduleRefresh();
+      if (document.visibilityState === "visible") scheduleProfileRefresh();
     };
 
-    window.addEventListener("focus", onFocus);
+    // Owner corrections can intentionally suppress notifications. Reconcile an
+    // open foreground profile even when the notification stream is quiet.
+    const interval = window.setInterval(scheduleProfileRefresh, 30_000);
+    window.addEventListener("focus", scheduleProfileRefresh);
+    window.addEventListener("online", scheduleProfileRefresh);
+    window.addEventListener("alpha-profile-updated", scheduleProfileRefresh);
     document.addEventListener("visibilitychange", onVisibilityChange);
 
     return () => {
-      active = false;
-      controller.abort();
+      window.clearInterval(interval);
       if (profileRefreshTimeoutRef.current) {
         clearTimeout(profileRefreshTimeoutRef.current);
         profileRefreshTimeoutRef.current = null;
       }
-      window.removeEventListener("focus", onFocus);
+      window.removeEventListener("focus", scheduleProfileRefresh);
+      window.removeEventListener("online", scheduleProfileRefresh);
+      window.removeEventListener("alpha-profile-updated", scheduleProfileRefresh);
       document.removeEventListener("visibilitychange", onVisibilityChange);
     };
-  }, [payload, refreshProfile]);
+  }, [profileId, scheduleProfileRefresh]);
 
   async function handlePhotoUpload(file: File) {
     setPhotoUploading(true);
@@ -634,14 +765,15 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
       const response = await fetch("/api/auth/profile", {
         method: "PATCH",
         headers: { "Content-Type": "application/json", "X-Locale": locale },
-        body: JSON.stringify(form),
+        body: JSON.stringify({ ...form, fullName: form.fullName.trim() === payload?.profile.fullName ? undefined : form.fullName }),
       });
       const data = (await response.json()) as AccountProfilePayload & { error?: string };
       if (!response.ok) {
-        setMessage(isAr ? "تعذر تحديث الهوية." : "Failed to update the profile. Please try again.");
+        setMessage(data.error ?? (isAr ? "تعذر تحديث الهوية." : "Failed to update the profile. Please try again."));
         return;
       }
-      setPayload(data);
+      if (!applyProfilePayload(data, true)) return;
+      void refreshCanonicalSession?.({ force: true, background: true });
       setMessage(isAr ? "تم حفظ الهوية بنجاح." : "Trading identity saved.");
     } catch {
       setMessage(isAr
@@ -679,6 +811,7 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
           roleLabel: roleLabelFromBadge(nextBadge),
         };
       });
+      void refreshCanonicalSession?.({ force: true, background: true });
       setMessage(isAr ? "تم تفعيل دور الطالب." : "Student role activated.");
     } catch {
       setMessage(isAr
@@ -716,6 +849,7 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
           roleLabel: roleLabelFromBadge(nextBadge),
         };
       });
+      void refreshCanonicalSession?.({ force: true, background: true });
       setMessage(isAr ? "تم تحديث الاختيار إلى ضيف." : "Role selection updated to Guest.");
     } catch {
       setMessage(isAr
@@ -729,6 +863,7 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
     const { isOwner: sessionIsOwner, hasAdminDashboardAccess: sessionHasAdminDashboardAccess } = resolveAdminProfileAccess({
       payload,
       sessionRoles: canonicalSessionResolving ? [] : sessionRoles,
+      authoritativeRoles,
     });
     return (
       <section className="section-container page-shell">
@@ -746,14 +881,13 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
     return (
       <section className="section-container page-shell">
         <Card className="mx-auto max-w-6xl border-white/10 bg-[#0B0B0B]/95">
-          <CardContent className="p-6 text-sm text-[#D1D5DB]">{message ?? (isAr ? "تعذر تحميل الهوية." : "Failed to load identity.")}</CardContent>
+          <CardContent className="p-6 text-sm text-[#D1D5DB]">{currencyText(message ?? (isAr ? "تعذر تحميل الهوية." : "Failed to load identity."))}</CardContent>
         </Card>
       </section>
     );
   }
 
-  const initials = payload.profile.fullName?.charAt(0).toUpperCase() ?? "?";
-  const onlineNow = payload.profile.onlineStatus === "online";
+  const onlineNow = presence.online;
   const isSeller = payload.stats.kind === "seller";
   const theme = profileTheme(payload.roleBadge);
   const statusCopy = payload.accountStatuses.map((status) => accountStatusLabel(status, isAr)).join(" • ");
@@ -761,12 +895,21 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
   const { isOwner, hasAdminDashboardAccess } = resolveAdminProfileAccess({
     payload,
     sessionRoles,
+    authoritativeRoles,
   });
-  const establishedAccountRoles = normalizeRoleValues([
+  const establishedAccountRoles = authoritativeRoles ?? normalizeRoleValues([
     ...(payload.profile.roles ?? []),
     payload.profile.role,
     ...sessionRoles,
   ]);
+  const interfaceAccess = getInterfaceAccess(canonicalUser ?? {
+    role: payload.profile.role,
+    roles: establishedAccountRoles,
+    sellerStatus: isSeller ? "approved_seller" : establishedAccountRoles.includes("pending_seller_approval") ? "pending_seller_approval" : undefined,
+  });
+  const showBuyerActivity = isSeller
+    || establishedAccountRoles.includes("buyer")
+    || (!interfaceAccess.administration && interfaceAccess.pendingSeller);
   const showAccountPathManager = ![
     "buyer",
     "pending_seller_approval",
@@ -799,117 +942,53 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
     : [];
 
   return (
-    <section className="section-container page-shell">
-      <div className="mx-auto max-w-7xl space-y-5 xl:space-y-6">
+    <section dir={isAr ? "rtl" : "ltr"} className={cn("section-container profile-workspace", isSeller && "seller-prestige-page")} data-profile-rank={isSeller ? (isOwner ? "owner" : rankVisualKey(sellerLevelForUi)) : undefined}>
+      <div className="mx-auto max-w-6xl space-y-4">
+        <div className="flex items-center justify-between gap-3">
+          <h1 className="text-xl font-semibold text-white">{isAr ? "ملفي الشخصي" : "My profile"}</h1>
+          <Button type="button" size="sm" variant="secondary" onClick={() => {
+            const target = document.getElementById("profile-panel-edit");
+            if (activeSection === "edit") {
+              target?.focus({ preventScroll: true });
+              target?.scrollIntoView?.({ block: "start", behavior: "instant" });
+            }
+            else pendingSectionTarget.current = "profile-panel-edit";
+            selectSection("edit");
+          }}>{isAr ? "تعديل الملف" : "Edit profile"}</Button>
+        </div>
         <Card className={cn("overflow-hidden border-white/10 bg-[#0B0B0B]/95 p-0", isSeller && `seller-rank-profile-shell seller-rank-profile-shell--${isOwner ? "legendary" : sellerRankKey}`)}>
-          <div className={cn("relative h-44 border-b border-white/10 bg-gradient-to-r md:h-52", theme.coverTone)}>
-            {coverUrl ? <Image src={coverUrl} alt={isAr ? "صورة الغلاف" : "Cover"} fill unoptimized className="object-cover opacity-90" /> : null}
-            <div className="absolute inset-0 bg-gradient-to-b from-black/25 via-transparent to-black/75" />
-            <div className="absolute end-3 top-3 flex flex-wrap gap-2">
-              <Button
-                type="button"
-                size="sm"
-                variant="secondary"
-                loading={coverUploading}
-                loadingLabel={isAr ? "جاري الرفع..." : "Uploading..."}
-                disabled={coverRemoving}
-                onClick={() => coverInputRef.current?.click()}
-              >
-                {isAr ? "تحديث الغلاف" : "Update cover"}
-              </Button>
-              {coverUrl ? (
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="destructive"
-                  loading={coverRemoving}
-                  loadingLabel={isAr ? "جاري الحذف..." : "Removing..."}
-                  disabled={coverUploading}
-                  onClick={() => void handleRemoveCover()}
-                >
-                  {isAr ? "حذف الغلاف" : "Remove"}
-                </Button>
+          <PrivateProfileHeader
+            locale={locale}
+            fullName={payload.profile.fullName}
+            publicOwner={isOwner}
+            sellerRank={isSeller ? sellerLevelForUi : undefined}
+            publicId={publicAccountId(payload.profile)}
+            avatarUrl={avatarUrl}
+            coverUrl={coverUrl}
+            coverClassName={isSeller ? undefined : theme.coverTone}
+            avatarClassName={cn(theme.frameClass, isSeller && `seller-rank-avatar-frame seller-rank-avatar-frame--${isOwner ? "legendary" : sellerRankKey}`)}
+            nameClassName={cn(isOwner && "font-extrabold tracking-[0.015em]", isSeller ? "seller-prestige-name" : theme.usernameClass)}
+            compact
+          >
+            {isOwner && !isSeller ? (
+              <div className="mt-2">
+                <p className="text-sm font-semibold text-[#F87171]">{isAr ? "مالك Alpha Exchange" : "Alpha Exchange Owner"}</p>
+              </div>
+            ) : null}
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <RoleBadge variant={payload.roleBadge} locale={locale} />
+              <span className="inline-flex items-center gap-1 rounded-full border border-white/15 bg-white/[0.04] px-2.5 py-1 text-[11px] font-medium text-[#D1D5DB]">
+                <span aria-hidden="true" className={cn("seller-presence-dot", onlineNow ? "seller-presence-dot--online" : "seller-presence-dot--idle")} />
+                {isAr ? presence.compactLabelAr : presence.compactLabel}
+              </span>
+              {isSeller ? (
+                <RankBadge rank={sellerLevelForUi} locale={locale} audience="seller" />
               ) : null}
+              {!isSeller && showBuyerActivity && payload.roleBadge === "buyer" ? <RankBadge rank={buyerRankSummary?.key} locale={locale} audience="buyer" /> : null}
             </div>
-          </div>
-
-          <div className="relative px-6 pb-6 pt-0 md:px-8">
-            <div className="-mt-14 flex flex-wrap items-end justify-between gap-4 md:-mt-16">
-              <div className="flex items-end gap-4">
-                <div className={cn("relative h-24 w-24 overflow-hidden rounded-2xl border bg-black/80 md:h-28 md:w-28", theme.frameClass, isSeller && `seller-rank-avatar-frame seller-rank-avatar-frame--${isOwner ? "legendary" : sellerRankKey}`)}>
-                  {avatarUrl ? (
-                    <Image src={avatarUrl} alt={isAr ? "الصورة الشخصية" : "Profile"} width={112} height={112} unoptimized className="h-full w-full object-cover" />
-                  ) : (
-                    <div className="flex h-full w-full items-center justify-center text-2xl font-semibold text-[#F4D87A]">{initials}</div>
-                  )}
-                </div>
-                <div className="pb-1">
-                  <p className={cn("text-2xl font-semibold text-white md:text-3xl", isOwner && "text-[2.05rem] font-extrabold tracking-[0.015em] md:text-[2.2rem]", isSeller && `seller-rank-name seller-rank-name--${sellerRankKey}`, theme.usernameClass)}>{payload.profile.fullName}</p>
-                  {isOwner ? (
-                    <div className="mt-1">
-                      <p className="text-sm font-semibold text-[#F87171]">{isAr ? "مالك Alpha Exchange" : "Alpha Exchange Owner"}</p>
-                      <p className="text-xs text-[#9CA3AF]">{isAr ? "وصول كامل للمنصة • جميع الصلاحيات" : "Full platform access • All permissions"}</p>
-                    </div>
-                  ) : (
-                    <p className="mt-1 text-sm text-[#A6AFBE]">@{payload.profile.username}</p>
-                  )}
-                  <div className="mt-2 flex flex-wrap items-center gap-2">
-                    <RoleBadge variant={payload.roleBadge} locale={locale} />
-                    <span className="inline-flex items-center gap-1 rounded-full border border-white/15 bg-white/[0.04] px-2.5 py-1 text-[11px] font-medium text-[#D1D5DB]">
-                      <span className={cn("h-1.5 w-1.5 rounded-full", onlineNow ? "bg-emerald-400" : "bg-zinc-500")} />
-                      {onlineNow ? (isAr ? "متصل الآن" : "Online now") : (isAr ? "غير متصل" : "Offline")}
-                    </span>
-                    {isSeller ? (
-                      <span className="inline-flex items-center gap-1 rounded-full border border-[#C9A227]/35 bg-[#C9A227]/10 px-2.5 py-1 text-[11px] font-semibold text-[#F4D87A]">
-                        <ShieldCheck className="h-3.5 w-3.5" />
-                        {isAr ? "بائع موثق" : "Verified Seller"}
-                      </span>
-                    ) : null}
-                    {isSeller ? (
-                      <span className={cn("seller-rank-pill", `seller-rank-pill--${isOwner ? "legendary" : sellerRankKey}`)}>
-                        {isOwner ? (isAr ? "بائع أسطوري" : "Legendary Seller") : isAr ? `بائع ${tierLabel(sellerLevelForUi, true)}` : `${tierLabel(sellerLevelForUi, false)} Seller`}
-                      </span>
-                    ) : null}
-                  </div>
-                </div>
-              </div>
-              <div className="flex flex-wrap gap-2 pb-1">
-                <Button type="button" variant="secondary" size="sm" loading={photoUploading} loadingLabel={isAr ? "جاري الرفع..." : "Uploading..."} disabled={photoRemoving} onClick={() => photoInputRef.current?.click()}>
-                  {isAr ? "تغيير الصورة" : "Update photo"}
-                </Button>
-                {avatarUrl ? (
-                  <Button type="button" variant="destructive" size="sm" loading={photoRemoving} loadingLabel={isAr ? "جاري الحذف..." : "Removing..."} disabled={photoUploading} onClick={() => void handleRemovePhoto()}>
-                    {isAr ? "حذف الصورة" : "Remove"}
-                  </Button>
-                ) : null}
-              </div>
-            </div>
-
-            <div className="mt-6 grid gap-3 md:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-5">
-              <div className="rounded-2xl border border-white/10 bg-black/25 p-4">
-                <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "حالة الحساب" : "Account status"}</p>
-                <p className="mt-2 text-sm font-medium text-white">{statusCopy}</p>
-                <p className="mt-1 text-xs text-[#AAB3C2]">{isAr ? theme.trustLabelAr : theme.trustLabel}</p>
-              </div>
-              <div className="rounded-2xl border border-white/10 bg-black/25 p-4">
-                <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "عضو منذ" : "Member since"}</p>
-                <p className="mt-2 text-sm font-medium text-white">{new Date(payload.profile.memberSince).toLocaleDateString(dateLocale)}</p>
-                <p className="mt-1 text-xs text-[#AAB3C2]">{isAr ? "الهوية موثقة عبر Alpha Traders" : "Identity anchored to Alpha Traders account history"}</p>
-              </div>
-              <div className="rounded-2xl border border-white/10 bg-black/25 p-4">
-                <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "آخر دخول" : "Last login"}</p>
-                <p className="mt-2 text-sm font-medium text-white">{new Date(payload.profile.lastLogin).toLocaleString(dateLocale)}</p>
-                <p className="mt-1 text-xs text-[#AAB3C2]">{isAr ? "نشاط حساب حديث" : "Recent account activity signal"}</p>
-              </div>
-              <div className="rounded-2xl border border-white/10 bg-black/25 p-4">
-                <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "الرؤية العامة" : "Public visibility"}</p>
-                <p className="mt-2 text-sm font-medium text-white">{form.allowProfileSearch ? (isAr ? "قابل للبحث" : "Searchable") : (isAr ? "خاص" : "Private")}</p>
-                <p className="mt-1 text-xs text-[#AAB3C2]">{isAr ? "يمكنك تعديل ذلك من إعدادات الهوية" : "Controlled in identity controls below"}</p>
-              </div>
-            </div>
-          </div>
+          </PrivateProfileHeader>
         </Card>
-
+        <ProfileQuickActions locale={locale} admin={hasAdminDashboardAccess} owner={isOwner} seller={interfaceAccess.sellerWorkspace} trading={interfaceAccess.trading} username={payload.profile.username} journalEnabled={journalEnabled} />
         <input
           ref={photoInputRef}
           type="file"
@@ -935,29 +1014,57 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
           }}
         />
 
-        {photoError ? <p className="text-xs text-red-400">{photoError}</p> : null}
-        {coverError ? <p className="text-xs text-red-400">{coverError}</p> : null}
+        {photoError ? <ActionFeedback revealKey={photoErrorFeedbackKey} as="p" role="alert" className="text-xs text-red-400">{currencyText(photoError)}</ActionFeedback> : null}
+        {coverError ? <ActionFeedback revealKey={coverErrorFeedbackKey} as="p" role="alert" className="text-xs text-red-400">{currencyText(coverError)}</ActionFeedback> : null}
 
-        <div className="grid gap-5 xl:grid-cols-[minmax(0,1.45fr)_360px] xl:items-start">
-          <Card className={cn("border-white/10 bg-[#0B0B0B]/95", isSeller && `seller-rank-profile-panel seller-rank-profile-panel--${isOwner ? "legendary" : sellerRankKey}`)}>
-            <CardHeader>
-              <CardTitle>{isAr ? "هوية التداول العامة" : "Public trading identity"}</CardTitle>
-              <CardDescription>
-                {isAr
-                  ? "هذه العناصر تظهر لباقي المستخدمين وتؤثر على الثقة والسمعة."
-                  : "These signals shape how buyers and sellers trust your profile."}
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
+
+
+        {message ? <ActionFeedback revealKey={messageFeedbackKey} as="p" role="status" className="text-sm text-[#D1D5DB]">{currencyText(message)}</ActionFeedback> : null}
+        {profileRefreshError ? <p role="status" className="text-xs text-amber-200">{isAr ? "تعذر التحديث. تظهر آخر بيانات ملفك التي تم تحميلها." : "Could not refresh. Showing your last loaded profile."}</p> : null}
+        <ProfileSectionTabs locale={locale} value={activeSection} onChange={selectSection} />
+        <div id="profile-panel-overview" role="tabpanel" aria-labelledby="profile-tab-overview" tabIndex={0} hidden={activeSection !== "overview"} className="profile-tab-panel space-y-4">
+          {hasAdminDashboardAccess ? <div className="rounded-2xl border border-red-400/20 bg-red-400/5 p-4">
+            <h2 className="font-semibold text-red-200">{isAr ? "الإدارة" : "Administration"}</h2>
+            <p className="mt-1 text-sm text-[#B5BDCB]">{isAr ? "إدارة المستخدمين والسوق من لوحة التحكم بالأعلى." : "Manage users and the marketplace from your dashboard above."}</p>
+          </div> : null}
+          {isSeller || showBuyerActivity ? <div className="grid gap-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
+            <Card className="border-white/10 bg-[#0B0B0B]/95 p-4 sm:p-5">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h2 className="text-base font-semibold text-white">{isAr ? "تقدمك" : "Your progress"}</h2>
+                <RankBadge rank={isSeller ? sellerLevelForUi : buyerRankSummary?.key} locale={locale} audience={isSeller ? "seller" : "buyer"} />
+              </div>
+              <div className="mt-4 grid grid-cols-2 gap-3">
+                <div><p className="text-sm text-[#A6AFBE]">{isSeller ? (isAr ? "إجمالي المبيعات" : "Total sold") : (isAr ? "إجمالي المشتريات" : "Total purchased")}</p><p className="mt-1 text-lg font-semibold"><bdi dir="ltr">{currencyText(`${(isSeller ? payload.stats.lifetimeCompletedVolumeUsdt : buyerRankSummary?.lifetimeCompletedVolumeUsdt ?? 0).toLocaleString("en-IL")} USDT`)}</bdi></p></div>
+                <div><p className="text-sm text-[#A6AFBE]">{isAr ? "للرتبة التالية" : "To next rank"}</p><p className="mt-1 text-lg font-semibold"><bdi dir="ltr">{currencyText(`${(isSeller ? payload.stats.amountToNextLevelUsdt : buyerRankSummary?.remainingVolumeUsdt ?? 0).toLocaleString("en-IL")} USDT`)}</bdi></p></div>
+              </div>
+              <div role="progressbar" aria-label={isAr ? "تقدم الرتبة" : "Rank progress"} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(Math.max(0, Math.min(100, isSeller ? payload.stats.progressToNextLevelPercent : buyerRankSummary?.progressPercent ?? 0)))} className="mt-4 h-2 overflow-hidden rounded-full bg-white/10">
+                <div className="h-full rounded-full bg-[#D4AF37] motion-safe:transition-[width]" style={{ width: `${Math.max(0, Math.min(100, isSeller ? payload.stats.progressToNextLevelPercent : buyerRankSummary?.progressPercent ?? 0))}%` }} />
+              </div>
+              <p className="mt-2 text-sm text-[#A6AFBE]">{isAr ? "التالي: " : "Next: "}{currencyText(isSeller ? (payload.stats.nextLevel ? tierLabel(payload.stats.nextLevel, isAr) : (isAr ? "أعلى رتبة" : "Top rank")) : (buyerRankSummary?.nextRank ? (isAr ? buyerRankSummary.nextRankLabelAr : buyerRankSummary.nextRankLabel) : (isAr ? "أعلى رتبة" : "Top rank")))}</p>
+            </Card>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="profile-summary-stat"><span>{isAr ? "صفقات مكتملة" : "Completed trades"}</span><strong>{payload.stats.completedTrades.toLocaleString("en-IL")}</strong></div>
+              {payload.stats.kind === "seller" ? <>
+                <Link href="/usdt-exchange#my-listings-section" className="profile-summary-stat"><span>{isAr ? "عروض نشطة" : "Active listings"}</span><strong>{payload.stats.activeListings.toLocaleString("en-IL")}</strong></Link>
+                <div className="profile-summary-stat"><span>{isAr ? "التقييم" : "Rating"}</span><strong>{sellerRatingDisplay(payload.stats, isAr).text}</strong></div>
+                <div className="profile-summary-stat"><span>{isAr ? "وقت الاستجابة" : "Response time"}</span><strong>{formatMeasuredResponseTime(payload.stats.responseTimeMinutes, isAr, payload.stats.responseSampleCount)}</strong></div>
+                <Link href="/usdt-exchange#create-listing" className="profile-summary-stat profile-summary-stat--action">{isAr ? "إضافة عرض" : "Add listing"}</Link>
+              </> : <>
+                <Link href="/trades" className="profile-summary-stat"><span>{isAr ? "صفقات نشطة" : "Active trades"}</span><strong>{payload.stats.activeTrades.toLocaleString("en-IL")}</strong></Link>
+                <div className="profile-summary-stat"><span>{isAr ? "التقييمات المكتوبة" : "Reviews written"}</span><strong>{payload.stats.reviewsGiven.toLocaleString("en-IL")}</strong></div>
+                {interfaceAccess.canApplyToSell || interfaceAccess.pendingSeller ? <Link href="/dashboard#seller-application" className="profile-summary-stat profile-summary-stat--action">{interfaceAccess.pendingSeller ? (isAr ? "حالة طلب البائع" : "Seller application status") : (isAr ? "التقديم كبائع معتمد" : "Apply as approved seller")}</Link> : null}
+              </>}
+            </div>
+          </div> : null}
               {showAccountPathManager ? (
                 <div className="mb-4 rounded-2xl border border-[#C9A227]/25 bg-black/30 p-4">
                   <p className="text-sm text-[#D1D5DB]">
                     {isAr ? "إدارة مسار حسابك:" : "Manage your account path:"}
                   </p>
                   <div className="mt-3 flex flex-wrap gap-2">
-                    <Button type="button" variant="secondary" loading={roleActionLoading === "student"} loadingLabel={isAr ? "جاري التفعيل..." : "Activating..."} onClick={() => void activateStudentRole()}>
+                    {!establishedAccountRoles.includes("student") ? <Button type="button" variant="secondary" loading={roleActionLoading === "student"} loadingLabel={isAr ? "جاري التفعيل..." : "Activating..."} onClick={() => void activateStudentRole()}>
                       {isAr ? "تفعيل دور الطالب" : "Join Alpha Academy"}
-                    </Button>
+                    </Button> : null}
                     <Link href="/onboarding?mode=manage" className={buttonVariants({ variant: "secondary" })}>
                       {isAr ? "اختيار دور المشتري" : "Become a Buyer"}
                     </Link>
@@ -967,96 +1074,20 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
                   </div>
                 </div>
               ) : null}
-              <form className="grid gap-3 md:grid-cols-2 xl:gap-4" onSubmit={(event) => void handleSave(event)}>
-                <Input value={form.fullName} onChange={(event) => setForm((prev) => ({ ...prev, fullName: event.target.value }))} aria-label={isAr ? "الاسم الكامل" : "Full name"} placeholder={isAr ? "الاسم الكامل" : "Full name"} />
-                <Input value={form.country} onChange={(event) => setForm((prev) => ({ ...prev, country: event.target.value }))} aria-label={isAr ? "الدولة" : "Country"} placeholder={isAr ? "الدولة" : "Country"} />
-                <Input value={form.language} onChange={(event) => setForm((prev) => ({ ...prev, language: event.target.value }))} aria-label={isAr ? "اللغة" : "Language"} placeholder={isAr ? "اللغة" : "Language"} />
-                <Input value={form.whatsappNumber} onChange={(event) => setForm((prev) => ({ ...prev, whatsappNumber: event.target.value }))} aria-label={isAr ? "رقم التواصل" : "Contact phone"} placeholder={isAr ? "رقم التواصل" : "Contact phone"} />
-                <Textarea className="md:col-span-2" value={form.bio} onChange={(event) => setForm((prev) => ({ ...prev, bio: event.target.value }))} aria-label={isAr ? "نبذة احترافية" : "Professional bio"} placeholder={isAr ? "نبذة احترافية تبني الثقة" : "Write a professional bio that builds trust"} />
 
-                <div className="md:col-span-2 grid gap-2 rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-[#D1D5DB] xl:grid-cols-2">
-                  <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "عناصر الخصوصية" : "Privacy controls"}</p>
-                  {[
-                    { key: "showTradeStats", labelAr: "عرض إحصائيات التداول", label: "Show trading statistics" },
-                    { key: "showLastActive", labelAr: "عرض آخر نشاط", label: "Show last active" },
-                    { key: "allowDirectMessages", labelAr: "السماح بالرسائل المباشرة", label: "Allow direct messages" },
-                    { key: "allowProfileSearch", labelAr: "السماح بالبحث عن الملف", label: "Allow profile search" },
-                    { key: "showPhonePublic", labelAr: "عرض رقم التواصل", label: "Show phone publicly" },
-                    { key: "showEmailPublic", labelAr: "عرض البريد الإلكتروني", label: "Show email publicly" },
-                  ].map((item) => {
-                    const value = form[item.key as keyof ProfileFormState];
-                    if (typeof value !== "boolean") return null;
-                    return (
-                      <label key={item.key} className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-black/20 px-3 py-2">
-                        <span>{isAr ? item.labelAr : item.label}</span>
-                        <input
-                          type="checkbox"
-                          className="h-4 w-4 accent-[#C9A227]"
-                          checked={value}
-                          onChange={(event) => setForm((prev) => ({ ...prev, [item.key]: event.target.checked }))}
-                        />
-                      </label>
-                    );
-                  })}
-                </div>
-
-                <div className="md:col-span-2 flex flex-wrap items-center gap-2">
-                  <Button type="submit" loading={profileSaving} loadingLabel={isAr ? "جاري الحفظ..." : "Saving..."}>
-                    {isAr ? "حفظ الهوية" : "Save identity"}
-                  </Button>
-                  <Link href={`/u/${payload.profile.username}`} className={buttonVariants({ variant: "secondary", size: "sm" })}>
-                    {isAr ? "عرض الملف العام" : "Open public profile"}
-                  </Link>
-                  <Link href="/settings" className={buttonVariants({ variant: "secondary", size: "sm" })}>
-                    {isAr ? "إعدادات الحساب" : "Account settings"}
-                  </Link>
-                  <Link href="/settings#discord-connection" className={buttonVariants({ variant: "secondary", size: "sm" })}>
-                    {isAr ? "الحسابات المرتبطة" : "Connected accounts"}
-                  </Link>
-                </div>
-                {message ? <p className="text-xs text-[#D1D5DB] md:col-span-2">{message}</p> : null}
-              </form>
-            </CardContent>
-          </Card>
-
-          <div className="space-y-5">
-            {hasAdminDashboardAccess ? (
-              <AdministrationCard isAr={isAr} isOwner={isOwner} />
-            ) : null}
-
-            <Card className={cn("border-white/10 bg-[#0B0B0B]/95", isSeller && `seller-rank-profile-panel seller-rank-profile-panel--${isOwner ? "legendary" : sellerRankKey}`)}>
+          {isSeller || showBuyerActivity ? <details className="profile-disclosure">
+            <summary>{isAr ? "الرتب والإنجازات" : "Ranks & achievements"}</summary>
+            <div className="profile-detail-grid">
+              {payload.stats.kind === "seller" ? <SellerRankCard locale={locale} owner={isOwner} summary={{ ...payload.stats, sellerLevel: normalizeSellerLevel(payload.stats.sellerLevel) ?? "bronze", nextLevel: normalizeSellerLevel(payload.stats.nextLevel) ?? undefined }} /> : null}
+            {isSeller || showBuyerActivity ? <Card className={cn("border-white/10 bg-[#0B0B0B]/95", isSeller && `seller-rank-profile-panel seller-rank-profile-panel--${isOwner ? "legendary" : sellerRankKey}`)}>
               <CardHeader>
                 <CardTitle>{isAr ? "لوحة السمعة" : "Reputation board"}</CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
                 {payload.stats.kind === "seller" ? (
                   <>
-                    <div className={cn("seller-rank-tier-card rounded-2xl border p-4", `seller-rank-tier-card--${sellerRankKey}`)}>
-                      <p className={cn("text-xs uppercase tracking-[0.14em]", `seller-rank-tier-label seller-rank-tier-label--${sellerRankKey}`)}>{isAr ? "مستوى البائع" : "Seller tier"}</p>
-                      <p className={cn("mt-2 text-xl font-semibold", `seller-rank-name seller-rank-name--${sellerRankKey}`)}>{tierLabel(sellerLevelForUi, isAr)}</p>
-                      <p className="mt-1 text-xs text-[#E5E7EB]">
-                        {payload.stats.nextLevel
-                          ? `${isAr ? "المستوى التالي" : "Next tier"}: ${tierLabel(payload.stats.nextLevel, isAr)}`
-                          : isAr
-                            ? "وصلت إلى أعلى مستوى."
-                            : "Top tier reached."}
-                      </p>
-                      <div className="mt-3 h-2.5 rounded-full bg-black/35">
-                        <div className={cn("h-full rounded-full", `seller-rank-progress seller-rank-progress--${sellerRankKey}`)} style={{ width: `${Math.max(3, Math.min(100, payload.stats.progressToNextLevelPercent))}%` }} />
-                      </div>
-                      <p className="mt-2 text-xs text-[#E5E7EB]">
-                        {isAr
-                          ? `${payload.stats.amountToNextLevelUsdt.toLocaleString("en-IL")} USDT للوصول للمستوى التالي`
-                          : `${payload.stats.amountToNextLevelUsdt.toLocaleString("en-IL")} USDT to unlock the next level`}
-                      </p>
-                    </div>
-
-                    <div className="grid gap-2 text-sm sm:grid-cols-2">
-                      <div className="rounded-xl border border-white/10 bg-black/20 p-3"><p className="text-[#9CA3AF]">{isAr ? "درجة الثقة" : "Trust score"}</p><p className="mt-1 font-semibold text-white">{payload.stats.trustScore.toFixed(1)}/100</p></div>
-                      <div className="rounded-xl border border-white/10 bg-black/20 p-3"><p className="text-[#9CA3AF]">{isAr ? "الحجم مدى الحياة" : "Lifetime volume"}</p><p className="mt-1 font-semibold text-white">{payload.stats.lifetimeCompletedVolumeUsdt.toLocaleString("en-IL")} USDT</p></div>
-                      <div className="rounded-xl border border-white/10 bg-black/20 p-3"><p className="text-[#9CA3AF]">{isAr ? "الصفقات المكتملة" : "Completed trades"}</p><p className="mt-1 font-semibold text-white">{payload.stats.completedTrades.toLocaleString("en-IL")}</p></div>
-                      <div className="rounded-xl border border-white/10 bg-black/20 p-3"><p className="text-[#9CA3AF]">{isAr ? "التقييم المتوسط" : "Average rating"}</p><p className="mt-1 font-semibold text-white">{payload.stats.averageRating.toFixed(2)} ★</p></div>
-                      <div className="rounded-xl border border-white/10 bg-black/20 p-3"><p className="text-[#9CA3AF]">{isAr ? "العروض النشطة" : "Active listings"}</p><p className="mt-1 font-semibold text-white">{payload.stats.activeListings.toLocaleString("en-IL")}</p></div>
+                    <div className="grid gap-2 text-sm">
+                      <div className="rounded-xl border border-white/10 bg-black/20 p-3"><p className="text-[#9CA3AF]">{sellerScoreDisplay(payload.stats, isAr).label}</p><p className="mt-1 font-semibold text-white">{sellerScoreDisplay(payload.stats, isAr).value}</p></div>
                     </div>
 
                     <div className="rounded-xl border border-white/10 bg-black/20 p-3">
@@ -1065,7 +1096,7 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
                         {(payload.stats.promotionHistory.length ? payload.stats.promotionHistory.slice(0, 4) : [{ id: "start", rank: payload.stats.sellerLevel, promotedAt: payload.profile.memberSince }]).map((entry) => (
                           <p key={entry.id} className="flex items-center gap-1.5">
                             <Trophy className="h-3.5 w-3.5 text-[#C9A227]" />
-                            <span>{tierLabel(entry.rank, isAr)} • {new Date(entry.promotedAt).toLocaleDateString(dateLocale)}</span>
+                            <span>{currencyText(tierLabel(entry.rank, isAr))} • {new Date(entry.promotedAt).toLocaleDateString(dateLocale)}</span>
                           </p>
                         ))}
                       </div>
@@ -1075,16 +1106,13 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
                       <div className="flex flex-wrap items-start justify-between gap-3">
                         <div>
                           <p className="text-xs uppercase tracking-[0.14em] text-[#93C5FD]">{isAr ? "نشاطك كمشترٍ" : "Your buyer activity"}</p>
-                          <p className="mt-1 text-lg font-semibold text-white">{buyerRankSummary ? (isAr ? buyerRankSummary.labelAr : buyerRankSummary.label) : (isAr ? "مشتري برونزي" : "Bronze Buyer")}</p>
+                          <p className="mt-1 text-lg font-semibold text-white">{currencyText(buyerRankSummary ? (isAr ? buyerRankSummary.labelAr : buyerRankSummary.label) : (isAr ? "مشتري برونزي" : "Bronze Buyer"))}</p>
                           <p className="mt-1 text-xs text-[#D1D5DB]">{isAr ? "مستوى البائع ورتبة المشتري يُحسبان بشكل مستقل." : "Your seller level and buyer rank are tracked independently."}</p>
                         </div>
-                        <span className={cn("buyer-rank-pill", `buyer-rank-pill--${buyerRankSummary?.key ?? "bronze"}`)}>
-                          <Trophy className="h-3.5 w-3.5" />
-                          {(buyerRankSummary?.key ?? "bronze").toUpperCase()}
-                        </span>
+                        <RankBadge rank={buyerRankSummary?.key} locale={locale} audience="buyer" />
                       </div>
                       <div className="mt-4 grid gap-2 text-sm sm:grid-cols-3">
-                        <div className="rounded-xl border border-white/10 bg-black/25 p-3"><p className="text-[#9CA3AF]">{isAr ? "إجمالي المشتريات" : "Purchased"}</p><p className="mt-1 font-semibold text-white">{(buyerRankSummary?.lifetimeCompletedVolumeUsdt ?? 0).toLocaleString("en-IL")} USDT</p></div>
+                        <div className="rounded-xl border border-white/10 bg-black/25 p-3"><p className="text-[#9CA3AF]">{isAr ? "إجمالي المشتريات" : "Purchased"}</p><p className="mt-1 font-semibold text-white">{currencyText(`${(buyerRankSummary?.lifetimeCompletedVolumeUsdt ?? 0).toLocaleString("en-IL")} USDT`)}</p></div>
                         <div className="rounded-xl border border-white/10 bg-black/25 p-3"><p className="text-[#9CA3AF]">{isAr ? "المشتريات المكتملة" : "Completed purchases"}</p><p className="mt-1 font-semibold text-white">{(buyerActivityStats?.completedTrades ?? 0).toLocaleString("en-IL")}</p></div>
                         <div className="rounded-xl border border-white/10 bg-black/25 p-3"><p className="text-[#9CA3AF]">{isAr ? "التقييمات المكتوبة" : "Reviews written"}</p><p className="mt-1 font-semibold text-white">{(buyerActivityStats?.reviewsGiven ?? 0).toLocaleString("en-IL")}</p></div>
                       </div>
@@ -1092,11 +1120,11 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
                         <div className={cn("h-full rounded-full", `buyer-rank-progress buyer-rank-progress--${buyerRankSummary?.key ?? "bronze"}`)} style={{ width: `${Math.max(3, Math.min(100, buyerRankSummary?.progressPercent ?? 0))}%` }} />
                       </div>
                       <p className="mt-2 text-xs text-[#D1D5DB]">
-                        {buyerRankSummary?.nextRank
+                        {currencyText(buyerRankSummary?.nextRank
                           ? (isAr
                             ? `${buyerRankSummary.remainingVolumeUsdt.toLocaleString("en-IL")} USDT متبقية للوصول إلى ${buyerRankSummary.nextRankLabelAr}`
                             : `${buyerRankSummary.remainingVolumeUsdt.toLocaleString("en-IL")} USDT remaining to reach ${buyerRankSummary.nextRankLabel}`)
-                          : (isAr ? "وصلت إلى أعلى رتبة للمشترين." : "You reached the highest buyer rank.")}
+                          : (isAr ? "وصلت إلى أعلى رتبة للمشترين." : "You reached the highest buyer rank."))}
                       </p>
                     </div>
                   </>
@@ -1107,25 +1135,22 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
                         <div>
                           <p className="text-xs uppercase tracking-[0.14em] text-[#93C5FD]">{isAr ? "رتبة المشتري" : "Buyer rank"}</p>
                           <p className="mt-2 text-xl font-semibold text-white">
-                            {buyerRankSummary ? (isAr ? buyerRankSummary.labelAr : buyerRankSummary.label) : (isAr ? "مشتري برونزي" : "Bronze Buyer")}
+                            {currencyText(buyerRankSummary ? (isAr ? buyerRankSummary.labelAr : buyerRankSummary.label) : (isAr ? "مشتري برونزي" : "Bronze Buyer"))}
                           </p>
                         </div>
-                        <span className={cn("buyer-rank-pill", `buyer-rank-pill--${buyerRankSummary?.key ?? "bronze"}`)}>
-                          <Trophy className="h-3.5 w-3.5" />
-                          {(buyerRankSummary?.key ?? "bronze").toUpperCase()}
-                        </span>
+                        <RankBadge rank={buyerRankSummary?.key} locale={locale} audience="buyer" />
                       </div>
                       <div className="mt-4 grid gap-2 text-sm sm:grid-cols-2">
                         <div className="rounded-xl border border-white/10 bg-black/25 p-3">
                           <p className="text-[#9CA3AF]">{isAr ? "إجمالي ما اشتريته" : "Lifetime purchases"}</p>
-                          <p className="mt-1 font-semibold text-white">{(buyerRankSummary?.lifetimeCompletedVolumeUsdt ?? 0).toLocaleString("en-IL")} USDT</p>
+                          <p className="mt-1 font-semibold text-white">{currencyText(`${(buyerRankSummary?.lifetimeCompletedVolumeUsdt ?? 0).toLocaleString("en-IL")} USDT`)}</p>
                         </div>
                         <div className="rounded-xl border border-white/10 bg-black/25 p-3">
                           <p className="text-[#9CA3AF]">{isAr ? "الرتبة التالية" : "Next rank"}</p>
                           <p className="mt-1 font-semibold text-white">
-                            {buyerRankSummary?.nextRank
+                            {currencyText(buyerRankSummary?.nextRank
                               ? (isAr ? buyerRankSummary.nextRankLabelAr : buyerRankSummary.nextRankLabel)
-                              : (isAr ? "أعلى رتبة" : "Top rank")}
+                              : (isAr ? "أعلى رتبة" : "Top rank"))}
                           </p>
                         </div>
                       </div>
@@ -1136,11 +1161,11 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
                         />
                       </div>
                       <p className="mt-2 text-xs text-[#D1D5DB]">
-                        {buyerRankSummary?.nextRank
+                        {currencyText(buyerRankSummary?.nextRank
                           ? (isAr
                             ? `${buyerRankSummary.remainingVolumeUsdt.toLocaleString("en-IL")} USDT متبقية للوصول إلى ${buyerRankSummary.nextRankLabelAr}`
                             : `${buyerRankSummary.remainingVolumeUsdt.toLocaleString("en-IL")} USDT remaining to reach ${buyerRankSummary.nextRankLabel}`)
-                          : (isAr ? "وصلت إلى أعلى رتبة للمشترين." : "You reached the highest buyer rank.")}
+                          : (isAr ? "وصلت إلى أعلى رتبة للمشترين." : "You reached the highest buyer rank."))}
                       </p>
                     </div>
                     <div className="grid gap-2 text-sm sm:grid-cols-3">
@@ -1155,7 +1180,7 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
                           {buyerAchievements.map((achievement) => (
                             <p key={achievement} className="flex items-center gap-2 rounded-lg border border-[#C9A227]/15 bg-[#C9A227]/5 px-3 py-2 text-xs text-[#E5E7EB]">
                               <Trophy className="h-3.5 w-3.5 shrink-0 text-[#C9A227]" />
-                              <span>{achievement}</span>
+                              <span>{currencyText(achievement)}</span>
                             </p>
                           ))}
                         </div>
@@ -1163,38 +1188,141 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
                         <p className="mt-2 text-xs text-[#9CA3AF]">{isAr ? "أكمل أول عملية شراء لفتح إنجازك الأول." : "Complete your first purchase to unlock your first achievement."}</p>
                       )}
                     </div>
-                    <div className="flex flex-wrap gap-2">
-                      <Link href="/dashboard" className={buttonVariants({ size: "sm" })}>
-                        {isAr ? "فتح لوحة المشتري" : "Open buyer dashboard"}
-                      </Link>
-                      <Link href="/dashboard#seller-application" className={buttonVariants({ variant: "outline", size: "sm" })}>
-                        {isAr ? "التقديم كبائع معتمد" : "Apply as approved seller"}
-                      </Link>
-                    </div>
                   </>
                 )}
               </CardContent>
-            </Card>
-          </div>
-        </div>
+            </Card> : null}
 
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-4">
-          {[
-            { icon: ShieldCheck, title: isAr ? "هوية موثقة" : "Verified identity", body: isAr ? "الملف مرتبط بسجل حساب حقيقي ونشاط فعلي." : "Profile signals are tied to real account and platform history." },
-            { icon: TrendingUp, title: isAr ? "تقدم مستمر" : "Progressive growth", body: isAr ? "المستويات والإحصاءات تعكس الأداء الفعلي." : "Tiers and stats reflect real trade performance." },
-            { icon: Globe, title: isAr ? "ظهور احترافي" : "Professional visibility", body: isAr ? "تحكم كامل في ما يظهر علنًا للمشترين." : "Control what is visible to buyers and public visitors." },
-            { icon: Sparkles, title: isAr ? "سمعة مميزة" : "Premium reputation", body: isAr ? "تحسين الهوية يزيد الثقة ويقوي معدل التحويل." : "A stronger identity improves trust and conversion." },
-          ].map((item) => (
-            <Card key={item.title} className="border-white/10 bg-[#0B0B0B]/90">
-              <CardContent className="p-5">
-                <span className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-[#C9A227]/25 bg-[#C9A227]/10 text-[#C9A227]">
-                  <item.icon className="h-4 w-4" />
-                </span>
-                <p className="mt-3 text-sm font-semibold text-white">{item.title}</p>
-                <p className="mt-1 text-xs leading-6 text-[#AAB3C2]">{item.body}</p>
-              </CardContent>
-            </Card>
-          ))}
+            </div>
+          </details> : null}
+          <details className="profile-disclosure">
+            <summary>{isAr ? "تفاصيل الحساب" : "Account details"}</summary>
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <div className="rounded-2xl border border-white/10 bg-black/25 p-4">
+                <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "حالة الحساب" : "Account status"}</p>
+                <p className="mt-2 text-sm font-medium text-white">{currencyText(statusCopy)}</p>
+                <p className="mt-1 text-xs text-[#AAB3C2]">{currencyText(isAr ? theme.trustLabelAr : theme.trustLabel)}</p>
+              </div>
+              <div className="rounded-2xl border border-white/10 bg-black/25 p-4">
+                <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "عضو منذ" : "Member since"}</p>
+                <p className="mt-2 text-sm font-medium text-white">{new Date(payload.profile.memberSince).toLocaleDateString(dateLocale)}</p>
+                <p className="mt-1 text-xs text-[#AAB3C2]">{brandText(isAr ? "الهوية موثقة عبر Alpha Traders" : "Identity anchored to Alpha Traders account history")}</p>
+              </div>
+              <div className="rounded-2xl border border-white/10 bg-black/25 p-4">
+                <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "آخر نشاط" : "Last active"}</p>
+                <p className="mt-2 text-sm font-medium text-white">{isAr ? presence.labelAr : presence.label}</p>
+                <p className="mt-1 text-xs text-[#AAB3C2]">{isAr ? "نشاط حساب حديث" : "Recent account activity signal"}</p>
+              </div>
+              <div className="rounded-2xl border border-white/10 bg-black/25 p-4">
+                <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "الرؤية العامة" : "Public visibility"}</p>
+                <p className="mt-2 text-sm font-medium text-white">{form.allowProfileSearch ? (isAr ? "قابل للبحث" : "Searchable") : (isAr ? "خاص" : "Private")}</p>
+                <p className="mt-1 text-xs text-[#AAB3C2]">{isAr ? "يمكنك تعديل ذلك من قسم تعديل الملف" : "Change this in Edit profile"}</p>
+              </div>
+            </div>
+
+          </details>
+        </div>
+        <div id="profile-panel-edit" role="tabpanel" aria-labelledby="profile-tab-edit" tabIndex={0} hidden={activeSection !== "edit"} className="profile-tab-panel">
+          <Card className="border-white/10 bg-[#0B0B0B]/95">
+            <CardHeader className="flex flex-wrap flex-row items-center justify-between gap-3">
+              <CardTitle>{isAr ? "تعديل الملف الشخصي" : "Edit your profile"}</CardTitle>
+              <Button form="profile-edit-form" type="submit" size="sm" loading={profileSaving} loadingLabel={isAr ? "جاري الحفظ..." : "Saving..."}>{isAr ? "حفظ التغييرات" : "Save changes"}</Button>
+            </CardHeader>
+            <CardContent>
+              <div className="mb-4 grid gap-3 sm:grid-cols-2">
+                <div className="profile-photo-controls"><p>{isAr ? "الصورة الشخصية" : "Profile photo"}</p><div><>
+                <Button type="button" variant="secondary" size="sm" loading={photoUploading} loadingLabel={isAr ? "جاري الرفع..." : "Uploading..."} disabled={photoRemoving} onClick={() => photoInputRef.current?.click()}>
+                  {isAr ? "تغيير الصورة" : "Update photo"}
+                </Button>
+                {avatarUrl ? (
+                  <Button type="button" variant="destructive" size="sm" loading={photoRemoving} loadingLabel={isAr ? "جاري الحذف..." : "Removing..."} disabled={photoUploading} onClick={() => void handleRemovePhoto()}>
+                    {isAr ? "حذف الصورة" : "Remove"}
+                  </Button>
+                ) : null}
+              </></div></div>
+                <div className="profile-photo-controls"><p>{isAr ? "صورة الغلاف" : "Cover photo"}</p><div><>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  loading={coverUploading}
+                  loadingLabel={isAr ? "جاري الرفع..." : "Uploading..."}
+                  disabled={coverRemoving}
+                  onClick={() => coverInputRef.current?.click()}
+                >
+                  {isAr ? "تحديث الغلاف" : "Update cover"}
+                </Button>
+                {coverUrl ? (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="destructive"
+                    loading={coverRemoving}
+                    loadingLabel={isAr ? "جاري الحذف..." : "Removing..."}
+                    disabled={coverUploading}
+                    onClick={() => void handleRemoveCover()}
+                  >
+                    {isAr ? "حذف الغلاف" : "Remove"}
+                  </Button>
+                ) : null}
+              </></div></div>
+              </div>
+              <p className="rounded-xl border border-emerald-400/20 bg-emerald-400/5 p-3 text-sm text-emerald-200">{isOwner ? (isAr ? "اسمك وصورتك وشارة المالك ظاهرة في ملفك العام." : "Your name, photo, and Owner badge appear on your public profile.") : (isAr ? "هويتك العامة هي معرّف AT. لا يطّلع على اسمك الحقيقي وبيانات تواصلك إلا أنت ومالك المنصة." : "Your public identity is your AT ID. Only you and the owner can see your real name and contact details.")}</p>
+              <form id="profile-edit-form" className="mt-4" onSubmit={(event) => void handleSave(event)}>
+                <fieldset disabled={profileSaving} className="grid min-w-0 gap-4 md:grid-cols-2">
+                <div>
+                <label htmlFor="profile-full-name" className="mb-2 block text-sm text-[#D1D5DB]">{isAr ? "الاسم الكامل" : "Full name"}</label>
+                <Input id="profile-full-name" maxLength={100} value={form.fullName} onChange={(event) => setForm((prev) => ({ ...prev, fullName: event.target.value }))} aria-label={isAr ? "الاسم الكامل" : "Full name"} placeholder={isAr ? "الاسم الكامل" : "Full name"} />
+                <p className="mt-1 text-xs text-[#9CA3AF]">{isAr ? "يمكنك تغيير اسمك مرة واحدة كل 7 أيام." : "You can change your name once every 7 days."}{currencyText(payload.profile.nextNameChangeAt && Date.parse(payload.profile.nextNameChangeAt) > Date.now() ? ` ${isAr ? "التغيير التالي:" : "Next change:"} ${new Date(payload.profile.nextNameChangeAt).toLocaleString(isAr ? "ar" : "en-GB")}` : "")}</p>
+                </div>
+                <div><label htmlFor="profile-country" className="mb-2 block text-sm text-[#D1D5DB]">{isAr ? "الدولة" : "Country"}</label><Input id="profile-country" value={form.country} onChange={(event) => setForm((prev) => ({ ...prev, country: event.target.value }))} aria-label={isAr ? "الدولة" : "Country"} placeholder={isAr ? "الدولة" : "Country"} /></div>
+                <div><label htmlFor="profile-language" className="mb-2 block text-sm text-[#D1D5DB]">{isAr ? "اللغة" : "Language"}</label><Input id="profile-language" value={form.language} onChange={(event) => setForm((prev) => ({ ...prev, language: event.target.value }))} aria-label={isAr ? "اللغة" : "Language"} placeholder={isAr ? "اللغة" : "Language"} /></div>
+                <div id="contact-details">
+                  <label htmlFor="profile-private-phone" className="mb-2 block text-sm text-[#D1D5DB]">{isAr ? "رقم الهاتف أو واتساب" : "Phone or WhatsApp number"}{requiresBuyerContact(payload.profile) ? " *" : ""}</label>
+                  <Input id="profile-private-phone" type="tel" inputMode="tel" autoComplete="tel" dir="ltr" maxLength={30} required={requiresBuyerContact(payload.profile)} value={form.whatsappNumber} onChange={(event) => setForm((prev) => ({ ...prev, whatsappNumber: event.target.value }))} aria-label={isAr ? "رقم التواصل" : "Contact phone"} aria-describedby="profile-phone-privacy" placeholder="+972 50 123 4567" />
+                  <p id="profile-phone-privacy" className="mt-2 text-xs leading-5 text-[#A6AFBE]">{isAr ? "خاص بك وبمالك المنصة فقط للتواصل عند الحاجة. لا يظهر للمشترين أو البائعين." : "Private to you and the owner for urgent support. Hidden from buyers and sellers."}</p>
+                </div>
+                <div className="md:col-span-2"><label htmlFor="profile-bio" className="mb-2 block text-sm text-[#D1D5DB]">{isAr ? "نبذة عنك" : "About you"}</label><Textarea id="profile-bio" value={form.bio} onChange={(event) => setForm((prev) => ({ ...prev, bio: event.target.value }))} aria-label={isAr ? "نبذة احترافية" : "Professional bio"} placeholder={isAr ? "نبذة قصيرة عنك" : "A little about you"} /></div>
+
+                <div className="md:col-span-2 grid gap-2 rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-[#D1D5DB] xl:grid-cols-2">
+                  <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "عناصر الخصوصية" : "Privacy controls"}</p>
+                  {[
+                    { key: "showTradeStats", labelAr: "عرض إحصائيات التداول", label: "Show trading statistics" },
+                    { key: "showLastActive", labelAr: "عرض آخر نشاط", label: "Show last active" },
+                    { key: "allowDirectMessages", labelAr: "السماح بالرسائل المباشرة", label: "Allow direct messages" },
+                    { key: "allowProfileSearch", labelAr: "السماح بالبحث عن الملف", label: "Allow profile search" },
+                  ].filter((item) => item.key !== "showTradeStats" || interfaceAccess.trading).map((item) => {
+                    const value = form[item.key as keyof ProfileFormState];
+                    if (typeof value !== "boolean") return null;
+                    return (
+                      <label key={item.key} className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-black/20 px-3 py-2">
+                        <span>{currencyText(isAr ? item.labelAr : item.label)}</span>
+                        <input
+                          type="checkbox"
+                          className="h-4 w-4 accent-[#C9A227]"
+                          checked={value}
+                          onChange={(event) => setForm((prev) => ({ ...prev, [item.key]: event.target.checked }))}
+                        />
+                      </label>
+                    );
+                  })}
+                </div>
+
+                </fieldset>
+                <div className="mt-4 flex flex-wrap items-center gap-3">
+                  <Button type="submit" loading={profileSaving} loadingLabel={isAr ? "جاري الحفظ..." : "Saving..."}>{isAr ? "حفظ التغييرات" : "Save changes"}</Button>
+                  <Link href="/settings#discord-connection" className="text-sm text-[#D4AF37] underline-offset-4 hover:underline">{isAr ? "الحسابات المرتبطة" : "Connected accounts"}</Link>
+                </div>
+              </form>
+
+            </CardContent>
+          </Card>
+        </div>
+        <div id="profile-panel-alerts" role="tabpanel" aria-labelledby="profile-tab-alerts" tabIndex={0} hidden={activeSection !== "alerts"} className="profile-tab-panel">
+          {alertsVisited ? <div className="grid gap-4 lg:grid-cols-2">
+            <AccountNotificationPreferences key={payload.profile.id} locale={locale} />
+            <NewsPreferences key={`news-${payload.profile.id}`} locale={locale} />
+          </div> : null}
         </div>
       </div>
     </section>

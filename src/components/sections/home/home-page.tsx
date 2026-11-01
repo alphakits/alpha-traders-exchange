@@ -1,3 +1,4 @@
+import { brandText, currencyText } from "@/components/ui/currency-text";
 import Image from "next/image";
 import { ArrowDown, ArrowLeft, ArrowRight, Brain, CheckCircle2, Coins, Play, PlayCircle, ShieldCheck, Target } from "lucide-react";
 import { getTranslations } from "next-intl/server";
@@ -12,6 +13,7 @@ import { HomepageStats } from "@/components/sections/home/homepage-stats";
 import { FounderPreview } from "@/components/sections/home/founder-preview";
 import { AlphaMarketCenter } from "@/components/market/alpha-market-center";
 import { formatAcademyLevel } from "@/lib/academy-localization";
+import { PropGuidePromo } from "@/components/prop-firms/firm-directory";
 
 export async function HomePage({
   isAuthenticated,
@@ -38,16 +40,18 @@ export async function HomePage({
   };
 
   return (
-    <div className="space-y-16 py-10 md:space-y-20 md:py-14">
+    <div className="alpha-home space-y-16 py-10 md:space-y-20 md:py-14">
       <section className="section-container">
-        <div className="relative min-h-[430px] overflow-hidden rounded-3xl border border-white/10 bg-[#0a0a0a] md:min-h-[520px]">
+        <div className="alpha-home-hero relative min-h-[430px] overflow-hidden rounded-3xl border border-white/10 bg-[#0a0a0a] md:min-h-[520px]">
           <div className="alpha-reveal-fade absolute inset-0">
             <Image
               src="/images/hero/hero-trading-office.webp"
               alt={isRtl ? "مساحة عمل التداول في Alpha Traders" : "Alpha Traders cinematic workspace"}
               fill
               priority
-              quality={85}
+              // Already a 107 KiB WebP. Serve it directly so viewport changes
+              // cannot block navigation on an unnecessary runtime conversion.
+              unoptimized
               sizes="(min-width: 1280px) 1280px, 100vw"
               className="object-cover object-[30%_center] md:object-center"
             />
@@ -76,17 +80,17 @@ export async function HomePage({
                   style={{ width: 40, height: 40 }}
                   className="rounded-xl object-cover shadow-[0_4px_12px_rgba(0,0,0,0.35)]"
                 />
-                <span>{t("badge")}</span>
+                <span>{currencyText(t("badge"))}</span>
               </div>
               <h1 className="text-4xl font-semibold leading-tight md:text-6xl md:leading-[1.08]">
-                {t("headlineLine1")}
+                {currencyText(t("headlineLine1"))}
                 <br />
-                {t("headlineLine2")}
+                {currencyText(t("headlineLine2"))}
               </h1>
-              <p className={`mt-4 max-w-xl text-base leading-relaxed text-white/85 md:text-lg ${isRtl ? "md:ms-auto" : ""}`}>{t("subheadline")}</p>
+              <p className={`mt-4 max-w-xl text-base leading-relaxed text-white/85 md:text-lg ${isRtl ? "md:ms-auto" : ""}`}>{currencyText(t("subheadline"))}</p>
               <div className={`alpha-reveal-fade alpha-delay-2 mt-8 flex flex-wrap gap-3 ${isRtl ? "md:justify-end" : "md:justify-start"}`}>
                 <Link href={academyHref} className={cn(buttonVariants(), "gap-2")}>
-                    {t("startLearning")}
+                    {currencyText(t("startLearning"))}
                     {isRtl ? <ArrowLeft className="h-4 w-4" /> : <ArrowRight className="h-4 w-4" />}
                   </Link>
                 <Link
@@ -97,22 +101,37 @@ export async function HomePage({
                   <span className="flex h-9 w-9 items-center justify-center rounded-full bg-[#D32F2F] shadow-[inset_0_1px_0_rgba(255,255,255,0.18),0_6px_14px_rgba(0,0,0,0.26)]">
                     <Play className="ms-0.5 h-4.5 w-4.5 fill-white text-white" aria-hidden="true" />
                   </span>
-                  <span>{t("watchIntro")}</span>
+                  <span>{currencyText(t("watchIntro"))}</span>
                 </Link>
                 <Link
-                  href="/usdt-exchange"
+                  href={exchangeHref}
                   className="group relative inline-flex h-11 items-center justify-center overflow-hidden rounded-full border border-[#6CAEFF]/45 bg-gradient-to-r from-[#1B60ED]/85 via-[#2A7BFF]/80 to-[#3A9DFF]/75 px-6 text-sm font-semibold text-white shadow-[0_10px_26px_rgba(36,121,255,0.34)] backdrop-blur-xl transition-all duration-300 hover:-translate-y-0.5 hover:shadow-[0_16px_36px_rgba(36,121,255,0.5)]"
                 >
-                  <span className="relative z-10">{t("exploreExchange")}</span>
+                  <span className="relative z-10">{currencyText(t("exploreExchange"))}</span>
                   <span className="pointer-events-none absolute inset-y-0 -left-1/3 w-1/3 -skew-x-12 bg-gradient-to-r from-transparent via-white/30 to-transparent opacity-0 transition duration-700 group-hover:left-[120%] group-hover:opacity-100" />
                 </Link>
               </div>
+              <p className="mt-4 text-sm leading-7 text-white/85">{isRtl ? "تعلّمت سابقًا وبدك تشتغل على التطبيق؟ " : "Studied before and want to work on applying it? "}<Link href="/learn-with-mark" className="inline-flex min-h-11 items-center text-[#E5CA77] underline underline-offset-4">{isRtl ? "تعرّف على ICT Mentorship مع مارك" : "Explore ICT Mentorship with Mark"}</Link></p>
             </div>
           </div>
         </div>
       </section>
 
+      {!isAuthenticated ? <section className="section-container">
+        <div className="flex flex-col gap-3 rounded-2xl border border-white/10 bg-[#0B0B0B]/80 p-5 md:flex-row md:items-center md:justify-between">
+          <div>
+            <p className="text-sm font-semibold text-white">{isRtl ? "جديد في Alpha Traders؟" : "New to Alpha Traders?"}</p>
+            <p className="mt-1 text-sm text-[#9CA3AF]">{isRtl ? "تعلّم مجانًا أو استكشف تداول USDT / ILS." : "Learn for free or explore USDT / ILS trading."}</p>
+          </div>
+          <Link href="/start" className={cn(buttonVariants({ variant: "secondary" }), "shrink-0")}>
+            {isRtl ? "ابدأ من هنا" : "Start Here"}
+          </Link>
+        </div>
+      </section> : null}
+
       <TrustBar />
+
+      <PropGuidePromo locale={locale} />
 
       <HomepageStats />
 
@@ -131,9 +150,9 @@ export async function HomePage({
                 {isRtl ? "ما الذي تبحث عنه اليوم؟" : "What are you here for today?"}
               </h2>
               <p className="mt-3 text-sm leading-7 text-[#9CA3AF] md:text-base">
-                {isRtl
-                  ? "سواء كنت تريد تعلم التداول باحتراف أو شراء وبيع USDT بأمان، Alpha Traders يقدم لك المسار المناسب."
-                  : "Whether you want to learn trading or use a structured workflow to buy and sell USDT, Alpha Traders gives you a clear path."}
+                {currencyText(isRtl
+                  ? "تعلّم التداول مجانًا. اشترِ وبِع USDT مع بائعين معتمدين."
+                  : "Learn trading for free. Buy and sell USDT with approved sellers.")}
               </p>
             </div>
 
@@ -147,8 +166,8 @@ export async function HomePage({
                   <CardContent className="space-y-4">
                     <p className="text-sm leading-7 text-[#9CA3AF]">
                       {isRtl
-                        ? "أتقن التداول عبر دروس منظمة تغطي السيكولوجية، هيكل السوق، إدارة المخاطر، والتعليم العملي."
-                        : "Master trading through structured lessons, psychology, market structure, risk management, and practical education."}
+                        ? "دروس مجانية في هيكل السوق وعلم النفس وإدارة المخاطر."
+                        : "Free lessons in market structure, psychology, and risk management."}
                     </p>
                     <div className="flex flex-wrap gap-2 text-xs text-[#D1D5DB]">
                       {(isRtl
@@ -156,7 +175,7 @@ export async function HomePage({
                         : ["Beginner Friendly", "Advanced Lessons", "Community", "Professional Education"]
                       ).map((item) => (
                         <span key={item} className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1">
-                          {item}
+                          {currencyText(item)}
                         </span>
                       ))}
                     </div>
@@ -172,13 +191,13 @@ export async function HomePage({
                 <Card className="h-full border-[#6CAEFF]/30 bg-[#0B0B0B]/95 transition duration-300 hover:-translate-y-1 hover:border-[#6CAEFF]/50 hover:shadow-[0_22px_60px_rgba(17,87,188,0.25)]">
                   <CardHeader>
                     <CardDescription className="text-[#93C5FD]">💵 Alpha Exchange</CardDescription>
-                    <CardTitle>{isRtl ? "شراء وبيع USDT مع بائعين معتمدين" : "Buy and Sell USDT with Approved Sellers."}</CardTitle>
+                    <CardTitle>{currencyText(isRtl ? "شراء وبيع USDT مع بائعين معتمدين" : "Buy and Sell USDT with Approved Sellers.")}</CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-4">
                     <p className="text-sm leading-7 text-[#9CA3AF]">
-                      {isRtl
-                        ? "استخدم مسار USDT منظمًا مع بائعين راجعت Alpha Exchange صلاحية وصولهم."
-                        : "Use a structured USDT workflow with sellers whose platform access was reviewed by Alpha Exchange."}
+                      {currencyText(isRtl
+                        ? "قارن البائعين المعتمدين وأدِر صفقتك في مكان واحد."
+                        : "Compare approved sellers and manage your trade in one place.")}
                     </p>
                     <div className="flex flex-wrap gap-2 text-xs text-[#D1D5DB]">
                       {(isRtl
@@ -186,7 +205,7 @@ export async function HomePage({
                         : ["Approved Sellers", "Trust Score", "Reviews", "Recorded Trade Flow", "Owner Approval"]
                       ).map((item) => (
                         <span key={item} className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1">
-                          {item}
+                          {currencyText(item)}
                         </span>
                       ))}
                     </div>
@@ -207,36 +226,36 @@ export async function HomePage({
                 <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{isRtl ? "مسار المشتري" : "Buyer Journey"}</p>
                 <p className="mt-2 text-xs leading-6 text-[#D1D5DB]">
                   {isRtl
-                    ? "تسجيل دخول ← مقارنة البائعين ← درجة الثقة والتقييمات ← طلب الصفقة ← إكمال الصفقة ← تقييم"
-                    : "Register/Login -> Compare sellers -> Trust Score + Reviews -> Submit trade request -> Trade lifecycle -> Leave review"}
+                    ? "قارن البائعين، أرسل طلبًا، ثم اتبع خطوات الصفقة."
+                    : "Compare sellers, send a request, then follow the trade steps."}
                 </p>
               </div>
               <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
                 <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{isRtl ? "مسار البائع" : "Seller Journey"}</p>
                 <p className="mt-2 text-xs leading-6 text-[#D1D5DB]">
                   {isRtl
-                    ? "تسجيل ← طلب اعتماد بائع ← موافقة المالك ← إنشاء عرض ← مراجعة المالك ← استقبال الطلبات ← نمو درجة الثقة"
-                    : "Register -> Seller application -> Owner approval -> Create listing -> Owner review -> Receive requests -> Grow trust score"}
+                    ? "احصل على الموافقة، أنشئ عرضًا، ثم ردّ على المشترين."
+                    : "Get approved, create a listing, then respond to buyers."}
                 </p>
               </div>
               <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
-                <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{isRtl ? "تشغيل المالك" : "Owner Operations"}</p>
-                <p className="mt-2 text-xs leading-6 text-[#D1D5DB]">
+                <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{isRtl ? "عمولات التداول" : "Trading fees"}</p>
+                <p className="commission-notice mt-2 text-xs leading-6 text-[#D1D5DB]">
                   {isRtl
-                    ? "كل صفقة مكتملة تحدّث تلقائيًا: الحجم، العمولة، إحصاءات البائع، درجة الثقة، والتحليلات."
-                    : "Every completed trade automatically updates volume, commission, seller statistics, trust score, and marketplace analytics."}
+                    ? "تستحق العمولة بعد إكمال الصفقة."
+                    : "Commission is due after a completed trade."}
                 </p>
-                <p className="mt-2 inline-flex items-center gap-1.5 text-xs text-[#C9A227]">
+                <p className="commission-notice mt-2 inline-flex items-center gap-1.5 text-xs text-[#C9A227]">
                   <Coins className="h-3.5 w-3.5" />
-                  {isRtl ? "العمولة = قيمة الصفقة × نسبة العمولة" : "Commission = Trade Amount x Seller Commission %"}
+                  {currencyText(isRtl ? "الصفقات الجديدة: 1% على المشتري + 1% على البائع = 2% إجمالاً، تُدفع لألفا بعملة USDT." : "New trades: 1% buyer + 1% seller = 2% total, paid to Alpha in USDT.")}
                 </p>
               </div>
             </div>
             <div className="mt-4 inline-flex items-center gap-2 rounded-full border border-[#C9A227]/30 bg-[#C9A227]/10 px-3 py-1 text-xs text-[#C9A227]">
               <CheckCircle2 className="h-3.5 w-3.5" />
-              {isRtl
-                ? "تعلم أو استخدم مسار السوق المنظم: توضح Alpha Traders التجربتين باحترافية."
-                : "Learn or use the structured marketplace workflow: Alpha Traders explains both experiences clearly."}
+              {brandText(isRtl
+                ? "اختر التعلّم أو منصة التداول."
+                : "Choose learning or the exchange.")}
             </div>
           </CardContent>
         </Card>
@@ -245,10 +264,10 @@ export async function HomePage({
       <section className="section-container">
         <div className={`mb-6 max-w-3xl ${isRtl ? "md:ms-auto md:text-right" : "md:text-left"}`}>
           <h2 className="section-heading">
-            {locale === "ar" ? courseSource.homepage.learnTitleAr : courseSource.homepage.learnTitle}
+            {brandText(locale === "ar" ? courseSource.homepage.learnTitleAr : courseSource.homepage.learnTitle)}
           </h2>
           <p className="mt-3 text-sm leading-7 text-[#9CA3AF] md:text-base">
-            {locale === "ar" ? courseSource.homepage.learnSubtitleAr : courseSource.homepage.learnSubtitle}
+            {brandText(locale === "ar" ? courseSource.homepage.learnSubtitleAr : courseSource.homepage.learnSubtitle)}
           </p>
         </div>
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
@@ -280,12 +299,12 @@ export async function HomePage({
                       </div>
                     ) : (
                       <div className={`flex items-center justify-between border-b border-white/10 px-6 py-5 ${isRtl ? "flex-row-reverse" : ""}`}>
-                        <span className="text-xs uppercase tracking-[0.24em] text-[#C9A227]">Alpha Traders</span>
+                        <span className="text-xs uppercase tracking-[0.24em] text-[#C9A227]">{brandText("Alpha Traders")}</span>
                         <span className="rounded-full border border-[#C9A227]/20 bg-[#C9A227]/10 p-2 text-[#C9A227]">{icon}</span>
                       </div>
                     )}
                     <CardHeader className="space-y-3">
-                      <CardDescription className="text-[#C9A227]">{stageLabel}</CardDescription>
+                      <CardDescription className="text-[#C9A227]">{currencyText(stageLabel)}</CardDescription>
                       <CardTitle className="text-xl">{locale === "ar" ? card.titleAr : card.title}</CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-4">
@@ -314,9 +333,9 @@ export async function HomePage({
         </div>
         <div className={`mt-8 flex flex-col items-start gap-4 rounded-3xl border border-white/10 bg-[#090909]/80 p-6 ${isRtl ? "md:items-end md:text-right" : "md:text-left"}`}>
           <p className="text-sm leading-7 text-[#D1D5DB]">
-            {locale === "ar"
+            {brandText(locale === "ar"
               ? "ابدأ رحلتك التعليمية خطوة بخطوة داخل Alpha Traders Academy"
-              : "Start your learning journey step by step inside Alpha Traders Academy."}
+              : "Start your learning journey step by step inside Alpha Traders Academy.")}
           </p>
           <Link href="/academy" className={buttonVariants()}>
             {locale === "ar" ? "ابدأ التعلم" : "Start Learning"}
@@ -327,10 +346,10 @@ export async function HomePage({
       <section className="section-container">
         <div className={`mb-6 max-w-3xl ${isRtl ? "md:ms-auto md:text-right" : "md:text-left"}`}>
           <h2 className="section-heading">
-            {locale === "ar" ? courseSource.homepage.visualCurriculumTitleAr : courseSource.homepage.visualCurriculumTitle}
+            {brandText(locale === "ar" ? courseSource.homepage.visualCurriculumTitleAr : courseSource.homepage.visualCurriculumTitle)}
           </h2>
           <p className="mt-3 text-sm leading-7 text-[#9CA3AF] md:text-base">
-            {locale === "ar" ? courseSource.homepage.visualCurriculumBodyAr : courseSource.homepage.visualCurriculumBody}
+            {brandText(locale === "ar" ? courseSource.homepage.visualCurriculumBodyAr : courseSource.homepage.visualCurriculumBody)}
           </p>
         </div>
         <div className="grid gap-4 md:grid-cols-2">
@@ -379,12 +398,12 @@ export async function HomePage({
                 <CardTitle>
                   <span className={`inline-flex items-center gap-2 ${isRtl ? "flex-row-reverse" : ""}`}>
                     {getLessonIcon(lesson.slug)}
-                    <span>{locale === "ar" ? lesson.titleAr : lesson.title}</span>
+                    <span>{currencyText(locale === "ar" ? lesson.titleAr : lesson.title)}</span>
                   </span>
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <p className="text-sm text-[#9CA3AF]">{locale === "ar" ? lesson.descriptionAr : lesson.description}</p>
+                <p className="text-sm text-[#9CA3AF]">{currencyText(locale === "ar" ? lesson.descriptionAr : lesson.description)}</p>
                 <Link href={`/lessons/${lesson.slug}`} className="mt-4 inline-flex min-h-11 items-center rounded-lg px-1 text-sm text-[#C9A227] hover:underline">
                   {locale === "ar" ? "ابدأ الدرس" : "Start lesson"}
                 </Link>
@@ -405,7 +424,7 @@ export async function HomePage({
             <div className="pointer-events-none absolute inset-0 opacity-25 [background:radial-gradient(circle_at_15%_25%,#C9A227_0,transparent_45%)]" />
             <div className="relative">
               <p className="section-label">{locale === "ar" ? "الخطوة التالية" : "Next Step"}</p>
-              <h3 className="section-heading mt-2">{locale === "ar" ? "اختر مسارك داخل Alpha Traders" : "Choose Your Path Inside Alpha Traders"}</h3>
+              <h3 className="section-heading mt-2">{brandText(locale === "ar" ? "اختر مسارك داخل Alpha Traders" : "Choose Your Path Inside Alpha Traders")}</h3>
               <p className="mt-3 text-sm text-[#9CA3AF]">
                 {primaryCourseValue
                   ? locale === "ar"
@@ -448,11 +467,11 @@ export async function HomePage({
         ) : courses.map((course) => (
           <Card key={course.id} className="h-full">
             <CardHeader>
-              <CardDescription>{formatAcademyLevel(course.level, locale === "ar" ? "ar" : "en")}</CardDescription>
-              <CardTitle>{locale === "ar" ? course.titleAr : course.title}</CardTitle>
+              <CardDescription>{currencyText(formatAcademyLevel(course.level, locale === "ar" ? "ar" : "en"))}</CardDescription>
+              <CardTitle>{currencyText(locale === "ar" ? course.titleAr : course.title)}</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
-              <p className="text-sm text-[#9CA3AF]">{locale === "ar" ? course.summaryAr : course.summary}</p>
+              <p className="text-sm text-[#9CA3AF]">{currencyText(locale === "ar" ? course.summaryAr : course.summary)}</p>
               {courseSource.courseBySlug[course.slug as keyof typeof courseSource.courseBySlug] ? (
                 <div className="space-y-1 text-xs text-[#D1D5DB]">
                   {(locale === "ar"

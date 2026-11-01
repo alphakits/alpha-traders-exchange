@@ -2,6 +2,7 @@ import type { MarketplaceListing, PurchaseRequest, PurchaseRequestStatus } from 
 
 export const STALE_PRICE_OFFER_MINUTES = 30;
 export const STALLED_TRADE_AFTER_WARNING_MINUTES = 15;
+export const PENDING_TRADE_TRUST_MINUTES = 10;
 
 const ACTIVE_TRADE_STATUSES = new Set<PurchaseRequestStatus>([
   "accepted",
@@ -18,7 +19,8 @@ export type MarketplaceOperationalIncidentKind =
   | "stale_price_offer"
   | "stalled_trade"
   | "orphaned_listing_lock"
-  | "unlinked_active_trade";
+  | "unlinked_active_trade"
+  | "pending_trade_trust";
 
 export type MarketplaceOperationalIncident = {
   id: string;
@@ -61,10 +63,12 @@ export function buildMarketplaceOperationalSnapshot(
     purchaseRequests: PurchaseRequest[];
   },
   now = new Date(),
+  options: { includeAllIncidents?: boolean } = {},
 ): MarketplaceOperationalSnapshot {
   const nowMs = now.getTime();
   const requestsById = new Map(input.purchaseRequests.map((request) => [request.id, request]));
   const listingsById = new Map(input.marketplaceListings.map((listing) => [listing.id, listing]));
+  const validListingLocks = new Set<string>();
   const incidents: MarketplaceOperationalIncident[] = [];
 
   const activeTrades = input.purchaseRequests.filter((request) => ACTIVE_TRADE_STATUSES.has(request.status)).length;
@@ -73,6 +77,12 @@ export function buildMarketplaceOperationalSnapshot(
   ).length;
 
   for (const request of input.purchaseRequests) {
+    const trustIntent = request.trustReconciliation;
+    if (trustIntent && !trustIntent.reconciledAt && ageMinutes(trustIntent.requestedAt, nowMs) >= PENDING_TRADE_TRUST_MINUTES) {
+      incidents.push({ id: `pending-trade-trust:${request.id}`, kind: "pending_trade_trust", severity: "warning",
+        requestId: request.id, tradeId: request.tradeId, listingId: request.listingId, status: request.status,
+        ageMinutes: ageMinutes(trustIntent.requestedAt, nowMs) });
+    }
     if (request.status === "pending" && request.priceMode === "buyer_offer") {
       const offerAgeMinutes = ageMinutes(request.createdAt, nowMs);
       if (offerAgeMinutes >= STALE_PRICE_OFFER_MINUTES) {
@@ -136,7 +146,11 @@ export function buildMarketplaceOperationalSnapshot(
     const linkedRequest = listing.activeTradeRequestId
       ? requestsById.get(listing.activeTradeRequestId)
       : undefined;
-    if (linkedRequest && ACTIVE_TRADE_STATUSES.has(linkedRequest.status) && linkedRequest.listingId === listing.id) continue;
+    if (linkedRequest && ACTIVE_TRADE_STATUSES.has(linkedRequest.status)
+      && linkedRequest.listingId === listing.id && linkedRequest.sellerId === listing.sellerId) {
+      if (LOCKED_LISTING_STATUSES.has(listing.status)) validListingLocks.add(listing.id);
+      continue;
+    }
     incidents.push({
       id: `orphaned-listing-lock:${listing.id}`,
       kind: "orphaned_listing_lock",
@@ -152,7 +166,9 @@ export function buildMarketplaceOperationalSnapshot(
   for (const request of input.purchaseRequests) {
     if (!ACTIVE_TRADE_STATUSES.has(request.status)) continue;
     const listing = listingsById.get(request.listingId);
-    if (listing?.activeTradeRequestId === request.id && LOCKED_LISTING_STATUSES.has(listing.status)) continue;
+    // The pointer represents one of up to three active trades. Every active
+    // request for that listing is linked, provided its seller also matches.
+    if (listing && validListingLocks.has(listing.id) && listing.sellerId === request.sellerId) continue;
     incidents.push({
       id: `unlinked-active-trade:${request.id}`,
       kind: "unlinked_active_trade",
@@ -187,6 +203,6 @@ export function buildMarketplaceOperationalSnapshot(
     stalledTrades,
     overdueUsdtReleases,
     dataIntegrityIssues,
-    incidents: incidents.slice(0, 12),
+    incidents: options.includeAllIncidents ? incidents : incidents.slice(0, 12),
   };
 }

@@ -1,3 +1,4 @@
+import { recordUserPresence, endPresenceSession } from "@/lib/user-presence-store";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AlphaExchangeDb } from "@/types/alpha-exchange";
 
@@ -7,11 +8,25 @@ vi.mock("@/lib/postgres-runtime", () => ({
 
 import {
   getMarketplacePulse,
+  getAccountProfileData,
+  getPublicUserProfileById,
+  getVisibleUserPresence,
   invalidateAlphaExchangeStoreCache,
-  touchUserPresence,
 } from "@/lib/alpha-exchange-store";
 
 const iso = (msFromNow: number) => new Date(Date.now() + msFromNow).toISOString();
+
+function sellerVerification() {
+  return {
+    method: "manual_authorized_reviewer_v1",
+    identityDocumentReviewed: true,
+    liveIdentityVideoReviewed: true,
+    contactOwnershipConfirmed: true,
+    marketplaceRulesAccepted: true,
+    verifiedAt: iso(-60 * 60 * 1000),
+    verifiedByUserId: "marketplace-pulse-test-reviewer",
+  } as const;
+}
 
 function user(id: string, overrides: Record<string, unknown>) {
   const now = new Date().toISOString();
@@ -67,8 +82,8 @@ function listing(id: string, sellerId: string, overrides: Record<string, unknown
 function seedDb(): AlphaExchangeDb & { __runtimeVersion: number } {
   return {
     users: [
-      user("seller-online", { role: "approved_seller", roles: ["approved_seller"], sellerStatus: "approved_seller", onlineStatus: "online", lastActiveAt: iso(-60 * 1000) }),
-      user("seller-stale", { role: "approved_seller", roles: ["approved_seller"], sellerStatus: "approved_seller", onlineStatus: "online", lastActiveAt: iso(-30 * 60 * 1000) }),
+      user("seller-online", { role: "approved_seller", roles: ["approved_seller"], sellerStatus: "approved_seller", sellerApprovalVerification: sellerVerification(), onlineStatus: "online", lastActiveAt: iso(-60 * 1000) }),
+      user("seller-stale", { role: "approved_seller", roles: ["approved_seller"], sellerStatus: "approved_seller", sellerApprovalVerification: sellerVerification(), onlineStatus: "online", lastActiveAt: iso(-30 * 60 * 1000) }),
       user("buyer-online", { lastActiveAt: iso(-2 * 60 * 1000) }),
       user("buyer-offline", { lastActiveAt: iso(-3 * 60 * 60 * 1000) }),
       user("admin-online", { role: "admin", roles: ["admin"], lastActiveAt: iso(-1 * 60 * 1000) }),
@@ -105,11 +120,13 @@ function seedDb(): AlphaExchangeDb & { __runtimeVersion: number } {
 }
 
 describe("getMarketplacePulse", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     globalThis.__alphaExchangeMemorySnapshot = seedDb() as never;
     globalThis.__alphaExchangeMemoryEvidenceContent = undefined as never;
     globalThis.__alphaExchangeRepositoryPromise = undefined as never;
     invalidateAlphaExchangeStoreCache();
+    await endPresenceSession("pulse-test");
+    for (const id of ["seller-online", "buyer-online", "admin-online"]) await recordUserPresence(id, "pulse-test", { clientId: crypto.randomUUID(), sequence: 1, active: true, activity: true });
   });
 
   it("counts only genuinely-online sellers (fresh presence)", async () => {
@@ -156,12 +173,51 @@ describe("getMarketplacePulse", () => {
     const serialized = JSON.stringify(pulse.recentActivity);
     expect(serialized).not.toContain("buyer-online");
     expect(serialized).not.toContain("Buyer Name");
+    for (const privateId of ["pr-active", "pr-done", "seller-online", "seller-stale", "listing-1", "listing-2"]) expect(serialized).not.toContain(privateId);
   });
 
-  it("touchUserPresence refreshes a stale user so they count as online", async () => {
+  it("does not publish draft listing activity or a seller's hidden presence", async () => {
+    const db = globalThis.__alphaExchangeMemorySnapshot as unknown as AlphaExchangeDb;
+    db.marketplaceListings.push({ ...db.marketplaceListings[0], id: "private-draft", status: "draft", approvalStatus: "pending", network: "SOL" });
+    db.users.find((entry) => entry.id === "seller-online")!.showLastActive = false;
     invalidateAlphaExchangeStoreCache();
-    await touchUserPresence("buyer-offline");
+    const pulse = await getMarketplacePulse();
+    expect(pulse.recentActivity.filter((entry) => entry.type === "new_listing" || entry.type === "listing_renewed").some((entry) => entry.network === "SOL")).toBe(false);
+    expect(pulse.recentActivity.filter((entry) => entry.type === "seller_online")).toEqual([]);
+    expect(JSON.stringify(pulse)).not.toContain("private-draft");
+  });
+
+  it("an observed activity signal refreshes a stale user so they count as online", async () => {
+    invalidateAlphaExchangeStoreCache();
+    await recordUserPresence("buyer-offline", "pulse-test", { clientId: crypto.randomUUID(), sequence: 1, active: true, activity: true });
     const pulse = await getMarketplacePulse();
     expect(pulse.buyersOnline).toBe(2);
+  });
+
+  it.each(["buyer-online", "seller-online"])("keeps %s activity consistent across private and public profiles and polling", async userId => {
+    const observed = (await getVisibleUserPresence([userId]))[userId];
+    expect(observed.onlineStatus).toBe("online");
+    expect(observed.lastActiveAt).toBeTruthy();
+    const privateProfile = await getAccountProfileData(userId);
+    const publicProfile = await getPublicUserProfileById({ userId });
+    for (const profile of [privateProfile.profile, publicProfile?.profile]) {
+      expect(profile).toMatchObject({ onlineStatus: "online", lastActiveAt: observed.lastActiveAt, lastSeenAt: observed.lastSeenAt });
+    }
+    await endPresenceSession("pulse-test");
+    const offline = (await getVisibleUserPresence([userId]))[userId];
+    expect(offline).toMatchObject({ onlineStatus: "offline", lastActiveAt: observed.lastActiveAt });
+    expect((await getAccountProfileData(userId)).profile).toMatchObject({ onlineStatus: "offline", lastActiveAt: observed.lastActiveAt });
+    expect((await getPublicUserProfileById({ userId }))?.profile).toMatchObject({ onlineStatus: "offline", lastActiveAt: observed.lastActiveAt });
+  });
+
+  it.each(["buyer-online", "seller-online"])("keeps blocked %s presence hidden on the initial profile and subsequent polling", async userId => {
+    const db = globalThis.__alphaExchangeMemorySnapshot!;
+    const subject = db.users.find(row => row.id === userId)!;
+    const viewer = db.users.find(row => row.id === "buyer-offline")!;
+    subject.blockedUserIds = [viewer.id];
+    invalidateAlphaExchangeStoreCache();
+    expect((await getPublicUserProfileById({ userId, viewerUserId: viewer.id }))?.profile).toMatchObject({ presenceHidden: true, lastActiveAt: null, lastSeenAt: null, onlineStatus: "offline" });
+    expect((await getVisibleUserPresence([userId], viewer))[userId]).toMatchObject({ presenceHidden: true, lastActiveAt: null, lastSeenAt: null, onlineStatus: "offline" });
+    expect((await getAccountProfileData(userId)).profile.onlineStatus).toBe("online");
   });
 });

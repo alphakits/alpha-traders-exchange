@@ -13,6 +13,22 @@ describe("ForgotPasswordForm localization", () => {
     vi.unstubAllGlobals();
   });
 
+  it.each(["en", "ar"] as const)("keeps the %s reset request usable after a structured upstream error", async (locale) => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: false,
+      json: async () => ({ error: { message: "Internal rejection", code: "UPSTREAM" } }),
+    }));
+    render(<ForgotPasswordForm locale={locale} />);
+    fireEvent.change(screen.getByLabelText(locale === "ar" ? "البريد الإلكتروني" : "Email"), {
+      target: { value: "audit@example.test" },
+    });
+    fireEvent.submit(screen.getByRole("button", { name: locale === "ar" ? "إرسال رابط إعادة التعيين" : "Send Reset Link" }).closest("form")!);
+    expect(await screen.findByRole("alert")).toHaveProperty("textContent", locale === "ar"
+      ? "فشل إرسال رابط إعادة التعيين." : "Failed to send reset link.");
+    expect(screen.queryByText("Internal rejection")).toBeNull();
+    expect((screen.getByRole("button") as HTMLButtonElement).disabled).toBe(false);
+  });
+
   it("sends the Arabic page locale with the reset request", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,

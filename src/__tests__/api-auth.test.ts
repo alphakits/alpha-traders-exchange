@@ -3,7 +3,7 @@ import { ALPHA_EXCHANGE_OWNER_EMAIL } from "@/lib/alpha-exchange-identity";
 
 // Mock @/lib/auth before importing api-auth so the module uses our stub
 vi.mock("@/lib/auth", () => ({
-  getCurrentSessionUser: vi.fn(),
+  getCurrentSessionUserForAuthorization: vi.fn(),
   getCurrentSessionToken: vi.fn().mockResolvedValue(null),
   clearUserSession: vi.fn().mockResolvedValue(undefined),
   AUTH_COOKIE_NAME: "alpha_exchange_session",
@@ -11,13 +11,21 @@ vi.mock("@/lib/auth", () => ({
   AUTH_PHONE_VERIFIED_COOKIE_NAME: "alpha_exchange_phone_verified",
 }));
 
-import { requireApiUser, requireApiAdmin, requireApiSellerWorkspaceActor, requireEmailVerificationForTrading, requirePhoneVerificationForTrading } from "@/lib/api-auth";
-import { getCurrentSessionUser } from "@/lib/auth";
+import { requireApiUser, requireApiAdmin, requireApiOwner, requireApiBuyer, requireApiStudent, requireApiSeller, requireApiSellerWorkspaceActor, requireEmailVerificationForTrading, requirePhoneVerificationForTrading } from "@/lib/api-auth";
+import { clearUserSession, getCurrentSessionToken, getCurrentSessionUserForAuthorization } from "@/lib/auth";
+import { createTestSellerApprovalVerification } from "@/test-utils/seller-verification";
 
-const mockGetCurrentSessionUser = vi.mocked(getCurrentSessionUser);
+const mockGetCurrentSessionUser = vi.mocked(getCurrentSessionUserForAuthorization);
+const mockGetCurrentSessionToken = vi.mocked(getCurrentSessionToken);
+const mockClearUserSession = vi.mocked(clearUserSession);
 const originalBypassEnv = process.env.PHOTO_VERIFICATION_BYPASS_EMAILS;
 
-function makeUser(overrides: Partial<{ role: string; email: string; emailVerified: boolean }> = {}) {
+function expectPrivateDenial(response: Response | null | undefined) {
+  expect(response?.headers.get("Cache-Control")).toBe("private, no-store, max-age=0");
+  expect(response?.headers.get("Vary")).toBe("Cookie");
+}
+
+function makeUser(overrides: Partial<{ role: string; email: string; emailVerified: boolean; disabled: boolean }> = {}) {
   return {
     id: "user-1",
     email: "user@example.com",
@@ -29,6 +37,8 @@ function makeUser(overrides: Partial<{ role: string; email: string; emailVerifie
 
 beforeEach(() => {
   mockGetCurrentSessionUser.mockReset();
+  mockGetCurrentSessionToken.mockReset().mockResolvedValue(null);
+  mockClearUserSession.mockReset().mockResolvedValue(undefined);
   process.env.PHOTO_VERIFICATION_BYPASS_EMAILS = originalBypassEnv;
 });
 
@@ -49,6 +59,7 @@ describe("requireEmailVerificationForTrading", () => {
       emailVerified: false,
     });
     expect(denied?.status).toBe(403);
+    expectPrivateDenial(denied);
     expect(await denied?.json()).toMatchObject({ code: "EMAIL_VERIFICATION_REQUIRED" });
   });
 
@@ -68,11 +79,39 @@ afterEach(() => {
 });
 
 describe("requireApiUser", () => {
+  it("denies actions with a retryable 503 and preserves the session during a database timeout", async () => {
+    mockGetCurrentSessionUser.mockRejectedValue(new Error("Query read timeout"));
+    mockGetCurrentSessionToken.mockResolvedValue("existing-session-token");
+    const { user, unauthorized } = await requireApiUser();
+    expect(user).toBeNull();
+    expect(unauthorized?.status).toBe(503);
+    expect(await unauthorized?.json()).toMatchObject({ code: "SESSION_TEMPORARILY_UNAVAILABLE" });
+    expect(unauthorized?.headers.get("Retry-After")).toBe("3");
+    expectPrivateDenial(unauthorized);
+    expect(unauthorized?.headers.get("Set-Cookie")).toBeNull();
+    expect(mockClearUserSession).not.toHaveBeenCalled();
+  });
+
   it("returns 401 when no session user", async () => {
     mockGetCurrentSessionUser.mockResolvedValue(null);
     const { user, unauthorized } = await requireApiUser();
     expect(user).toBeNull();
     expect(unauthorized?.status).toBe(401);
+    expectPrivateDenial(unauthorized);
+  });
+
+  it("does not let a delayed rejection erase a newer browser login", async () => {
+    mockGetCurrentSessionUser.mockResolvedValue(null);
+    mockGetCurrentSessionToken.mockResolvedValue("superseded-session-token");
+    let finishRevocation!: () => void;
+    mockClearUserSession.mockImplementationOnce(() => new Promise<void>(resolve => { finishRevocation = resolve; }));
+    const pending = requireApiUser();
+    await vi.waitFor(() => expect(mockClearUserSession).toHaveBeenCalledWith("superseded-session-token"));
+    // A successful login can set a replacement cookie before this old request finishes.
+    finishRevocation();
+    const { unauthorized } = await pending;
+    expect(unauthorized?.status).toBe(401);
+    expect(unauthorized?.headers.get("Set-Cookie")).toBeNull();
   });
 
   it("returns the user when session is valid", async () => {
@@ -81,6 +120,53 @@ describe("requireApiUser", () => {
     const { user, unauthorized } = await requireApiUser();
     expect(user).toEqual(u);
     expect(unauthorized).toBeNull();
+  });
+
+  it("rejects a disabled account and revokes its existing session", async () => {
+    mockGetCurrentSessionUser.mockResolvedValue(makeUser({ disabled: true }) as never);
+    mockGetCurrentSessionToken.mockResolvedValue("disabled-session-token");
+
+    const { user, unauthorized } = await requireApiUser();
+
+    expect(user).toBeNull();
+    expect(unauthorized?.status).toBe(403);
+    expectPrivateDenial(unauthorized);
+    await expect(unauthorized?.json()).resolves.toMatchObject({ code: "ACCOUNT_DISABLED" });
+    expect(mockClearUserSession).toHaveBeenCalledWith("disabled-session-token");
+  });
+});
+
+describe("authorization response cache isolation", () => {
+  it.each([
+    ["admin", requireApiAdmin],
+    ["owner", requireApiOwner],
+    ["buyer", requireApiBuyer],
+    ["student", requireApiStudent],
+    ["seller", requireApiSeller],
+    ["seller workspace", requireApiSellerWorkspaceActor],
+  ] as const)("does not allow caching a denied %s response", async (_name, guard) => {
+    mockGetCurrentSessionUser.mockResolvedValue({
+      ...makeUser({ role: "guest" }),
+      ageEligibility: { confirmedAt: "2026-10-17T00:00:00.000Z", method: "self_attestation_v1" },
+    } as never);
+    const { user, unauthorized } = await guard();
+    expect(user).toBeNull();
+    expect(unauthorized?.status).toBe(403);
+    expectPrivateDenial(unauthorized);
+  });
+
+  it("does not allow caching adult-confirmation or phone-verification denials", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("VERCEL_ENV", "production");
+    const needsAge = requirePhoneVerificationForTrading({ id: "buyer-1", role: "buyer" });
+    expect(needsAge?.status).toBe(403);
+    expectPrivateDenial(needsAge);
+    const needsPhone = requirePhoneVerificationForTrading({
+      id: "buyer-1", role: "buyer", email: "buyer@example.com",
+      ageEligibility: { confirmedAt: "2026-10-17T00:00:00.000Z", method: "self_attestation_v1" },
+    });
+    expect(needsPhone?.status).toBe(403);
+    expectPrivateDenial(needsPhone);
   });
 });
 
@@ -109,10 +195,10 @@ describe("requireApiAdmin", () => {
     expect(unauthorized).toBeNull();
   });
 
-  it("returns an owner carrying the additive admin role", async () => {
+  it.each([{ roles: ["owner"] }, { roles: ["owner", "admin"] }])("returns an owner with roles $roles", async ({ roles }) => {
     const u = {
       ...makeUser({ role: "owner", email: ALPHA_EXCHANGE_OWNER_EMAIL }),
-      roles: ["owner", "admin"],
+      roles,
     };
     mockGetCurrentSessionUser.mockResolvedValue(u as never);
     const { user, unauthorized } = await requireApiAdmin();
@@ -151,9 +237,52 @@ describe("requireApiSellerWorkspaceActor", () => {
   });
 });
 
+describe("requireApiSeller", () => {
+  it("allows an owner-approved seller without an additional identity record", async () => {
+    mockGetCurrentSessionUser.mockResolvedValue({
+      ...makeUser({ role: "approved_seller" }),
+      roles: ["approved_seller"],
+      sellerStatus: "approved_seller",
+    } as never);
+
+    const { user, unauthorized } = await requireApiSeller();
+
+    expect(user?.sellerStatus).toBe("approved_seller");
+    expect(unauthorized).toBeNull();
+  });
+
+  it("allows an Approved Seller with the complete recorded attestation", async () => {
+    const seller = {
+      ...makeUser({ role: "approved_seller" }),
+      roles: ["approved_seller"],
+      sellerStatus: "approved_seller",
+      sellerApprovalVerification: createTestSellerApprovalVerification(),
+    };
+    mockGetCurrentSessionUser.mockResolvedValue(seller as never);
+
+    const { user, unauthorized } = await requireApiSeller();
+
+    expect(user).toEqual(seller);
+    expect(unauthorized).toBeNull();
+  });
+  it.each(["buyer", "pending_seller_approval", "rejected", "suspended"])("denies a %s seller despite stale roles and historical proof", async (sellerStatus) => {
+    mockGetCurrentSessionUser.mockResolvedValue({
+      ...makeUser({ role: "approved_seller" }),
+      roles: ["approved_seller"],
+      sellerStatus,
+      sellerApprovalVerification: createTestSellerApprovalVerification(),
+    } as never);
+    const { user, unauthorized } = await requireApiSeller();
+    expect(user).toBeNull();
+    expect(unauthorized?.status).toBe(403);
+  });
+
+});
+
 describe("requirePhoneVerificationForTrading", () => {
   it("allows configured bypass email even without verified phone", () => {
     vi.stubEnv("ALPHA_EXCHANGE_PHONE_VERIFICATION_ENABLED", "true");
+    vi.stubEnv("ALPHA_EXCHANGE_PHONE_VERIFICATION_REQUIRED", "true");
     process.env.PHOTO_VERIFICATION_BYPASS_EMAILS = "jozemark@gmail.com";
     const denied = requirePhoneVerificationForTrading({
       id: "user-1",
@@ -167,6 +296,7 @@ describe("requirePhoneVerificationForTrading", () => {
 
   it("still denies non-whitelisted accounts without verified phone", async () => {
     vi.stubEnv("ALPHA_EXCHANGE_PHONE_VERIFICATION_ENABLED", "true");
+    vi.stubEnv("ALPHA_EXCHANGE_PHONE_VERIFICATION_REQUIRED", "true");
     process.env.PHOTO_VERIFICATION_BYPASS_EMAILS = "jozemark@gmail.com";
     const denied = requirePhoneVerificationForTrading({
       id: "user-2",

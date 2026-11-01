@@ -1,3 +1,4 @@
+import { brandText } from "@/components/ui/currency-text";
 import { buildPageMetadata } from "@/lib/seo";
 import { ContactForm } from "@/components/sections/contact/contact-form";
 import { AtSign, MessageCircle, Music2 } from "lucide-react";
@@ -25,7 +26,7 @@ export default async function ContactPage({ params }: { params: Promise<{ locale
     <section className="section-container page-shell">
       <h1 className="page-title">{isAr ? "تواصل معنا" : "Contact"}</h1>
       <p className="page-subtitle">
-        {isAr ? "راسل فريق Alpha Traders للاستفسارات والشراكات التعليمية." : "Reach the Alpha Traders team for inquiries and educational partnerships."}
+        {brandText(isAr ? "راسل فريق Alpha Traders للاستفسارات والشراكات التعليمية." : "Reach the Alpha Traders team for inquiries and educational partnerships.")}
       </p>
       <div className={`mt-6 flex flex-wrap gap-3 ${isAr ? "md:justify-end" : ""}`}>
         {whatsappUrl ? <a

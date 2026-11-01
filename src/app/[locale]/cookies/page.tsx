@@ -18,6 +18,9 @@ export default async function CookiesPage({ params }: { params: Promise<{ locale
       <div className="surface-panel mx-auto max-w-4xl p-6 md:p-8">
         <h1 className="page-title">{isAr ? "سياسة ملفات الارتباط" : "Cookie Policy"}</h1>
         <div className="mt-4 space-y-4 text-sm leading-7 text-[#D1D5DB]">
+          <p>{isAr
+            ? "لربط طلبات التعلّم بالمحتوى الذي جلب الاهتمام، قد نحفظ رمز رابط حملة معروف في تخزين الجلسة داخل علامة التبويب لمدة تصل إلى 30 دقيقة. لا نحفظ لهذا الغرض الرابط الكامل أو كلمات البحث أو معرّفات النقر الإعلاني، ولا نستخدم بكسل إعلان خارجي. يُتجاوز هذا القياس عند تفعيل عدم التتبع أو Global Privacy Control، وتعطيل التخزين لا يمنع إرسال طلب التعلّم."
+            : "To understand which content brought learning enquiries, we may keep a recognised campaign link code in this tab's session storage for up to 30 minutes. This does not store the full URL, search terms or advertising click IDs, or use an external ad pixel. Do Not Track or Global Privacy Control disables this measurement. Blocking storage does not prevent an enquiry."}</p>
           <p>
             {isAr
               ? "نستخدم ملفات الارتباط الأساسية للحفاظ على الجلسة، الأمان، وتفضيلات اللغة."

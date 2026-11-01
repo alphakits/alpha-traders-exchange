@@ -1,5 +1,6 @@
+import { BrandedText as Text } from "../src/components/branded-text";
 import { useState } from "react";
-import { Alert, Modal, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { Alert, Modal, Pressable, StyleSheet, TextInput, View } from "react-native";
 import { Redirect } from "expo-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
@@ -17,7 +18,7 @@ import { useLocale } from "../src/i18n/locale-context";
 import {
   formatCount,
   formatCurrencyAmountAsUsd,
-  formatFinancialNumber,
+  formatWholeUsdtNumber,
 } from "../src/finance/financial-display";
 import { useUsdDisplayRate } from "../src/finance/use-usd-display-rate";
 
@@ -36,6 +37,7 @@ export default function AdminScreen() {
   const [review, setReview] = useState<PendingReview | null>(null);
   const [reason, setReason] = useState("");
   const [error, setError] = useState("");
+  const [verificationConfirmed, setVerificationConfirmed] = useState(false);
   const query = useQuery({
     enabled: status === "authenticated" && isAdmin,
     queryKey,
@@ -52,6 +54,7 @@ export default function AdminScreen() {
       setReview(null);
       setReason("");
       setError("");
+      setVerificationConfirmed(false);
       void queryClient.invalidateQueries({ queryKey: ["mobile-marketplace"] });
       Alert.alert(isAr ? "تم الحفظ" : "Saved", isAr ? "تم تنفيذ قرار المراجعة." : "The review decision was applied.");
     },
@@ -64,6 +67,7 @@ export default function AdminScreen() {
   function openReview(input: PendingReview) {
     setReason("");
     setError("");
+    setVerificationConfirmed(false);
     setReview(input);
   }
 
@@ -72,6 +76,27 @@ export default function AdminScreen() {
     const cleanReason = reason.trim();
     if (review.reasonRequired && cleanReason.length < 3) {
       setError(isAr ? "أدخل سببًا واضحًا من 3 أحرف على الأقل." : "Enter a clear reason of at least 3 characters.");
+      return;
+    }
+    if (review.target === "seller_application" && review.decision === "approve" && !verificationConfirmed) {
+      setError(isAr
+        ? "يجب تأكيد مراجعة الهوية والفيديو وملكية وسيلة التواصل وقواعد السوق قبل اعتماد البائع."
+        : "Confirm the identity, live-video, contact-ownership, and marketplace-rules checks before approving the seller.");
+      return;
+    }
+    if (review.target === "seller_application" && review.decision === "approve") {
+      mutation.mutate({
+        target: "seller_application",
+        id: review.id,
+        decision: "approve",
+        reason: cleanReason,
+        verification: {
+          identityDocumentReviewed: true,
+          liveIdentityVideoReviewed: true,
+          contactOwnershipConfirmed: true,
+          marketplaceRulesAccepted: true,
+        },
+      });
       return;
     }
     mutation.mutate({
@@ -125,6 +150,22 @@ export default function AdminScreen() {
           <View style={styles.modalCard}>
             <Text accessibilityRole="header" style={[styles.modalTitle, isRTL && styles.rtlText]}>{review?.title}</Text>
             <Text style={[styles.body, isRTL && styles.rtlText]}>{isAr ? "أضف ملاحظة مراجعة واضحة. تُحفظ في سجل الإدارة." : "Add a clear review note. It is retained in the admin record."}</Text>
+            {review?.target === "seller_application" && review.decision === "approve" ? (
+              <Pressable
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked: verificationConfirmed }}
+                disabled={mutation.isPending}
+                onPress={() => { setVerificationConfirmed((current) => !current); setError(""); }}
+                style={({ pressed }) => [styles.attestation, pressed && styles.pressed]}
+              >
+                <Text style={styles.attestationMark}>{verificationConfirmed ? "✓" : "○"}</Text>
+                <Text style={[styles.attestationText, isRTL && styles.rtlText]}>
+                  {isAr
+                    ? "أؤكد أنني راجعت وثيقة الهوية الحكومية، وطابقت الشخص في فيديو هوية مباشر، وأكدت ملكية وسيلة التواصل، وقبول قواعد السوق. لن تُحفظ مستندات الهوية الأصلية في سجل Exchange."
+                    : "I confirm that I reviewed the government identity document, matched the person in a live identity video, confirmed contact ownership, and confirmed acceptance of the marketplace rules. Raw identity documents will not be stored in the Exchange record."}
+                </Text>
+              </Pressable>
+            ) : null}
             <TextInput
               editable={!mutation.isPending}
               maxLength={500}
@@ -159,9 +200,9 @@ function ListingReviewCard({ listing, isAr, isRTL, onReview }: { listing: Mobile
         <Text style={[styles.cardTitle, isRTL && styles.rtlText]}>#{listing.displayNumber ?? listing.id.slice(-6)} · {listing.sellerDisplayName}</Text>
         <Text style={styles.pendingBadge}>{isAr ? "معلق" : "Pending"}</Text>
       </View>
-      <Text style={[styles.amount, isRTL && styles.rtlText]}>{formatFinancialNumber(listing.availableAmount, { maximumFractionDigits: 6 })} USDT · {formatCurrencyAmountAsUsd(listing.price, listing.currency, usdIlsRate, 4)}</Text>
+      <Text style={[styles.amount, isRTL && styles.rtlText]}>{formatWholeUsdtNumber(listing.availableAmount)} USDT · {formatCurrencyAmountAsUsd(listing.price, listing.currency, usdIlsRate, 4)}</Text>
       <Text style={[styles.body, isRTL && styles.rtlText]}>{listing.network} · {listing.paymentMethods.join(" · ")}</Text>
-      <Text style={[styles.body, isRTL && styles.rtlText]}>{isAr ? "الحدود" : "Limits"}: {formatFinancialNumber(listing.minimumTrade, { maximumFractionDigits: 6 })}–{formatFinancialNumber(listing.maximumTrade, { maximumFractionDigits: 6 })} USDT</Text>
+      <Text style={[styles.body, isRTL && styles.rtlText]}>{isAr ? "الحدود" : "Limits"}: {formatWholeUsdtNumber(listing.minimumTrade)}–{formatWholeUsdtNumber(listing.maximumTrade)} USDT</Text>
       {listing.sellerDescription ? <Text style={[styles.description, isRTL && styles.rtlText]}>{listing.sellerDescription}</Text> : null}
       <GoldButton onPress={() => onReview({ target: "listing", id: listing.id, decision: "approve", title: isAr ? "الموافقة على العرض" : "Approve listing", reasonRequired: false })}>{isAr ? "موافقة" : "Approve"}</GoldButton>
       <GoldButton onPress={() => onReview({ target: "listing", id: listing.id, decision: "request_changes", title: isAr ? "طلب تعديلات" : "Request changes", reasonRequired: true })} variant="outline">{isAr ? "طلب تعديلات" : "Request changes"}</GoldButton>
@@ -206,6 +247,10 @@ const styles = StyleSheet.create({
   modalCard: { backgroundColor: colors.surface, borderColor: colors.borderGold, borderRadius: radius.lg, borderWidth: 1, gap: spacing.md, maxWidth: 520, padding: spacing.lg, width: "100%" },
   modalTitle: { color: colors.text, fontSize: typography.title, fontWeight: "900" },
   input: { backgroundColor: colors.surfaceRaised, borderColor: colors.border, borderRadius: radius.md, borderWidth: 1, color: colors.text, fontSize: typography.body, minHeight: 120, padding: spacing.md },
+  attestation: { alignItems: "flex-start", backgroundColor: "rgba(201,162,39,0.08)", borderColor: colors.borderGold, borderRadius: radius.md, borderWidth: 1, flexDirection: "row", gap: spacing.sm, padding: spacing.md },
+  attestationMark: { color: colors.goldBright, fontSize: 22, fontWeight: "900", lineHeight: 24 },
+  attestationText: { color: colors.text, flex: 1, fontSize: typography.small, lineHeight: 21 },
+  pressed: { opacity: 0.8 },
   rowReverse: { flexDirection: "row-reverse" },
   rtlInput: { textAlign: "right", writingDirection: "rtl" },
   rtlText: { textAlign: "right", writingDirection: "rtl" },
