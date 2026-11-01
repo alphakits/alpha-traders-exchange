@@ -1,3 +1,5 @@
+import { buildTradeReceipt } from "@/lib/trade-receipt";
+import { receiptRequest, receiptCommission } from "@/test-utils/trade-receipt";
 import { publicAccountId } from "@/lib/public-account-identity";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AlphaExchangeDb, AlphaExchangeUser, PurchaseRequest } from "@/types/alpha-exchange";
@@ -118,6 +120,23 @@ describe("Trade Room email events", () => {
     invalidateAlphaExchangeStoreCache();
     sendMarketplaceEmailMock.mockReset();
     sendMarketplaceEmailMock.mockResolvedValue({ ok: true });
+  });
+
+  it("sends separate completion receipts to both participants with stable keys and their own locale", async () => {
+    const request = { ...receiptRequest(), buyerId: BUYER_ID, sellerId: SELLER_ID };
+    request.completionReceipt = buildTradeReceipt(request, { ...receiptCommission, sellerId: SELLER_ID }, "completion");
+    const deliver = await prepareTradeEventEmails({ event: "trade_completed", request });
+    await deliver();
+    expect(sendMarketplaceEmailMock).toHaveBeenCalledTimes(2);
+    for (const [id, locale] of [[BUYER_ID, "ar"], [SELLER_ID, "en"]]) {
+      expect(sendMarketplaceEmailMock).toHaveBeenCalledWith(expect.objectContaining({
+        to: `${id}@example.test`, recipientLocale: locale,
+        completionReceipt: request.completionReceipt,
+        idempotencyKey: `trade-lifecycle:receipt-trade:trade_completed:${id}`,
+        actionPath: "/trade-room/receipt-trade#trade-receipt",
+      }));
+    }
+    expect(JSON.stringify(sendMarketplaceEmailMock.mock.calls)).not.toContain("PRIVATE");
   });
 
   it("sends Arabic-first and English lifecycle copy to the seller for a new buy request", async () => {

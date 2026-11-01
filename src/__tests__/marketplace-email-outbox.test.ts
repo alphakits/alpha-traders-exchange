@@ -46,7 +46,7 @@ beforeAll(async () => {
   db = await PGlite.create();
   await db.exec(`create schema alpha_exchange;
     create table alpha_exchange.users (id text primary key, email text not null, payload jsonb not null);
-    create table alpha_exchange.purchase_requests (id text primary key, status text not null);
+    create table alpha_exchange.purchase_requests (id text primary key, status text not null, buyer_id text, seller_id text);
     create role email_client; grant usage on schema alpha_exchange to email_client;`);
 }, 20_000);
 beforeEach(async () => {
@@ -303,7 +303,7 @@ describe("durable marketplace email delivery", () => {
   });
 
   it("suppresses a delayed action email after the trade advances", async () => {
-    await db.exec("insert into alpha_exchange.purchase_requests values ('trade-one', 'accepted'); update alpha_exchange.marketplace_email_gate set available_at = now() + interval '2 minutes'");
+    await db.exec("insert into alpha_exchange.purchase_requests(id,status) values ('trade-one', 'accepted'); update alpha_exchange.marketplace_email_gate set available_at = now() + interval '2 minutes'");
     const send = sender();
     await enqueueMarketplaceEmail({ ...email, requestId: "trade-one", requiredTradeStatuses: ["accepted"] }, send);
     await db.exec("update alpha_exchange.purchase_requests set status = 'completed'");

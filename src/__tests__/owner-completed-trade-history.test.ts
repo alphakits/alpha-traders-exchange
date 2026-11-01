@@ -1,3 +1,4 @@
+import { toMobileTradeDetail } from "@/lib/mobile-trades";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AlphaExchangeDb, AlphaExchangeUser, PurchaseRequest, TradeChatMessage, UserRole } from "@/types/alpha-exchange";
 
@@ -181,4 +182,21 @@ describe("owner completed Trade Room history", () => {
     expect(JSON.stringify(room)).not.toMatch(/Amir Hassan|Maya Chen/);
     expect(room.messages).toHaveLength(125);
   });
+});
+
+it.each(["buyer", "seller", "owner", "admin"])("projects a safe historical receipt for authorized %s without sending or saving anything", async actorUserId => {
+  const snapshot = structuredClone(globalThis.__alphaExchangeMemorySnapshot);
+  const room = await getTradeRoomData({ purchaseRequestId: REQUEST_ID, actorUserId, actorRole: "buyer", strongConsistency: true, markMessagesRead: false });
+  expect(room.request.completionReceipt).toMatchObject({ source: "historical_record", usdtAmount: "100", fiatAmount: "320", completedAt: UPDATED_AT });
+  const receipt = JSON.stringify(room.request.completionReceipt);
+  for (const secret of ["Amir", "Maya", "Mark Owner", "+972", "@example.test", "receipt.png", "payloadHash"]) expect(receipt).not.toContain(secret);
+  expect(globalThis.__alphaExchangeMemorySnapshot).toEqual(snapshot);
+});
+
+it("keeps the entire completed conversation in the native history DTO", async () => {
+  const room = await getTradeRoomData({ purchaseRequestId: REQUEST_ID, actorUserId: "buyer", actorRole: "buyer", strongConsistency: true });
+  const detail = toMobileTradeDetail(room, "buyer", "en");
+  expect(room.messages.length).toBeGreaterThan(100);
+  expect(detail.messages).toHaveLength(room.messages.length);
+  expect(detail.completionReceipt).toEqual(room.request.completionReceipt);
 });

@@ -183,6 +183,7 @@ export function toMobileTradeDetail(
   return {
     ...toMobileTradeSummary(request, userId),
     ...(!isBuyer && room.sellerCommissionDueCount > 0 ? { sellerCommissionDue: { count: room.sellerCommissionDueCount, amount: room.sellerCommissionDueAmount } } : {}),
+    ...(request.completionReceipt ? { completionReceipt: request.completionReceipt } : {}),
     counterpartyDisplayName: tradeChatPublicId(room, isBuyer ? "seller" : "buyer"),
     participants: { buyerPublicId: tradeChatPublicId(room, "buyer"), sellerPublicId: tradeChatPublicId(room, "seller") },
     receivingWalletAddress: canExposeBuyerWalletToMobileParticipant(request, userId)
@@ -192,7 +193,8 @@ export function toMobileTradeDetail(
       type: entry.type,
       createdAt: entry.createdAt,
     })),
-    messages: room.messages.slice(-100).map((message) => toMobileTradeMessage(message, userId, locale, room)),
+    messages: (["completed", "review_open", "locked"].includes(request.status) ? room.messages : room.messages.slice(-100))
+      .map((message) => toMobileTradeMessage(message, userId, locale, room)),
     hasBuyerEvidence: Boolean(request.buyerEvidence),
     hasSellerEvidence: Boolean(request.sellerEvidence),
     deadlineAt: room.deadlineAt,
