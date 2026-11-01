@@ -1,11 +1,11 @@
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 const state=vi.hoisted(()=>({user:{id:"user"} as {id:string}|null, device:"off", enable:vi.fn()}));
 vi.mock("@/components/auth/canonical-session-provider",()=>({useCanonicalSession:()=>({user:state.user,isResolving:false})}));
 vi.mock("@/lib/browser-push-client",()=>({checkBrowserPush:async()=>state.device,enableBrowserPush:state.enable}));
 import { BrowserPushPrompt } from "./browser-push-prompt";
 const base={preferences:{inApp:true,email:false,browserPush:false},emailVerified:true,browserPush:{available:true,publicKey:"public"}};
-let value:typeof base;let show:boolean;let fetcher:ReturnType<typeof vi.fn>;
+let value:typeof base;let show:boolean;let fetcher:Mock<(url:string, options?:RequestInit)=>Promise<Response>>;
 beforeEach(()=>{
  vi.useFakeTimers();state.user={id:"user"};state.device="off";state.enable.mockReset();state.enable.mockResolvedValue("on");show=true;value=structuredClone(base);
  fetcher=vi.fn(async(url:string,options?:RequestInit)=>{
