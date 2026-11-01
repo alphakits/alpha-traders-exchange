@@ -56,6 +56,15 @@ test("personal Wise USD accounts and Buy Request complete locally with private p
     await buyerAccountForm.getByLabel("ACH routing number (9 digits)", { exact: true }).fill("021000021");
     await buyerAccountForm.getByLabel("Account number", { exact: true }).fill("00001001001");
     await buyerAccountForm.getByLabel("Bank address (optional)", { exact: true }).fill("1 Example Street, Test City, US");
+    // Keep an input loss at its source instead of waiting for a POST that the
+    // browser's required-field validation correctly refuses to send.
+    for (const [label, value] of [
+      ["Legal account holder name", "Demo Buyer"],
+      ["Bank name shown in Wise", "Synthetic Test Bank"],
+      ["ACH routing number (9 digits)", "021000021"],
+      ["Account number", "00001001001"],
+      ["Bank address (optional)", "1 Example Street, Test City, US"],
+    ]) await expect(buyerAccountForm.getByLabel(label, { exact: true })).toHaveValue(value);
     const accountSaved = page.waitForResponse(response => response.url().endsWith("/api/alpha-exchange/wise-accounts") && response.request().method() === "POST");
     await buyerAccountForm.getByRole("button", { name: "Save for review", exact: true }).click();
     const buyerCreated = await ok(await accountSaved);

@@ -131,6 +131,30 @@ describe("private Wise account draft settings", () => {
     expect(screen.queryByLabelText(/reason|purpose|IBAN/i)).toBeNull();
     expect(screen.queryByRole("button", { name: "Open ownership reviews" })).toBeNull();
   });
+  it("retains and submits all entered fields during batched updates", async () => {
+    const fetchMock = vi.fn().mockImplementation(async () => accountResponse());
+    vi.stubGlobal("fetch", fetchMock);
+    render(<WiseAccountsPanel locale="en" actorId="buyer" />);
+    await screen.findByRole("heading", { name: "Personal Wise accounts · USD" });
+    const fields = [
+      ["Legal account holder name", "Draft Buyer"],
+      ["Bank name shown in Wise", "Synthetic Bank"],
+      ["ACH routing number (9 digits)", "021000021"],
+      ["Account number", "00012340042"],
+      ["Bank address (optional)", "1 Example Street, Test City, US"],
+    ] as const;
+    act(() => {
+      for (const [label, value] of fields) fireEvent.change(screen.getByLabelText(label), { target: { value } });
+      fireEvent.change(screen.getByLabelText("Account type"), { target: { value: "savings" } });
+    });
+    for (const [label, value] of fields) expect((screen.getByLabelText(label) as HTMLInputElement).value).toBe(value);
+    expect((screen.getByLabelText("Account type") as HTMLSelectElement).value).toBe("savings");
+    fireEvent.click(screen.getByRole("button", { name: "Save for review" }));
+    await waitFor(() => expect(fetchMock.mock.calls.some(call => call[1]?.method === "POST")).toBe(true));
+    const sent = JSON.parse(fetchMock.mock.calls.find(call => call[1]?.method === "POST")![1].body);
+    expect(sent).toMatchObject({ accountHolderName: "Draft Buyer", bankName: "Synthetic Bank", routingNumber: "021000021",
+      accountNumber: "00012340042", bankAddress: "1 Example Street, Test City, US", accountType: "savings" });
+  });
   it("allows authorized manual review only after evidence and identity attestations", async () => {
     const fetchMock = vi.fn().mockImplementation(async (url: string) => new Response(JSON.stringify(url.includes("admin/")
       ? { accounts: [{ id: "other-account", userId: "other-user", reviewVersion: "a".repeat(64), accountHolderName: "Other Draft Buyer", bankName: "Synthetic Bank", routingNumber: "021000021", accountNumber: "00012340042", accountType: "checking" }] }
