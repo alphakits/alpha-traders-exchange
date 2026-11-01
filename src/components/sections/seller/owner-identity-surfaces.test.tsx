@@ -24,6 +24,35 @@ const profile: PremiumSellerProfileData = {
 };
 afterEach(cleanup);
 describe("actual owner identity surfaces", () => {
+  it.each(["en", "ar"] as const)("shows matching starter and measured facts on the card and profile (%s)", locale => {
+    const isAr = locale === "ar";
+    for (const sample of [
+      { rating: 0, totalReviews: 0, responseTimeMinutes: 0, responseSampleCount: 0, alphaScore: { value: 80, starter: true } },
+      { rating: 2, totalReviews: 1, responseTimeMinutes: 22, responseSampleCount: 1, alphaScore: { value: 40, starter: false } },
+    ]) {
+      const starter = sample.totalReviews === 0;
+      const response = isAr ? (starter ? "جديد" : "أكثر من 10 دقائق") : (starter ? "New" : "10+ min");
+      const listing = { id: "metric-listing", sellerId: profile.sellerId, sellerDisplayName: id, status: "active", availableAmount: "100",
+        price: "3.20", currency: "ILS", network: "TRC20", paymentMethod: "Bank Transfer", minimumTrade: "10", maximumTrade: "100",
+        sellerReputation: { ...sample, level: "gold" }, sellerProfile: profile.profile } as MarketplaceListing;
+      const card = render(<ListingCard listing={listing} isAr={isAr} marketPricePerUsdt={3.2} isOwnerListing={false} isOwnListing={false}
+        isBuying={false} onOpen={vi.fn()} onManageListing={vi.fn()} />);
+      const stats = card.container.querySelector(".compact-listing__stats")!.textContent;
+      expect(stats).toContain(response);
+      expect(stats).toContain(starter ? "4.0" : "2.00");
+      expect(stats).toContain(starter ? (isAr ? "تقييم مبدئي" : "Starter rating") : (isAr ? "تقييم واحد" : "1 review"));
+      expect(stats).toContain(`${sample.alphaScore.value}/100`);
+      card.unmount();
+      const page = render(<PremiumSellerProfilePage locale={locale} data={{
+        profile: { ...profile, ...sample, averageRating: sample.rating }, sellerListings: [], similarSellers: [],
+      }} />);
+      expect(page.container.textContent).toContain(response);
+      expect(page.container.textContent).toContain(`${sample.alphaScore.value}/100`);
+      expect(page.container.textContent).toContain(starter ? "4.0" : "2.00");
+      page.unmount();
+    }
+  });
+
   it.each([true, false])("keeps buyer requests and price offers enabled without revealing legacy commission locks (Arabic=%s)", isAr => {
     const listing = { id: "listing-commission", sellerId: "identity-seller", sellerDisplayName: id, status: "active", availableAmount: "100", price: "3.20", currency: "ILS", network: "TRC20", paymentMethod: "Bank Transfer", minimumTrade: "10", maximumTrade: "100", newRequestBlockReason: "commission_due", sellerProfile: profile.profile } as MarketplaceListing;
     const onOpen = vi.fn();

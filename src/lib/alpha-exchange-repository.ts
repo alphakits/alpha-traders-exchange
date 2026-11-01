@@ -1,3 +1,4 @@
+import { withLegacySellerReviews } from "@/lib/seller-activity-metrics";
 import { USDT_DEMAND_DECIMAL_UPGRADE_SQL, USDT_DEMAND_SCHEMA_SQL } from "@/lib/usdt-demand-schema";
 import { readUsdtDemandSchemaReadiness } from "@/lib/usdt-demand-schema-readiness";
 import type { UsdtDemand } from "@/types/usdt-demand";
@@ -2980,7 +2981,7 @@ export class AlphaExchangeRepository {
           users: cloneSnapshot(source.users.filter((user) => relevantUserIds.has(user.id))),
           sellerApplications: cloneSnapshot(source.sellerApplications.filter((application) => relevantUserIds.has(application.userId))),
           marketplaceListings: cloneSnapshot(source.marketplaceListings.filter((listing) => candidateSellerIds.has(listing.sellerId))),
-          purchaseRequests: cloneSnapshot(source.purchaseRequests.filter((request) => candidateSellerIds.has(request.sellerId))),
+          purchaseRequests: cloneSnapshot(withLegacySellerReviews(source.purchaseRequests.filter(request => candidateSellerIds.has(request.sellerId)), source.sellerReviews)),
           commissionRecords: cloneSnapshot(source.commissionRecords.filter((record) => candidateSellerIds.has(record.sellerId))),
           auditLogs: cloneSnapshot(source.auditLogs.filter((entry) => candidateSellerIds.has(entry.targetUserId ?? ""))),
           trustSnapshots: cloneSnapshot(source.trustSnapshots.filter((snapshot) => candidateSellerIds.has(snapshot.sellerId))),
@@ -3135,7 +3136,7 @@ export class AlphaExchangeRepository {
         users: cloneSnapshot(source.users.filter((user) => user.id === userId)),
         sellerApplications: cloneSnapshot(source.sellerApplications.filter((application) => application.userId === userId)),
         authSessions: cloneSnapshot(source.authSessions.filter((session) => session.userId === userId)),
-        purchaseRequests: cloneSnapshot(requests),
+        purchaseRequests: cloneSnapshot(withLegacySellerReviews(requests, source.sellerReviews)),
         marketplaceListings: cloneSnapshot(source.marketplaceListings.filter((listing) => listing.sellerId === userId)),
         commissionRecords: cloneSnapshot(source.commissionRecords.filter((record) => record.buyerId === userId || record.sellerId === userId)),
         trustSnapshots: cloneSnapshot(source.trustSnapshots.filter((snapshot) => snapshot.sellerId === userId)),
@@ -3186,7 +3187,7 @@ export class AlphaExchangeRepository {
         users: cloneSnapshot(source.users.filter((user) => user.id === sellerId)),
         sellerApplications: cloneSnapshot(source.sellerApplications.filter((application) => application.userId === sellerId)),
         marketplaceListings: cloneSnapshot(source.marketplaceListings.filter((listing) => listing.sellerId === sellerId)),
-        purchaseRequests: cloneSnapshot(source.purchaseRequests.filter((request) => request.sellerId === sellerId)),
+        purchaseRequests: cloneSnapshot(withLegacySellerReviews(source.purchaseRequests.filter(request => request.sellerId === sellerId), source.sellerReviews)),
         commissionRecords: cloneSnapshot(source.commissionRecords.filter((record) => record.sellerId === sellerId)),
         auditLogs: cloneSnapshot(source.auditLogs.filter((entry) => entry.targetUserId === sellerId)),
         trustSnapshots: cloneSnapshot(source.trustSnapshots.filter((snapshot) => snapshot.sellerId === sellerId)),

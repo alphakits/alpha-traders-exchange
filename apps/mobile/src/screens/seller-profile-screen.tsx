@@ -1,4 +1,4 @@
-import { deriveUserPresence, formatMeasuredResponseTime } from "@alpha-traders/contracts";
+import { deriveUserPresence, formatMeasuredResponseTime, sellerRatingDisplay, sellerScoreDisplay } from "@alpha-traders/contracts";
 import { BrandedText as Text } from "../components/branded-text";
 import { useCallback } from "react";
 import {
@@ -126,8 +126,8 @@ export function SellerProfileScreen({ listingId }: { listingId: string }) {
   const tone = SELLER_PROFILE_TONES[seller.isOwner ? "owner" : seller.level];
   const joinedYear = memberYear(seller.memberSince, locale);
   const profilePhotoUrl = safeRemoteImageUrl(seller.profilePhotoUrl);
-  const averageRating = finiteMetric(seller.averageRating);
-  const rating = averageRating > 0 ? averageRating.toFixed(1) : "—";
+  const rating = sellerRatingDisplay(seller, locale === "ar");
+  const score = sellerScoreDisplay(seller, locale === "ar");
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -170,10 +170,10 @@ export function SellerProfileScreen({ listingId }: { listingId: string }) {
 
         <View style={styles.metricsGrid}>
           <Metric isRTL={isRTL} label={t("completedTrades")} value={formatCount(Math.round(finiteMetric(seller.completedTrades)))} />
-          <Metric isRTL={isRTL} label={t("rating")} value={`${rating} ★`} />
-          <Metric isRTL={isRTL} label={t("responseTime")} value={formatMeasuredResponseTime(seller.responseTimeMinutes, locale === "ar")} />
+          <Metric isRTL={isRTL} label={rating.label} value={rating.value} />
+          <Metric isRTL={isRTL} label={t("responseTime")} value={formatMeasuredResponseTime(seller.responseTimeMinutes, locale === "ar", seller.responseSampleCount)} />
           <Metric isRTL={isRTL} label={t("completionRate")} value={`${Math.round(Math.min(100, finiteMetric(seller.completionRate)))}%`} />
-          <Metric isRTL={isRTL} label={t("trustScore")} value={String(Math.round(Math.min(100, finiteMetric(seller.trustScore))))} />
+          <Metric isRTL={isRTL} label={score.label} value={score.value} />
         </View>
 
         {seller.badges.length ? (

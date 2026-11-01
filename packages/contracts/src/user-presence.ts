@@ -57,10 +57,3 @@ export function deriveUserPresence(input: UserPresenceData, now = Date.now()) {
     minutesSinceActive,
   };
 }
-
-/** Measured from actual trade responses, never the seller's default estimate. */
-export function formatMeasuredResponseTime(minutes: number | undefined | null, isAr = false) {
-  if (minutes == null || !Number.isFinite(minutes) || minutes <= 0) return isAr ? "لا توجد بيانات بعد" : "No data yet";
-  if (minutes < 1) return isAr ? "أقل من دقيقة" : "<1 min";
-  return `${Math.round(minutes)} ${isAr ? "دقيقة" : "min"}`;
-}

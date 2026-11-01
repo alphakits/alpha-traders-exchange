@@ -1,4 +1,5 @@
 import "server-only";
+import { formatMeasuredResponseTime, sellerRatingDisplay, sellerScoreDisplay, type SellerMetricEvidence } from "@alpha-traders/contracts";
 
 import { createHash } from "node:crypto";
 import { isIP } from "node:net";
@@ -17,7 +18,7 @@ export const DISCORD_LISTING_BRAND_COLOR = 0xc9a227;
 export const DISCORD_LISTING_SOLD_COLOR = 0x6b7280;
 const DEFAULT_PUBLIC_SITE_URL = "https://www.alphatraders.co.il";
 
-export type DiscordListingSnapshot = {
+export type DiscordListingSnapshot = SellerMetricEvidence & {
   snapshotVersion?: 2;
   sellerDisplayName: string;
   sellerLevel: string | null;
@@ -198,20 +199,21 @@ export function buildDiscordListingMessage(
           inline: true,
         }]
       : []),
-    ...(snapshot.responseTimeMinutes
+    ...(snapshot.responseTimeMinutes != null || snapshot.responseSampleCount != null
       ? [{
           name: "Measured response",
-          value: `~${snapshot.responseTimeMinutes} min`,
+          value: formatMeasuredResponseTime(snapshot.responseTimeMinutes, false, snapshot.responseSampleCount),
           inline: true,
         }]
       : []),
-    ...(snapshot.rating
+    ...(snapshot.rating != null || snapshot.totalReviews != null
       ? [{
           name: "Seller rating",
-          value: `⭐ ${snapshot.rating.toFixed(2)} / 5`,
+          value: sellerRatingDisplay(snapshot).text,
           inline: true,
         }]
       : []),
+    ...(snapshot.alphaScore ? [{ name: sellerScoreDisplay(snapshot).label, value: sellerScoreDisplay(snapshot).value, inline: true }] : []),
     ...(snapshot.completedTrades
       ? [{
           name: "Completed trades",

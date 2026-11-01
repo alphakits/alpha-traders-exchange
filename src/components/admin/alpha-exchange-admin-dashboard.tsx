@@ -1,4 +1,5 @@
 "use client";
+import { formatMeasuredResponseTime, sellerRatingDisplay, sellerScoreDisplay } from "@alpha-traders/contracts";
 import { csvRow } from "@/lib/csv";
 import { OwnerAttentionQueue } from "@/components/admin/owner-attention-queue";
 import { TradeEvidenceViewer } from "@/components/sections/trade-room/trade-evidence-viewer";
@@ -1925,7 +1926,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                             <p>{t("Top Seller:", "أفضل بائع:")} <span className="text-white">{currencyText(data.ownerBusiness.thisWeek.topSeller)}</span></p>
                             <p>{t("Fastest Growing Seller:", "الأسرع نموًا:")} <span className="text-white">{currencyText(data.ownerBusiness.thisWeek.fastestGrowingSeller)}</span></p>
                             <p>{t("Highest Trust Score Increase:", "أكبر ارتفاع في الثقة:")} <span className="text-white">{currencyText(data.ownerBusiness.thisWeek.highestTrustScoreIncrease)}</span></p>
-                            <p>{t("Recorded Response Time (all time):", "وقت الاستجابة المسجل (كل الفترات):")} <span className="text-white">{data.ownerBusiness.thisWeek.averageResponseTimeMinutes.toFixed(2)} {t("min", "دقيقة")}</span></p>
+                            <p>{t("Recorded Response Time (all time):", "وقت الاستجابة المسجل (كل الفترات):")} <span className="text-white">{data.ownerBusiness.thisWeek.responseSampleCount === 0 ? "—" : formatMeasuredResponseTime(data.ownerBusiness.thisWeek.averageResponseTimeMinutes, isArabic, data.ownerBusiness.thisWeek.responseSampleCount)}</span></p>
                             <p>{t("Avg Completion Time:", "متوسط وقت الإكمال:")} <span className="text-white">{data.ownerBusiness.thisWeek.averageTradeCompletionTimeMinutes.toFixed(2)} {t("min", "دقيقة")}</span></p>
                             <p>{t("Avg Buyer Rating:", "متوسط تقييم المشتري:")} <span className="text-white">{data.ownerBusiness.thisWeek.averageBuyerRating.toFixed(2)}</span></p>
                             <p>{t("Repeat Buyers:", "المشترون المتكررون:")} <span className="text-white">{currencyText(formatPercent(data.ownerBusiness.thisWeek.repeatBuyersPercent))}</span></p>
@@ -1945,11 +1946,11 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                 <div>
                                   <p className="font-medium text-white">#{index + 1} {currencyText(seller.sellerName)}</p>
                                   <p className="text-xs text-[#9CA3AF]">
-                                    {t("Trust", "الثقة")} {seller.trustScore.toFixed(1)} • {t("Volume", "الحجم")} {currencyText(formatUsdt(seller.tradeVolumeUsdt))} • {t("Trades", "الصفقات")} {seller.completedTrades}
+                                    {sellerScoreDisplay(seller, isArabic).text} • {t("Volume", "الحجم")} {currencyText(formatUsdt(seller.tradeVolumeUsdt))} • {t("Trades", "الصفقات")} {seller.completedTrades}
                                   </p>
                                 </div>
                                 <p className="text-xs text-[#D1D5DB]">
-                                  {t("Rating", "التقييم")} {seller.averageRating.toFixed(2)} • {seller.responseTimeMinutes.toFixed(2)} {t("min", "دقيقة")}
+                                  {t("Rating", "التقييم")} {sellerRatingDisplay(seller, isArabic).text} • {formatMeasuredResponseTime(seller.responseTimeMinutes, isArabic, seller.responseSampleCount)}
                                 </p>
                               </div>
                             ))}

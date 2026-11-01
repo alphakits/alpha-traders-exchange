@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { compareSellerResponseTimes } from "@alpha-traders/contracts";
 import type {
   MobileMarketplaceListing,
   MobileMarketplaceSort,
@@ -43,8 +44,7 @@ function sortListings(listings: MobileMarketplaceListing[], sort: MobileMarketpl
     if (sort === "amount-desc") return numericValue(right.availableAmount) - numericValue(left.availableAmount);
     if (sort === "rating-desc") return (right.seller.rating ?? 0) - (left.seller.rating ?? 0);
     if (sort === "response-fast") {
-      return numericValue(left.seller.responseTimeMinutes ?? left.responseTime)
-        - numericValue(right.seller.responseTimeMinutes ?? right.responseTime);
+      return compareSellerResponseTimes(left.seller, right.seller);
     }
     if (sort === "newest") return new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime();
     return compareMarketplaceSellers(left.seller, right.seller)
@@ -77,6 +77,9 @@ function toMobileListing(listing: MarketplaceListing, viewerUserId?: string): Mo
       level: reputation?.level,
       trustScore: reputation?.trustScore,
       rating: reputation?.rating,
+      totalReviews: reputation?.totalReviews,
+      responseSampleCount: reputation?.responseSampleCount,
+      alphaScore: reputation?.alphaScore,
       completedTrades: reputation?.completedTrades,
       responseTimeMinutes: reputation?.responseTimeMinutes,
     },

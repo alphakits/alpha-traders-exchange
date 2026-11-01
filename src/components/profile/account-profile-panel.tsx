@@ -1,4 +1,5 @@
 "use client";
+import { formatMeasuredResponseTime, sellerRatingDisplay, sellerScoreDisplay, type SellerMetricEvidence } from "@alpha-traders/contracts";
 import { PAGE_SECTION_NAVIGATION_EVENT, pageSectionFromEvent } from "@/lib/page-section-navigation";
 import { useLiveUserPresence } from "@/lib/user-presence-client";
 
@@ -62,8 +63,9 @@ type AccountProfilePayload = {
     showEmailPublic?: boolean;
   };
   stats:
-    | {
+    | SellerMetricEvidence & {
         kind: "seller";
+        responseTimeMinutes?: number;
         sellerLevel: string;
         nextLevel?: string;
         progressToNextLevelPercent: number;
@@ -1044,7 +1046,8 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [], journalE
               <div className="profile-summary-stat"><span>{isAr ? "صفقات مكتملة" : "Completed trades"}</span><strong>{payload.stats.completedTrades.toLocaleString("en-IL")}</strong></div>
               {payload.stats.kind === "seller" ? <>
                 <Link href="/usdt-exchange#my-listings-section" className="profile-summary-stat"><span>{isAr ? "عروض نشطة" : "Active listings"}</span><strong>{payload.stats.activeListings.toLocaleString("en-IL")}</strong></Link>
-                <div className="profile-summary-stat"><span>{isAr ? "التقييم" : "Rating"}</span><strong>{payload.stats.averageRating > 0 ? `${payload.stats.averageRating.toFixed(2)} ★` : "—"}</strong></div>
+                <div className="profile-summary-stat"><span>{isAr ? "التقييم" : "Rating"}</span><strong>{sellerRatingDisplay(payload.stats, isAr).text}</strong></div>
+                <div className="profile-summary-stat"><span>{isAr ? "وقت الاستجابة" : "Response time"}</span><strong>{formatMeasuredResponseTime(payload.stats.responseTimeMinutes, isAr, payload.stats.responseSampleCount)}</strong></div>
                 <Link href="/usdt-exchange#create-listing" className="profile-summary-stat profile-summary-stat--action">{isAr ? "إضافة عرض" : "Add listing"}</Link>
               </> : <>
                 <Link href="/trades" className="profile-summary-stat"><span>{isAr ? "صفقات نشطة" : "Active trades"}</span><strong>{payload.stats.activeTrades.toLocaleString("en-IL")}</strong></Link>
@@ -1084,7 +1087,7 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [], journalE
                 {payload.stats.kind === "seller" ? (
                   <>
                     <div className="grid gap-2 text-sm">
-                      <div className="rounded-xl border border-white/10 bg-black/20 p-3"><p className="text-[#9CA3AF]">{isAr ? "درجة الثقة" : "Trust score"}</p><p className="mt-1 font-semibold text-white">{payload.stats.trustScore.toFixed(1)}/100</p></div>
+                      <div className="rounded-xl border border-white/10 bg-black/20 p-3"><p className="text-[#9CA3AF]">{sellerScoreDisplay(payload.stats, isAr).label}</p><p className="mt-1 font-semibold text-white">{sellerScoreDisplay(payload.stats, isAr).value}</p></div>
                     </div>
 
                     <div className="rounded-xl border border-white/10 bg-black/20 p-3">

@@ -16,6 +16,7 @@ const ARABIC_TITLE_BY_ENGLISH: Record<string, string> = {
   "trade overdue": "الصفقة متأخرة",
   "usdt release overdue": "تأخر إرسال USDT",
   "trade overdue alert": "تنبيه بتأخر الصفقة",
+  "alpha score increased": "ارتفعت نقاط ألفا",
   "trust score increased": "ارتفعت درجة الثقة",
   "prestige rank updated": "تم تحديث رتبة البائع",
   "prestige override removed": "تمت إزالة التعديل الإداري للرتبة",
@@ -342,6 +343,10 @@ const ARABIC_MESSAGE_TEMPLATES: NotificationMessageTemplate[] = [
     translate: ([trade]) => `تجاوزت الصفقة ${entityReference(trade)} مهلة إرسال USDT البالغة 45 دقيقة.`,
   },
   {
+    pattern: /^Your Alpha Score increased from (.+?) to (.+?)\.$/i,
+    translate: ([oldScore, newScore]) => `ارتفعت نقاط ألفا لديك من ${oldScore} إلى ${newScore}.`,
+  },
+  {
     pattern: /^Your trust score increased from (.+?) to (.+?)\.$/i,
     translate: ([oldScore, newScore]) => `ارتفعت درجة الثقة لديك من ${oldScore} إلى ${newScore}.`,
   },
@@ -543,6 +548,10 @@ const ARABIC_ACTIVITY_DETAILS_TEMPLATES: NotificationMessageTemplate[] = [
   {
     pattern: /^Offer for trade (.+?) was submitted at ₪(.+?) per USDT\.$/i,
     translate: ([trade, price]) => `تم إرسال عرض السعر للصفقة ${entityReference(trade)} بقيمة ₪${price} لكل USDT.`,
+  },
+  {
+    pattern: /^Alpha Score improved to (.+?)\.$/i,
+    translate: ([score]) => `تحسّنت نقاط ألفا إلى ${score}.`,
   },
   {
     pattern: /^Trust score improved to (.+?)\.$/i,

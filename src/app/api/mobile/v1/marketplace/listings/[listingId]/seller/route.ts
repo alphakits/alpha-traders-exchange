@@ -54,6 +54,8 @@ function toMobileSellerProfile(
     completedTrades: profile.completedTrades,
     averageRating: profile.averageRating,
     responseTimeMinutes: profile.responseTimeMinutes,
+    responseSampleCount: profile.responseSampleCount,
+    alphaScore: profile.alphaScore,
     completionRate: profile.completionRate,
     repeatBuyersPercent: profile.repeatBuyersPercent,
     totalReviews: profile.totalReviews,

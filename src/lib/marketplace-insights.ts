@@ -1,5 +1,7 @@
 import type { MarketplaceListing, PurchaseRequest } from "@/types/alpha-exchange";
 
+import { measureSellerActivity } from "./seller-activity-metrics";
+
 export type SellerMarketplaceInsights = {
   completedTrades: number;
   totalUsdtSold: number;
@@ -7,6 +9,7 @@ export type SellerMarketplaceInsights = {
   estimatedEarnings: number;
   averageTradeSize: number;
   averageResponseTimeMinutes: number;
+  responseSampleCount: number;
   successRate: number;
   completionRate: number;
 };
@@ -34,24 +37,15 @@ export function calculateSellerMarketplaceInsights(input: {
   const revenueGenerated = completedMetrics.reduce((sum, item) => sum + item.amount * item.price, 0);
   const resolvedRequests = input.requests.filter((request) => !["pending", "accepted", "payment_sent", "funds_received", "usdt_release_pending", "usdt_sent"].includes(request.status));
   const successfulResolvedRequests = resolvedRequests.filter(isCompleted).length;
-  const responseTimes = input.requests
-    .map((request) => {
-      const createdAt = new Date(request.createdAt).getTime();
-      const acceptedAt = new Date(request.tradeCreatedAt ?? "").getTime();
-      if (!Number.isFinite(createdAt) || !Number.isFinite(acceptedAt) || acceptedAt < createdAt) return 0;
-      return (acceptedAt - createdAt) / 60_000;
-    })
-    .filter((minutes) => minutes > 0);
-  const averageResponseTimeMinutes = responseTimes.length
-    ? responseTimes.reduce((sum, minutes) => sum + minutes, 0) / responseTimes.length
-    : 0;
+  const responseFacts = measureSellerActivity(input.requests);
   return {
     completedTrades: completedRequests.length,
     totalUsdtSold,
     revenueGenerated,
     estimatedEarnings: revenueGenerated * 0.99,
     averageTradeSize: completedRequests.length ? revenueGenerated / completedRequests.length : 0,
-    averageResponseTimeMinutes,
+    averageResponseTimeMinutes: responseFacts.responseTimeMinutes,
+    responseSampleCount: responseFacts.responseSampleCount,
     successRate: resolvedRequests.length ? (successfulResolvedRequests / resolvedRequests.length) * 100 : 0,
     completionRate: input.requests.length ? (completedRequests.length / input.requests.length) * 100 : 0,
   };
