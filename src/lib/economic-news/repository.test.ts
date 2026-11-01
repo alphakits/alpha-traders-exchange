@@ -43,13 +43,14 @@ afterEach(() => { vi.unstubAllEnvs(); });
 afterAll(async () => { await state.db?.close(); });
 
 describe("news storage and provider isolation (real PostgreSQL)", () => {
-  it("serves the free weekly calendar without storage work when a paid feed is not configured", async () => {
+  it("serves the official fallback without activating paid storage or alerts", async () => {
     vi.stubEnv("ECONOMIC_NEWS_DATA_LICENSE_CONFIRMED", "false");
     const weekly = await readNewsFeed(Date.parse(weeklySnapshot.verifiedAt));
     expect(weekly).toMatchObject({ mode: "weekly", status: "ready", provider: null });
     expect(weekly.events.length).toBeGreaterThan(0);
     expect(weekly.events.every((event) => event.id.startsWith("official-") && event.forecast === null)).toBe(true);
-    expect(state.calls).toBe(0);
+    expect(weekly.officialStorageAvailable).toBe(false);
+    expect((await state.db.query("select * from alpha_exchange.economic_news_deliveries")).rows).toHaveLength(0);
   });
   it("queues one release per channel, preserves revisions and never replays an older sync", async () => {
     expect(await persistNewsSnapshot([event], now)).toMatchObject({ releases: 0 });
