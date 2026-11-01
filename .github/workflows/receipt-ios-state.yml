@@ -1,4 +1,4 @@
-name: Read Apple processing and App Review state for receipt build 31
+name: Select the processed receipts build in the editable Apple draft
 on:
   push:
     branches: [release/ios-receipts-upload-20261101]
@@ -8,7 +8,7 @@ permissions:
 jobs:
   apple-state:
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v5
         with:
@@ -18,7 +18,7 @@ jobs:
           node-version: 24
       - name: Install the pinned Expo client
         run: npm install --prefix "$RUNNER_TEMP/asc-read" --ignore-scripts --no-audit --no-fund eas-cli@23.2.0
-      - name: Read selected iPhone build and review state through App Store Connect
+      - name: Wait for Apple processing and update the draft build relationship
         working-directory: apps/mobile
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
@@ -54,6 +54,57 @@ jobs:
             const reviews = await app.getReviewSubmissionsAsync({ query: { limit: 20 } });
             console.log("APPLE_REVIEW_STATE " + JSON.stringify(reviews.filter(s => s.attributes.platform === "IOS")
               .map(s => ({ id: s.id, state: s.attributes.state, submitted: s.attributes.submittedDate }))));
+            const targetId = "9a8d7738-32e4-4e77-8406-ee92926d9ca7";
+            assert.equal(b?.id, targetId);
+            let receipt = b;
+            const deadline = Date.now() + 30 * 60_000;
+            let previous;
+            while (receipt.attributes.processingState === "PROCESSING" && Date.now() < deadline) {
+              if (previous !== receipt.attributes.processingState) console.log("APPLE_PROCESSING " + receipt.attributes.processingState);
+              previous = receipt.attributes.processingState;
+              await new Promise(resolve => setTimeout(resolve, 30000));
+              receipt = (await app.getBuildsAsync({ query: { limit: 20 } })).find(x => x.id === targetId);
+              assert.ok(receipt, "Receipt build disappeared from Apple");
+            }
+            assert.equal(receipt.attributes.version, "31");
+            assert.equal(receipt.attributes.processingState, "VALID");
+            assert.equal(receipt.attributes.expired, false);
+            console.log("APPLE_VALID_RECEIPT " + JSON.stringify({ id: receipt.id, number: receipt.attributes.version }));
+            async function snapshot() {
+              const list = await app.getAppStoreVersionsAsync({ query: { limit: 10, filter: { platform: "IOS" } } });
+              const draft = list.find(v => v.id === version.id);
+              assert.equal(draft?.id, "dadc2207-1c95-4bfd-8f92-2d6c3bd8ad00");
+              assert.equal(draft.attributes.versionString, "1.2.0");
+              assert.equal(draft.attributes.appVersionState || draft.attributes.appStoreState, "PREPARE_FOR_SUBMISSION");
+              assert.equal(draft.attributes.releaseType, "AFTER_APPROVAL");
+              const active = (await app.getReviewSubmissionsAsync({ query: { limit: 20 } }))
+                .filter(s => s.attributes.platform === "IOS" && s.attributes.state !== "COMPLETE");
+              assert.equal(active.length, 1, "Review changed since the protected draft was read");
+              assert.equal(active[0].id, "0a2470dc-4f2a-4c7e-8d4f-1b0a8d46cbe2");
+              assert.equal(active[0].attributes.state, "UNRESOLVED_ISSUES");
+              const items = (await active[0].getReviewSubmissionItemsAsync({ query: { limit: 20, includes: ["appStoreVersion"] } }))
+                .map(i => ({ id: i.id, state: i.attributes.state, versionId: i.attributes.appStoreVersion?.id || null }))
+                .sort((x, y) => x.id.localeCompare(y.id));
+              assert.ok(items.length && items.some(i => i.state === "REJECTED"), "Prior rejection no longer matches");
+              assert.ok(items.every(i => ["REJECTED", "REMOVED"].includes(i.state)), "Additional live review items exist");
+              return { draft, selected: await draft.getBuildAsync(), review: { id: active[0].id, state: active[0].attributes.state, items } };
+            }
+            const before = await snapshot();
+            console.log("APPLE_REVIEW_ITEMS " + JSON.stringify(before.review));
+            if (before.selected?.id !== targetId) {
+              assert.equal(before.selected?.id, "b67961ba-df57-4ef3-80b8-44f3f128798a");
+              assert.equal(before.selected.attributes.version, "25");
+              await before.draft.updateBuildAsync({ buildId: targetId });
+            }
+            const after = await snapshot();
+            assert.deepEqual(after.review, before.review);
+            assert.equal(after.selected?.id, targetId);
+            console.log("APPLE_DRAFT_SELECTED " + JSON.stringify({ id: after.draft.id, version: "1.2.0",
+              state: "PREPARE_FOR_SUBMISSION", build: after.selected.id, number: after.selected.attributes.version,
+              processing: after.selected.attributes.processingState, releaseType: after.draft.attributes.releaseType, priorReview: after.review.state }));
+            const beta = await receipt.getBuildBetaDetailsAsync();
+            console.log("APPLE_TESTFLIGHT_STATE " + JSON.stringify(beta.map(d => ({ internal: d.attributes.internalBuildState,
+              external: d.attributes.externalBuildState }))));
           }
           main().catch(e => {
             const err = String(e.message).replace(/Bearer [^\s]+/gi, "[redacted]").split("\n")[0].slice(0,280);
