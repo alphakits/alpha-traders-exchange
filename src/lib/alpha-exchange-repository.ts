@@ -2631,6 +2631,7 @@ export class AlphaExchangeRepository {
       const lifecycleProjection = Boolean(requestId && (nextStatus || actorUserId));
       const scopedAuthorityUsers = lifecycleProjection && Boolean(actorUserId) && selectedNames.includes("users");
       const scopedParticipantUsers = scopedAuthorityUsers && (!nextStatus || ["accepted", "payment_sent", "funds_received", "usdt_release_pending", "usdt_sent", "completed"].includes(nextStatus));
+      const scopeAcceptanceListings = scopedParticipantUsers && nextStatus === "accepted" && selectedNames.includes("listings");
       // A terminal retry still goes through every store permission/credential
       // guard, but cannot write. Its response needs the canonical request,
       // identities, evidence and disputes, not unrelated financial/history rows.
@@ -2653,27 +2654,36 @@ export class AlphaExchangeRepository {
           ))
       ) ` : "";
       const retryReadTables = new Set<SnapshotTableName>(["users", "seller_applications", "purchase_requests", "evidence", "disputes"]);
-      const columns = (onlyCommittedRetry = false) => selectedNames.filter(name => !onlyCommittedRetry || retryReadTables.has(name)).map(name => {
-        const filter = scopedAuthorityUsers && name === "users"
-            ? `where id = $3
+      const authorityFilter = `where id = $3
                 or id in (select seller_id from target_trade union select buyer_id from target_trade)
                 or (not (select read_only_retry from lifecycle_mode)${scopedParticipantUsers ? ` and (
                   payload->>'role' in ('owner', 'admin')
                   or payload->'roles' ?| array['owner', 'admin']
                   or lower(btrim(coalesce(payload->>'email', ''))) = $4
                   or id in (select seller_id from lifecycle_requests union select buyer_id from lifecycle_requests)
-                )` : ""})`
-          : filters[name] ?? "";
+                )` : ""})`;
+      // Acceptance mutates only the listing named by this trade. Normalization
+      // can also derive legacy cardless methods from another listing owned by
+      // any loaded account, so retain those listings and every referenced ID.
+      // Global numbering still requires all listings when any number is absent.
+      const listingFilter = `where seller_id in (select id from lifecycle_users)
+        or id in (select payload->>'listingId' from lifecycle_requests)
+        or exists (select 1 from alpha_exchange.listings where coalesce(payload->>'displayNumber', '') !~ '^[1-9][0-9]*$')`;
+      const columns = (onlyCommittedRetry = false) => selectedNames.filter(name => !onlyCommittedRetry || retryReadTables.has(name)).map(name => {
+        const filteredListings = scopeAcceptanceListings && !onlyCommittedRetry;
+        const filter = scopedAuthorityUsers && name === "users" ? (filteredListings ? "" : authorityFilter)
+          : filteredListings && name === "listings" ? listingFilter : filters[name] ?? "";
         // Compute the canonical request dependency set once per statement.
         // Both account authorization and request state consume that same set,
         // instead of rescanning histories separately for each participant side.
-        const source = lifecycleProjection && name === "purchase_requests" ? "lifecycle_requests" : `alpha_exchange.${name}`;
+        const source = lifecycleProjection && name === "purchase_requests" ? "lifecycle_requests"
+          : filteredListings && name === "users" ? "lifecycle_users" : `alpha_exchange.${name}`;
         const aggregate = `coalesce((select json_agg(json_build_object('payload', payload, 'sort_index', sort_index) order by sort_index asc) from ${source} ${filter}), '[]'::json)`;
         const projection = trustReconciliation ? `case when (select has_pending_trust from lifecycle_mode) then ${aggregate} else '[]'::json end`
           : retryProjection && !retryReadTables.has(name) ? `case when (select read_only_retry from lifecycle_mode) then '[]'::json else ${aggregate} end` : aggregate;
         return `${onlyCommittedRetry ? `case when (select read_only_retry from lifecycle_mode) then ${projection} else '[]'::json end` : projection} as "${name}"`;
       });
-      const scopedNames = selectedNames.filter(name => filters[name]);
+      const scopedNames = selectedNames.filter(name => filters[name] || (scopeAcceptanceListings && name === "listings"));
       const boundsSql = scopedNames.length ? `, json_build_object(${scopedNames.map(name => `'${name}', (select json_build_object('minimum', min(sort_index), 'maximum', max(sort_index)) from alpha_exchange.${name})`).join(", ")}) as sort_bounds` : "";
       // Progress transitions do not write accounts or calculate trust. Keep their caller,
       // every related counterparty and all canonical admin/owner recipients,
@@ -2691,7 +2701,9 @@ export class AlphaExchangeRepository {
         const identities = canonicalIdentityDirectorySql(4);
         const identityColumn = !scopedAuthorityUsers ? "" : `, ${onlyCommittedRetry || !scopedParticipantUsers
           ? `case when (select read_only_retry from lifecycle_mode) then ${identities} else '[]'::json end` : identities} as identity_directory`;
-        return `${retryModeSql}select
+        const usersCte = scopeAcceptanceListings && !onlyCommittedRetry
+          ? `, lifecycle_users as materialized (select id, payload, sort_index from alpha_exchange.users ${authorityFilter}) ` : "";
+        return `${retryModeSql}${usersCte}select
           (select version::text from alpha_exchange.runtime_meta where singleton = true) as version${trustReconciliation ? ", (select has_pending_trust from lifecycle_mode) as has_pending_trust" : lifecycleProjection ? ", (select read_only_retry from lifecycle_mode) as read_only_retry" : ""}${selected.length ? `,\n${selected.join(",\n")}` : ""}${identityColumn}${onlyCommittedRetry ? "" : boundsSql}`;
       };
       let row: ReadRow | undefined;
