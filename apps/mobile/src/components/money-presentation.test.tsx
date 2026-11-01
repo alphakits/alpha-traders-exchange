@@ -4,11 +4,16 @@ import { afterEach, expect, it, vi } from "vitest";
 import { moneyColors } from "@alpha-traders/design-tokens";
 import { BrandedText } from "./branded-text";
 import { MoneyInput } from "./money-input";
+import { SellerRankIdentity } from "./seller-rank-identity";
+import type { MobileAccountStats } from "@alpha-traders/contracts";
 import { formatUsdt } from "../finance/financial-display";
 
+vi.mock("../i18n/locale-context", () => ({ useLocale: () => ({ isRTL: false, t: (key: string) => key }) }));
 vi.mock("react-native", () => {
   const color = (style: unknown) => Object.assign({}, ...[style].flat(Infinity).filter(Boolean)).color as string | undefined;
   return {
+    View: ({ children }: { children?: ReactNode }) => <div>{children}</div>,
+    StyleSheet: { create: (value: unknown) => value },
     Text: ({ style, children }: { style?: unknown; children: ReactNode }) => <span data-color={color(style)}>{children}</span>,
     TextInput: ({ value, onChangeText, onFocus, onBlur, style }: {
       value: string; onChangeText: (text: string) => void; onFocus: () => void; onBlur: () => void; style: unknown;
@@ -16,6 +21,15 @@ vi.mock("react-native", () => {
   };
 });
 afterEach(cleanup);
+
+it("shows the final micro-USDT remaining below a rank threshold", () => {
+  const summary = { lifetimeCompletedVolumeUsdt: 14999.999999, amountToNextLevelUsdt: 0.000001,
+    nextLevel: "silver", progressToNextLevelPercent: 99.99999 } as Extract<MobileAccountStats, { kind: "seller" }>;
+  render(<SellerRankIdentity rank="bronze" summary={summary} />);
+  expect(screen.getByText("14,999.999999 USDT")).toBeTruthy();
+  expect(screen.getByText("0.000001 USDT")).toBeTruthy();
+  expect(screen.getByText("99%")).toBeTruthy();
+});
 
 it("styles an amount across JSX boundaries, keeps counts distinct, and preserves an account ID", () => {
   const { container } = render(<BrandedText>AT-123456 · {1000} trades · {1234}{" USDT"}</BrandedText>);

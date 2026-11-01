@@ -579,7 +579,7 @@ export async function buildLinkedSellerRankMessage(input: {
         inline: true,
       }, {
         name: "Lifetime completed volume",
-        value: `${volume.toLocaleString("en-IL", { maximumFractionDigits: 2 })} USDT`,
+        value: `${volume.toLocaleString("en-IL", { maximumFractionDigits: 6 })} USDT`,
         inline: true,
       }, {
         name: "Next rank",
@@ -593,7 +593,7 @@ export async function buildLinkedSellerRankMessage(input: {
         inline: true,
       }, {
         name: "Remaining volume",
-        value: `${remaining.toLocaleString("en-IL", { maximumFractionDigits: 2 })} USDT`,
+        value: `${remaining.toLocaleString("en-IL", { maximumFractionDigits: 6 })} USDT`,
         inline: true,
       }, {
         name: "Progress",

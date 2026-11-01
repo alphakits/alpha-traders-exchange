@@ -12,7 +12,7 @@ const identifierPart = /[\p{L}\p{N}_]/u;
 const currencyEnd = "(?![\\p{L}_])";
 const boundedLabel = moneyWord + "(?![\\p{L}\\p{N}_])";
 const monetaryNumber = "(?:" + range + gap + currency + currencyEnd + "|" + currency + currencyEnd + gap + range + ")";
-const amountToken = "(?:" + monetaryNumber + "|" + currency + currencyEnd + ")";
+const amountToken = "(?:" + monetaryNumber + "|" + currency + currencyEnd + "|[$₪])";
 const labelSeparator = "(?:" + gap + "[:：=]" + gap + "|[ \\t]+(?:(?:is|of|to|from|هو|إلى|من)[ \\t]+)?)";
 const labelledValue = boundedLabel + "(?:" + labelSeparator + "(?:" + monetaryNumber + "|" + range + "))?";
 const quantityWord = "(?:trades?|listings?|users?|members?|lessons?|students?|views?|visits?|reviews?|requests?|messages?|orders?|items?|days?|hours?|minutes?|points?|results?|bytes?|KB|MB|GB|" + arabicPrefix + "(?:صفقات|صفقة|إعلان(?:ات)?|مستخدم(?:ين|ون)?|أعضاء|عضو|طلاب|طالب|دروس|درس|مشاهد(?:ة|ات)|طلبات|طلب|رسائل|رسالة|نقطة|نقاط))";

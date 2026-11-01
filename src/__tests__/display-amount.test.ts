@@ -15,6 +15,7 @@ describe("financial presentation in English and Arabic", () => {
     expect(green("Price / AMOUNT: $15000.50 • 1000–12000 USDT | ₪ | $")).toEqual(["Price", "AMOUNT: $15,000.50", "1,000–12,000 USDT", "₪", "$"]);
     expect(green("المبلغ: ١٢٣٤٥٫٠٠ والسعر بالشيكل، كمية USDT")).toEqual(["المبلغ: ١٢,٣٤٥٫٠٠", "والسعر", "بالشيكل", "كمية", "USDT"]);
     expect(green("USD 1000.5000")).toEqual(["USD 1,000.5000"]);
+    expect(green("$USDT and $BTC")).toEqual(["$", "USDT", "$"]);
     expect(splitAccentText("1000 USDT", { groupNumbers: false })?.[0].text).toBe("1000 USDT");
   });
   it("groups counts without changing opaque identifiers, dates, addresses or codes", () => {

@@ -1,4 +1,5 @@
 import "server-only";
+import { formatMoneyNumber } from "@alpha-traders/contracts";
 
 import { createHash } from "node:crypto";
 import { isIP } from "node:net";
@@ -57,10 +58,10 @@ export interface DiscordListingPublisher {
 }
 
 function normalizeDecimal(value: string, minimumFractionDigits = 0): string {
-  const parsed = Number(String(value).replace(/[^\d.]/g, ""));
-  return Number.isFinite(parsed)
-    ? parsed.toLocaleString("en-IL", { minimumFractionDigits, maximumFractionDigits: 2 })
-    : minimumFractionDigits > 0 ? "0.00" : "0";
+  const raw = String(value).replace(/[^\d.]/g, "");
+  const [integer = "0", fraction = ""] = /^\d+(?:\.\d+)?$/.test(raw) ? raw.split(".") : ["0"];
+  const decimal = fraction.padEnd(minimumFractionDigits, "0");
+  return formatMoneyNumber(decimal ? `${integer}.${decimal}` : integer);
 }
 
 function levelLabel(level: string | null): string | null {

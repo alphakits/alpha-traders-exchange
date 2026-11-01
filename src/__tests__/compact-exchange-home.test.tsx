@@ -705,7 +705,8 @@ describe("desktop buyer workspace", () => {
       { ...trade, id: "usd-completed", status: "completed", currency: "USD", bankTransferProvider: "wise", usdtAmount: "100", fiatAmount: "102", pricePerUsdt: "1.02" },
     ];
     render(<UsdtExchangePage locale="en" initialSessionUser={user} workspaceMode="buyer" />);
-    const averageLabel = await screen.findByText("Average Purchase Price");
+    const averageLabel = await screen.findByText((_, element) =>
+      element?.tagName === "SPAN" && element.textContent === "Average Purchase Price");
     await waitFor(() => expect(averageLabel.parentElement?.textContent).toContain("3.20 ILS"), { timeout: 10000 });
     expect(averageLabel.parentElement?.textContent).toContain("1.02 USD");
     expect(averageLabel.parentElement?.textContent).not.toContain("2.47");

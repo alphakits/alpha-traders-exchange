@@ -2,7 +2,7 @@ import { BrandedText as Text } from "./branded-text";
 import { StyleSheet, View } from "react-native";
 import type { MobileAccountStats } from "@alpha-traders/contracts";
 import { useLocale } from "../i18n/locale-context";
-import { formatFinancialNumber } from "../finance/financial-display";
+import { formatUsdt } from "../finance/financial-display";
 import { SELLER_PROFILE_TONES } from "./rank-tones";
 export { SELLER_PROFILE_TONES } from "./rank-tones";
 
@@ -45,8 +45,8 @@ export function SellerRankIdentity({ rank, owner = false, summary }: {
         <View style={[styles.progressLabels, isRTL && styles.reverse]}><Text style={styles.caption}>{summary.nextLevel ? (isRTL ? "التقدم نحو الرتبة التالية" : "Progress to next rank") : (isRTL ? "وصلت إلى أعلى رتبة" : "Top tier reached")}</Text><Text style={[styles.caption, { color: tone.accent }]}>{shown}%</Text></View>
         <View accessibilityRole="progressbar" accessibilityLabel={isRTL ? "تقدم رتبة البائع" : "Seller rank progress"} accessibilityValue={{ min: 0, max: 100, now: shown }} style={styles.track}><View style={{ height: "100%", width: `${progress}%`, backgroundColor: tone.accent, borderRadius: 8 }} /></View>
         <View style={[styles.totals, isRTL && styles.reverse]}>
-          <View style={styles.total}><Text style={styles.caption}>{isRTL ? "إجمالي المبيعات" : "Total sold"}</Text><Text style={styles.amount}>{formatFinancialNumber(summary.lifetimeCompletedVolumeUsdt, { minimumFractionDigits: 0, maximumFractionDigits: 0 })} USDT</Text></View>
-          <View style={styles.total}><Text style={styles.caption}>{isRTL ? "المتبقي" : "Remaining"}</Text><Text style={styles.amount}>{formatFinancialNumber(summary.amountToNextLevelUsdt, { minimumFractionDigits: 0, maximumFractionDigits: 0 })} USDT</Text></View>
+          <View style={styles.total}><Text style={styles.caption}>{isRTL ? "إجمالي المبيعات" : "Total sold"}</Text><Text style={styles.amount}>{formatUsdt(summary.lifetimeCompletedVolumeUsdt, 6)}</Text></View>
+          <View style={styles.total}><Text style={styles.caption}>{isRTL ? "المتبقي" : "Remaining"}</Text><Text style={styles.amount}>{formatUsdt(summary.amountToNextLevelUsdt, 6)}</Text></View>
         </View>
         <Text style={[styles.caption, isRTL && styles.rtl]}>{isRTL ? "إجمالي مبيعاتك خاص بك." : "Your sales total stays private."}</Text>
       </View> : null}
