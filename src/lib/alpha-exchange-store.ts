@@ -60,7 +60,7 @@ import { evaluateSellerAchievements } from "@/lib/seller-achievements";
 import { runEnvValidation } from "@/lib/env-validation";
 import { getAlphaExchangeRepository, type SnapshotTableName, type TradeLifecycleTransaction } from "@/lib/alpha-exchange-repository";
 import { addRole, dedupeRoles, hasRole, isUserRole, normalizeRolesForUser, removeRole, resolvePrimaryRole } from "@/lib/roles";
-import { publishRealtimeEvent } from "@/lib/realtime";
+import { publishIsolatedRealtimeEvent, publishRealtimeEvent, type RealtimeEvent } from "@/lib/realtime";
 import { scheduleBrowserPushDelivery } from "@/lib/browser-push";
 import { scheduleMobilePushDelivery } from "@/lib/mobile-push";
 import { scheduleWhatsAppNotificationDelivery } from "@/lib/whatsapp-notifications";
@@ -5876,6 +5876,19 @@ async function claimOverdueReleases(db: AlphaExchangeDb, candidateIds: ReadonlyS
   return { archived, notifications, requests };
 }
 
+function publishCommittedOverdueEvent(event: Extract<RealtimeEvent, { type: "notification.updated" | "trade.status_changed" }>) {
+  try {
+    if (publishIsolatedRealtimeEvent(event)) return;
+  } catch {
+    // The dispatch operation itself may also fail after persistence.
+  }
+  try {
+    logEvent("warn", { event: "overdue_trade_realtime_publication", outcome: "failed", reason: "delivery_failed", metadata: { eventType: event.type } });
+  } catch {
+    // A failed diagnostic sink cannot interrupt the committed maintenance run.
+  }
+}
+
 async function maintainMarketplaceSnapshot(initial: AlphaExchangeDb) {
   let snapshot = initial;
   let claimed = false;
@@ -5895,8 +5908,8 @@ async function maintainMarketplaceSnapshot(initial: AlphaExchangeDb) {
     });
     claimed = effects.requests.length > 0;
     for (const publication of effects.notifications) publishNotificationPublication(publication);
-    publishArchivedTradeActionReminders(effects.archived);
-    for (const request of effects.requests) publishRealtimeEvent({ type: "trade.status_changed", payload: { request } });
+    for (const notification of effects.archived) publishCommittedOverdueEvent({ type: "notification.updated", payload: { notification } });
+    for (const request of effects.requests) publishCommittedOverdueEvent({ type: "trade.status_changed", payload: { request } });
     // Continue the other maintenance rules on the full committed state. They
     // are never replayed by the timeout claim's rebase callback.
     snapshot = await readDb({ bypassCache: true });

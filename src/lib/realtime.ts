@@ -23,6 +23,16 @@ export function publishRealtimeEvent(event: RealtimeEvent) {
   realtimeListeners.forEach((listener) => listener(event));
 }
 
+/** Continue to healthy subscribers after a committed event fails at one listener. */
+export function publishIsolatedRealtimeEvent(event: RealtimeEvent) {
+  let delivered = true;
+  for (const listener of realtimeListeners) {
+    try { listener(event); }
+    catch { delivered = false; }
+  }
+  return delivered;
+}
+
 export function subscribeRealtimeEvents(listener: (event: RealtimeEvent) => void) {
   realtimeListeners.add(listener);
   return () => {

@@ -334,8 +334,10 @@ describe("guided cash-trade completion", () => {
       return snapshot;
     });
     const publishedAfterCommit: boolean[] = [];
-    const publish = vi.spyOn(tradeRealtime, "publishRealtimeEvent").mockImplementation(() => {
+    const observed: string[] = [];
+    const unsubscribe = tradeRealtime.subscribeRealtimeEvents(event => {
       publishedAfterCommit.push(Boolean(currentSnapshot().purchaseRequests[0].timedOutAt));
+      observed.push(event.type);
     });
     try {
       const results = await Promise.all([runAlphaExchangeMaintenance(), other === "maintenance"
@@ -347,7 +349,7 @@ describe("guided cash-trade completion", () => {
       expect(saved.auditLogs.filter(entry => entry.action === "trade_timed_out")).toHaveLength(1);
       expect(saved.purchaseRequests[0].timeline.filter(entry => entry.type === "trade_timed_out")).toHaveLength(1);
       expect(saved.notifications.find(item => item.id === "overdue-reminder")).toMatchObject({ state: "archived", isRead: true });
-      expect(publish.mock.calls.map(([event]) => event.type).sort()).toEqual([
+      expect(observed.sort()).toEqual([
         "notification.created", "notification.created", "notification.created", "notification.updated", "trade.status_changed",
       ]);
       expect(publishedAfterCommit).toEqual([true, true, true, true, true]);
@@ -355,7 +357,64 @@ describe("guided cash-trade completion", () => {
       expect(saved.marketplaceListings[0].availableAmount).toBe("1000");
       expect(saved.commissionRecords).toHaveLength(0);
       expect(saved.trustScoreHistory).toHaveLength(0);
-    } finally { load.mockRestore(); publish.mockRestore(); }
+    } finally { load.mockRestore(); unsubscribe(); }
+  });
+
+  function seedOverdueAndExpiredListing() {
+    const { requestId } = seedTrade({ status: "usdt_release_pending", paymentMethod: "Bank Transfer" });
+    const due = new Date(Date.now() - 60_000).toISOString();
+    const db = currentSnapshot();
+    db.purchaseRequests[0].usdtReleaseDeadlineAt = due;
+    db.notifications.push({ id: "archivable-reminder", userId: SELLER_ID, category: "trade", title: "Reminder",
+      message: "Release is pending", reason: "automatic_trade_action_reminder", relatedRequestId: requestId,
+      isRead: false, state: "unread", createdAt: due });
+    db.marketplaceListings.push({ ...db.marketplaceListings[0], id: "independent-listing", status: "active",
+      activeTradeRequestId: undefined, lockedAt: undefined, expiresAt: due });
+  }
+
+  it.each(["notification.updated", "trade.status_changed"] as const)("completes overdue maintenance and reaches healthy subscribers when a %s listener throws", async failedType => {
+    seedOverdueAndExpiredListing();
+    const privateDetail = "test-private-subscriber-detail";
+    const observed: string[] = [];
+    const stopFailed = tradeRealtime.subscribeRealtimeEvents(event => {
+      if (event.type === failedType) throw new Error(privateDetail);
+    });
+    const stopHealthy = tradeRealtime.subscribeRealtimeEvents(event => {
+      if (event.type === "notification.updated" || event.type === "trade.status_changed") observed.push(event.type);
+    });
+    const log = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const result = await runAlphaExchangeMaintenance().catch(() => null);
+      const saved = currentSnapshot();
+      expect(saved.purchaseRequests[0].timedOutAt).toBeTruthy();
+      expect(saved.notifications.find(item => item.id === "archivable-reminder")?.state).toBe("archived");
+      expect.soft(observed).toEqual(["notification.updated", "trade.status_changed"]);
+      expect.soft(result).toEqual({ changed: true });
+      expect.soft(saved.marketplaceListings.find(item => item.id === "independent-listing")?.status).toBe("expired");
+      const warnings = log.mock.calls.filter(([, entry]) => entry?.event === "overdue_trade_realtime_publication");
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0][1]).toEqual({ timestamp: expect.any(String), event: "overdue_trade_realtime_publication", outcome: "failed",
+        reason: "delivery_failed", metadata: { eventType: failedType } });
+      expect(JSON.stringify(log.mock.calls)).not.toContain(privateDetail);
+      expect(await runAlphaExchangeMaintenance()).toEqual({ changed: false });
+      expect(observed).toHaveLength(2);
+    } finally { stopFailed(); stopHealthy(); log.mockRestore(); }
+  });
+
+  it("continues committed overdue maintenance after the archive dispatcher and its diagnostic sink both fail", async () => {
+    seedOverdueAndExpiredListing();
+    const dispatch = tradeRealtime.publishIsolatedRealtimeEvent;
+    const publish = vi.spyOn(tradeRealtime, "publishIsolatedRealtimeEvent").mockImplementation(event => {
+      if (event.type === "notification.updated") throw new Error("dispatcher unavailable");
+      return dispatch(event);
+    });
+    const log = vi.spyOn(console, "warn").mockImplementation(() => { throw new Error("log sink unavailable"); });
+    try {
+      expect(await runAlphaExchangeMaintenance()).toEqual({ changed: true });
+      expect(publish.mock.calls.filter(([event]) => event.type === "trade.status_changed")).toHaveLength(1);
+      expect(currentSnapshot().marketplaceListings.find(item => item.id === "independent-listing")?.status).toBe("expired");
+      expect(log).toHaveBeenCalled();
+    } finally { publish.mockRestore(); log.mockRestore(); }
   });
 
   it.each(["released", "extended"])("discards every speculative timeout effect when the canonical release was %s", async outcome => {
@@ -372,7 +431,8 @@ describe("guided cash-trade completion", () => {
       isRead: false, state: "unread", createdAt: past });
     const repository = await getAlphaExchangeRepository();
     const persist = repository.saveSnapshot.bind(repository);
-    const publish = vi.spyOn(tradeRealtime, "publishRealtimeEvent");
+    const publish = vi.fn<(event: tradeRealtime.RealtimeEvent) => void>();
+    const unsubscribe = tradeRealtime.subscribeRealtimeEvents(publish);
     const save = vi.spyOn(repository, "saveSnapshot").mockImplementationOnce(async (db, options) => {
       const canonical = await repository.loadSnapshot();
       const request = canonical.purchaseRequests[0];
@@ -396,7 +456,7 @@ describe("guided cash-trade completion", () => {
       expect(saved.notifications).toMatchObject([{ id: "still-active-reminder", state: "unread", isRead: false }]);
       expect(saved.commissionRecords).toMatchObject([paid]);
       expect(saved.trustScoreHistory).toEqual([trust]);
-    } finally { save.mockRestore(); publish.mockRestore(); }
+    } finally { save.mockRestore(); unsubscribe(); }
   });
 
   it("commits required overdue alerts before publishing and does not duplicate maintenance retries", async () => {
@@ -408,7 +468,8 @@ describe("guided cash-trade completion", () => {
     for (const user of currentSnapshot().users) user.notificationPreferences = { inApp: false, browserPush: false, email: false, sms: false };
     const repository = await getAlphaExchangeRepository();
     const persist = repository.saveSnapshot.bind(repository);
-    const publish = vi.spyOn(tradeRealtime, "publishRealtimeEvent");
+    const publish = vi.fn<(event: tradeRealtime.RealtimeEvent) => void>();
+    const unsubscribe = tradeRealtime.subscribeRealtimeEvents(publish);
     const notices = () => publish.mock.calls.filter(([event]) => event.type.startsWith("notification.") && "notification" in event.payload && ["Trade overdue", "USDT release overdue"].includes(event.payload.notification?.title ?? ""));
     let fail = true;
     const save = vi.spyOn(repository, "saveSnapshot").mockImplementation(async (db, options) => {
@@ -430,7 +491,7 @@ describe("guided cash-trade completion", () => {
       save.mockRestore();
       await runAlphaExchangeMaintenance();
       expect(notices()).toHaveLength(2);
-    } finally { save.mockRestore(); publish.mockRestore(); }
+    } finally { save.mockRestore(); unsubscribe(); }
   });
 
   it("lets the face-to-face seller confirm full cash directly, reveal the wallet, and complete exactly once", async () => {
