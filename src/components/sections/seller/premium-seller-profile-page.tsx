@@ -19,7 +19,7 @@ import { MarketplaceEnforcementOwnerPanel } from "@/components/sections/seller/m
 import { resolveSellerListingPaymentMethods } from "@/lib/alpha-exchange-seller-profile";
 import { getVisibleSellerReviews } from "@/lib/reviews";
 import { UserPresence } from "@/components/ui/user-presence";
-import { formatMeasuredResponseTime } from "@alpha-traders/contracts";
+import { formatMeasuredResponseTime, sellerRatingDisplay, sellerScoreDisplay, type SellerMetricEvidence } from "@alpha-traders/contracts";
 import { normalizeMarketplacePaymentMethod } from "@/lib/marketplace-payment-methods";
 import { cn } from "@/lib/utils";
 import type { PremiumSellerProfileData, SellerBadge, SellerLevel } from "@/types/alpha-exchange";
@@ -212,7 +212,7 @@ type PremiumSellerProfilePageProps = {
       sellerProfile?: { profilePhotoUrl?: string };
       sellerReputation?: { level?: SellerLevel; trustScore?: number; publicVolumeRange?: string };
     }>;
-    similarSellers: Array<{
+    similarSellers: Array<Pick<SellerMetricEvidence, "alphaScore"> & {
       sellerUsername: string;
       sellerName: string;
       sellerLevel: SellerLevel;
@@ -235,7 +235,9 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, vi
 
   // The public profile supplies reviews newest first; filter moderation before choosing the latest.
   const [latestReview, ...olderReviews] = getVisibleSellerReviews(profile.latestReviews);
-  const reviewStats = { averageRating: profile.averageRating, reviewCount: profile.totalReviews };
+  const rating = sellerRatingDisplay(profile, isAr);
+  const score = sellerScoreDisplay(profile, isAr);
+  const response = formatMeasuredResponseTime(profile.responseTimeMinutes, isAr, profile.responseSampleCount);
   const paymentMethods = seller.preferredPaymentMethods?.length
     ? seller.preferredPaymentMethods
     : Array.from(new Set(data.sellerListings.flatMap(resolveSellerListingPaymentMethods)));
@@ -256,7 +258,7 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, vi
   const heroStats = [
     {
       label: isAr ? "التقييم" : "Rating",
-      value: `${reviewStats.averageRating.toFixed(2)}★`,
+      value: rating.text,
       icon: <Star className="h-3.5 w-3.5" />,
     },
     {
@@ -271,7 +273,7 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, vi
     }] : []),
     {
       label: isAr ? "الاستجابة" : "Response Time",
-      value: formatMeasuredResponseTime(profile.responseTimeMinutes, isAr),
+      value: response,
       icon: <Zap className="h-3.5 w-3.5" />,
     },
   ];
@@ -283,10 +285,10 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, vi
   const stats: Array<{ label: string; value: string; isUsdt?: boolean }> = [
     { label: isAr ? "صفقات مكتملة" : "Completed trades", value: profile.completedTrades.toString() },
     ...(profile.tradeVolume !== undefined ? [{ label: isAr ? "حجم التداول" : "Trade volume", value: `${profile.tradeVolume.toLocaleString("en-IL")} USDT`, isUsdt: true }] : []),
-    { label: isAr ? "التقييم المتوسط" : "Average rating", value: `${reviewStats.averageRating.toFixed(2)}★` },
+    { label: isAr ? "التقييم المتوسط" : "Average rating", value: rating.text },
     { label: isAr ? "المشترون المتكرّرون" : "Repeat buyers", value: `${profile.repeatBuyersPercent.toFixed(1)}${isAr ? "٪" : "%"}` },
     { label: isAr ? "معدل الإكمال" : "Completion rate", value: `${profile.completionRate.toFixed(1)}${isAr ? "٪" : "%"}` },
-    { label: isAr ? "متوسط سرعة الرد" : "Avg response", value: formatMeasuredResponseTime(profile.responseTimeMinutes, isAr) },
+    { label: isAr ? "متوسط سرعة الرد" : "Avg response", value: response },
     { label: isAr ? "العروض النشطة" : "Active listings", value: data.sellerListings.length.toString(), isUsdt: true },
     { label: isAr ? "سنوات على المنصة" : "Years on platform", value: `${profile.yearsOnPlatform.toFixed(1)}` },
   ];
@@ -369,8 +371,8 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, vi
 
                   <div className={cn("grid gap-3 lg:min-w-[260px]", isAr ? "text-right" : "")}>
                     <div className={cn("rounded-2xl border bg-black/35 px-4 py-3 text-sm backdrop-blur-md", isOwnerSeller ? "border-red-500/25" : `seller-rank-card seller-rank-card--${sellerRankKey}`)}>
-                      <p className="text-[#9CA3AF]">{isAr ? "درجة الثقة" : "Trust Score"}</p>
-                      <p className={cn("mt-1 text-2xl font-semibold", isOwnerSeller ? "text-red-200" : `seller-listing-rank-label seller-listing-rank-label--${sellerRankKey}`)}><bdi dir="ltr">{profile.trustScore.toFixed(1)}/100</bdi></p>
+                      <p className="text-[#9CA3AF]">{score.label}</p>
+                      <p className={cn("mt-1 text-2xl font-semibold", isOwnerSeller ? "text-red-200" : `seller-listing-rank-label seller-listing-rank-label--${sellerRankKey}`)}><bdi dir="ltr">{score.value}</bdi></p>
                       <p className="mt-1 text-[#D1D5DB]">{isAr ? "المستوى" : "Level"}: {formatSellerLevelLabel(profile.sellerLevel, isAr)}</p>
                     </div>
                     <div className="flex flex-wrap gap-2">
@@ -441,7 +443,7 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, vi
                 </div>
                 <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
                   <p className="text-[11px] uppercase tracking-[0.16em] text-[#9CA3AF]">{isAr ? "وقت الرد" : "Response time"}</p>
-                  <p className="mt-2 font-medium text-white">{formatMeasuredResponseTime(profile.responseTimeMinutes, isAr)}</p>
+                  <p className="mt-2 font-medium text-white">{response}</p>
                 </div>
                 <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
                   <p className="text-[11px] uppercase tracking-[0.16em] text-[#9CA3AF]">{isAr ? "التوفر" : "Availability"}</p>
@@ -572,8 +574,8 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, vi
                 </div>
                 <div>
                   <p className="text-sm text-[#D1D5DB]">{isAr ? "متوسط التقييم" : "Average rating"}</p>
-                  <p className="text-xl font-semibold text-white">{reviewStats.averageRating.toFixed(2)}★</p>
-                  <p className="text-xs text-[#9CA3AF]">{reviewStats.reviewCount} {isAr ? "تقييم" : "reviews"}</p>
+                  <p className="text-xl font-semibold text-white">{rating.text}</p>
+                  {profile.totalReviews === 0 && <p className="text-xs text-[#9CA3AF]">{isAr ? "لا توجد تقييمات منشورة بعد" : "No buyer reviews yet"}</p>}
                 </div>
               </div>
               {latestReview ? (
@@ -662,7 +664,7 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, vi
                   </div>
                 </div>
                 <div className={`mt-3 flex items-center justify-between text-sm ${isAr ? "flex-row-reverse" : ""}`}>
-                  <span className="text-[#9CA3AF]">{sellerItem.trustScore.toFixed(1)}/100</span>
+                  <span className="text-[#9CA3AF]">{sellerScoreDisplay(sellerItem, isAr).text}</span>
                   <span className="text-[#C9A227] capitalize">{formatSellerLevelLabel(sellerItem.sellerLevel, isAr)}</span>
                 </div>
                 <Link href={`/exchange/seller/${sellerItem.sellerUsername || slugify(sellerItem.sellerName)}`} className="mt-4 inline-flex text-sm text-[#C9A227] hover:underline">{isAr ? "عرض الملف" : "View profile"}</Link>

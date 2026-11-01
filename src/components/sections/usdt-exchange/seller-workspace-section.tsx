@@ -1,4 +1,5 @@
 "use client";
+import { type sellerRatingDisplay, type sellerScoreDisplay } from "@alpha-traders/contracts";
 import { sellerFeeResponsibilityNotice } from "@alpha-traders/contracts";
 import { WiseAccountSelect, type WiseAccountSummary } from "./wise-account-select";
 import { UserPresence } from "@/components/ui/user-presence";
@@ -101,6 +102,8 @@ type SellerOverviewStats = {
   totalUsdtSold: number;
   estimatedEarnings: number;
   averageResponseTime: string;
+  rating: ReturnType<typeof sellerRatingDisplay>;
+  score: ReturnType<typeof sellerScoreDisplay>;
   tradeRequests: number;
   successRate: number;
   completionRate: number;
@@ -458,8 +461,8 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
             {welcomeRole === "approved_seller" ? <SellerRankCard summary={props.sellerRankSummary} error={props.sellerRankError} locale={locale} /> : null}
             <div className="mt-5 flex flex-wrap items-center gap-3">
               {welcomeRole !== "owner" ? <RankBadge rank={props.sellerRankSummary?.sellerLevel ?? sellerOverviewStats.reputation?.level} locale={isAr ? "ar" : "en"} audience="seller" /> : null}
-              <span className="inline-flex items-center gap-1.5 text-xs text-sky-200"><ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />{isAr ? "الثقة" : "Trust"} {(sellerOverviewStats.reputation?.trustScore ?? 0).toFixed(1)}</span>
-              <span className="inline-flex items-center gap-1.5 text-xs text-emerald-200"><Star className="h-3.5 w-3.5" aria-hidden="true" />{(sellerOverviewStats.reputation?.rating ?? 0).toFixed(2)} {isAr ? "تقييم" : "Rating"}</span>
+              <span className="inline-flex items-center gap-1.5 text-xs text-sky-200"><ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />{sellerOverviewStats.score.label} {sellerOverviewStats.score.value}</span>
+              <span className="inline-flex items-center gap-1.5 text-xs text-emerald-200"><Star className="h-3.5 w-3.5" aria-hidden="true" />{sellerOverviewStats.rating.text}</span>
             </div>
             <div className="mt-4 rounded-2xl border border-white/10 bg-black/25 p-4 text-xs text-[#D1D5DB]">
               <p className="text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "سوق اليوم" : "Today’s Market"}</p>
@@ -488,8 +491,8 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
               { label: isAr ? "العروض النشطة" : "Active Listings", value: sellerOverviewStats.activeListings.toLocaleString("en-IL"), icon: TrendingUp },
               { label: isAr ? "الصفقات المعلقة" : "Pending Trades", value: sellerOverviewStats.pendingRequests.toLocaleString("en-IL"), icon: MessageCircle },
               { label: isAr ? "مستوى البائع" : "Seller Level", value: sellerLevelLabel(props.sellerRankSummary?.sellerLevel ?? sellerOverviewStats.reputation?.level, isAr), icon: Trophy },
-              { label: isAr ? "درجة الثقة" : "Trust Score", value: (sellerOverviewStats.reputation?.trustScore ?? 0).toFixed(1), icon: ShieldCheck },
-              { label: isAr ? "التقييم" : "Rating", value: (sellerOverviewStats.reputation?.rating ?? 0).toFixed(2), icon: Star },
+              { label: sellerOverviewStats.score.label, value: sellerOverviewStats.score.value, icon: ShieldCheck },
+              { label: sellerOverviewStats.rating.label, value: sellerOverviewStats.rating.value, icon: Star },
               { label: isAr ? "حجم التداول الكلي" : "Lifetime Volume", value: `${sellerOverviewStats.totalUsdtSold.toLocaleString("en-US", { maximumFractionDigits: 6 })} USDT`, icon: WalletCards },
               { label: isAr ? "متوسط وقت الاستجابة" : "Average Response Time", value: sellerOverviewStats.averageResponseTime, icon: Clock3 },
               { label: isAr ? "مشاهدات الملف" : "Profile Views", value: isAr ? "غير متوفر" : "Not available", icon: Users },
@@ -1674,7 +1677,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                   <p>{isAr ? "عضو منذ" : "Member Since"}: <span className="text-white"><bdi dir="ltr">{sessionUser?.createdAt ? new Date(sessionUser.createdAt).toLocaleDateString(isAr ? "ar-IL-u-nu-latn" : "en-IL") : "—"}</bdi></span></p>
                   <p>{isAr ? "اللغات" : "Languages"}: <span className="text-white"><bdi dir="auto">{currencyText(sessionUser?.languages?.length ? sessionUser.languages.map((language) => spokenLanguageLabel(language, isAr)).join(isAr ? "، " : ", ") : (isAr ? "العربية" : "English"))}</bdi></span></p>
                   <p>{isAr ? "الشبكات المفضلة" : "Preferred Networks"}: <span className="text-white"><bdi dir="ltr">{currencyText(sessionUser?.preferredNetworks?.join(", ") || "TRC20")}</bdi></span></p>
-                  <p>{isAr ? "التقييم" : "Rating"}: <span className="text-white"><bdi dir="ltr">{(sellerOverviewStats.reputation?.rating ?? 4.5).toFixed(2)}</bdi></span></p>
+                  <p>{isAr ? "التقييم" : "Rating"}: <span className="text-white"><bdi dir="auto">{sellerOverviewStats.rating.text}</bdi></span></p>
                   <p>{isAr ? "نسبة النجاح" : "Success Rate"}: <span className="text-white"><bdi dir="ltr">{sellerOverviewStats.successRate.toFixed(1)}{isAr ? "٪" : "%"}</bdi></span></p>
                   <p>{isAr ? "الصفقات المكتملة" : "Completed Trades"}: <span className="text-white"><bdi dir="ltr">{sellerOverviewStats.completedTrades}</bdi></span></p>
                   <p>{currencyText(isAr ? "إجمالي حجم USDT" : "Total USDT Volume")}: <span className="text-white"><bdi dir="ltr">{currencyText(`${Math.trunc(sellerOverviewStats.totalUsdtSold).toLocaleString("en-US")} USDT`)}</bdi></span></p>
@@ -1715,7 +1718,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                     </div>
                     <div className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-[#D1D5DB]">
                       <p className="uppercase tracking-[0.12em] text-[#9CA3AF]">{isAr ? "متوسط التقييم" : "Average Rating"}</p>
-                      <p className="mt-1 text-lg font-semibold text-white">{(sellerOverviewStats.reputation?.rating ?? 4.5).toFixed(2)}★</p>
+                      <p className="mt-1 text-lg font-semibold text-white">{sellerOverviewStats.rating.text}</p>
                     </div>
                     <div className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-[#D1D5DB]">
                       <p className="uppercase tracking-[0.12em] text-[#9CA3AF]">{isAr ? "الصفقات المكتملة" : "Completed Trades"}</p>

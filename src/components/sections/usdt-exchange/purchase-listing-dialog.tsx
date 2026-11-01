@@ -18,7 +18,7 @@ import { RoleBadge } from "@/components/ui/role-badge";
 import { RankBadge } from "@/components/ui/rank-badge";
 import { getIsraeliBankDisplayName, parseIsraeliBankSelection } from "@/lib/israeli-banks";
 import { getMarketplacePaymentMethodOptions, isBankTransferPaymentMethod, isCardlessAtmPaymentMethod, normalizeMarketplacePaymentMethod } from "@/lib/marketplace-payment-methods";
-import { formatMeasuredResponseTime } from "@alpha-traders/contracts";
+import { formatMeasuredResponseTime, sellerRatingDisplay, sellerScoreDisplay } from "@alpha-traders/contracts";
 import { useLiveUserPresence } from "@/lib/user-presence-client";
 import { cn } from "@/lib/utils";
 import type { MarketplaceListing, PremiumSellerProfileData, SellerLevel } from "@/types/alpha-exchange";
@@ -182,10 +182,11 @@ export function PurchaseListingDialog({
   const modalName = sellerProfileData?.profile.sellerName ?? listing.sellerDisplayName;
   const modalLevel = sellerProfileData?.sellerLevel ?? listing.sellerReputation?.level;
   const modalToneKey = listing.sellerProfile?.isOwner ? "legendary" : sellerLevelToneKey(modalLevel);
-  const modalTrust = sellerProfileData?.trustScore ?? listing.sellerReputation?.trustScore ?? 0;
-  const modalResponse = sellerProfileData?.responseTimeMinutes ?? listing.sellerReputation?.responseTimeMinutes ?? 0;
-  const modalCompleted = sellerProfileData?.completedTrades ?? listing.sellerReputation?.completedTrades ?? 0;
-  const modalRating = sellerProfileData?.averageRating ?? listing.sellerReputation?.rating ?? 0;
+  const metrics = sellerProfileData ?? listing.sellerReputation;
+  const modalScore = sellerScoreDisplay(metrics, isAr);
+  const modalRating = sellerRatingDisplay(metrics, isAr);
+  const modalResponse = formatMeasuredResponseTime(metrics?.responseTimeMinutes, isAr, metrics?.responseSampleCount);
+  const modalCompleted = metrics?.completedTrades ?? 0;
   const modalPhoto = sellerProfileData?.profile.profilePhotoUrl ?? listing.sellerProfile?.profilePhotoUrl;
 
   return (
@@ -228,10 +229,10 @@ export function PurchaseListingDialog({
                         <span className={cn("seller-presence-dot", `seller-presence-dot--${modalPresence.tone}`)} aria-hidden="true" />
                         {currencyText(isAr ? modalPresence.labelAr : modalPresence.label)}
                       </span>
-                      <span><ShieldCheck className="mr-0.5 inline h-3 w-3 text-[#93C5FD]" />{modalTrust.toFixed(1)}</span>
-                      <span><Zap className="me-0.5 inline h-3 w-3 text-[#F4D87A]" />{formatMeasuredResponseTime(modalResponse, isAr)}</span>
+                      <span><ShieldCheck className="mr-0.5 inline h-3 w-3 text-[#93C5FD]" />{modalScore.label} {modalScore.value}</span>
+                      <span><Zap className="me-0.5 inline h-3 w-3 text-[#F4D87A]" />{modalResponse}</span>
                       <span><HandCoins className="me-0.5 inline h-3 w-3" />{modalCompleted.toLocaleString("en-IL")} {isAr ? "صفقات" : "trades"}</span>
-                      <span><Star className="mr-0.5 inline h-3 w-3 text-[#F4D87A]" />{modalRating.toFixed(2)}</span>
+                      <span><Star className="mr-0.5 inline h-3 w-3 text-[#F4D87A]" />{modalRating.text}</span>
                       {isSellerProfileLoading && !sellerProfileData ? <span className="text-[10px] italic text-[#9CA3AF]">{isAr ? "جارٍ التحديث…" : "refreshing…"}</span> : null}
                     </div>
                   </div>

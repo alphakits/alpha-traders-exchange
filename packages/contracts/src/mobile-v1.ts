@@ -1,3 +1,4 @@
+import type { SellerMetricEvidence } from "./seller-metrics";
 export const MOBILE_API_VERSION = "v1" as const;
 export const MOBILE_CURRENT_APP_VERSION = "1.2.0" as const;
 export const MOBILE_MINIMUM_SUPPORTED_APP_VERSION = "1.0.0" as const;
@@ -236,7 +237,7 @@ export type MobileAccountStats =
       requiredVolumeUsdt: number;
       progressToNextLevelPercent: number;
     }
-  | {
+  | SellerMetricEvidence & {
       kind: "seller";
       level: "bronze" | "silver" | "gold" | "diamond" | "elite";
       lifetimeCompletedVolumeUsdt: number;
@@ -244,6 +245,7 @@ export type MobileAccountStats =
       activeListings: number;
       pendingListings: number;
       averageRating: number;
+      responseTimeMinutes?: number;
       trustScore: number;
       nextLevel?: "bronze" | "silver" | "gold" | "diamond" | "elite";
       amountToNextLevelUsdt: number;
@@ -540,7 +542,7 @@ export interface MobileMarketplaceListing {
   bankName?: string;
   id: string;
   displayNumber?: number;
-  seller: {
+  seller: SellerMetricEvidence & {
     displayName: string;
     profilePhotoUrl: string;
     isCurrentUser: boolean;
@@ -866,7 +868,7 @@ export interface MobileSellerProfileReview {
   };
 }
 
-export interface MobileSellerProfile {
+export interface MobileSellerProfile extends SellerMetricEvidence {
   lastActiveAt?: string;
   listingId: string;
   displayName: string;

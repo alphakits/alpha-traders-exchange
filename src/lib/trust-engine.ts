@@ -1,8 +1,8 @@
 import type { AlphaExchangeUser, CommissionRecord, MarketplaceEnforcementRecord, MarketplaceListing, PurchaseRequest, SellerBadge, SellerLevel, SellerReputationSnapshot } from "@/types/alpha-exchange";
 import { getSellerPrestigeProgress, getSellerPublicVolumeLabel, resolveSellerPrestigeRank } from "@/lib/seller-prestige";
 import { isOwnerApprovedSeller } from "@/lib/seller-approval";
-import { measureSellerActivity } from "@/lib/seller-activity-metrics";
-import { sumCommissionAmounts } from "@alpha-traders/contracts";
+import { calculatePublicSellerScore, measuredResponseScore, measureSellerActivity } from "@/lib/seller-activity-metrics";
+import { compareSellerResponseTimes, sumCommissionAmounts } from "@alpha-traders/contracts";
 
 function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
@@ -112,7 +112,7 @@ export function calculateSellerTrustSnapshot(input: {
     0,
     100,
   );
-  const responseScore = responseSampleCount ? clamp(100 - responseTimeMinutes * 8, 0, 100) : 0;
+  const responseScore = measuredResponseScore(facts);
   const reliabilityScore = clamp(
     successRate * 0.35 + completionRate * 0.3 + acceptanceRate * 0.15 + (100 - cancellationRate) * 0.2 - Math.max(marketplaceViolations * 8, accountSuspended ? 16 : 0),
     0,
@@ -133,6 +133,8 @@ export function calculateSellerTrustSnapshot(input: {
     100,
   );
 
+  const alphaScore = calculatePublicSellerScore(facts, verificationScore === 100 && !accountSuspended && marketplaceViolations === 0, trustScore);
+
   const buyersCount = completedRequests.reduce<Record<string, number>>((acc, request) => {
     acc[request.buyerId] = (acc[request.buyerId] ?? 0) + 1;
     return acc;
@@ -147,6 +149,9 @@ export function calculateSellerTrustSnapshot(input: {
 
   return {
     sellerId: input.seller.id,
+    totalReviews: facts.totalReviews,
+    responseSampleCount,
+    alphaScore,
     trustScore,
     reliabilityScore,
     responseScore,
@@ -191,8 +196,7 @@ export function rankTrustSnapshots(snapshots: SellerReputationSnapshot[]) {
   const sorted = [...snapshots].sort((a, b) => {
     if (b.trustScore !== a.trustScore) return b.trustScore - a.trustScore;
     if (b.reliabilityScore !== a.reliabilityScore) return b.reliabilityScore - a.reliabilityScore;
-    if (a.responseTimeMinutes !== b.responseTimeMinutes) return a.responseTimeMinutes - b.responseTimeMinutes;
-    return b.completedTrades - a.completedTrades;
+    return compareSellerResponseTimes(a, b) || b.completedTrades - a.completedTrades;
   });
   return sorted.map((snapshot, index) => ({ ...snapshot, marketplacePosition: index + 1 }));
 }

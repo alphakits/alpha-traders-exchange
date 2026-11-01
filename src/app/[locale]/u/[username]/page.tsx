@@ -1,3 +1,4 @@
+import { formatMeasuredResponseTime, sellerRatingDisplay, sellerScoreDisplay } from "@alpha-traders/contracts";
 import { ProfileLiveRefresh } from "@/components/profile/profile-live-refresh";
 import { AccountVerificationBadges } from "@/components/profile/account-verification-badges";
 import { UserPresence } from "@/components/ui/user-presence";
@@ -206,6 +207,7 @@ export default async function PublicUserProfilePage({
       })
     : null;
 
+  const score = sellerScoreDisplay(sellerIdentity, isAr);
   const progress = sellerIdentity
     ? Math.max(3, Math.min(100, sellerIdentity.progressToNextRankPercent ?? 0))
     : 0;
@@ -367,10 +369,10 @@ export default async function PublicUserProfilePage({
                 </div>
 
                 <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                  <div className="rounded-xl border border-white/10 bg-black/20 p-3"><p className="text-xs text-[#9CA3AF]">{isAr ? "درجة الثقة" : "Trust score"}</p><p className="mt-1 text-lg font-semibold text-white"><bdi dir="ltr">{sellerIdentity.trustScore.toFixed(1)}/100</bdi></p></div>
-                  <div className="rounded-xl border border-white/10 bg-black/20 p-3"><p className="text-xs text-[#9CA3AF]">{isAr ? "تقييم البائع" : "Seller rating"}</p><p className="mt-1 text-lg font-semibold text-white"><bdi dir="ltr">{sellerIdentity.averageRating.toFixed(2)} ★</bdi></p></div>
+                  <div className="rounded-xl border border-white/10 bg-black/20 p-3"><p className="text-xs text-[#9CA3AF]">{score.label}</p><p className="mt-1 text-lg font-semibold text-white"><bdi dir="ltr">{score.value}</bdi></p></div>
+                  <div className="rounded-xl border border-white/10 bg-black/20 p-3"><p className="text-xs text-[#9CA3AF]">{isAr ? "تقييم البائع" : "Seller rating"}</p><p className="mt-1 text-lg font-semibold text-white"><bdi dir="auto">{sellerRatingDisplay(sellerIdentity, isAr).text}</bdi></p></div>
                   <div className="rounded-xl border border-white/10 bg-black/20 p-3"><p className="text-xs text-[#9CA3AF]">{isAr ? "معدل الإنجاز" : "Completion rate"}</p><p className="mt-1 text-lg font-semibold text-white"><bdi dir="ltr">{sellerIdentity.completionRate.toFixed(1)}{isAr ? "٪" : "%"}</bdi></p></div>
-                  <div className="rounded-xl border border-white/10 bg-black/20 p-3"><p className="text-xs text-[#9CA3AF]">{isAr ? "متوسط الاستجابة" : "Response time"}</p><p className="mt-1 text-lg font-semibold text-white"><bdi dir="auto">{Math.max(1, Math.round(sellerIdentity.responseTimeMinutes))} {isAr ? "دقيقة" : "min"}</bdi></p></div>
+                  <div className="rounded-xl border border-white/10 bg-black/20 p-3"><p className="text-xs text-[#9CA3AF]">{isAr ? "متوسط الاستجابة" : "Response time"}</p><p className="mt-1 text-lg font-semibold text-white"><bdi dir="auto">{formatMeasuredResponseTime(sellerIdentity.responseTimeMinutes, isAr, sellerIdentity.responseSampleCount)}</bdi></p></div>
                   <div className="rounded-xl border border-white/10 bg-black/20 p-3"><p className="text-xs text-[#9CA3AF]">{isAr ? "الصفقات المكتملة" : "Completed trades"}</p><p className="mt-1 text-lg font-semibold text-white"><bdi dir="ltr">{sellerIdentity.completedTrades.toLocaleString("en-IL")}</bdi></p></div>
                 </div>
 
