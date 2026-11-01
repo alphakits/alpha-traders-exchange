@@ -89,10 +89,11 @@ describe("actual repository and batch runtime", () => {
   });
   it("publishes the seller's verified-payment notice only after commit, and never after failed storage", async () => {
     const runtime = await getCommissionBatchRuntime(); await runtime.approve(input);
+    const persistedAtPublication: boolean[] = [];
     vi.mocked(scheduleMobilePushDelivery).mockImplementation(notification => {
       const snapshot = globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb;
-      expect(snapshot.notifications.some(item => item.id === notification.id)).toBe(true);
-      expect(snapshot.commissionRecords.every(record => record.paymentStatus === "paid")).toBe(true);
+      persistedAtPublication.push(snapshot.notifications.some(item => item.id === notification.id)
+        && snapshot.commissionRecords.every(record => record.paymentStatus === "paid"));
     });
     const repository = await getAlphaExchangeRepository();
     vi.spyOn(repository, "saveSnapshot").mockRejectedValueOnce(new Error("injected commit failure"));
@@ -101,6 +102,27 @@ describe("actual repository and batch runtime", () => {
     expect(scheduleBrowserPushDelivery).not.toHaveBeenCalled();
     expect(await runtime.reconcile({ deposits: [payment()], deadline: Date.now() + 60_000 })).toMatchObject({ verified: 1 });
     expect(scheduleMobilePushDelivery).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ userId: "seller", reason: "commission_payment_verified" }));
+    expect(scheduleBrowserPushDelivery).toHaveBeenCalledTimes(1);
+    expect(persistedAtPublication).toEqual([true]);
+  });
+  it("keeps a committed batch successful and clears cached dues when mobile scheduling fails", async () => {
+    const runtime = await getCommissionBatchRuntime(); await runtime.approve(input);
+    expect((await getSellerCommissionStatus("seller")).status).not.toBe("clear");
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    vi.mocked(scheduleMobilePushDelivery).mockImplementation(() => { throw new Error("injected delivery failure"); });
+    const deposit = payment();
+    expect(await runtime.reconcile({ deposits: [deposit], deadline: Date.now() + 60_000 })).toMatchObject({ verified: 1, errors: 0 });
+    expect((await getSellerCommissionStatus("seller")).status).toBe("clear");
+    expect(scheduleBrowserPushDelivery).toHaveBeenCalledTimes(1);
+    const saved = structuredClone(globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb);
+    expect(saved.commissionRecords.every(record => record.paymentStatus === "paid")).toBe(true);
+    expect(saved.auditLogs.filter(entry => entry.action === "commission_paid")).toHaveLength(1);
+    expect(await runtime.reconcile({ deposits: [deposit], deadline: Date.now() + 60_000 })).toMatchObject({ verified: 0, errors: 0 });
+    const replayed = globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb;
+    expect(replayed.commissionRecords).toEqual(saved.commissionRecords);
+    expect(replayed.notifications).toEqual(saved.notifications);
+    expect(replayed.auditLogs.filter(entry => entry.action === "commission_paid")).toHaveLength(1);
+    expect(scheduleMobilePushDelivery).toHaveBeenCalledTimes(1);
     expect(scheduleBrowserPushDelivery).toHaveBeenCalledTimes(1);
   });
   it("independent receipt verification still blocks settlement after owner association", async () => {

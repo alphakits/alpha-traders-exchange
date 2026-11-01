@@ -15,6 +15,7 @@ import { scheduleBrowserPushDelivery } from "./browser-push";
 import { getAlphaExchangeRepository } from "./alpha-exchange-repository";
 import { getSellerCommissionStatus, getSellerListingWorkspaceData, invalidateAlphaExchangeStoreCache, updateCommissionPaymentStatus } from "./alpha-exchange-store";
 import { getCommissionCheckoutRuntime } from "./commission-checkout-runtime";
+import { subscribeRealtimeEvents } from "./realtime";
 const signature = "binance-deposit:123456789123456789";
 function seed() {
   const createdAt = new Date(Date.now() - 60_000).toISOString();
@@ -76,10 +77,11 @@ it.each(["TRC20", "BEP20"] as const)("automatically settles a full 40 USDT net r
 });
 it("publishes verified checkout notices only after persistence and suppresses failed-commit alerts", async () => {
   const { service, payment } = await prepared();
+  const persistedAtPublication: boolean[] = [];
   vi.mocked(scheduleMobilePushDelivery).mockImplementation(notification => {
     const snapshot = globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb;
-    expect(snapshot.notifications.some(item => item.id === notification.id)).toBe(true);
-    expect(snapshot.commissionRecords.every(record => record.paymentStatus === "paid")).toBe(true);
+    persistedAtPublication.push(snapshot.notifications.some(item => item.id === notification.id)
+      && snapshot.commissionRecords.every(record => record.paymentStatus === "paid"));
   });
   const repository = await getAlphaExchangeRepository();
   vi.spyOn(repository, "saveSnapshot").mockRejectedValueOnce(new Error("injected commit failure"));
@@ -89,6 +91,30 @@ it("publishes verified checkout notices only after persistence and suppresses fa
   expect(await service.reconcile({ deposits: [payment], deadline: Date.now() + 60_000 })).toMatchObject({ verified: 1 });
   expect(scheduleMobilePushDelivery).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ userId: "seller", reason: "commission_payment_verified", actionHref: "/seller/commission-checkout" }));
   expect(scheduleBrowserPushDelivery).toHaveBeenCalledTimes(1);
+  expect(persistedAtPublication).toEqual([true]);
+});
+it("returns a verified checkout and clears cached dues despite a throwing realtime subscriber, without replay settlement", async () => {
+  const { service, payment } = await prepared();
+  expect((await getSellerCommissionStatus("seller")).status).not.toBe("clear");
+  vi.spyOn(console, "warn").mockImplementation(() => undefined);
+  const unsubscribe = subscribeRealtimeEvents(event => {
+    if (event.type === "notification.created") throw new Error("injected subscriber failure");
+  });
+  try {
+    expect(await service.reconcile({ deposits: [payment], deadline: Date.now() + 60_000 })).toMatchObject({ verified: 1, errors: 0 });
+    expect((await getSellerCommissionStatus("seller")).status).toBe("clear");
+    expect(scheduleMobilePushDelivery).toHaveBeenCalledTimes(1);
+    expect(scheduleBrowserPushDelivery).toHaveBeenCalledTimes(1);
+    const saved = structuredClone(globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb);
+    expect(saved.commissionRecords.every(record => record.paymentStatus === "paid")).toBe(true);
+    expect(saved.notifications.filter(notice => notice.reason === "commission_payment_verified")).toHaveLength(1);
+    expect(await service.reconcile({ deposits: [payment], deadline: Date.now() + 60_000 })).toMatchObject({ verified: 0, errors: 0 });
+    expect((globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb).commissionRecords).toEqual(saved.commissionRecords);
+    expect((globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb).notifications).toEqual(saved.notifications);
+    expect(scheduleMobilePushDelivery).toHaveBeenCalledTimes(1);
+  } finally {
+    unsubscribe();
+  }
 });
 it("switches a mistaken TRC20 choice to BEP20, survives reload, and clears restrictions after automatic verification", async () => {
   const clock = vi.spyOn(Date, "now").mockReturnValue(Date.now());

@@ -6,12 +6,14 @@ import { invalidateAlphaExchangeStoreCache } from "@/lib/alpha-exchange-store";
 import { publishDemand, offerDemand } from "@/lib/usdt-demand-store";
 import { scheduleMobilePushDelivery } from "@/lib/mobile-push";
 import { scheduleBrowserPushDelivery } from "@/lib/browser-push";
+import { scheduleWhatsAppNotificationDelivery } from "@/lib/whatsapp-notifications";
 import { publishRealtimeEvent } from "@/lib/realtime";
 import { demandTestDb, demandTestTerms } from "@/test-utils/usdt-demand-fixtures";
 
 vi.mock("@/lib/postgres-runtime", () => ({ getRuntimePostgresPool: () => null }));
 vi.mock("@/lib/mobile-push", () => ({ scheduleMobilePushDelivery: vi.fn() }));
 vi.mock("@/lib/browser-push", () => ({ scheduleBrowserPushDelivery: vi.fn() }));
+vi.mock("@/lib/whatsapp-notifications", () => ({ scheduleWhatsAppNotificationDelivery: vi.fn() }));
 vi.mock("@/lib/realtime", () => ({ publishRealtimeEvent: vi.fn() }));
 vi.mock("@/lib/market-service", async () => {
   const fixtures = await import("@/test-utils/usdt-demand-fixtures");
@@ -26,7 +28,9 @@ beforeEach(() => {
   globalThis.__alphaExchangeRepositoryPromise = undefined;
   invalidateAlphaExchangeStoreCache();
   vi.clearAllMocks();
-  vi.mocked(scheduleMobilePushDelivery).mockReset();
+  for (const delivery of [scheduleMobilePushDelivery, scheduleBrowserPushDelivery, scheduleWhatsAppNotificationDelivery, publishRealtimeEvent]) {
+    vi.mocked(delivery).mockReset();
+  }
 });
 afterEach(() => {
   vi.restoreAllMocks();
@@ -36,12 +40,14 @@ afterEach(() => {
 
 describe("Buy Request push publication after persistence", () => {
   it("alerts eligible sellers only after the request and notifications exist in storage, without replay alerts", async () => {
+    const persistedAtPublication: boolean[] = [];
     vi.mocked(scheduleMobilePushDelivery).mockImplementation(notification => {
-      expect(globalThis.__alphaExchangeMemorySnapshot?.notifications.some(item => item.id === notification.id)).toBe(true);
-      expect(globalThis.__alphaExchangeMemorySnapshot?.usdtDemands).toHaveLength(1);
+      persistedAtPublication.push(globalThis.__alphaExchangeMemorySnapshot?.notifications.some(item => item.id === notification.id) === true
+        && globalThis.__alphaExchangeMemorySnapshot?.usdtDemands?.length === 1);
     });
     const body = { terms: demandTestTerms(), operationId: randomUUID() };
     const demand = await publishDemand("buyer", body);
+    expect(persistedAtPublication).toEqual([true, true]);
     expect(vi.mocked(scheduleMobilePushDelivery).mock.calls.map(([notice]) => notice.userId).sort())
       .toEqual(["seller", "seller-two"]);
     expect(scheduleBrowserPushDelivery).toHaveBeenCalledTimes(2);
@@ -50,6 +56,47 @@ describe("Buy Request push publication after persistence", () => {
     await publishDemand("buyer", body);
     expect(scheduleMobilePushDelivery).toHaveBeenCalledTimes(2);
     expect(publishRealtimeEvent).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    ["realtime", publishRealtimeEvent],
+    ["mobile_push", scheduleMobilePushDelivery],
+    ["browser_push", scheduleBrowserPushDelivery],
+    ["whatsapp", scheduleWhatsAppNotificationDelivery],
+  ] as const)("preserves a committed request and continues all notices after a %s failure", async (channel, failedDelivery) => {
+    const log = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const providerDetail = "private-provider-payload-and-token";
+    vi.mocked(failedDelivery).mockImplementation(() => { throw new Error(providerDetail); });
+    const body = { terms: demandTestTerms(), operationId: randomUUID() };
+    const demand = await publishDemand("buyer", body);
+    expect(globalThis.__alphaExchangeMemorySnapshot?.usdtDemands).toHaveLength(1);
+    expect(globalThis.__alphaExchangeMemorySnapshot?.notifications).toHaveLength(2);
+    for (const delivery of [publishRealtimeEvent, scheduleMobilePushDelivery, scheduleBrowserPushDelivery, scheduleWhatsAppNotificationDelivery]) {
+      expect(delivery).toHaveBeenCalledTimes(2);
+    }
+    const failures = log.mock.calls.filter(([, entry]) => entry?.event === "notification_publication");
+    expect(failures).toHaveLength(2);
+    expect(failures.map(([, entry]) => ({ ...entry, timestamp: "now", resourceId: "notice" }))).toEqual([1, 2].map(() => ({
+      timestamp: "now", event: "notification_publication", outcome: "failed", reason: "delivery_schedule_failed",
+      resourceId: "notice", metadata: { channel },
+    })));
+    expect(JSON.stringify(log.mock.calls)).not.toContain(providerDetail);
+    expect((await publishDemand("buyer", body)).id).toBe(demand.id);
+    expect(globalThis.__alphaExchangeMemorySnapshot?.usdtDemands).toHaveLength(1);
+    expect(globalThis.__alphaExchangeMemorySnapshot?.notifications).toHaveLength(2);
+    for (const delivery of [publishRealtimeEvent, scheduleMobilePushDelivery, scheduleBrowserPushDelivery, scheduleWhatsAppNotificationDelivery]) {
+      expect(delivery).toHaveBeenCalledTimes(2);
+    }
+  });
+
+  it("preserves a committed request even when failure logging also throws", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => { throw new Error("log transport unavailable"); });
+    vi.mocked(publishRealtimeEvent).mockImplementation(() => { throw new Error("subscriber unavailable"); });
+    const demand = await publishDemand("buyer", { terms: demandTestTerms(), operationId: randomUUID() });
+    expect(globalThis.__alphaExchangeMemorySnapshot?.usdtDemands?.[0].id).toBe(demand.id);
+    expect(scheduleMobilePushDelivery).toHaveBeenCalledTimes(2);
+    expect(scheduleBrowserPushDelivery).toHaveBeenCalledTimes(2);
+    expect(scheduleWhatsAppNotificationDelivery).toHaveBeenCalledTimes(2);
   });
 
   it("alerts only the buyer when a seller responds, preserving the exact offer destination", async () => {
@@ -114,11 +161,13 @@ describe("Buy Request push publication after persistence", () => {
       },
       close: closed,
     });
-    vi.mocked(scheduleMobilePushDelivery).mockImplementation(() => expect(closed).toHaveBeenCalledTimes(1));
+    const releaseCountsAtPublication: number[] = [];
+    vi.mocked(scheduleMobilePushDelivery).mockImplementation(() => { releaseCountsAtPublication.push(closed.mock.calls.length); });
     const request = publishDemand("buyer", { terms: demandTestTerms(), operationId: randomUUID() });
     if (succeeds) {
       await request;
       expect(scheduleMobilePushDelivery).toHaveBeenCalledTimes(2);
+      expect(releaseCountsAtPublication).toEqual([1, 1]);
     } else {
       await expect(request).rejects.toThrow("injected commit failure");
       expect(scheduleMobilePushDelivery).not.toHaveBeenCalled();

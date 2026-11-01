@@ -5317,22 +5317,42 @@ function publishOrDeferNotification(db: AlphaExchangeDb, publication: DeferredNo
 
 function publishNotificationPublication(publication: DeferredNotificationPublication | null | undefined) {
   if (!publication) return;
+  // Persistence owns the operation's outcome. One failed delivery channel
+  // must not turn an already committed payment/trade into an apparent failure
+  // or prevent the remaining channels and notifications from being attempted.
+  const deliver = (channel: "realtime" | "mobile_push" | "browser_push" | "whatsapp", publish: () => void) => {
+    try {
+      publish();
+    } catch {
+      try {
+        logEvent("warn", {
+          event: "notification_publication",
+          outcome: "failed",
+          reason: "delivery_schedule_failed",
+          resourceId: publication.notification.id,
+          metadata: { channel },
+        });
+      } catch {
+        // Logging is also best effort; never expose provider errors or payloads.
+      }
+    }
+  };
   if (publication.notification.whatsappChannelOnly !== true) {
-    publishRealtimeEvent({
+    deliver("realtime", () => publishRealtimeEvent({
       type: publication.type,
       payload: { notification: sanitizeNotificationForClient(publication.notification) },
-    });
+    }));
   }
   // A burst of trade-room chat reuses one notification row and advances its
   // persisted updatedAt value. The mobile outbox keys each revision so every
   // new message can alert the device while duplicate publications stay safe.
   if (publication.notification.whatsappChannelOnly !== true) {
-    scheduleMobilePushDelivery(publication.notification);
-    scheduleBrowserPushDelivery();
+    deliver("mobile_push", () => scheduleMobilePushDelivery(publication.notification));
+    deliver("browser_push", () => scheduleBrowserPushDelivery());
   }
   // WhatsApp delivery independently re-reads the canonical notification,
   // participant, verified destination and current consent before sending.
-  scheduleWhatsAppNotificationDelivery(publication.notification);
+  deliver("whatsapp", () => scheduleWhatsAppNotificationDelivery(publication.notification));
 }
 
 /** Publish new notifications only after their owning transaction commits. */
