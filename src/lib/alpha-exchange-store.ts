@@ -1005,7 +1005,7 @@ const CARDLESS_CHAT_CODE_SOURCE = String.raw`\d(?:${CARDLESS_CHAT_CODE_SEPARATOR
 const CARDLESS_CHAT_LABEL_SOURCE = String.raw`(?<![\p{L}\p{N}_])(?:(?:withdrawal|cardless|atm|verification|security)[\s-]+(?:code|pin)|code|pin|otp|(?:ال)?(?:رمز|كود)(?:\s+(?:السحب|التحقق|الصراف))?)(?![\p{L}\p{N}_])`;
 const CARDLESS_CHAT_LABEL_CONNECTOR = String.raw`[\s:：=#\-–—]*(?:(?:is|هو|هي)(?![\p{L}\p{N}_])[\s:：=#\-–—]*(?:the\s+)?)?`;
 const EXPLICIT_CARDLESS_CHAT_CODE = new RegExp(
-  `${CARDLESS_CHAT_LABEL_SOURCE}${CARDLESS_CHAT_LABEL_CONNECTOR}(?:(?:https?://|tel:|sms:)[^\\s]*?)?\\(?${CARDLESS_CHAT_CODE_SOURCE}`
+  `${CARDLESS_CHAT_LABEL_SOURCE}${CARDLESS_CHAT_LABEL_CONNECTOR}(?:(?:https?://|tel:|sms:)[^\\s]*?)?\\+?\\s*\\(?${CARDLESS_CHAT_CODE_SOURCE}`
   + `|${CARDLESS_CHAT_CODE_SOURCE}${CARDLESS_CHAT_LABEL_CONNECTOR}(?:the\\s+)?${CARDLESS_CHAT_LABEL_SOURCE}`,
   "iu",
 );

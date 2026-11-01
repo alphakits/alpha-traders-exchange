@@ -259,10 +259,13 @@ describe("Trade Room participant communication", () => {
 
   it.each([
     "Withdrawal code: 0501234567",
+    "Withdrawal code: +0501234567",
+    "Withdrawal code: + (050)1234567",
     "The code is: 050-123-4567",
     "Withdrawal code: (050)1234567",
     "0501234567 is the withdrawal code",
     "رمز السحب: 0501234567",
+    "رمز السحب: +٠٥٠١٢٣٤٥٦٧",
     "كود السحب هو ٠٥٠١٢٣٤٥٦٧",
     "رمز السحب: https://wa.me/0501234567",
   ])("blocks an Owner's explicit ATM credential even when it resembles contact information: %s", async (message) => {
@@ -302,7 +305,7 @@ describe("Trade Room participant communication", () => {
   it("keeps ordinary Owner phone, email and link sharing available in ATM trades", async () => {
     snapshot().purchaseRequests[0]!.paymentMethod = "Cardless ATM Withdrawal";
     invalidateAlphaExchangeStoreCache();
-    const message = "Use the protected withdrawal code action. Call 0501234567, email support@example.test, or WhatsApp https://wa.me/972501234567. Help: https://example.test/help";
+    const message = "Use the protected withdrawal code action. Call +0501234567, email support@example.test, or WhatsApp https://wa.me/972501234567. Help: https://example.test/help";
     const posted = await postTradeRoomMessage({ purchaseRequestId: "trade-1", actorUserId: "owner-1", message });
     expect(posted.message.message).toBe(message);
     for (const actorUserId of [BUYER_ID, SELLER_ID]) {
