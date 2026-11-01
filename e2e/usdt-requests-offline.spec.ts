@@ -87,7 +87,10 @@ async function renderedColors(element: Locator) {
       context.fillStyle = getComputedStyle(parent).backgroundColor; context.fillRect(0, 0, 1, 1);
     }
     const background = Array.from(context.getImageData(0, 0, 1, 1).data);
-    context.fillStyle = getComputedStyle(node).color; context.fillRect(0, 0, 1, 1);
+    const style = getComputedStyle(node);
+    const textFill = style.getPropertyValue("-webkit-text-fill-color");
+    context.fillStyle = textFill && textFill !== "currentcolor" ? textFill : style.color;
+    context.fillRect(0, 0, 1, 1);
     const rgba = Array.from(context.getImageData(0, 0, 1, 1).data);
     const luminance = (channels: number[]) => channels.slice(0, 3).reduce((sum, channel, index) => {
       const value = channel / 255;
@@ -135,10 +138,19 @@ async function expectBlueText(element: Locator) {
   expect(blue).toBeGreaterThan(green + 15);
   expect(contrast).toBeGreaterThanOrEqual(4.5);
 }
-async function expectGreenMoney(container: Locator) {
-  const values = container.locator("bdi").filter({ hasText: /[₪$]\s*\d/ });
-  expect(await values.count(), "The checked section contains actual currency values").toBeGreaterThan(0);
-  for (const value of await values.all()) await expectGreenText(value);
+async function expectGreenMoney(container: Locator, expectedAmounts?: readonly string[]) {
+  const values = expectedAmounts
+    ? expectedAmounts.map(text => container.getByText(text, { exact: true }))
+    : await container.locator("bdi").filter({ hasText: /[₪$]\s*\d/ }).all();
+  expect(values.length, "The checked section contains actual currency values").toBeGreaterThan(0);
+  for (const value of values) {
+    if (expectedAmounts) {
+      await expect(value).toBeVisible();
+      await expect(value).toHaveCSS("direction", "ltr");
+      await expect(value).toHaveCSS("unicode-bidi", "isolate");
+    }
+    await expectGreenText(value);
+  }
 }
 async function expectReadableSelectPaint(select: Locator, info: TestInfo, name: string) {
   // Native select painting can ignore the CSS background in WebKit. Measure
@@ -915,7 +927,7 @@ test("buyer and seller forms clearly show the 3.10 quote and its inclusive price
     for (const boundary of ["2.74", "3.46"]) {
       await price.fill(boundary); await expect(publish).toBeDisabled();
       await expectGreenText(price); await expectGreenMoney(form);
-      await expectGreenMoney(form.locator("#request-submit-help"));
+      await expectGreenMoney(form.locator("#request-submit-help"), ["₪2.75", "₪3.45"]);
     }
     for (const boundary of ["2.75", "3.45"]) { await price.fill(boundary); await expect(publish).toBeEnabled(); }
     await price.fill("3.10"); await publish.click();
@@ -928,7 +940,7 @@ test("buyer and seller forms clearly show the 3.10 quote and its inclusive price
     for (const boundary of ["2.74", "3.46"]) {
       await offerPrice.fill(boundary); await expect(send).toBeDisabled();
       await expectGreenText(offerPrice); await expectGreenMoney(responseForm);
-      await expectGreenMoney(responseForm.locator('p[id$="-reason"]'));
+      await expectGreenMoney(responseForm.locator('p[id$="-reason"]'), ["₪2.75", "₪3.45"]);
     }
     for (const boundary of ["2.75", "3.45"]) { await offerPrice.fill(boundary); await expect(send).toBeEnabled(); }
     await expect(responseForm).toContainText("2.75"); await expect(responseForm).toContainText("3.45");

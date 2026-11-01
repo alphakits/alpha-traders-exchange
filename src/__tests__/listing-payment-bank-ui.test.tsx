@@ -108,8 +108,9 @@ describe("listing payment-method bank requirements", () => {
     fireEvent.change(form.getByLabelText("Your personal Wise account for receiving USD"), { target: { value: reviewedWiseAccount.id } });
     expect(review.disabled).toBe(false);
     fireEvent.click(review);
-    expect(form.getByTestId("create-summary-total").textContent).toContain("1,020.00 USD");
-    expect(form.getByText("USD receiving account")).toBeTruthy();
+    expect(form.getByTestId("create-summary-total").textContent).toBe("1,020.00 USD");
+    const receivingAccount = form.getByText((_, element) => element?.textContent === "USD receiving account", { selector: "dt" });
+    expect(receivingAccount.nextElementSibling?.textContent).toBe("Seller · ****0042");
     fireEvent.click(form.getByRole("checkbox"));
     const submit = form.getByRole("button", { name: "Submit Listing" }) as HTMLButtonElement;
     expect(submit.disabled).toBe(false);

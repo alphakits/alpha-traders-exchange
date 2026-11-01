@@ -25,9 +25,13 @@ export function currencyText(value: ReactNode, options: { groupNumbers?: boolean
   if (typeof value !== "string") return value;
   const parts = splitAccentText(value, options);
   if (!parts) return value;
-  return parts.map(({ text, tone }, index) => tone
-    ? <span dir={tone === "money" && numericPrice.test(text) ? "ltr" : undefined} className={tone === "brand" ? "brand-alpha-traders" : "currency-money currency-usdt"} key={index}>{text}</span>
-    : text);
+  return parts.map(({ text, tone }, index) => {
+    if (!tone) return text;
+    if (tone === "brand") return <span className="brand-alpha-traders" key={index}>{text}</span>;
+    return numericPrice.test(text)
+      ? <bdi dir="ltr" className="currency-money currency-usdt" key={index}>{text}</bdi>
+      : <span className="currency-money currency-usdt" key={index}>{text}</span>;
+  });
 }
 
 export const brandText = currencyText;
