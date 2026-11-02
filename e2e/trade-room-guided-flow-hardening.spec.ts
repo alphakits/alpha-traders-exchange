@@ -1229,7 +1229,9 @@ test("seller workspace accepts an ATM request with native confirmations suppress
     await accept.click();
     const dialog = page.getByRole("dialog");
     await expect(dialog).toBeVisible();
-    await expect(dialog).toContainText("1100");
+    const settlementAmount = dialog.getByText("ILS 1,100.00", { exact: true });
+    await expect(settlementAmount).toBeVisible();
+    await expect(settlementAmount).toHaveCSS("-webkit-text-fill-color", "rgb(52, 211, 153)");
     expect(patchRequests).toHaveLength(0);
     await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
     await expect(dialog).not.toBeVisible();
