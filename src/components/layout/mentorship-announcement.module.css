@@ -1,0 +1,63 @@
+.band {
+  color: #f4e9cf;
+  background: linear-gradient(105deg, #19160f, #191710 50%, #11120f);
+  border-block: 1px solid #bca06430;
+}
+
+.link {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: .7rem;
+  min-block-size: 2.75rem;
+  margin-inline: auto;
+  padding: .32rem max(1rem, env(safe-area-inset-right)) .32rem max(1rem, env(safe-area-inset-left));
+  color: inherit;
+  text-align: start;
+  text-decoration: none;
+}
+
+.link:focus-visible { outline: 2px solid #f7d78b; outline-offset: -3px; }
+.emblem, .action { display: inline-flex; align-items: center; justify-content: center; flex: none; }
+.emblem {
+  width: 1.75rem;
+  height: 1.75rem;
+  color: #ebca83;
+  border: 1px solid #b5985459;
+  border-radius: .55rem;
+  background: #292419;
+}
+.copy, .terms { display: flex; align-items: baseline; flex-wrap: wrap; gap: .2rem .7rem; min-inline-size: 0; }
+.copy { font-size: .83rem; line-height: 1.4; }
+.title { color: #f5efdf; font-weight: 650; }
+.terms { font-size: .77rem; gap: .05rem .43rem; }
+.offer { color: #f3d897; font-weight: 600; }
+.phoneDetail { display: none; }
+.detail { color: #c9c5b7; }
+.detail::before { content: ""; display: inline-block; width: .18rem; height: .18rem; border-radius: 50%; background: #968563; vertical-align: middle; margin-inline-end: .43rem; }
+.action { gap: .35rem; padding: .24rem .65rem; border: 1px solid #b495544f; border-radius: 2rem; color: #f1d694; font-size: .72rem; font-weight: 600; }
+.link:hover .action { border-color: #c8aa6c; background: #31291b; }
+.link:dir(rtl) .action svg { transform: scaleX(-1); }
+
+@media (max-width: 48rem) {
+  .link { justify-content: start; gap: .55rem; padding-inline: max(.75rem, env(safe-area-inset-left)) max(.75rem, env(safe-area-inset-right)); }
+  .copy { display: grid; gap: .06rem; }
+  .fullDetail { display: none; }
+  .phoneDetail { display: inline; }
+  .terms { font-size: .72rem; }
+  .action { margin-inline-start: auto; }
+}
+@media (max-width: 32rem) {
+  .link { gap: .36rem; }
+  .terms { column-gap: .25rem; }
+  .emblem { width: 1.6rem; height: 1.6rem; }
+  .action { width: 1.75rem; height: 1.75rem; padding: 0; }
+  .action span { display: none; }
+}
+
+@media (min-width: 40rem) and (max-height: 34rem) {
+  :global(.alpha-auth-shell) > .band .link { gap: .4rem; padding-inline: .6rem; }
+  :global(.alpha-auth-shell) > .band .emblem,
+  :global(.alpha-auth-shell) > .band .action span { display: none; }
+  :global(.alpha-auth-shell) > .band .action { width: 1.75rem; height: 1.75rem; padding: 0; }
+}

@@ -1,3 +1,5 @@
+import SectionLink from "next/link";
+import { Headphones } from "lucide-react";
 import { currencyText } from "@/components/ui/currency-text";
 import { Link } from "@/i18n/navigation";
 import { buttonVariants } from "@/components/ui/button";
@@ -6,7 +8,7 @@ import { LearningShareActions } from "@/components/academy/learning-share-action
 import { PublicDiscoveryBreadcrumbs } from "@/components/seo/public-discovery-breadcrumbs";
 import { buildBreadcrumbSchema } from "@/lib/seo-breadcrumb";
 import { buildFaqSchema, buildPageMetadata, serializeJsonLd } from "@/lib/seo";
-import { ICT_MENTORSHIP_OFFER, ictMentorshipOfferSummary, isIctMentorshipIntakeOpen } from "@/lib/ict-mentorship-offer";
+import { ICT_MENTORSHIP_OFFER, ictMentorshipOfferSummary, mentorshipFees, mentorshipPhase } from "@/lib/ict-mentorship-offer";
 import { getCurrentSessionUser } from "@/lib/auth";
 import { getSignedOutPageDestination } from "@/lib/protected-page";
 import { redirect } from "next/navigation";
@@ -41,11 +43,13 @@ export default async function LearnWithMarkPage({ params, searchParams }: {
     redirect(getSignedOutPageDestination(`/${language}/learn-with-mark${query.size ? `?${query}` : ""}`));
   }
   const t = (en: string, ar: string) => isAr ? ar : en;
-  const intakeOpen = isIctMentorshipIntakeOpen();
-  const offer = ictMentorshipOfferSummary(language);
+  const phase = mentorshipPhase();
+  const intakeOpen = phase !== "closed";
+  const fees = mentorshipFees(phase);
+  const offer = ictMentorshipOfferSummary(language, phase);
   const deadline = ICT_MENTORSHIP_OFFER.enquiriesCloseDateLabel;
   const faqs = [
-    { question: t("Is this one programme, and what is the fee?", "هل هو برنامج واحد، وقديش الرسوم؟"), answer: intakeOpen ? offer : t("The 2026 intake has closed. The fees shown on this page are a record of that intake. The free Academy remains available.", "انتهت نافذة 2026. الرسوم الظاهرة في هذه الصفحة تخص تلك الدفعة. الأكاديمية المجانية ما زالت متاحة.") },
+    { question: t("Is this one programme, and what is the fee?", "هل هو برنامج واحد، وقديش الرسوم؟"), answer: intakeOpen ? offer : t("The 2026 intake has closed. The free Academy remains available.", "انتهت نافذة 2026. الأكاديمية المجانية ما زالت متاحة.") },
     { question: t("How long is this mentorship window open?", "لأي وقت نافذة المنتورشيب مفتوحة؟"), answer: intakeOpen ? t(`This is Mark’s final mentorship enquiry window, through ${deadline} (Israel time). This is the enquiry deadline; your session dates, format and follow-up are agreed before joining. An enquiry does not reserve a place.`, `هذه نافذة مارك الأخيرة لاستقبال طلبات المنتورشيب، حتى ${deadline} بتوقيت إسرائيل. هذا آخر موعد للاستفسار؛ تُتفق مواعيد اللقاءات وصيغتها والمتابعة قبل الانضمام. الاستفسار لا يحجز مقعدًا.`) : t(`This final enquiry window closed at the end of ${deadline}, Israel time. New mentorship enquiries are no longer accepted through this form.`, `انتهت نافذة الاستفسارات الأخيرة بنهاية ${deadline} بتوقيت إسرائيل. هذا النموذج لم يعد يستقبل استفسارات منتورشيب جديدة.`) },
     { question: t("Is ICT Mentorship the same as the free Academy?", "هل ICT Mentorship هو نفس الأكاديمية المجانية؟"), answer: t("The free Academy is a place to begin; lessons require an account with a verified email. ICT Mentorship is a separate programme with Mark and has a fee. An enquiry is free and does not reserve a place. Fees, duration, schedule, follow-up scope and cancellation terms are explained before any commitment.", "الأكاديمية المجانية متاحة كبداية، والدروس تتطلب حسابًا وبريدًا مؤكدًا. ICT Mentorship برنامج منفصل مع مارك برسوم. الاستفسار مجاني ولا يحجز مقعدًا؛ تُوضح الرسوم والمدة والمواعيد ونطاق المتابعة وشروط الإلغاء قبل أي التزام.") },
     { question: t("Who teaches the mentorship?", "مين يقدّم المنتورشيب؟"), answer: t("Mark, the founder of Alpha Traders, provides the teaching and follow-up. This is Alpha Traders’ independent programme teaching ICT concepts; it is not presented as an official ICT programme or certification.", "مارك، مؤسس Alpha Traders، يقدّم المنهج والمتابعة. هذا برنامج Alpha Traders المستقل الذي يدرّس مفاهيم ICT؛ لا يُقدَّم بوصفه برنامجًا رسميًا أو شهادة صادرة عن ICT.") },
@@ -95,11 +99,15 @@ export default async function LearnWithMarkPage({ params, searchParams }: {
         <ol aria-label={t("Your path through this page", "خطوات التعرّف على البرنامج")} className="grid gap-3 text-sm sm:grid-cols-3">
           {[t("01 · Understand the course", "01 · افهم الكورس"), t("02 · Hear Mark’s 7:44 explanation", "02 · اسمع شرح مارك 7:44"), t("03 · Review tuition and joining", "03 · شوف السعر وخطوة الانضمام")].map(step => <li key={step} className="rounded-xl border border-[#C9A227]/25 bg-[#C9A227]/5 px-4 py-3 leading-6 text-[#E5CA77]">{step}</li>)}
         </ol>
-        <a href="#course-overview" className={buttonVariants({ className: "w-full sm:w-auto whitespace-normal text-center" })}>{t("Explore what you’ll learn", "تعرّف على الكورس وشو رح تتعلّم")}</a>
+        <div className="flex flex-wrap items-center gap-2">
+          <SectionLink href="#course-overview" prefetch={false} className={buttonVariants({ className: "w-full sm:w-auto whitespace-normal text-center" })}>{t("Explore what you’ll learn", "تعرّف على الكورس وشو رح تتعلّم")}</SectionLink>
+          <SectionLink href="#mark-explains" prefetch={false} className={buttonVariants({ variant: "secondary", className: "w-full sm:w-auto whitespace-normal text-center" })}>
+            <Headphones size={17} aria-hidden="true" />{t("Listen to Mark", "اسمع شرح مارك بصوته")} · <bdi dir="ltr">7:44</bdi>
+          </SectionLink>
+        </div>
         <nav aria-label={t("Mentorship information", "معلومات المنتورشيب")} className="flex flex-wrap gap-x-5 gap-y-1 border-t border-white/10 pt-3 text-sm text-[#E5CA77]">
-          <a href="#curriculum" className="inline-flex min-h-11 items-center underline underline-offset-4">{t("What you’ll learn", "شو رح تتعلّم")}</a>
-          <a href="#how-you-learn" className="inline-flex min-h-11 items-center underline underline-offset-4">{t("How learning and support work", "كيف بتتعلّم وبتحصل على مساعدة")}</a>
-          <a href="#mark-explains" className="inline-flex min-h-11 items-center underline underline-offset-4">{t("Mark’s explanation · 7:44", "شرح مارك · 7:44")}</a>
+          <SectionLink href="#curriculum" prefetch={false} className="inline-flex min-h-11 items-center underline underline-offset-4">{t("What you’ll learn", "شو رح تتعلّم")}</SectionLink>
+          <SectionLink href="#how-you-learn" prefetch={false} className="inline-flex min-h-11 items-center underline underline-offset-4">{t("How learning and support work", "كيف بتتعلّم وبتحصل على مساعدة")}</SectionLink>
         </nav>
       </div>
       <section id="course-overview" aria-labelledby="overview-title" className="scroll-mt-24 rounded-3xl border border-[#C9A227]/30 bg-[#C9A227]/5 p-5 sm:p-7">
@@ -160,12 +168,14 @@ export default async function LearnWithMarkPage({ params, searchParams }: {
             <p className="section-label">{t("One ICT Mentorship programme", "برنامج ICT Mentorship واحد")}</p>
             <h2 id="tuition-title" className="mt-3 text-2xl font-semibold">{t("Your starting point. A clear fee.", "بدايتك واضحة. والرسوم واضحة.")}</h2>
             <p className="mt-3 text-sm leading-7 text-[#D1D5DB]">{t("The main focus is people with around one to two years in the markets who still struggle with applying their learning and making progress. Someone ready to start from zero can also enquire.", "التركيز الأساسي على اللي إله تقريبًا سنة أو سنتين بالمجال ولسه بيواجه صعوبة بالتطبيق والتقدّم. واللي جاهز يبدأ من الصفر بيقدر يستفسر كمان.")}</p>
-            <dl className="mt-5 divide-y divide-white/10 rounded-2xl border border-white/10 bg-black/20 px-4">
-              <div className="py-4"><dt className="font-semibold">{t("With prior market experience", "للي عنده خبرة سابقة بالمجال")}</dt><dd className="mt-2 text-2xl font-semibold">{currencyText(ICT_MENTORSHIP_OFFER.experiencedFee)}</dd></div>
-              <div className="py-4"><dt className="font-semibold">{t("Starting from zero", "للي بيبدأ من الصفر")}</dt><dd className="mt-2 text-2xl font-semibold">{currencyText(ICT_MENTORSHIP_OFFER.beginnerFee)}</dd></div>
-            </dl>
-            <p className="mt-4 text-sm leading-7 text-[#D1D5DB]">{intakeOpen ? <>{t("Final enquiry window: through ", "نافذة الاستفسارات الأخيرة حتى ")}<bdi dir="ltr">{deadline}</bdi>{t(", Israel time. Share your experience so your starting point and fee can be confirmed before joining.", " بتوقيت إسرائيل. احكِ عن خبرتك لتوضيح نقطة بدايتك والرسوم قبل الانضمام.")}</> : t("The 2026 enquiry window is closed. These were the fees for that intake. The free Academy remains available.", "انتهت نافذة الاستفسارات لعام 2026. هذه كانت رسوم تلك الدفعة. الأكاديمية المجانية ما زالت متاحة.")}</p>
-            {intakeOpen ? <a href="#interest" className={buttonVariants({ className: "mt-4 w-full sm:w-auto whitespace-normal text-center" })}>{t("Ask About ICT Mentorship", "استفسر عن ICT Mentorship")}</a> : null}
+            {phase === "november" && <p className="mt-4 text-sm font-semibold text-[#E5CA77]">{t("Enrol by November 30 for 10% off. The fees below include the discount. December is the final intake, with a price increase of at least 10%.", "سجّل حتى 30 نوفمبر واحصل على خصم 10%. الأسعار أدناه بعد الخصم. ديسمبر آخر شهر لقبول طلاب جدد، وبترتفع فيه الرسوم بنسبة 10% على الأقل.")}</p>}
+            {phase === "december" && <p className="mt-4 text-sm font-semibold text-[#E5CA77]">{offer}</p>}
+            {fees && <dl className="mt-5 divide-y divide-white/10 rounded-2xl border border-white/10 bg-black/20 px-4">
+              <div className="py-4"><dt className="font-semibold">{t("With prior market experience", "للي عنده خبرة سابقة بالمجال")}</dt><dd className="mt-2 text-2xl font-semibold">{currencyText(fees.experiencedFee)}</dd></div>
+              <div className="py-4"><dt className="font-semibold">{t("Starting from zero", "للي بيبدأ من الصفر")}</dt><dd className="mt-2 text-2xl font-semibold">{currencyText(fees.beginnerFee)}</dd></div>
+            </dl>}
+            <p className="mt-4 text-sm leading-7 text-[#D1D5DB]">{intakeOpen ? <>{t("Final enquiry window: through ", "نافذة الاستفسارات الأخيرة حتى ")}<bdi dir="ltr">{deadline}</bdi>{t(", Israel time. Share your experience so your starting point and fee can be confirmed before joining.", " بتوقيت إسرائيل. احكِ عن خبرتك لتوضيح نقطة بدايتك والرسوم قبل الانضمام.")}</> : t("The 2026 enquiry window is closed. The free Academy remains available.", "انتهت نافذة الاستفسارات لعام 2026. الأكاديمية المجانية ما زالت متاحة.")}</p>
+            {intakeOpen ? <SectionLink href="#interest" prefetch={false} className={buttonVariants({ className: "mt-4 w-full sm:w-auto whitespace-normal text-center" })}>{t("Ask About ICT Mentorship", "استفسر عن ICT Mentorship")}</SectionLink> : null}
             <p className="mt-3 text-sm leading-7 text-[#D1D5DB]">{currencyText(t("The free Academy stays free. ICT Mentorship with Mark is a separate programme with a fee. Before joining, review the content, duration, session format, schedule, price, follow-up scope and cancellation terms. An enquiry does not reserve a place or create a payment commitment.", "الأكاديمية المجانية بتضل مجانية. المنتورشيب مع مارك برنامج منفصل برسوم. قبل الانضمام، تعرف على المحتوى والمدة وصيغة اللقاءات والمواعيد والسعر ونطاق المتابعة وشروط الإلغاء. الاستفسار لا يحجز مقعدًا ولا ينشئ التزامًا بالدفع."))}</p>
             <div className="mt-4 flex flex-wrap gap-4"><Link href="/learn-trading-free" className="text-sm text-[#E5CA77] underline underline-offset-4">{t("Start with the Free Academy", "ابدأ بالأكاديمية المجانية")}</Link><Link href="/about-founder" className="text-sm text-[#E5CA77] underline underline-offset-4">{t("Meet Mark and Explore the Method", "تعرّف على مارك والمنهج")}</Link></div>
           </section>

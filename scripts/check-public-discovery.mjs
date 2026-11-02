@@ -60,6 +60,8 @@ const freeCourseEntry = load("src/components/academy/free-course-entry.tsx", {
   "@/i18n/navigation": { Link: "test-link" },
 });
 const page = (name) => load(`src/app/[locale]/${name}/page.tsx`, {
+  "next/link": { default: "test-link" },
+  "lucide-react": { Headphones: "test-icon" },
   "@/components/ui/currency-text": currencyText,
   "@/lib/auth": { getCurrentSessionUser: async () => ({ id: "signed-in-learner" }) },
   "@/lib/protected-page": { getSignedOutPageDestination: () => { throw new Error("Authenticated fixture must not redirect"); } },

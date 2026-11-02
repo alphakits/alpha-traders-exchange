@@ -30,6 +30,10 @@
   padding-block: 0;
 }
 
+.authShell:has(> [data-mentorship-announcement]) .page[data-login-surface="app"] {
+  min-height: 0;
+}
+
 .card {
   display: block;
   flex-shrink: 0;
