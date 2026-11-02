@@ -1,4 +1,5 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import Link from "next/link";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MobileNavigationMenu } from "@/components/layout/mobile-navigation-menu";
 
@@ -6,7 +7,7 @@ afterEach(cleanup);
 
 describe("MobileNavigationMenu", () => {
   it("reveals a clipped active link inside the menu on open without moving focus", () => {
-    render(<MobileNavigationMenu label="Open menu"><a href="/en/usdt-exchange/requests" aria-current="page">Buy Requests</a></MobileNavigationMenu>);
+    render(<MobileNavigationMenu label="Open menu"><Link href="/en/usdt-exchange/requests" aria-current="page">Buy Requests</Link></MobileNavigationMenu>);
     const link = screen.getByText("Buy Requests");
     const panel = link.parentElement!;
     const details = link.closest("details")!;
