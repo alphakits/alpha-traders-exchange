@@ -32,4 +32,4 @@ export function demandTestMarket(price = 3.2, ageMs = 0): MarketSnapshot {
   const pair = { key: "usdtIls" as const, label: "USDT/ILS", price, changePercent: 0, source: "WISE:USDILS", reference: "WISE:USDILS", quotedAt: new Date(now).toISOString(), validUntil: new Date(now + 120_000).toISOString(), quoteStatus: "live" as const };
   return { status: "live", updatedAt: new Date(now).toISOString(), stale: false, unavailablePairs: [], pairs: { usdtIls: pair, btcUsdt: { ...pair, key: "btcUsdt" }, ethUsdt: { ...pair, key: "ethUsdt" } } };
 }
-export function demandTestTerms(): DemandTerms { return { amount: "1000", price: "3.20", network: "TRC20", paymentMethod: "Bank Transfer", city: "" }; }
+export function demandTestTerms(): DemandTerms { return { amount: "1000", price: "3.05", network: "TRC20", paymentMethod: "Bank Transfer", city: "" }; }

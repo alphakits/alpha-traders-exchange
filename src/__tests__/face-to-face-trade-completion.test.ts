@@ -894,7 +894,7 @@ describe("guided cash-trade completion", () => {
 
     it.each(["accept_amount", "decline_terms", "withdraw_terms"] as const)("allows two submitted adjustments and never refunds them after %s", async resolution => {
       const {requestId} = seedTrade({paymentMethod, status:"pending", amount:"600"});
-      Object.assign(currentSnapshot().purchaseRequests[0], {pricePerUsdt:"4.00", fiatAmount:"2400.00", priceMode:"buyer_offer"});
+      Object.assign(currentSnapshot().purchaseRequests[0], {pricePerUsdt:"4.00", fiatAmount:"2400.00", priceMode:"listing_price"});
       for (const [index, value] of ["800", "150"].entries()) {
         const proposal = await propose("propose_amount", value);
         expect(proposal.amountAdjustmentCount).toBe(index + 1);
@@ -1071,6 +1071,51 @@ describe("guided cash-trade completion", () => {
     await expect(updatePurchaseRequestStatus({ requestId, actorUserId: SELLER_ID, actorRole: "approved_seller", nextStatus: "cancelled" })).rejects.toMatchObject({ code: "trade-disputed" });
   });
 
+  it("settles 1,000 USDT at the buyer-approved ₪3.20 once, including both fee shares", async () => {
+    const { requestId } = seedTrade({ status: "pending", amount: "1000" });
+    const listing = currentSnapshot().marketplaceListings[0];
+    Object.assign(listing, { price: "3.35", originalAmount: "5000", availableAmount: "5000" });
+    Object.assign(currentSnapshot().purchaseRequests[0], { priceMode: "buyer_offer", pricePerUsdt: "3.15",
+      listingPriceAtRequest: "3.35", fiatAmount: "3181.50", feePolicyVersion: "buyer_seller_1pct_v1", commissionCalculationVersion: "usdt_6dp_v2" });
+    for (const invalid of ["3.14", "3.15", "3.36"]) await expect(propose("counter_offer", invalid)).rejects.toThrow(/price range/);
+    await expect(propose("propose_amount", "800")).rejects.toThrow(/stage/);
+    const first = await propose("counter_offer", "3.17");
+    await updateTradeTerms({ requestId, actorUserId: SELLER_ID, action: "withdraw_terms", proposalId: first.termsProposal!.id });
+    await expect(propose("counter_offer", "3.170")).rejects.toThrow(/already been proposed/);
+    const counter = await propose("counter_offer", "3.20");
+    expect(counter.termsProposal).toMatchObject({ usdtAmount: "1000", fiatAmount: "3232.00", pricePerUsdt: "3.20" });
+    const accept = { requestId, actorUserId: BUYER_ID, actorRole: "buyer" as const, nextStatus: "accepted" as const, acceptCounterOfferId: counter.termsProposal!.id };
+    await updatePurchaseRequestStatus(accept);
+    expect((await updatePurchaseRequestStatus(accept)).statusChanged).toBe(false);
+    expect(currentSnapshot().commissionRecords).toHaveLength(0);
+    const seller = { requestId, actorUserId: SELLER_ID, actorRole: "approved_seller" as const };
+    await updatePurchaseRequestStatus({ ...seller, nextStatus: "funds_received" });
+    await updatePurchaseRequestStatus({ ...seller, nextStatus: "usdt_sent" });
+    const finish = { ...seller, nextStatus: "completed" as const, completionMode: "cash_trade" as const };
+    await updatePurchaseRequestStatus(finish);
+    await updatePurchaseRequestStatus(finish);
+    expect(currentSnapshot().marketplaceListings[0].availableAmount).toBe("4000");
+    expect(currentSnapshot().commissionRecords).toEqual([expect.objectContaining({
+      purchaseRequestId: requestId, sellerFeeAmount: 10, buyerFeeCollectedAmount: 10, commissionAmount: 20, grossAmount: 3232,
+    })]);
+  });
+
+  it("refuses a stale counter after the listing rate drops or a legacy counter changes the quantity", async () => {
+    const { requestId } = seedTrade({ status: "pending" });
+    Object.assign(currentSnapshot().purchaseRequests[0], { priceMode: "buyer_offer", pricePerUsdt: "3.00" });
+    const proposed = await propose("counter_offer", "3.15");
+    const accept = { requestId, actorUserId: BUYER_ID, actorRole: "buyer" as const, nextStatus: "accepted" as const, acceptCounterOfferId: proposed.termsProposal!.id };
+    currentSnapshot().marketplaceListings[0].price = "3.10";
+    invalidateAlphaExchangeStoreCache();
+    await expect(updatePurchaseRequestStatus(accept)).rejects.toMatchObject({ code: "stale-counter-offer" });
+    currentSnapshot().marketplaceListings[0].price = "3.20";
+    currentSnapshot().purchaseRequests[0].termsProposal!.usdtAmount = "200";
+    invalidateAlphaExchangeStoreCache();
+    await expect(updatePurchaseRequestStatus(accept)).rejects.toMatchObject({ code: "stale-counter-offer" });
+    expect(currentSnapshot().purchaseRequests[0]).toMatchObject({ status: "pending", usdtAmount: "250" });
+    expect(currentSnapshot().commissionRecords).toHaveLength(0);
+  });
+
   it("accepts a seller counter-offer directly into the same trade, once", async () => {
     seedTrade({ status: "pending" });
     currentSnapshot().purchaseRequests[0].priceMode = "buyer_offer";
@@ -1132,7 +1177,7 @@ describe("guided cash-trade completion", () => {
   });
 
   it("rejects stale proposal acceptance after withdrawal and replacement", async () => {
-    seedTrade({ status: "pending" }); currentSnapshot().purchaseRequests[0].priceMode = "buyer_offer";
+    seedTrade({ status: "pending" }); Object.assign(currentSnapshot().purchaseRequests[0], { priceMode: "buyer_offer", pricePerUsdt: "3.00" });
     const first = await propose("counter_offer", "3.10");
     const firstId = first.termsProposal!.id;
     await updateTradeTerms({ requestId: first.id, actorUserId: SELLER_ID, action: "withdraw_terms", proposalId: firstId });
@@ -1158,12 +1203,12 @@ describe("guided cash-trade completion", () => {
     seedTrade({ status: "pending" });
     currentSnapshot().purchaseRequests[0].priceMode = "buyer_offer";
     currentSnapshot().purchaseRequests[0].pricePerUsdt = "3.00";
-    const proposal = await propose("counter_offer", "3.55");
+    const proposal = await propose("counter_offer", "3.20");
     expect(proposal.pricePerUsdt).toBe("3.00");
-    expect(proposal.termsProposal?.pricePerUsdt).toBe("3.55");
+    expect(proposal.termsProposal?.pricePerUsdt).toBe("3.20");
     const accepted = await updatePurchaseRequestStatus({ requestId: proposal.id, actorUserId: BUYER_ID, actorRole: "buyer", nextStatus: "accepted", acceptCounterOfferId: proposal.termsProposal!.id });
-    expect(accepted.request.pricePerUsdt).toBe("3.55");
-    expect(accepted.request.fiatAmount).toBe("887.50");
+    expect(accepted.request.pricePerUsdt).toBe("3.20");
+    expect(accepted.request.fiatAmount).toBe("800.00");
   });
 
   it("enforces the available balance and counter-offer price bounds", async () => {
@@ -1232,30 +1277,30 @@ describe("guided cash-trade completion", () => {
     expect(currentSnapshot().purchaseRequests).toHaveLength(0);
   });
 
-  it("keeps the 1300 code and recalculates USDT when the seller counters the price", async () => {
+  it("rejects an ATM counter that would require changing the buyer's quantity", async () => {
     const { request } = await bankCode420Request({ priceMode: "buyer_offer", offeredPrice: "3.09", usdtAmount: "416.546509" });
-    const proposed = await updateTradeTerms({ requestId: request.id, actorUserId: SELLER_ID, action: "counter_offer", value: "3.10", expectedUpdatedAt: request.updatedAt });
-    expect(proposed.termsProposal).toMatchObject({ usdtAmount: "415.202811", fiatAmount: "1300.00" });
-    await updatePurchaseRequestStatus({ requestId: request.id, actorUserId: BUYER_ID, actorRole: "buyer", nextStatus: "accepted", acceptCounterOfferId: proposed.termsProposal!.id });
-    expect(currentSnapshot().purchaseRequests[0]).toMatchObject({ usdtAmount: "415.202811", fiatAmount: "1300.00", status: "accepted" });
-    await confirmPreparedCode(request.id);
-    expect(currentSnapshot().purchaseRequests[0].status).toBe("payment_sent");
+    await expect(propose("counter_offer", "3.10")).rejects.toThrow(/ATM withdrawal/);
+    expect(currentSnapshot().purchaseRequests[0]).toMatchObject({ id: request.id, status: "pending", usdtAmount: "416.546509", fiatAmount: "1300.00" });
+    expect(currentSnapshot().purchaseRequests[0].termsProposal).toBeUndefined();
   });
 
-  it.each([
-    { offeredPrice: "3.09", original: "416.546509", counterPrice: "3.10", reserved: "4", accepted: true },
-    { offeredPrice: "3.09", original: "416.546509", counterPrice: "3.08", reserved: "3", accepted: false },
-  ])("checks the recalculated ATM quantity against newly reserved stock: $accepted", async ({ offeredPrice, original, counterPrice, reserved, accepted }) => {
-    const { request } = await bankCode420Request({ priceMode: "buyer_offer", offeredPrice, usdtAmount: original });
-    const proposed = await updateTradeTerms({ requestId: request.id, actorUserId: SELLER_ID, action: "counter_offer", value: counterPrice, expectedUpdatedAt: request.updatedAt });
+  it.each([{ reserved: "66", accepted: true }, { reserved: "67", accepted: false }])("rechecks fixed ATM quantity against reserved stock: $accepted", async ({ reserved, accepted }) => {
+    const original = "353.606789";
+    const { request } = await bankCode420Request({ priceMode: "buyer_offer", offeredPrice: "2.80", usdtAmount: original, cardlessIlsAmount: "1000" });
+    const proposed = await propose("counter_offer", "3.08");
+    expect(proposed.termsProposal).toMatchObject({ usdtAmount: original, fiatAmount: "1100.00" });
     currentSnapshot().purchaseRequests.push({ ...structuredClone(currentSnapshot().purchaseRequests[0]), id: "other-reservation", buyerId: OUTSIDER_ID, status: "accepted", usdtAmount: reserved, termsProposal: undefined, messages: [] });
     invalidateAlphaExchangeStoreCache();
     const command = { requestId: request.id, actorUserId: BUYER_ID, actorRole: "buyer" as const, nextStatus: "accepted" as const, acceptCounterOfferId: proposed.termsProposal!.id };
     if (accepted) {
-      await expect(updatePurchaseRequestStatus(command)).resolves.toMatchObject({ request: { usdtAmount: "415.202811", fiatAmount: "1300.00", status: "accepted" } });
+      await expect(updatePurchaseRequestStatus(command)).resolves.toMatchObject({ request: { usdtAmount: original, fiatAmount: "1100.00", status: "accepted" } });
+      const saved = currentSnapshot().purchaseRequests.find(row => row.id === request.id)!;
+      expect(saved.messages?.some(m => m.credentialKind === "cardless_code")).toBe(false);
+      expect(saved.cardlessCodeAwaitingBuyerConfirmation).toBe(false);
+      await expect(confirmPreparedCode(request.id)).rejects.toMatchObject({ code: "CARDLESS_DETAILS_UNAVAILABLE" });
     } else {
       await expect(updatePurchaseRequestStatus(command)).rejects.toMatchObject({ code: "listing-amount-unavailable" });
-      expect(currentSnapshot().purchaseRequests.find(item => item.id === request.id)).toMatchObject({ usdtAmount: original, status: "pending", termsProposal: { status: "pending" } });
+      expect(currentSnapshot().purchaseRequests.find(row => row.id === request.id)).toMatchObject({ usdtAmount: original, status: "pending", fiatAmount: "1000.00" });
     }
     expect(currentSnapshot().commissionRecords).toHaveLength(0);
   });

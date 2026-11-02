@@ -8,7 +8,7 @@ import type {
   MobileTradeMessage,
   MobileTradeSummary,
 } from "@alpha-traders/contracts";
-import { getTradeAmountAdjustmentCount, localizeCardlessWithdrawalMessage, tradeChatStatus } from "@alpha-traders/contracts";
+import { getTradeAmountAdjustmentCount, isNegotiatingQuantityFixed, isTradeChatOpen, localizeCardlessWithdrawalMessage, tradeChatStatus } from "@alpha-traders/contracts";
 import { tradeChatPublicId, tradeChatSender, type TradeChatContext } from "@/lib/trade-chat-presentation";
 import type { TradeRoomData } from "@/lib/alpha-exchange-store";
 import { DIRECT_CONTACT_CONTENT_ERROR } from "@/lib/privacy-redaction";
@@ -33,6 +33,7 @@ export function toMobileTradeSummary(request: PurchaseRequest, userId: string): 
   return {
     feePolicyVersion: request.feePolicyVersion,
     amountAdjustmentCount: getTradeAmountAdjustmentCount(request),
+    counterPrices: request.counterPrices,
     termsProposal: request.termsProposal,
     id: request.id,
     displayNumber: request.displayNumber,
@@ -186,6 +187,9 @@ export function toMobileTradeDetail(
     ...(request.completionReceipt ? { completionReceipt: request.completionReceipt } : {}),
     counterpartyDisplayName: tradeChatPublicId(room, isBuyer ? "seller" : "buyer"),
     participants: { buyerPublicId: tradeChatPublicId(room, "buyer"), sellerPublicId: tradeChatPublicId(room, "seller") },
+    chatOpen: isTradeChatOpen(request),
+    quantityFixed: isNegotiatingQuantityFixed(request),
+    liveListingPrice: room.listing?.price,
     receivingWalletAddress: canExposeBuyerWalletToMobileParticipant(request, userId)
       ? request.buyerReceivingWalletAddress
       : undefined,
@@ -230,6 +234,7 @@ export function mobileTradeErrorCode(error: unknown): MobileApiErrorCode | null 
     if (code === "PRICE_OFFER_INVALID_FORMAT" || code === "PRICE_OFFER_ABOVE_MAXIMUM" || code === "PRICE_OFFER_BELOW_MINIMUM" || code === "PRICE_OFFERS_ILS_ONLY") {
       return "PRICE_OFFER_INVALID";
     }
+    if (code === "trade-chat-pending") return "TRADE_CHAT_PENDING";
     if (code === "purchase-request-not-found") return "TRADE_NOT_FOUND";
     if (code) return "TRADE_ACTION_NOT_ALLOWED";
   }
@@ -270,7 +275,7 @@ export function mobileTradeErrorCode(error: unknown): MobileApiErrorCode | null 
 export function mobileTradeErrorStatus(code: MobileApiErrorCode) {
   if (code === "TRADE_NOT_FOUND") return 404;
   if (
-    code === "TRADE_ACTION_NOT_ALLOWED"
+    code === "TRADE_ACTION_NOT_ALLOWED" || code === "TRADE_CHAT_PENDING"
     || code === "ACTIVE_TRADE_EXISTS"
     || code === "PURCHASE_REQUEST_ALREADY_SUBMITTED"
     || code === "PENDING_BUYER_FEEDBACK"

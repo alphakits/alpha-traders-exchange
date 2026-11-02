@@ -152,6 +152,10 @@ const errorMessages: Record<MobileApiErrorCode, Record<MobileLocale, string>> = 
     ar: "لديك عمولة معلقة. قم بتسويتها قبل قبول صفقة جديدة.",
     en: "You have a pending commission. Settle it before accepting a new trade.",
   },
+  TRADE_CHAT_PENDING: {
+    en: "Chat opens when the offer is accepted.",
+    ar: "بتفتح المحادثة بعد قبول العرض.",
+  },
   MESSAGE_INVALID: {
     ar: "أدخل رسالة من 1 إلى 1200 حرف.",
     en: "Enter a message between 1 and 1,200 characters.",

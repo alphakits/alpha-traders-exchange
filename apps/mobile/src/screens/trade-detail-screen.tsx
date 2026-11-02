@@ -1,5 +1,5 @@
 import { receiptNotice, tradeReceiptDisplayRows } from "@alpha-traders/contracts";
-import { sellerFeeResponsibilityNotice, tradePaymentReceiptConfirmation, tradeChatTextDirection, TRADE_CHAT_MESSAGE_MAX_LENGTH, OWNER_TRADE_CHAT_MESSAGE_MAX_LENGTH } from "@alpha-traders/contracts";
+import { sellerFeeResponsibilityNotice, tradePaymentReceiptConfirmation, tradeChatTextDirection, isTradeChatOpen, tradeWalletShareError, TRADE_CHAT_MESSAGE_MAX_LENGTH, OWNER_TRADE_CHAT_MESSAGE_MAX_LENGTH } from "@alpha-traders/contracts";
 import { BrandedText as Text } from "../components/branded-text";
 import { AttentionSiren } from "../components/attention-siren";
 import { TradeTermsPanel } from "../components/trade-terms-panel";
@@ -540,7 +540,10 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
   }
 
   async function sendMessage() {
-    if (sendingMessage) return;
+    const currentTrade = query.data?.trade;
+    if (sendingMessage || !currentTrade || !(currentTrade.chatOpen ?? isTradeChatOpen(currentTrade))) return;
+    const walletError = tradeWalletShareError(draftMessage, currentTrade.network, locale);
+    if (walletError && !isOwnerChat) { setError(walletError); return; }
     const operationScope = activeTradeScopeRef.current;
     const message = draftMessage.trim();
     if (!message || message.length > messageLimit) {
@@ -1141,7 +1144,13 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
           </View>
           {isCardlessAtm && trade.side === "buyer" && !isOwnerChat && trade.status === "accepted" ? (
             <Text style={[styles.chatSafety, isRTL && styles.rtlText]}>{t("cardlessProtectedCodeHint")}</Text>
-          ) : (
+          ) : null}
+          {(trade.chatOpen ?? isTradeChatOpen(trade)) ? <>
+          <View style={[styles.composer, isRTL && styles.rowReverse]}>
+            <GoldButton variant="outline" disabled={sendingMessage || Boolean(draftMessage.trim())} onPress={() => setDraftMessage(trade.network)}>{locale === "ar" ? "إضافة الشبكة" : "Add network"} · {trade.network}</GoldButton>
+            <GoldButton variant="outline" disabled={sendingMessage || Boolean(draftMessage.trim())} onPress={() => setDraftMessage(trade.network + ": ")}>{locale === "ar" ? "إضافة عنوان محفظة" : "Add wallet address"}</GoldButton>
+          </View>
+          {draftMessage.startsWith(trade.network + ":") ? <Text style={styles.privacyNote}>{locale === "ar" ? "ألصق العنوان بعد اسم الشبكة ثم أرسل الرسالة." : "Paste the wallet address after the network, then send."}</Text> : null}
           <View style={[styles.composer, isRTL && styles.rowReverse]}>
             <TextInput
               accessibilityLabel={t("messagePlaceholder")}
@@ -1166,7 +1175,9 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
               {t("send")}
             </GoldButton>
           </View>
-          )}
+          </> : <Text style={styles.privacyNote}>{trade.status === "pending"
+            ? (locale === "ar" ? "بتفتح المحادثة بعد قبول العرض." : "Chat opens when the offer is accepted.")
+            : (locale === "ar" ? "محادثة هذه الصفقة مغلقة." : "This trade chat is closed.")}</Text>}
         </View>
 
         <View style={styles.section}>

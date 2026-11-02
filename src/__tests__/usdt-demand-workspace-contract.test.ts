@@ -120,7 +120,7 @@ describe("request workspace action metadata", () => {
   it("groups notification amounts without changing canonical request terms", () => {
     const d = publish();
     expect(d.amount).toBe("1000");
-    expect(db.notifications[0].messageEn).toContain("1,000 USDT requested at ₪3.20");
+    expect(db.notifications[0].messageEn).toContain("1,000 USDT requested at ₪3.05");
     expect(db.notifications[0].messageAr).toContain("1,000 USDT");
   });
 
@@ -130,6 +130,6 @@ describe("request workspace action metadata", () => {
     const response = db.notifications.find(n => n.userId === "buyer")!;
     expect(response.messageEn).toContain("1,000 USDT offered at ₪3.10");
     expect(response.messageAr).toContain("₪3.10");
-    expect(d.price).toBe("3.20");
+    expect(d.price).toBe("3.05");
   });
 });

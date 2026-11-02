@@ -1,6 +1,6 @@
 import { subtractTradeAmounts, isTradeAmountLessThan } from "@/lib/trade-amount";
 import { z } from "zod";
-import { calculateTradePaymentTotal, canonicalizeTradeAmount, getIlsReferencePriceBounds, parseCardlessCashAmount, getPurchaseMinimumTrade } from "@alpha-traders/contracts";
+import { isSellerCounterPrice, calculateTradePaymentTotal, canonicalizeTradeAmount, getIlsReferencePriceBounds, parseCardlessCashAmount, getPurchaseMinimumTrade } from "@alpha-traders/contracts";
 import type { AlphaExchangeDb, AlphaExchangeUser, MarketplaceListing, PurchaseRequest } from "@/types/alpha-exchange";
 import type { DemandTerms, UsdtDemand } from "@/types/usdt-demand";
 import type { MarketSnapshot } from "@/types/market";
@@ -168,6 +168,13 @@ export function assertDemandListing(db: AlphaExchangeDb, demand: UsdtDemand, lis
 function normalizeDemandCity(city: string | undefined) {
   return (city ?? "").normalize("NFKC").trim().replace(/\s+/gu, " ").toLowerCase();
 }
+export function assertDemandResponsePrice(demand: UsdtDemand, listing: MarketplaceListing, price: string) {
+  // Matching the requested price is the seller's explicit agreement to the buyer's terms.
+  if (Number(price) !== Number(demand.price) && !isSellerCounterPrice(demand.price, listing.price, price)) {
+    throw new DemandError("COUNTER_PRICE_RANGE", "Match the requested rate or counter above it, up to your listing rate.");
+  }
+}
+
 export type DemandMatchInput = { buyerId: string; demandId: string; offerId: string; revision: number; listingId: string; amount: string; paymentMethod?: string; network?: string; currency?: string; bankTransferProvider?: string };
 export function validateDemandMatch(db: AlphaExchangeDb, input: DemandMatchInput, market: MarketSnapshot, excludingTrade?: string) {
   assertDemandEnabled();
@@ -186,6 +193,7 @@ export function validateDemandMatch(db: AlphaExchangeDb, input: DemandMatchInput
   const listing = db.marketplaceListings.find(l => l.id === offer.listingId);
   assertDemandListing(db, demand, listing, excludingTrade);
   if (listing.sellerId !== offer.sellerId || listing.updatedAt !== offer.listingUpdatedAt) throw new DemandError("LISTING_CHANGED", "The seller changed this listing. Ask for an updated response.");
+  assertDemandResponsePrice(demand, listing, offer.price);
   return { demand, offer };
 }
 export function commitDemandMatch(db: AlphaExchangeDb, input: DemandMatchInput, market: MarketSnapshot, trade: PurchaseRequest) {

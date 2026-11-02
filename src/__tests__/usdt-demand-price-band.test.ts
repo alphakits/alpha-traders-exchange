@@ -23,6 +23,7 @@ beforeEach(() => {
   vi.useFakeTimers({ toFake: ["Date"] }); vi.setSystemTime(new Date("2026-10-24T10:00:00Z"));
   vi.stubEnv("ALPHA_USDT_REQUESTS_ENABLED", "1"); vi.stubEnv("ALPHA_USDT_REQUEST_EMAIL_DELIVERY_ENABLED", "0");
   db = demandTestDb();
+  db.marketplaceListings[0].price = "3.45";
   globalThis.__alphaExchangeMemorySnapshot = structuredClone(db);
   globalThis.__alphaExchangeRepositoryPromise = undefined;
   globalThis.__alphaExchangeMemoryEvidenceContent = new Map();
@@ -44,6 +45,22 @@ describe("exact live-reference cent boundaries", () => {
     expect(assertDemandPrice(String(maximum), demandTestMarket(reference))).toBe(maximum);
     expect(() => assertDemandPrice((Number(minimum) - .01).toFixed(2), demandTestMarket(reference))).toThrow(/between/);
     expect(() => assertDemandPrice((Number(maximum) + .01).toFixed(2), demandTestMarket(reference))).toThrow(/between/);
+  });
+
+  it("keeps seller counter rates unique per seller and request, while permitting a match at the buyer's price", () => {
+    const d = publish("3.15");
+    db.marketplaceListings[0].price = "3.35";
+    for (const rate of ["3.14", "3.36"]) expect(() => respond(d.id, rate)).toThrow(/up to your listing/);
+    const matched = respond(d.id, "3.15");
+    expect(matched.price).toBe("3.15");
+    vi.setSystemTime(Date.now() + 60_001);
+    const first = respond(d.id, "3.17");
+    expect(first.price).toBe("3.17");
+    vi.setSystemTime(Date.now() + 60_001);
+    expect(respond(d.id, "3.35").price).toBe("3.35");
+    vi.setSystemTime(Date.now() + 60_001);
+    expect(() => respond(d.id, "3.17")).toThrow(/already sent/);
+    expect(d.amount).toBe("1000");
   });
 
   it("preserves both inclusive boundaries for every whole-cent supported reference", () => {
@@ -86,7 +103,7 @@ describe("exact live-reference cent boundaries", () => {
 
   it.each(["requested", "offered"])("rechecks the %s price against a changed quote at final match", which => {
     const d = publish(which === "requested" ? "3.45" : "3.10");
-    const o = respond(d.id, which === "offered" ? "3.45" : "3.10");
+    const o = respond(d.id, "3.45");
     const input = { buyerId: "buyer", demandId: d.id, offerId: o.id, revision: 1, listingId: o.listingId, amount: d.amount, paymentMethod: d.paymentMethod, network: d.network };
     const before = structuredClone(db);
     expect(() => validateDemandMatch(db, input, demandTestMarket(3.09))).toThrow(/3.44/);

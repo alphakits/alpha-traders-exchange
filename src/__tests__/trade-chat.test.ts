@@ -148,6 +148,35 @@ describe("Trade Room participant communication", () => {
     mocks.checkSharedRateLimit.mockResolvedValue({ allowed: true, retryAfterSeconds: 0, reason: null });
   });
 
+  it("locks both participants out of unaccepted offers, including direct API text, wallet and attachment writes", async () => {
+    snapshot().purchaseRequests[0]!.status = "pending";
+    for (const actorUserId of [BUYER_ID, SELLER_ID]) {
+      for (const input of [{ message: "hello" }, { message: "TRC20" }, { message: "", imageUrl: "data:image/png;base64," + TINY_PNG_BASE64 }]) {
+        await expect(postTradeRoomMessage({ purchaseRequestId: "trade-1", actorUserId, ...input })).rejects.toMatchObject({ code: "trade-chat-pending" });
+      }
+    }
+    expect(snapshot().purchaseRequests[0]!.messages).toHaveLength(0);
+    expect(snapshot().notifications).toHaveLength(0);
+    expect(mocks.publishRealtimeEvent).not.toHaveBeenCalled();
+  });
+
+  it.each([BUYER_ID, SELLER_ID])("lets %s share a wallet or network after acceptance without making contact details or ATM codes shareable", async actorUserId => {
+    const address = "0x1234567890abcdef1234567890abcdef12345678";
+    const saved = snapshot().purchaseRequests[0]!;
+    Object.assign(saved, { paymentMethod: "Cardless ATM Withdrawal", network: "BEP20" });
+    for (const message of ["BEP20", address, "BEP20: " + address]) {
+      expect((await postTradeRoomMessage({ purchaseRequestId: saved.id, actorUserId, message })).created).toBe(true);
+    }
+    const other = actorUserId === BUYER_ID ? SELLER_ID : BUYER_ID;
+    const room = await getTradeRoomData({ purchaseRequestId: saved.id, actorUserId: other, actorRole: other === BUYER_ID ? "buyer" : "approved_seller", markMessagesRead: false });
+    expect(room.messages.map(m => m.message)).toEqual(expect.arrayContaining(["BEP20", address, "BEP20: " + address]));
+    for (const message of ["BEP20: 050-123-4567", "BEP20: " + address + " code 123456", "code 123456", "https://wa.me/972501234567"]) {
+      await expect(postTradeRoomMessage({ purchaseRequestId: saved.id, actorUserId, message })).rejects.toThrow();
+    }
+    await expect(postTradeRoomMessage({ purchaseRequestId: saved.id, actorUserId: OUTSIDER_ID, message: address })).rejects.toThrow();
+    expect(snapshot().purchaseRequests[0]!.messages).toHaveLength(3);
+  });
+
   it("lets the canonical owner address both participants without changing trade terms or status", async () => {
     const before = { ...snapshot().purchaseRequests[0] };
     const input = { purchaseRequestId: "trade-1", actorUserId: "owner-1", message: "Please confirm the next step here.", clientMessageId: "abcdefabcdefabcdefabcdefabcdefab" };

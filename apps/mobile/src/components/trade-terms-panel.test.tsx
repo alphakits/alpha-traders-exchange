@@ -29,13 +29,13 @@ it.each([false, true])("calculates a native ATM correction from cash including t
   expect(screen.queryByText("420 → 415.202811 USDT")).toBeNull();
 });
 
-it("allows a native price offer to choose cash correction or counter-price without losing the fee", () => {
-  render(<TradeTermsPanel trade={{ ...base, priceMode: "buyer_offer", usdtAmount: "416.546509", fiatAmount: "1300.00", pricePerUsdt: "3.09" }} isAr={false} disabled={false} onAction={vi.fn()} />);
-  expect(screen.getByLabelText("New withdrawal amount (ILS)")).toBeTruthy();
+it("keeps the buyer’s ATM quantity fixed and rejects an unpayable counter-price", () => {
+  render(<TradeTermsPanel trade={{ ...base, priceMode: "buyer_offer", listingPriceAtRequest: "3.35", usdtAmount: "416.546509", fiatAmount: "1300.00", pricePerUsdt: "3.09" }} isAr={false} disabled={false} onAction={vi.fn()} />);
+  expect(screen.queryByLabelText("New withdrawal amount (ILS)")).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Make a counter-offer" }));
   fireEvent.change(screen.getByLabelText("Counter price ILS"), { target: { value: "3.10" } });
-  expect(screen.getByText("416.546509 → 415.202811 USDT")).toBeTruthy();
-  expect(screen.getByText("ILS 1300.00")).toBeTruthy();
+  expect(screen.getByText(/fixed quantity must produce/)).toBeTruthy();
+  expect((screen.getByRole("button", { name: "Send counter-offer" }) as HTMLButtonElement).disabled).toBe(true);
 });
 
 it.each(["Bank Transfer", "Face-to-Face (Meet in Person)"])("calculates native total-payment adjustments for %s", paymentMethod => {
