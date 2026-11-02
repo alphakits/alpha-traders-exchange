@@ -1,3 +1,4 @@
+import { isCompactListingDevice } from "@/lib/compact-listing-device";
 import { buildPageMetadata } from "@/lib/seo";
 import { redirect } from "next/navigation";
 import { getCurrentSessionUser } from "@/lib/auth";
@@ -35,5 +36,5 @@ export default async function DashboardPage({ params }: { params: Promise<{ loca
     redirect(`/${locale}/dashboard/seller`);
   }
 
-  return <UsdtExchangePage locale={locale as "ar" | "en"} initialSessionUser={toClientSessionUser(user)} workspaceMode="buyer" usdtRequestsEnabled={demandEnabled()} />;
+  return <UsdtExchangePage compactListingDevice={await isCompactListingDevice()} locale={locale as "ar" | "en"} initialSessionUser={toClientSessionUser(user)} workspaceMode="buyer" usdtRequestsEnabled={demandEnabled()} />;
 }

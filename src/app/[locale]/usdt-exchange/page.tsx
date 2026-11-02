@@ -1,3 +1,4 @@
+import { isCompactListingDevice } from "@/lib/compact-listing-device";
 import { demandEnabled } from "@/lib/usdt-demand-policy";
 import { buildPageMetadata } from "@/lib/seo";
 import { UsdtExchangePage } from "@/components/sections/usdt-exchange/usdt-exchange-page";
@@ -41,5 +42,5 @@ export default async function UsdtExchangeRoute({ params, searchParams }: {
     const search = query.toString();
     redirect(getSignedOutPageDestination(`/${locale}/usdt-exchange${search ? `?${search}` : ""}`));
   }
-  return <UsdtExchangePage locale={locale as "ar" | "en"} usdtRequestsEnabled={demandEnabled()} initialSessionUser={toClientSessionUser(user)} />;
+  return <UsdtExchangePage compactListingDevice={await isCompactListingDevice()} locale={locale as "ar" | "en"} usdtRequestsEnabled={demandEnabled()} initialSessionUser={toClientSessionUser(user)} />;
 }
