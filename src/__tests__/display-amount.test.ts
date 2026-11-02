@@ -11,9 +11,10 @@ describe("financial presentation in English and Arabic", () => {
       .toEqual(["99", "100", "999", "1,000", "12,345.000001", "999,999,999,999,999,999,999.5000", "١٢,٣٤٥٫٠٠", "-12,345.67"]);
     expect(formatMoneyNumber("12,345.000001")).toBe("12,345.000001");
   });
-  it("rounds only the listing card presentation to two decimal places", () => {
-    expect(["13762.376237", "13752", "1,000.005", "١٣٬٧٦٢٫٣٧٦٢٣٧", "999999999999.994999", 0].map(formatListingCardUsdt))
-      .toEqual(["13,762.38", "13,752.00", "1,000.01", "13,762.38", "999,999,999,999.99", "0.00"]);
+  it("shows only whole USDT on listing cards without rounding up", () => {
+    expect(["15,000.22", "15000.00", 15000.99, "١٣٬٧٦٢٫٣٧٦٢٣٧", "999999999999.999999", "0.99", 0].map(formatListingCardUsdt))
+      .toEqual(["15,000", "15,000", "15,000", "13,762", "999,999,999,999", "0", "0"]);
+    expect([null, "", "15,00.22"].map(formatListingCardUsdt)).toEqual(["—", "—", "—"]);
     expect(formatMoneyNumber("13762.376237")).toBe("13,762.376237");
   });
   it("accents currency symbols, precise prices, ranges, labels and translated amounts", () => {

@@ -2670,17 +2670,16 @@ input[placeholder*="usdt" i]::placeholder { color: #34d399; }
 
 /* Compact marketplace cards keep all content and grow naturally for long text. */
 .compact-listing { container-type: inline-size; min-width: 0; }
-.compact-listing .compact-listing__header { padding: .875rem .875rem .625rem; }
-.compact-listing .compact-listing__content { display: grid; gap: .625rem; padding: 0 .875rem .875rem; }
+.compact-listing .compact-listing__header { padding: .625rem .75rem .4rem; }
+.compact-listing .compact-listing__content { display: grid; gap: .3rem; padding: 0 .75rem .625rem; }
 .compact-listing .compact-listing__identity-row { min-width: 0; }
 .compact-listing .seller-listing-seller-name { min-width: 0; font-size: 1rem; overflow-wrap: anywhere; }
 .compact-listing .seller-listing-seller-subtitle { letter-spacing: .04em; line-height: 1.5; }
 .compact-listing .compact-listing__availability { max-width: 6.5rem; text-align: end; }
 .compact-listing .seller-listing-countdown { flex-wrap: wrap; justify-content: center; white-space: normal; }
-.compact-listing .compact-listing__badges { margin-top: .5rem; }
-.compact-listing .compact-listing__metrics { padding: .5rem; }
+.compact-listing .compact-listing__metrics { padding: .25rem; }
 .compact-listing__metrics-grid { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: .5rem; }
-.compact-listing .seller-card-keymetric { min-height: 0; padding: .625rem; justify-content: flex-start; gap: .25rem; }
+.compact-listing .seller-card-keymetric { min-height: 0; padding: .5rem .625rem; justify-content: flex-start; gap: .125rem; }
 .compact-listing .compact-listing__amount-label { display: flex; align-items: center; gap: .3rem; line-height: 1.4; }
 .compact-listing .seller-asset-usdt-amount-icon { flex: 0 0 1rem; width: 1rem; height: 1rem; font-size: .65rem; }
 .compact-listing .seller-asset-usdt-amount-row { min-height: 0; margin-top: .25rem; padding: 0; overflow: visible; }
@@ -2690,24 +2689,43 @@ input[placeholder*="usdt" i]::placeholder { color: #34d399; }
   max-width: 100%;
   margin: 0;
   font-size: 1.125rem;
-  font-size: min(2.1rem, calc(160cqi / var(--amount-characters)));
+  font-size: min(1.875rem, calc(160cqi / var(--amount-characters)));
   letter-spacing: -.02em;
   line-height: 1.2;
   white-space: nowrap;
 }
 .compact-listing .seller-card-keymetric > .mt-2 { margin-top: .25rem; }
-.compact-listing .seller-asset-usdt-card > span { padding: .2rem .35rem; line-height: 1.4; }
 .compact-listing .seller-price-value { font-size: clamp(1.5rem, 8cqi, 2.3rem); line-height: 1.2; overflow-wrap: anywhere; }
 .compact-listing .compact-listing__market { display: flex; flex-wrap: wrap; align-items: center; gap: .25rem .5rem; margin-top: .5rem; padding: .4rem .5rem; }
 .compact-listing__market-price { margin-inline-start: auto; font-size: .875rem; overflow-wrap: anywhere; }
-.compact-listing .compact-listing__stats > div { min-width: 0; padding: .4rem .125rem; }
-.compact-listing .compact-listing__stats p { overflow-wrap: anywhere; line-height: 1.4; }
+.compact-listing .compact-listing__stats > div { min-width: 0; padding: .35rem .125rem; }
+.compact-listing .compact-listing__stats p { margin: 0; overflow-wrap: anywhere; line-height: 1.4; }
 .compact-listing .seller-card-info-panel { min-height: 0; padding: .625rem; line-height: 1.5; overflow-wrap: anywhere; }
+.compact-listing__disclosure > summary {
+  display: flex;
+  min-height: 2.75rem;
+  align-items: center;
+  justify-content: space-between;
+  gap: .5rem;
+  cursor: pointer;
+  border-bottom: 1px solid rgb(255 255 255 / .1);
+  font-size: .8125rem;
+  font-weight: 600;
+  color: #c6cbd3;
+}
+.compact-listing__disclosure > summary:focus-visible { outline: 2px solid #c9a227; outline-offset: 2px; }
+.compact-listing__disclosure[open] > summary { margin-bottom: .5rem; }
+.compact-listing__disclosure[open] > summary svg { transform: rotate(180deg); }
+.compact-listing__actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: .375rem;
+}
 .compact-listing .seller-marketplace-action {
   min-width: 0;
   min-height: 2.75rem;
   height: auto;
-  padding: .5rem .625rem;
+  padding: .375rem;
   gap: .35rem;
   border-radius: .75rem;
   font-size: .8125rem;
@@ -2715,10 +2733,20 @@ input[placeholder*="usdt" i]::placeholder { color: #34d399; }
   white-space: normal;
   overflow-wrap: anywhere;
 }
-.compact-listing .seller-marketplace-action > span { display: flex; flex: 1; min-width: 0; align-items: center; justify-content: space-between; gap: .35rem; }
+.compact-listing .seller-marketplace-action > span { display: flex; flex: 1; min-width: 0; align-items: center; justify-content: center; gap: .3rem; }
 .compact-listing .seller-marketplace-action svg { flex-shrink: 0; width: .875rem; height: .875rem; }
-.compact-listing .seller-marketplace-action--offer { flex-direction: row; flex-wrap: wrap; align-items: center; }
+.compact-listing .seller-marketplace-action--offer { flex-direction: row; align-items: center; }
 .compact-listing__details { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@container (max-width: 410px) {
+  .compact-listing__stats svg,
+  .compact-listing__actions .seller-marketplace-action svg { display: none; }
+}
+@container (min-width: 305px) {
+  .compact-listing__actions:has(.seller-marketplace-action--offer) { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@container (width < 305px) {
+  .compact-listing .seller-marketplace-action--offer { grid-column: 1 / -1; }
+}
 @container (max-width: 260px) {
   .compact-listing__details { grid-template-columns: minmax(0, 1fr); }
 }
@@ -2734,7 +2762,6 @@ input[placeholder*="usdt" i]::placeholder { color: #34d399; }
 .compact-listing .role-badge { max-width: 100%; }
 .compact-listing .role-badge__content { min-width: 0; }
 .compact-listing .role-badge__content > span { overflow-wrap: anywhere; }
-.compact-listing .seller-marketplace-action--offer > span { flex-wrap: wrap; }
 
 /* WebKit exposes its disclosure marker even on custom list-none summaries. */
 summary.list-none::-webkit-details-marker {

@@ -140,13 +140,10 @@ export function canonicalizeNonNegativeTradeAmount(value: string | number | null
   return canonicalizeAmount(value, true);
 }
 
-const listingCardNumber = new Intl.NumberFormat("en-US", {
-  minimumFractionDigits: 2,
-  maximumFractionDigits: 2,
-});
+const listingCardNumber = new Intl.NumberFormat("en-US");
 
-/** Two-decimal presentation for USDT quantities on listing cards. */
+/** Show whole USDT on listing cards without rounding up the available quantity. */
 export function formatListingCardUsdt(value: string | number | null | undefined): string {
   const amount = canonicalizeNonNegativeTradeAmount(value);
-  return amount === null ? "—" : listingCardNumber.format(amount as `${number}`);
+  return amount === null ? "—" : listingCardNumber.format(Number.parseInt(amount, 10));
 }
