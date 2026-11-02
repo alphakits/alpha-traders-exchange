@@ -26,7 +26,7 @@ import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useStat
 import { createPortal } from "react-dom";
 import dynamic from "next/dynamic";
 import { useSearchParams } from "next/navigation";
-import { AlertTriangle, ArrowRight, BadgePercent, BellRing, CheckCircle2, ChevronDown, ClipboardList, Clock3, Copy, Crown, Edit3, HandCoins, Loader2, LockKeyhole, MessageCircle, Network, ShieldCheck, Sparkles, Star, Store, TrendingUp, Trophy, Upload, Users, Wallet, WalletCards, X, Zap } from "lucide-react";
+import { AlertTriangle, ArrowRight, BadgePercent, BellRing, CheckCircle2, ChevronDown, ClipboardList, Clock3, Copy, Crown, Edit3, HandCoins, Loader2, LockKeyhole, MessageCircle, Network, ShieldCheck, Sparkle, Sparkles, Star, Store, TrendingUp, Trophy, Upload, Users, Wallet, WalletCards, X, Zap } from "lucide-react";
 import { Link, useRouter } from "@/i18n/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -1035,9 +1035,45 @@ type ListingCardProps = {
   onManageListing: (listing: MarketplaceListing) => void;
 };
 
+function ListingRatingStar({ reviewed }: { reviewed: boolean }) {
+  const ref = useRef<HTMLSpanElement>(null);
+  useEffect(() => {
+    const star = ref.current;
+    if (!reviewed || !star || window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+    if (typeof IntersectionObserver === "undefined") {
+      star.classList.add("listing-rating-star--shine");
+      return;
+    }
+    const observer = new IntersectionObserver(([entry]) => {
+      if (entry.isIntersecting) {
+        star.classList.add("listing-rating-star--shine");
+        observer.disconnect();
+      }
+    }, { threshold: 0.5 });
+    observer.observe(star);
+    return () => observer.disconnect();
+  }, [reviewed]);
+
+  return (
+    <span ref={ref} className={cn("listing-rating-star", reviewed && "listing-rating-star--reviewed")} aria-hidden="true">
+      <Star className="listing-rating-star__base" />
+      {reviewed && <>
+        <Star className="listing-rating-star__foil" />
+        <Star className="listing-rating-star__shine" />
+        <Sparkle className="listing-rating-star__spark" />
+      </>}
+    </span>
+  );
+}
+
 export const ListingCard = memo(function ListingCard({ listing, isAr, marketPricePerUsdt, desktopLayout = false, isOwnerListing, canViewPrivateIdentity = false, requiresBuyerSetup = false, isOwnListing, isBuying, onOpen, onManageListing }: ListingCardProps) {
   const rating = sellerRatingDisplay(listing.sellerReputation, isAr);
   const score = sellerScoreDisplay(listing.sellerReputation, isAr);
+  const hasBuyerReview = (listing.sellerReputation?.totalReviews ?? 0) > 0 && rating.value !== "—";
+  const [scoreValue, scoreMaximum] = score.value.split("/");
+  const responseMinutes = listing.sellerReputation?.responseTimeMinutes;
+  const responseSamples = listing.sellerReputation?.responseSampleCount;
+  const response = formatMeasuredResponseTime(responseMinutes, isAr, responseSamples);
   // Older cached responses may still carry the retired commission request lock.
   const requestBlockReason = listing.newRequestBlockReason === "commission_due" ? undefined : listing.newRequestBlockReason;
   const sellerLevel = listing.sellerReputation?.level;
@@ -1246,23 +1282,34 @@ export const ListingCard = memo(function ListingCard({ listing, isAr, marketPric
         </div>
         <div className="compact-listing__stats grid grid-cols-4 gap-1.5 text-center text-xs">
           <div className={cn("rounded-xl border border-white/10 bg-black/25 p-3 text-[#D1D5DB] transition duration-300 hover:bg-black/35", `seller-rank-microcard seller-rank-microcard--${isOwnerListing ? "legendary" : sellerRankKey}`)}>
-            <Star className="h-4 w-4 mx-auto text-[#F4D87A]" />
-            <p className="mt-1 break-words font-semibold leading-snug text-white">{rating.value}</p>
+            <p className="listing-stat-value font-semibold text-white">
+              <ListingRatingStar reviewed={hasBuyerReview} />
+              <bdi dir="ltr">{rating.value}</bdi>
+            </p>
             <p className="text-[11px] text-[#9CA3AF]">{rating.label}</p>
           </div>
           <div className={cn("rounded-xl border border-white/10 bg-black/25 p-3 text-[#D1D5DB] transition duration-300 hover:bg-black/35", `seller-rank-microcard seller-rank-microcard--${isOwnerListing ? "legendary" : sellerRankKey}`)}>
-            <HandCoins className="h-4 w-4 mx-auto text-[#D1D5DB]" />
-            <p className="mt-1 break-words font-semibold leading-snug text-white">{(listing.sellerReputation?.completedTrades ?? 0).toLocaleString("en-IL")}</p>
+            <p className="listing-stat-value font-semibold text-white">
+              <HandCoins className="listing-stat-icon listing-stat-icon--trades" aria-hidden="true" />
+              <bdi dir="ltr">{(listing.sellerReputation?.completedTrades ?? 0).toLocaleString("en-IL")}</bdi>
+            </p>
             <p className="text-[11px] text-[#9CA3AF]">{isAr ? "الصفقات" : "Trades"}</p>
           </div>
           <div className={cn("rounded-xl border border-white/10 bg-black/25 p-3 text-[#D1D5DB] transition duration-300 hover:bg-black/35", `seller-rank-microcard seller-rank-microcard--${isOwnerListing ? "legendary" : sellerRankKey}`)}>
-            <Zap className="h-4 w-4 mx-auto text-[#F4D87A]" />
-            <p className="mt-1 break-words font-semibold leading-snug text-white">{currencyText(formatMeasuredResponseTime(listing.sellerReputation?.responseTimeMinutes, isAr, listing.sellerReputation?.responseSampleCount))}</p>
+            <p className="listing-stat-value font-semibold text-white">
+              <Zap className="listing-stat-icon listing-stat-icon--response" aria-hidden="true" />
+              {isAr && !desktopLayout ? <>
+                <bdi dir="ltr" aria-hidden="true">{formatMeasuredResponseTime(responseMinutes, true, responseSamples, "short")}</bdi>
+                <span className="sr-only">{response}</span>
+              </> : <bdi>{currencyText(response)}</bdi>}
+            </p>
             <p className="text-[11px] text-[#9CA3AF]">{isAr ? "الاستجابة" : desktopLayout ? "Response Time" : "Response"}</p>
           </div>
           <div className={cn("rounded-xl border border-white/10 bg-black/25 p-3 text-[#D1D5DB] transition duration-300 hover:bg-black/35", `seller-rank-microcard seller-rank-microcard--${isOwnerListing ? "legendary" : sellerRankKey}`)}>
-            <ShieldCheck className="h-4 w-4 mx-auto text-[#93C5FD]" />
-            <p className="mt-1 break-words font-semibold leading-snug text-white">{score.value}</p>
+            <p className="listing-stat-value font-semibold text-white">
+              <ShieldCheck className="listing-stat-icon listing-stat-icon--score" aria-hidden="true" />
+              <bdi dir="ltr">{scoreValue}{scoreMaximum && <span className="listing-stat-maximum">/{scoreMaximum}</span>}</bdi>
+            </p>
             <p className="text-[11px] text-[#9CA3AF]">{score.label}</p>
           </div>
         </div>

@@ -2713,8 +2713,49 @@ input[placeholder*="usdt" i]::placeholder { color: #34d399; }
 .compact-listing .seller-price-value { font-size: clamp(1.5rem, 8cqi, 2.3rem); line-height: 1.2; overflow-wrap: anywhere; }
 .compact-listing .compact-listing__market { display: flex; flex-wrap: wrap; align-items: center; gap: .25rem .5rem; margin-top: .5rem; padding: .4rem .5rem; }
 .compact-listing__market-price { margin-inline-start: auto; font-size: .875rem; overflow-wrap: anywhere; }
-.compact-listing .compact-listing__stats > div { min-width: 0; padding: .35rem .125rem; }
+.compact-listing .compact-listing__stats {
+  grid-template-columns: minmax(0, 1.09fr) minmax(0, .78fr) minmax(0, 1.06fr) minmax(0, 1.13fr);
+  gap: .25rem;
+}
+.compact-listing .compact-listing__stats > div {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .125rem;
+  min-width: 0; min-height: 2.625rem; padding: .25rem .125rem;
+}
 .compact-listing .compact-listing__stats p { overflow-wrap: anywhere; line-height: 1.4; }
+.compact-listing__stats .listing-stat-value {
+  display: flex; align-items: center; justify-content: center; gap: .1875rem;
+  max-width: 100%; margin: 0; font-variant-numeric: tabular-nums;
+}
+.listing-stat-value > bdi { min-width: 0; }
+.listing-stat-maximum { font-size: .85em; font-weight: 500; color: #d3c8bc; }
+.listing-stat-icon { flex: none; width: .875rem; height: .875rem; stroke-width: 1.8; }
+.listing-stat-icon--trades { color: #debc97; }
+.listing-stat-icon--response { color: #f1c878; fill: #a76b273d; }
+.listing-stat-icon--score { color: #a5c9df; fill: #4a769032; }
+.listing-rating-star { position: relative; display: inline-block; flex: none; width: 1.125rem; height: 1.125rem; }
+.listing-rating-star > svg { position: absolute; left: 0; bottom: 0; width: 1rem; height: 1rem; stroke-width: 1.65; }
+.listing-rating-star__base { stroke: #d7b975; fill: #e1a13b14; }
+.listing-rating-star--reviewed .listing-rating-star__base { stroke: #ffde89; fill: #e1a239; filter: drop-shadow(0 0 2px #e4a73b33); }
+.listing-rating-star__foil { fill: #fff1b1; stroke: #ffedab; mask-image: linear-gradient(140deg, #000 18%, #0009 43%, transparent 57%); }
+.listing-rating-star__shine {
+  fill: #fff9df; stroke: #fff9df; opacity: 0;
+  mask-image: linear-gradient(118deg, transparent 35%, #0003 41%, #000 49%, #0008 54%, transparent 62%);
+  mask-size: 320% 100%; mask-repeat: no-repeat;
+}
+.listing-rating-star > .listing-rating-star__spark { inset: 0 0 auto auto; width: .3125rem; height: .3125rem; fill: #ffe6a2; stroke: #ffe6a2; }
+@media (prefers-reduced-motion: no-preference) {
+  .listing-rating-star--shine .listing-rating-star__shine { animation: listing-rating-glint 1.05s cubic-bezier(.3,.05,.45,.98) .1s 1 both; }
+}
+@keyframes listing-rating-glint {
+  0% { opacity: 0; mask-position: 100% 50%; }
+  48% { opacity: 1; }
+  100% { opacity: 0; mask-position: 0% 50%; }
+}
+@media (forced-colors: active) {
+  .listing-rating-star__base { stroke: CanvasText; fill: none; }
+  .listing-rating-star--reviewed .listing-rating-star__base { fill: CanvasText; stroke: CanvasText; }
+  .listing-rating-star__foil, .listing-rating-star__shine, .listing-rating-star__spark { visibility: hidden; }
+}
 .listing-card--compact .compact-listing__stats p { margin: 0; }
 .compact-listing .seller-card-info-panel { min-height: 0; padding: .625rem; line-height: 1.5; overflow-wrap: anywhere; }
 .compact-listing__disclosure > summary {
@@ -2754,8 +2795,10 @@ input[placeholder*="usdt" i]::placeholder { color: #34d399; }
 .compact-listing .seller-marketplace-action--offer { flex-direction: row; align-items: center; }
 .compact-listing__details { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 @container (max-width: 410px) {
-  .listing-card--compact .compact-listing__stats svg,
   .listing-card--compact .compact-listing__actions .seller-marketplace-action svg { display: none; }
+}
+@container (max-width: 20.25rem) {
+  .compact-listing .compact-listing__stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @container (min-width: 305px) {
   .listing-card--compact .compact-listing__actions:has(.seller-marketplace-action--offer) { grid-template-columns: repeat(3, minmax(0, 1fr)); }
