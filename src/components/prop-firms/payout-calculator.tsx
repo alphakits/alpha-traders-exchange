@@ -2,6 +2,7 @@
 
 import { useState, type FormEvent } from "react";
 import { Calculator, CheckCircle2, CircleAlert, Info } from "lucide-react";
+import { formatMoneyNumber } from "@/lib/accent-text";
 import { currencyText } from "@/components/ui/currency-text";
 import { calculatePayout, type PayoutInputs } from "@/lib/prop-firms/calculator";
 import { usd, type AccountTier, type FirmProgram, type PropFirm } from "@/lib/prop-firms/types";
@@ -23,7 +24,10 @@ export function PayoutCalculator({ firm, program, tier, locale }: { firm: PropFi
   function field(key: keyof Values, label: string, hint?: string, full?: boolean) {
     return <label className={`${s.field} ${full ? s.fullWidth : ""}`} htmlFor={`payout-${key}`}>
       {currencyText(label)}
-      <input id={`payout-${key}`} type="number" inputMode={key === "days" || key === "payoutNumber" ? "numeric" : "decimal"} min={key === "payoutNumber" ? 1 : 0} max={key === "days" || key === "payoutNumber" ? 10000 : 1e9} step={key === "days" || key === "payoutNumber" ? 1 : ".01"} dir="ltr" required value={values[key]} onChange={e => { setValues(v => ({ ...v, [key]: e.target.value })); setResult(null); setError(""); }} />
+      <span className={s.quantityInput} data-money={key !== "days" && key !== "payoutNumber"}>
+        <input id={`payout-${key}`} type="number" inputMode={key === "days" || key === "payoutNumber" ? "numeric" : "decimal"} min={key === "payoutNumber" ? 1 : 0} max={key === "days" || key === "payoutNumber" ? 10000 : 1e9} step={key === "days" || key === "payoutNumber" ? 1 : ".01"} dir="ltr" required value={values[key]} onChange={e => { setValues(v => ({ ...v, [key]: e.target.value })); setResult(null); setError(""); }} />
+        <span aria-hidden="true" dir="ltr">{formatMoneyNumber(values[key])}</span>
+      </span>
       {hint && <small>{currencyText(hint)}</small>}
     </label>;
   }
@@ -47,7 +51,7 @@ export function PayoutCalculator({ firm, program, tier, locale }: { firm: PropFi
   };
   return <aside className={s.calculator} id="payout-calculator" aria-label={t("Payout calculator", "حاسبة السحب")}>
     <h2><Calculator />{dashboard ? t("What would I receive?", "قديش بصلك صافي؟") : t("Check your payout", "احسب سحبك")}</h2>
-    <p className={s.calcIntro}>{dashboard ? t("Use the gross amount available BEFORE the company split, as confirmed in your official dashboard. This estimates your net payment; it does not determine eligibility.", "أدخل المبلغ المتاح قبل حصة الشركة، بعد تأكيده من لوحة حسابك الرسمية. هذا تقدير للصافي؛ لا يقرر أهلية السحب.") : t("A numerical check for the selected funded program. Enter your current figures, not your evaluation profit or advertised account size.", "فحص عددي للبرنامج المموّل المختار. أدخل أرقامك الحالية، وليس أرباح الامتحان أو حجم الحساب المعلن.")}</p>
+    <p className={s.calcIntro}>{currencyText(dashboard ? t("Use the gross amount available BEFORE the company split, as confirmed in your official dashboard. This estimates your net payment; it does not determine eligibility.", "أدخل المبلغ المتاح قبل حصة الشركة، بعد تأكيده من لوحة حسابك الرسمية. هذا تقدير للصافي؛ لا يقرر أهلية السحب.") : t("A numerical check for the selected funded program. Enter your current figures, not your evaluation profit or advertised account size.", "فحص عددي للبرنامج المموّل المختار. أدخل أرقامك الحالية، وليس أرباح الامتحان أو حجم الحساب المعلن."))}</p>
     <form onSubmit={submit}>
       <div className={s.formGrid}>
         {dashboard ? field("dashboardAvailable", t("Gross available in dashboard ($)", "المتاح قبل حصة الشركة ($)"), t("If the dashboard shows net, do not apply the split a second time.", "إذا المعروض صافي، لا تخصم حصة الشركة مرة ثانية."), true) : field("profit", t(topstep ? "Current XFA balance ($)" : "Current balance minus account size ($)", topstep ? "رصيد XFA الحالي ($)" : "الرصيد الحالي ناقص حجم الحساب ($)"), t(topstep ? "XFA starts at $0." : "Example: $53,000 − $50,000 = $3,000. Include previous withdrawals in the current balance.", topstep ? "XFA يبدأ من $0." : "مثال: $53,000 − $50,000 = $3,000. استخدم الرصيد الحالي بعد السحوبات السابقة."), true)}
@@ -65,7 +69,7 @@ export function PayoutCalculator({ firm, program, tier, locale }: { firm: PropFi
         {field("fee", t("Transfer fees ($)", "رسوم التحويل ($)"), t("Enter the actual fee; 0 is not a fee guarantee.", "أدخل الرسوم الفعلية؛ الصفر لا يعني التحويل مجاني."))}
       </div>
       <button type="submit" className={`${s.button} ${s.primary}`}><Calculator size={16} />{t("Calculate", "احسب النتيجة")}</button>
-      {error && <p role="alert" className={s.error}>{error}</p>}
+      {error && <p role="alert" className={s.error}>{currencyText(error)}</p>}
     </form>
     <div aria-live="polite" aria-atomic="true">
       {result?.valid && <div className={s.result}>
@@ -75,11 +79,11 @@ export function PayoutCalculator({ firm, program, tier, locale }: { firm: PropFi
           <div className={`${s.resultLine} ${s.net}`}><span>{t("Estimated net to you", "الصافي التقديري إلك")}</span><strong className={s.money}>{usd(result.net)}</strong></div>
           <p className={s.calcFoot}>{currencyText(`${usd(Number(values.requested))} × ${share}% − ${usd(Number(values.fee))} = ${usd(result.net)}`)}</p>
           {!dashboard && <div className={s.resultLine}><span>{topstep ? t("XFA balance remaining", "رصيد XFA المتبقي") : t("Profit left above starting size", "الربح المتبقي فوق حجم الحساب")}</span><strong className={s.money}>{usd(result.remaining)}</strong></div>}
-        </> : dashboard && <p className={s.error}>{t(`Check that the request is at least ${usd(tier.minPayout)} and within the displayed gross amount and program cap.`, `تأكد أن الطلب ${usd(tier.minPayout)} على الأقل وضمن المتاح المعروض وسقف البرنامج.`)}</p>}
+        </> : dashboard && <p className={s.error}>{currencyText(t(`Check that the request is at least ${usd(tier.minPayout)} and within the displayed gross amount and program cap.`, `تأكد أن الطلب ${usd(tier.minPayout)} على الأقل وضمن المتاح المعروض وسقف البرنامج.`))}</p>}
         {!dashboard && result.checks.map(check => <p key={check.id} className={s.check} data-pass={check.passed}>{check.passed ? <CheckCircle2 size={13} /> : <CircleAlert size={13} />}{currencyText(checkLabel(check.id))}</p>)}
         <p className={s.calcFoot}>{dashboard ? t("Check the reward date, minimum for your payment method and all account rules in the dashboard. This is not a payout approval.", "تأكد بلوحة الشركة من موعد المكافأة والحد الأدنى لطريقة الاستلام وباقي شروط الحساب. النتيجة ليست موافقة على السحب.") : t("This checks the entered numbers only. Account reviews, trading conduct, KYC and current contract terms can still affect approval.", "الفحص للأرقام المدخلة فقط. مراجعة الحساب وقواعد التداول والتحقق وشروط العقد الحالية تؤثر على الموافقة.")}</p>
       </div>}
     </div>
-    {!result && <p className={s.calcFoot}>{topstep ? t("Withdrawing changes your loss cushion. After the first payout, the XFA loss floor is $0.", "السحب يغيّر هامش خسارتك. بعد أول سحب يصبح حد الخسارة في XFA هو $0.") : firm.slug === "apex" ? t("New EOD / Intraday accounts only. The safety net must remain after your payout. Legacy accounts use different rules.", "لحسابات EOD وIntraday الجديدة فقط. هامش الأمان لازم يبقى بعد السحب. حسابات Legacy لها قواعد مختلفة.") : t("Use the payout section for the full conditions before entering an available amount.", "راجع قسم السحب للشروط الكاملة قبل إدخال المبلغ المتاح.")}</p>}
+    {!result && <p className={s.calcFoot}>{currencyText(topstep ? t("Withdrawing changes your loss cushion. After the first payout, the XFA loss floor is $0.", "السحب يغيّر هامش خسارتك. بعد أول سحب يصبح حد الخسارة في XFA هو $0.") : firm.slug === "apex" ? t("New EOD / Intraday accounts only. The safety net must remain after your payout. Legacy accounts use different rules.", "لحسابات EOD وIntraday الجديدة فقط. هامش الأمان لازم يبقى بعد السحب. حسابات Legacy لها قواعد مختلفة.") : t("Use the payout section for the full conditions before entering an available amount.", "راجع قسم السحب للشروط الكاملة قبل إدخال المبلغ المتاح."))}</p>}
   </aside>;
 }

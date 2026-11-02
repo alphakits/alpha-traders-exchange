@@ -48,6 +48,8 @@ describe("public seller metric rules", () => {
   it("shows the starter rating until the first visible review, with no floor on a real rating", () => {
     expect(sellerRatingDisplay({ totalReviews: 0, rating: 0 })).toMatchObject({ value: "4.0", label: "Starter rating" });
     expect(sellerRatingDisplay({ totalReviews: 1, rating: 1 })).toMatchObject({ value: "1.00", label: "1 review" });
+    expect(sellerRatingDisplay({ totalReviews: 1234, rating: 4.75 }).text).toBe("4.75 ★ · 1,234 reviews");
+    expect(sellerRatingDisplay({ totalReviews: 1234, rating: 4.75 }, true).label).toBe("1,234 تقييم");
     expect(sellerRatingDisplay({ rating: 4.75 }).text).toBe("4.75 ★");
     expect(sellerRatingDisplay(null).value).toBe("—");
     expect(sellerRatingDisplay({ totalReviews: 0 }, true).label).toBe("تقييم مبدئي");

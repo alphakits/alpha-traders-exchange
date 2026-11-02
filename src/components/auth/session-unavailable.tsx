@@ -1,5 +1,6 @@
 "use client";
 
+import { currencyText } from "@/components/ui/currency-text";
 import { useEffect, useState } from "react";
 import { RefreshCcw } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
@@ -76,7 +77,7 @@ export function SessionUnavailable({ locale }: { locale: "ar" | "en" }) {
             ? (isAr ? "نحاول إعادة الاتصال. يمكنك أيضًا إعادة تحميل الصفحة نفسها." : "We are checking the connection. You can also reload this page.")
             : (isAr ? "أعد تحميل الصفحة للمحاولة مجددًا." : "Reload this page to try again.")}
         </p>
-        <p className="text-sm leading-relaxed text-white/70">{isAr ? "إذا كنت داخل صفقة، لا تُنشئ صفقة بديلة ولا تعِد إرسال المبلغ بسبب هذا الخطأ." : "If you are in a trade, do not create a replacement trade or resend payment because of this error."}</p>
+        <p className="text-sm leading-relaxed text-white/70">{currencyText(isAr ? "إذا كنت داخل صفقة، لا تُنشئ صفقة بديلة ولا تعِد إرسال المبلغ بسبب هذا الخطأ." : "If you are in a trade, do not create a replacement trade or resend payment because of this error.")}</p>
         <button type="button" onClick={reloadCurrentPage} className={buttonVariants()}>
           <RefreshCcw className="h-4 w-4" aria-hidden="true" />
           {isAr ? "إعادة تحميل الصفحة" : "Reload this page"}

@@ -1,5 +1,6 @@
 "use client";
 
+import { currencyText } from "@/components/ui/currency-text";
 import { useCallback } from "react";
 import { usePathname, useRouter } from "@/i18n/navigation";
 import { navigateToPageSection, revealPageSection } from "@/lib/page-section-navigation";
@@ -25,7 +26,7 @@ export function CreateListingQuickLink({ className, label }: CreateListingQuickL
 
   return (
     <button type="button" onClick={handleClick} className={`${className} cursor-pointer`}>
-      ➕ {label}
+      ➕ {currencyText(label)}
     </button>
   );
 }

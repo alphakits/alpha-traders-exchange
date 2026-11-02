@@ -1,5 +1,6 @@
 "use client";
 
+import { formatMoneyNumber } from "@/lib/accent-text";
 import { createQueuedAutosave } from "@/lib/queued-autosave";
 import { ActionFeedback, useActionFeedbackState } from "@/components/ui/action-feedback";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -606,7 +607,7 @@ export function LessonManagementDashboard() {
             </div>
 
             <div className="flex items-center justify-between text-xs text-[#9CA3AF]">
-              <span>{filteredLessons.length} {isAr ? "درس" : "lessons"}</span>
+              <span>{formatMoneyNumber(filteredLessons.length)} {isAr ? "درس" : "lessons"}</span>
               <div className="flex gap-1">
                 <Button size="sm" variant="secondary" disabled={page <= 1} onClick={() => setPage((current) => Math.max(1, current - 1))}>{isAr ? "السابق" : "Previous"}</Button>
                 <Button size="sm" variant="secondary" disabled={page >= totalPages} onClick={() => setPage((current) => Math.min(totalPages, current + 1))}>{isAr ? "التالي" : "Next"}</Button>

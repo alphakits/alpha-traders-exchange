@@ -13385,7 +13385,6 @@ async function uploadTradeEvidenceAttempt(
   const startedAt = Date.now();
   const dbReadStartedAt = Date.now();
   const db = transaction ? normalizeDb(transaction.snapshot) : (await readDbForCriticalTradeMutation(TRADE_EVIDENCE_READ_TABLES)).db;
-  ensureDisplayNumbers(db);
   const dbReadMs = Date.now() - dbReadStartedAt;
   const validationStartedAt = Date.now();
   const actorRole = resolveActorRole(db, input.actorUserId);
@@ -13683,7 +13682,6 @@ async function uploadTradeEvidenceAttempt(
   const persist = async (snapshot: AlphaExchangeDb, options: NonNullable<Parameters<typeof writeDb>[1]>) => {
     if (!transaction) return writeDb(snapshot, { ...options, cacheResult: false });
     const normalized = normalizeDb(snapshot);
-    ensureDisplayNumbers(normalized);
     await transaction.commit(normalized, { selectedTables: options.selectedTables!, evidenceOverrides: options.evidenceOverrides });
     Object.assign(snapshot, normalized);
     dbCache = null;
@@ -14382,7 +14380,6 @@ async function updatePurchaseRequestStatusAttempt(
   const statusRead = transaction
     ? { db: normalizeDb(transaction.snapshot), fromFullCache: false }
     : await readDbForCriticalTradeMutation(useFastStatusRead ? TRADE_STATUS_FAST_READ_TABLES : TRADE_STATUS_TERMINAL_READ_TABLES);
-  ensureDisplayNumbers(statusRead.db);
   let db = statusRead.db;
   const priorSmsCount = db.smsDeliveries?.length ?? 0;
   const readDbMs = Date.now() - startedAt;
@@ -15646,7 +15643,6 @@ async function updatePurchaseRequestStatusAttempt(
   const persist = async (snapshot: AlphaExchangeDb, options: NonNullable<Parameters<typeof writeDb>[1]>) => {
     if (!transaction) return writeDb(snapshot, options);
     const normalized = normalizeDb(snapshot);
-    ensureDisplayNumbers(normalized);
     await transaction.commit(normalized, { selectedTables: options.selectedTables!, validateBeforeCommit: options.validateBeforeCommit });
     Object.assign(snapshot, normalized);
     dbCache = null;

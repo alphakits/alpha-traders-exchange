@@ -1,4 +1,5 @@
 "use client";
+import { currencyText, moneyText } from "@/components/ui/currency-text";
 import { COMMISSION_TOLERANCE_MICROS, COMMISSION_TOLERANCE_USDT } from "@/lib/commission-tolerance.mjs";
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -98,9 +99,9 @@ export function CommissionReceiptReviewPanel({ locale }: { locale: "ar" | "en" }
   const control = "w-full rounded-lg border border-white/20 bg-slate-950 p-3 text-white";
   return <main dir={ar ? "rtl" : "ltr"} className="mx-auto max-w-5xl space-y-5 px-4 py-6 text-slate-100">
     <header><h1 className="text-2xl font-semibold">{ar ? "مطابقة إيصالات العمولات" : "Commission receipt reconciliation"}</h1>
-      <p className="mt-2 text-sm text-slate-300">{ar ? `المطابقة الدقيقة تلقائية. الإيصالات المجهولة أو المجمعة تحتاج ربطًا موثوقًا بالبائع أولًا، ثم تُفحص وتُسوّى تلقائيًا بهامش ±${COMMISSION_TOLERANCE_USDT} USDT مرة واحدة للدفعة كاملة.` : `Exact payment matching is automatic. An unidentified or combined receipt needs a reliable seller association first; receipt verification and settlement then run automatically with ±${COMMISSION_TOLERANCE_USDT} USDT tolerance once per payment group.`}</p></header>
-    {error ? <p role="alert" className="rounded-lg border border-amber-400/40 p-3">{error}</p> : null}
-    {notice ? <p role="status" className="rounded-lg border border-emerald-400/40 p-3">{notice}</p> : null}
+      <p className="mt-2 text-sm text-slate-300">{currencyText(ar ? `المطابقة الدقيقة تلقائية. الإيصالات المجهولة أو المجمعة تحتاج ربطًا موثوقًا بالبائع أولًا، ثم تُفحص وتُسوّى تلقائيًا بهامش ±${COMMISSION_TOLERANCE_USDT} USDT مرة واحدة للدفعة كاملة.` : `Exact payment matching is automatic. An unidentified or combined receipt needs a reliable seller association first; receipt verification and settlement then run automatically with ±${COMMISSION_TOLERANCE_USDT} USDT tolerance once per payment group.`)}</p></header>
+    {error ? <p role="alert" className="rounded-lg border border-amber-400/40 p-3">{currencyText(error)}</p> : null}
+    {notice ? <p role="status" className="rounded-lg border border-emerald-400/40 p-3">{currencyText(notice)}</p> : null}
     <button type="button" className="rounded-lg border border-white/20 px-4 py-2" onClick={() => { void refresh(); }}>{ar ? "تحديث البيانات" : "Refresh records"}</button>
     {!state ? <p>{ar ? "بيانات التسوية غير متاحة حاليًا." : "Settlement data is not currently available."}</p> : <>
       <p className="text-sm">{state.enabled ? (ar ? "التسوية المجمعة مفعّلة — تأكيد الاستلام مطلوب دائمًا." : "Grouped settlement enabled — receipt confirmation is always required.") : (ar ? "التسوية المجمعة غير مفعّلة بعد." : "Grouped settlement is not enabled yet.")}</p>
@@ -112,31 +113,31 @@ export function CommissionReceiptReviewPanel({ locale }: { locale: "ar" | "en" }
         <fieldset className="space-y-2"><legend>{ar ? "العمولات التي تغطيها الدفعة" : "Commissions covered by this payment"}</legend>
           {eligible.map((record) => <label key={record.id} className="flex items-center gap-3 rounded-lg border border-white/10 p-3">
             <input type="checkbox" checked={selected.includes(record.id)} onChange={(event) => { setSelected((old) => event.target.checked ? [...old, record.id] : old.filter((id) => id !== record.id)); setConfirmed(false); }} />
-            <span>{record.displayNumber ? `CM-${String(record.displayNumber).padStart(6, "0")}` : record.id} · {money(Math.round(record.commissionAmount * 1e6))} USDT</span>
+            <span>{record.displayNumber ? `CM-${String(record.displayNumber).padStart(6, "0")}` : record.id} · {moneyText(money(Math.round(record.commissionAmount * 1e6)))}{currencyText(" USDT")}</span>
           </label>)}
         </fieldset>
         <button type="button" disabled={scanning || busy} className="rounded-lg border border-emerald-400/40 px-4 py-2 disabled:opacity-50" onClick={() => { void scan(); }}>{scanning ? (ar ? "جارٍ فحص الإيصالات…" : "Checking receipts…") : (ar ? "تحميل الإيصالات — آخر 30 يومًا" : "Load receipts — last 30 days")}</button>
         {history && (!history.complete || history.truncated) ? <p role="status" className="text-amber-300">{ar ? "قائمة الإيصالات جزئية. عدم ظهور دفعة هنا لا يعني أنها لم تصل." : "Receipt history is partial. A missing entry does not mean the payment was not received."}</p> : null}
         <label className="block">{ar ? "الإيصال" : "Receipt"}<select aria-label={ar ? "الإيصال" : "Receipt"} className={control} value={receiptKey} onChange={(event) => { setReceiptKey(event.target.value); setConfirmed(false); }}>
           <option value="">{ar ? "اختر الإيصال الأصلي" : "Choose original receipt"}</option>
-          {history?.receipts.map((item) => <option key={`${item.network}:${item.signature}`} disabled={item.reserved || item.conflicting} value={`${item.network}:${item.signature}`}>
+          {history?.receipts.map((item) => <option className="currency-money" key={`${item.network}:${item.signature}`} disabled={item.reserved || item.conflicting} value={`${item.network}:${item.signature}`}>
             {money(item.amountMicros)} USDT · {item.network} · {new Date(item.timestamp).toISOString()} · {item.signature.slice(-16)}{item.reserved ? " (reserved)" : item.conflicting ? " (conflicting)" : ""}
           </option>)}
         </select></label>
         {receipt ? <p className="break-all text-xs text-slate-400" dir="ltr">{receipt.signature}</p> : null}
-        <div className="rounded-lg bg-white/5 p-3 text-sm"><p>{ar ? "المستحق" : "Amount due"}: {money(due)} USDT</p><p>{ar ? "الإيصال المكتشف، قبل التحقق النهائي" : "Discovered receipt, before final verification"}: {receipt ? money(receipt.amountMicros) : "—"} USDT</p><p>{ar ? "الإعفاء" : "Waiver"}: {receipt ? money(Math.max(0, -delta)) : "—"} USDT · {ar ? "الزيادة" : "Excess"}: {receipt ? money(Math.max(0, delta)) : "—"} USDT</p>
+        <div className="rounded-lg bg-white/5 p-3 text-sm"><p>{currencyText(ar ? "المستحق" : "Amount due")}: {moneyText(money(due))}{currencyText(" USDT")}</p><p>{ar ? "الإيصال المكتشف، قبل التحقق النهائي" : "Discovered receipt, before final verification"}: {moneyText(receipt ? money(receipt.amountMicros) : "—")}{currencyText(" USDT")}</p><p>{ar ? "الإعفاء" : "Waiver"}: {moneyText(receipt ? money(Math.max(0, -delta)) : "—")}{currencyText(" USDT · ")}{ar ? "الزيادة" : "Excess"}: {moneyText(receipt ? money(Math.max(0, delta)) : "—")}{currencyText(" USDT")}</p>
           {receipt && chosen.length && !acceptable ? <p className="mt-2 text-amber-300">{ar ? "الدفعة غير مؤهلة للربط المحدد. لا تطلب دفعها مرة أخرى؛ راجع الإيصال الأصلي." : "This receipt is not eligible for the selected association. Do not request another payment; investigate the original receipt."}</p> : null}
         </div>
         <label className="flex items-start gap-3 text-sm"><input type="checkbox" className="mt-1" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} />
-          <span>{ar ? "تحققت بشكل مستقل أن هذا الإيصال يخص هذا البائع وهذه العمولات. لم أعتمد على تشابه المبلغ وحده." : "I independently confirmed that this original receipt belongs to this seller and these commissions. I did not identify the payer from the amount alone."}</span>
+          <span>{currencyText(ar ? "تحققت بشكل مستقل أن هذا الإيصال يخص هذا البائع وهذه العمولات. لم أعتمد على تشابه المبلغ وحده." : "I independently confirmed that this original receipt belongs to this seller and these commissions. I did not identify the payer from the amount alone.")}</span>
         </label>
         <button type="button" disabled={!acceptable || !confirmed || busy || scanning} className="rounded-lg bg-emerald-700 px-5 py-3 font-semibold disabled:opacity-40" onClick={() => { void approve(); }}>{busy ? (ar ? "جارٍ الحفظ…" : "Saving…") : (ar ? "ربط الإيصال وبدء التحقق التلقائي" : "Link receipt for automatic verification")}</button>
       </section>
       <section className="space-y-3"><h2 className="text-lg font-semibold">{ar ? "بانتظار التحقق" : "Awaiting verification"}</h2>
-        {state.batches.map((batch) => <div key={batch.id} className="rounded-lg border border-white/15 p-3 text-sm"><p>{batch.sellerName} · {money(batch.expectedAmountMicros)} USDT</p><p>{batch.lastAttemptCode ?? (ar ? "بانتظار فحص الاستلام" : "Waiting for receipt scan")}</p></div>)}
+        {state.batches.map((batch) => <div key={batch.id} className="rounded-lg border border-white/15 p-3 text-sm"><p>{batch.sellerName} · {moneyText(money(batch.expectedAmountMicros))}{currencyText(" USDT")}</p><p>{batch.lastAttemptCode ?? (ar ? "بانتظار فحص الاستلام" : "Waiting for receipt scan")}</p></div>)}
       </section>
       <section className="space-y-3"><h2 className="text-lg font-semibold">{ar ? "تسويات مؤكدة" : "Verified settlements"}</h2>
-        {state.settlements.map((item) => <article key={item.id} className="rounded-lg border border-white/15 p-3 text-sm"><p>{item.sellerName}</p><p>{item.shortfallPolicy === "carry_forward_v1" ? (ar ? "المستحق / المستلم / المرحّل / الزيادة" : "Due / received / carried / excess") : (ar ? "المستحق / المستلم / المعفى / الزيادة" : "Due / received / waived / excess")}: {money(item.expectedMicros)} / {money(item.receivedMicros)} / {money(item.waivedMicros)} / {money(item.excessMicros)} USDT</p><time className="text-xs text-slate-400">{item.createdAt}</time></article>)}
+        {state.settlements.map((item) => <article key={item.id} className="rounded-lg border border-white/15 p-3 text-sm"><p>{item.sellerName}</p><p>{item.shortfallPolicy === "carry_forward_v1" ? (ar ? "المستحق / المستلم / المرحّل / الزيادة" : "Due / received / carried / excess") : (ar ? "المستحق / المستلم / المعفى / الزيادة" : "Due / received / waived / excess")}: {moneyText(money(item.expectedMicros))} / {moneyText(money(item.receivedMicros))} / {moneyText(money(item.waivedMicros))} / {moneyText(money(item.excessMicros))}{currencyText(" USDT")}</p><time className="text-xs text-slate-400">{item.createdAt}</time></article>)}
       </section>
     </>}
   </main>;

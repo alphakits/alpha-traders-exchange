@@ -18,8 +18,8 @@ async function flush() { await act(async () => { for (let i = 0; i < 16; i++) aw
 it.each([false, true])("discloses the carried balance after a verified payment (Arabic=%s)", async isAr => {
   fetchMock.mockResolvedValue(response({ ...ready, status: "paid", pendingCount: 0, totalDueUsdt: 0, carriedShortfallUsdt: 2 }));
   render(<CommissionCheckoutPanel isAr={isAr} />);
-  await screen.findByText(isAr ? /المتبقي للعمولة التالية/ : /Remaining for your next commission/);
-  expect(screen.getByText("2 USDT")).toBeTruthy();
+  const carried = await screen.findByText(isAr ? /المتبقي للعمولة التالية/ : /Remaining for your next commission/);
+  expect(carried.textContent).toContain("2 USDT");
   expect(screen.queryByRole("checkbox")).toBeNull();
   expect(screen.queryByText(/Paid\. No commission due\./)).toBeNull();
 });
@@ -124,6 +124,23 @@ it("does not permit payment creation without pre-payment acknowledgement", async
   expect((button as HTMLButtonElement).disabled).toBe(true);
   expect(screen.queryByText(wallet)).toBeNull();
 });
+it("groups the receiving amount and posts the seller's exact valid decimal only", async () => {
+  fetchMock.mockResolvedValue(response({ ...ready, totalDueUsdt: 1234.00005 }));
+  render(<CommissionCheckoutPanel isAr={false} />);
+  const input = await screen.findByLabelText("Amount to receive (USDT)") as HTMLInputElement;
+  await waitFor(() => expect(input.value).toBe("1,234.00005"));
+  fireEvent.click(screen.getByRole("checkbox"));
+  const submit = screen.getByRole("button", { name: "Get payment instructions" });
+  fireEvent.change(input, { target: { value: "1,234.0000501" } });
+  fireEvent.click(submit);
+  expect(fetchMock.mock.calls.filter((call) => call[1]?.method === "POST")).toHaveLength(0);
+  fireEvent.change(input, { target: { value: "1234.000050" } });
+  expect(input.value).toBe("1,234.000050");
+  fireEvent.click(submit);
+  await waitFor(() => expect(fetchMock.mock.calls.filter((call) => call[1]?.method === "POST")).toHaveLength(1));
+  const post = fetchMock.mock.calls.find((call) => call[1]?.method === "POST");
+  expect(JSON.parse(post?.[1].body)).toMatchObject({ desiredAmount: "1234.000050", hasNotPaidYet: true });
+});
 it("39 for 40 is requested by seller and waits for independent verification, not owner approval", async () => {
   render(<CommissionCheckoutPanel isAr={false} />);
   fireEvent.change(await screen.findByLabelText("Amount to receive (USDT)"), { target: { value: "39" } });
@@ -167,7 +184,7 @@ it("Arabic uses the same owner-free workflow and localized entry", async () => {
 });
 it("changed commission group does not show instructions to resend", async () => {
   fetchMock.mockResolvedValue(response({ ...waiting, status: "changed" })); render(<CommissionCheckoutPanel isAr={false} />);
-  await screen.findByText(/The amount due changed/); expect(screen.queryByText(wallet)).toBeNull();
+  expect((await screen.findByRole("alert")).textContent).toContain("The amount due changed"); expect(screen.queryByText(wallet)).toBeNull();
 });
 it("embedded checkout refreshes the seller workspace once after canonical paid status", async () => {
   const onSettled = vi.fn();

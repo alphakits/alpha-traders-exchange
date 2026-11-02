@@ -8,7 +8,8 @@ import { ChevronDown, PencilLine } from "lucide-react";
 import { calculateTradeTermsQuote, getTradeAmountAdjustmentCount, MAX_TRADE_AMOUNT_ADJUSTMENTS } from "@alpha-traders/contracts";
 import type { PurchaseRequest } from "@/types/alpha-exchange";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { GroupedDecimalInput } from "@/components/sections/usdt-exchange/usdt-number-input";
+import { formatMoneyNumber } from "@/lib/accent-text";
 import { ClientRequestTimeoutError, runClientRequest } from "@/lib/client-request-deadline";
 
 export function TradeTermsPanel({ request, actorId, isAr, disabled, onUpdated, onBusyChange }: {
@@ -81,11 +82,11 @@ export function TradeTermsPanel({ request, actorId, isAr, disabled, onUpdated, o
       <div className="flex flex-col items-start gap-2">
       <Button type="button" variant="secondary" className="min-h-11 w-auto rounded-xl border-sky-200/60 bg-sky-300 px-4 font-semibold text-slate-950 shadow-sm hover:border-sky-100 hover:bg-sky-200 hover:text-slate-950 focus-visible:ring-sky-300 disabled:border-slate-600 disabled:bg-slate-800 disabled:text-slate-400" aria-expanded={editing && editorKind === "amount" && canCorrect} aria-controls="trade-amount-editor"
         disabled={disabled || busy || !seller || !canCorrect} onClick={() => { setEditorKind("amount"); setValue(""); setEditing(!editing || editorKind !== "amount"); }}>
-        <span className="flex items-center gap-2"><PencilLine className="h-4 w-4" aria-hidden="true" />{isAr ? "تعديل المبلغ" : "Adjust Amount"}<ChevronDown className={`h-4 w-4 transition-transform motion-reduce:transition-none ${editing && editorKind === "amount" ? "rotate-180" : ""}`} aria-hidden="true" /></span>
+        <span className="flex items-center gap-2"><PencilLine className="h-4 w-4" aria-hidden="true" />{currencyText(isAr ? "تعديل المبلغ" : "Adjust Amount")}<ChevronDown className={`h-4 w-4 transition-transform motion-reduce:transition-none ${editing && editorKind === "amount" ? "rotate-180" : ""}`} aria-hidden="true" /></span>
       </Button>
       {canCounter ? <Button type="button" variant="secondary" className="min-h-11 w-auto rounded-xl px-4" aria-expanded={editing && counter && canCorrect} aria-controls="trade-amount-editor" disabled={disabled || busy || !canCorrect} onClick={() => { setEditorKind("counter"); setValue(""); setEditing(!editing || !counter); }}>{isAr ? "تقديم عرض مقابل" : "Make a counter-offer"}</Button> : null}
       </div>
-      <p className="max-w-md text-xs text-[#D1D5DB]">{isAr ? "يمكن تعديل المبلغ قبل إرسال الدفعة أو مشاركة رمز السحب أو تأكيد النقد. موافقة المشتري مطلوبة." : "Adjust the amount before payment is sent, a withdrawal code is shared, or cash is confirmed. Buyer approval is required."}</p>
+      <p className="max-w-md text-xs text-[#D1D5DB]">{currencyText(isAr ? "يمكن تعديل المبلغ قبل إرسال الدفعة أو مشاركة رمز السحب أو تأكيد النقد. موافقة المشتري مطلوبة." : "Adjust the amount before payment is sent, a withdrawal code is shared, or cash is confirmed. Buyer approval is required.")}</p>
     </>}
     {seller ? <p data-testid="trade-adjustment-count" className="max-w-md text-xs text-[#D1D5DB]">{limitReached
       ? (isAr ? "تم استخدام التعديلين (2/2). لا يمكن تقديم تعديلات أخرى." : "Adjustment limit reached (2/2). No further proposals are available.")
@@ -94,30 +95,30 @@ export function TradeTermsPanel({ request, actorId, isAr, disabled, onUpdated, o
       {paymentLocked || counterProposalLocked ? <p role="status" className="text-sm">{paymentLocked ? lockedMessage : counterLockedMessage}</p> : null}
       <p dir="ltr" className="break-words">{currencyText(`${proposal.usdtAmount} USDT · ${request.currency} ${proposal.fiatAmount} · ${proposal.pricePerUsdt} ${request.currency} / USDT`)}</p>
       {includesBuyerFee ? <p className="commission-notice text-sm">{isAr ? "الإجمالي يشمل عمولة المشتري 1%. لا تُضف العمولة مرة أخرى." : "Total includes the buyer’s 1% fee. Do not add it again."}</p> : null}
-      <p className="text-sm">{isAr ? "راجع الكمية والسعر والإجمالي قبل الموافقة." : "Check the amount, price, and total before accepting."}</p>
+      <p className="text-sm">{currencyText(isAr ? "راجع الكمية والسعر والإجمالي قبل الموافقة." : "Check the amount, price, and total before accepting.")}</p>
       <div className="flex flex-wrap gap-2">
         {seller ? <Button disabled={disabled || busy} variant="secondary" onClick={() => void submit("withdraw_terms")}>{isAr ? "سحب الاقتراح" : "Withdraw proposal"}</Button> : <>
           <Button disabled={disabled || busy || paymentLocked || counterProposalLocked} onClick={() => void submit(proposal.kind === "counter_offer" ? "accept_counter_offer" : "accept_amount")}>{isAr ? "موافقة على الشروط" : "Accept these terms"}</Button>
           <Button disabled={disabled || busy} variant="secondary" onClick={() => void submit("decline_terms")}>{isAr ? "رفض الاقتراح" : "Decline proposal"}</Button>
         </>}
       </div>
-    </> : editing && seller && canCorrect && (editorKind === "amount" || canCounter) ? <div id="trade-amount-editor" className="max-w-md space-y-3 rounded-xl border border-sky-300/30 bg-sky-400/10 p-4">
-      {!counter && !cardless && request.currency === "ILS" ? <label className="block text-sm">{isAr ? "التعديل حسب" : "Adjust by"}<select aria-label={isAr ? "وحدة التعديل" : "Adjustment unit"} value={amountUnit} onChange={event => { setAmountUnit(event.target.value as "USDT" | "ILS"); setValue(""); }} disabled={disabled || busy} className="mt-2 block min-h-11 w-full rounded-lg border border-sky-300/20 bg-black p-2"><option value="USDT">USDT</option><option value="ILS">{isAr ? "إجمالي الدفع بالشيكل" : "Total ILS payment"}</option></select></label> : null}
+    </> : editing && seller && canCorrect && (editorKind === "amount" || canCounter) ? <form id="trade-amount-editor" onSubmit={event => { event.preventDefault(); void submit(calculationAction); }} className="group max-w-md space-y-3 rounded-xl border border-sky-300/30 bg-sky-400/10 p-4">
+      {!counter && !cardless && request.currency === "ILS" ? <label className="block text-sm">{isAr ? "التعديل حسب" : "Adjust by"}<select aria-label={isAr ? "وحدة التعديل" : "Adjustment unit"} value={amountUnit} onChange={event => { setAmountUnit(event.target.value as "USDT" | "ILS"); setValue(""); }} disabled={disabled || busy} className="mt-2 block min-h-11 w-full rounded-lg border border-sky-300/20 bg-black p-2"><option className="currency-money" value="USDT">USDT</option><option className="currency-money" value="ILS">{isAr ? "إجمالي الدفع بالشيكل" : "Total ILS payment"}</option></select></label> : null}
       <label className="commission-notice block text-sm">{currencyText(counter ? (isAr ? "السعر المقابل بالشيكل لكل USDT" : "Counter price in ILS per USDT") : cardless ? (isAr ? "مبلغ السحب الجديد بالشيكل" : "New withdrawal amount (ILS)") : unit === "ILS" ? (isAr ? "إجمالي الدفع الصحيح بالشيكل (يشمل حصة المشتري إن وجدت)" : "Correct total ILS payment (including buyer fee if applicable)") : (isAr ? "كمية USDT الصحيحة" : "Correct USDT amount"))}
-        <Input dir="ltr" inputMode="decimal" value={value} onChange={(event) => setValue(event.target.value)} disabled={disabled || busy} placeholder={counter ? request.pricePerUsdt : unit === "ILS" ? request.fiatAmount : request.usdtAmount} className="currency-money mt-2 text-left" />
+        <GroupedDecimalInput key={calculationAction} value={value} onValueChange={setValue} maxIntegerDigits={9} maxFractionDigits={6} required disabled={disabled || busy} placeholder={formatMoneyNumber(counter ? request.pricePerUsdt ?? "" : unit === "ILS" ? request.fiatAmount : request.usdtAmount)} className="currency-money mt-2 text-left" />
       </label>
-      {!counter && cardless ? <p className="text-sm">{isAr ? "من 100 إلى 10,000 شيكل بمضاعفات 100. تُحسب كمية USDT بالسعر المتفق عليه مع احتساب عمولة المشتري إن وجدت. بعد موافقة المشتري، يرسل رمزًا مطابقًا للمبلغ الجديد." : "100–10,000 ILS in steps of 100. USDT is calculated at the agreed price with the buyer fee included when applicable. After accepting, the buyer sends a code matching the new total."}</p> : null}
-      {correctedAmount && correctedTotal ? <div data-testid="trade-adjustment-preview" className="space-y-1 rounded-lg border border-emerald-500/30 bg-black/30 p-3 text-sm" aria-live="polite">
+      {!counter && cardless ? <p className="text-sm">{currencyText(isAr ? "من 100 إلى 10,000 شيكل بمضاعفات 100. تُحسب كمية USDT بالسعر المتفق عليه مع احتساب عمولة المشتري إن وجدت. بعد موافقة المشتري، يرسل رمزًا مطابقًا للمبلغ الجديد." : "100–10,000 ILS in steps of 100. USDT is calculated at the agreed price with the buyer fee included when applicable. After accepting, the buyer sends a code matching the new total.")}</p> : null}
+      {correctedAmount && correctedTotal ? <div data-testid="trade-adjustment-preview" className="group-has-[:invalid]:hidden space-y-1 rounded-lg border border-emerald-500/30 bg-black/30 p-3 text-sm" aria-live="polite">
         <p className="currency-money font-semibold" dir="ltr">{currencyText(`${request.usdtAmount} → ${correctedAmount} USDT`)}</p>
         <p className="currency-money" dir="ltr">{currencyText(`${request.currency} ${correctedTotal}`)}</p>
         {includesBuyerFee ? <p className="commission-notice">{isAr ? "الإجمالي يشمل عمولة المشتري 1%. لا تُضف العمولة مرة أخرى." : "Total includes the buyer’s 1% fee. Do not add it again."}</p> : null}
         <p className="text-xs text-[#D1D5DB]">{currencyText(isAr ? `العمولة والخصم من العرض على ${correctedAmount} USDT عند الإكمال.` : `Commission and listing deduction use ${correctedAmount} USDT on completion.`)}</p>
       </div> : null}
       <p className="text-sm">{currencyText(isAr ? "انتظر موافقة المشتري قبل إرسال المال أو USDT." : "Wait for buyer approval before sending money or USDT.")}</p>
-      <p className="text-xs text-[#D1D5DB]">{isAr ? "يمكن زيادة المبلغ أو تخفيضه ضمن رصيد العرض وحدوده. يُسمح باقتراحين فقط، حتى إذا رُفض الاقتراح أو سُحب." : "Increase or decrease within the listing's available balance and trade limits. Submitted proposals count toward the limit, even if declined or withdrawn."}</p>
+      <p className="text-xs text-[#D1D5DB]">{currencyText(isAr ? "يمكن زيادة المبلغ أو تخفيضه ضمن رصيد العرض وحدوده. يُسمح باقتراحين فقط، حتى إذا رُفض الاقتراح أو سُحب." : "Increase or decrease within the listing's available balance and trade limits. Submitted proposals count toward the limit, even if declined or withdrawn.")}</p>
       {counter && face && !request.sellerSafetyAcknowledged ? <label className="flex gap-2 text-sm"><input type="checkbox" checked={safety} onChange={(event) => setSafety(event.target.checked)} />{currencyText(isAr ? "أوافق على اللقاء في مكان عام آمن والتحقق من النقد قبل إرسال USDT." : "I agree to meet in a safe public place and verify cash before sending USDT.")}</label> : null}
-      <Button disabled={disabled || busy || !value.trim() || (!correctedAmount || !correctedTotal) || (counter && face && !request.sellerSafetyAcknowledged && !safety)} onClick={() => void submit(calculationAction)}>{busy ? (isAr ? "جارٍ الإرسال…" : "Sending…") : counter ? (isAr ? "إرسال عرض مقابل" : "Send counter-offer") : (isAr ? "إرسال التصحيح للموافقة" : "Propose corrected amount")}</Button>
-    </div> : null}
+      <Button type="submit" disabled={disabled || busy || !value.trim() || (!correctedAmount || !correctedTotal) || (counter && face && !request.sellerSafetyAcknowledged && !safety)}>{busy ? (isAr ? "جارٍ الإرسال…" : "Sending…") : counter ? (isAr ? "إرسال عرض مقابل" : "Send counter-offer") : (isAr ? "إرسال التصحيح للموافقة" : "Propose corrected amount")}</Button>
+    </form> : null}
     {error ? <ActionFeedback revealKey={errorFeedbackKey} as="p" role="alert" className="text-sm text-red-300">{currencyText(error)}</ActionFeedback> : null}
   </section>;
 }

@@ -87,7 +87,10 @@ async function renderedColors(element: Locator) {
       context.fillStyle = getComputedStyle(parent).backgroundColor; context.fillRect(0, 0, 1, 1);
     }
     const background = Array.from(context.getImageData(0, 0, 1, 1).data);
-    context.fillStyle = getComputedStyle(node).color; context.fillRect(0, 0, 1, 1);
+    const style = getComputedStyle(node);
+    const textFill = style.getPropertyValue("-webkit-text-fill-color");
+    context.fillStyle = textFill && textFill !== "currentcolor" ? textFill : style.color;
+    context.fillRect(0, 0, 1, 1);
     const rgba = Array.from(context.getImageData(0, 0, 1, 1).data);
     const luminance = (channels: number[]) => channels.slice(0, 3).reduce((sum, channel, index) => {
       const value = channel / 255;
@@ -135,10 +138,19 @@ async function expectBlueText(element: Locator) {
   expect(blue).toBeGreaterThan(green + 15);
   expect(contrast).toBeGreaterThanOrEqual(4.5);
 }
-async function expectGreenMoney(container: Locator) {
-  const values = container.locator("bdi").filter({ hasText: /[₪$]\s*\d/ });
-  expect(await values.count(), "The checked section contains actual currency values").toBeGreaterThan(0);
-  for (const value of await values.all()) await expectGreenText(value);
+async function expectGreenMoney(container: Locator, expectedAmounts?: readonly string[]) {
+  const values = expectedAmounts
+    ? expectedAmounts.map(text => container.getByText(text, { exact: true }))
+    : await container.locator("bdi").filter({ hasText: /[₪$]\s*\d/ }).all();
+  expect(values.length, "The checked section contains actual currency values").toBeGreaterThan(0);
+  for (const value of values) {
+    if (expectedAmounts) {
+      await expect(value).toBeVisible();
+      await expect(value).toHaveCSS("direction", "ltr");
+      await expect(value).toHaveCSS("unicode-bidi", "isolate");
+    }
+    await expectGreenText(value);
+  }
 }
 async function expectReadableSelectPaint(select: Locator, info: TestInfo, name: string) {
   // Native select painting can ignore the CSS background in WebKit. Measure
@@ -915,7 +927,7 @@ test("buyer and seller forms clearly show the 3.10 quote and its inclusive price
     for (const boundary of ["2.74", "3.46"]) {
       await price.fill(boundary); await expect(publish).toBeDisabled();
       await expectGreenText(price); await expectGreenMoney(form);
-      await expectGreenMoney(form.locator("#request-submit-help"));
+      await expectGreenMoney(form.locator("#request-submit-help"), ["₪2.75", "₪3.45"]);
     }
     for (const boundary of ["2.75", "3.45"]) { await price.fill(boundary); await expect(publish).toBeEnabled(); }
     await price.fill("3.10"); await publish.click();
@@ -928,7 +940,7 @@ test("buyer and seller forms clearly show the 3.10 quote and its inclusive price
     for (const boundary of ["2.74", "3.46"]) {
       await offerPrice.fill(boundary); await expect(send).toBeDisabled();
       await expectGreenText(offerPrice); await expectGreenMoney(responseForm);
-      await expectGreenMoney(responseForm.locator('p[id$="-reason"]'));
+      await expectGreenMoney(responseForm.locator('p[id$="-reason"]'), ["₪2.75", "₪3.45"]);
     }
     for (const boundary of ["2.75", "3.45"]) { await offerPrice.fill(boundary); await expect(send).toBeEnabled(); }
     await expect(responseForm).toContainText("2.75"); await expect(responseForm).toContainText("3.45");
@@ -1060,11 +1072,18 @@ for (const role of ["buyer", "seller"] as const) {
       const landscapeToggle = page.locator('summary[aria-label="Open menu"]');
       await landscapeToggle.click();
       const landscapeEntry = landscapeToggle.locator("..").getByRole("link", { name: "Buy Requests", exact: true });
-      await landscapeEntry.scrollIntoViewIfNeeded();
-      // A native scroll can move the page beneath its sticky header without
-      // exposing the link inside the menu. Verify actionability before measuring.
-      await landscapeEntry.click({ trial: true });
+      const [panel, item] = await Promise.all([
+        landscapeToggle.locator("+ div").boundingBox(),
+        landscapeEntry.boundingBox(),
+      ]);
+      if (!panel || !item) throw new Error("The open menu and its Buy Requests link must have visible bounds.");
+      // A click can hit a partly clipped row. Scroll the menu itself, as a user
+      // would in landscape, and check the whole row before attempting the click.
+      const panelCenterY = panel.y + panel.height / 2;
+      await page.mouse.move(panel.x + panel.width / 2, panelCenterY);
+      await page.mouse.wheel(0, Math.round(item.y + item.height / 2 - panelCenterY));
       await expect(landscapeEntry).toBeInViewport({ ratio: 1 });
+      await landscapeEntry.click({ trial: true });
       const bounds = await landscapeEntry.boundingBox();
       expect(bounds).not.toBeNull(); expect(bounds!.y).toBeGreaterThanOrEqual(0); expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(320);
       await landscapeEntry.click();
@@ -1162,7 +1181,15 @@ test("buyer can keep or cancel a request and then publish it again after the coo
   await expect(page.getByRole("button", { name: "Confirm cancellation", exact: true })).toHaveCount(0);
   await expect(page.getByRole("status").filter({ hasText: "Request cancelled." })).toHaveText("Request cancelled. Its publication still counts toward your 24-hour limit.");
   expect((await state(page.request)).usdtDemands?.find(item => item.id === demand.id)?.state).toBe("cancelled");
-  await ageDemandPastCooldown(page.request, demand.id); await page.reload();
+  await ageDemandPastCooldown(page.request, demand.id);
+  const detailUrl = new URL(`${root}/${demand.id}`, page.url()).href;
+  const [refreshed] = await Promise.all([
+    page.waitForResponse(response => response.url() === detailUrl && response.request().method() === "GET"),
+    page.getByRole("button", { name: "Refresh", exact: true }).click(),
+  ]);
+  expect(refreshed.status()).toBe(200);
+  const refreshedWorkspace: DemandWorkspace = await refreshed.json();
+  expect(refreshedWorkspace.requests).toContainEqual(expect.objectContaining({ id: demand.id, state: "cancelled", revision: 2 }));
   await page.getByRole("button", { name: "Publish again", exact: true }).click();
   const form = page.getByRole("form", { name: "Request details" });
   await expect(form.getByLabel("Amount (USDT)", { exact: true })).toHaveValue("5,000");

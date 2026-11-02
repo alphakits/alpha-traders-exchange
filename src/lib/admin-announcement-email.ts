@@ -1,4 +1,5 @@
 import { getSiteUrl } from "@/lib/site-url";
+import { emailDisplayHtml, emailDisplayText, escapeHtml } from "@/lib/email-display-text";
 import { previewEmailRecipientFailure, previewEmailSubject } from "./email-preview-safety";
 import {
   BRAND_EMAIL_LOGO_URL,
@@ -76,15 +77,6 @@ function assertExpectedScript(value: string, locale: "ar" | "en", fieldName: str
   }
 }
 
-function escapeHtml(value: string) {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
-}
-
 export function isValidAnnouncementCtaUrl(value: string) {
   try {
     return new URL(value).protocol === "https:";
@@ -156,23 +148,27 @@ const RESEND_RETRY_BASE_MS = 750;
 const RESEND_REQUEST_TIMEOUT_MS = 5_000;
 const RESEND_MAX_INLINE_RETRY_DELAY_MS = 2_000;
 
-function renderInlineFormatting(value: string) {
+function formatAnnouncementLine(value: string, html: boolean) {
   const links: string[] = [];
-  const withLinkTokens = value.replace(/\[([^\]\n]{1,120})\]\((https:\/\/[^)\s]+)\)/g, (_match, label: string, url: string) => {
-    if (!isValidAnnouncementCtaUrl(url)) return label;
-    const index = links.push(
-      `<a href="${escapeHtml(url)}" style="color:#d6b84c;text-decoration:underline;">${escapeHtml(label)}</a>`,
-    ) - 1;
-    return `ANNOUNCEMENTLINK${index}TOKEN`;
+  const withLinkTokens = value.replace(/\[([^\]\n]{1,120})\]\((https:\/\/[^)\s]+)\)|https?:\/\/[^\s<>]+/g, (matched, label?: string, url?: string) => {
+    let rendered = html ? escapeHtml(matched) : matched;
+    if (label && url) {
+      if (!isValidAnnouncementCtaUrl(url)) return label;
+      rendered = html
+        ? `<a href="${escapeHtml(url)}" style="color:#d6b84c;text-decoration:underline;">${emailDisplayHtml(label)}</a>`
+        : `${emailDisplayText(label)} (${url})`;
+    }
+    return `ANNOUNCEMENTLINK${links.push(rendered) - 1}TOKEN`;
   });
 
-  return escapeHtml(withLinkTokens)
-    .replace(/\*\*([^*\n]+)\*\*/g, "<strong style=\"color:#ffffff;\">$1</strong>")
-    .replace(/_([^_\n]+)_/g, "<em>$1</em>")
+  return (html ? emailDisplayHtml(withLinkTokens) : emailDisplayText(withLinkTokens))
+    .replace(/\*\*([^*\n]+)\*\*/g, html ? "<strong style=\"color:#ffffff;\">$1</strong>" : "$1")
+    .replace(/_([^_\n]+)_/g, html ? "<em>$1</em>" : "$1")
     .replace(/ANNOUNCEMENTLINK(\d+)TOKEN/g, (_match, index: string) => links[Number(index)] ?? "");
 }
 
 export function renderAnnouncementRichText(content: string, locale: "ar" | "en" = "en") {
+  const renderInlineFormatting = (line: string) => formatAnnouncementLine(line, true);
   const lines = content.replace(/\r\n?/g, "\n").split("\n");
   const blocks: string[] = [];
   let paragraph: string[] = [];
@@ -210,10 +206,7 @@ export function renderAnnouncementRichText(content: string, locale: "ar" | "en" 
 }
 
 function toPlainText(content: string) {
-  return content
-    .replace(/\[([^\]]+)\]\((https:\/\/[^)\s]+)\)/g, "$1 ($2)")
-    .replace(/\*\*([^*]+)\*\*/g, "$1")
-    .replace(/_([^_]+)_/g, "$1");
+  return formatAnnouncementLine(content, false);
 }
 
 function localizedAnnouncementCtaUrl(value: string, locale: "ar" | "en") {
@@ -237,8 +230,8 @@ export function buildAdminAnnouncementEmail(input: AdminAnnouncementEmailContent
   const title = splitLocalizedInline(normalized.title, "Title");
   const content = splitLocalizedContent(normalized.content);
   const ctaText = splitLocalizedInline(normalized.ctaText, "CTA button text");
-  const safeTitle = { ar: escapeHtml(title.ar), en: escapeHtml(title.en) };
-  const safeCtaText = { ar: escapeHtml(ctaText.ar), en: escapeHtml(ctaText.en) };
+  const safeTitle = { ar: emailDisplayHtml(title.ar), en: emailDisplayHtml(title.en) };
+  const safeCtaText = { ar: emailDisplayHtml(ctaText.ar, "onGold"), en: emailDisplayHtml(ctaText.en, "onGold") };
   const ctaUrl = {
     ar: escapeHtml(localizedAnnouncementCtaUrl(normalized.ctaUrl, "ar")),
     en: escapeHtml(localizedAnnouncementCtaUrl(normalized.ctaUrl, "en")),
@@ -249,24 +242,24 @@ export function buildAdminAnnouncementEmail(input: AdminAnnouncementEmailContent
   };
 
   return {
-    subject: `${subject.ar} | ${subject.en}`,
+    subject: `${emailDisplayText(subject.ar)} | ${emailDisplayText(subject.en)}`,
     text: [
-      title.ar,
+      emailDisplayText(title.ar),
       "",
       toPlainText(content.ar),
       "",
-      `${ctaText.ar}: ${localizedAnnouncementCtaUrl(normalized.ctaUrl, "ar")}`,
+      `${emailDisplayText(ctaText.ar)}: ${localizedAnnouncementCtaUrl(normalized.ctaUrl, "ar")}`,
       "",
       `${BRAND_NAME}: ${siteUrl}/ar`,
       "الدعم: support@alphatraders.co.il",
       "",
       "--- English ---",
       "",
-      title.en,
+      emailDisplayText(title.en),
       "",
       toPlainText(content.en),
       "",
-      `${ctaText.en}: ${localizedAnnouncementCtaUrl(normalized.ctaUrl, "en")}`,
+      `${emailDisplayText(ctaText.en)}: ${localizedAnnouncementCtaUrl(normalized.ctaUrl, "en")}`,
       "",
       `${BRAND_NAME}: ${siteUrl}/en`,
       "Support: support@alphatraders.co.il",

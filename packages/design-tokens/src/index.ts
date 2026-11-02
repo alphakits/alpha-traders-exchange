@@ -16,6 +16,12 @@ export const colors = {
   overlay: "rgba(0, 0, 0, 0.72)",
 } as const;
 
+export const moneyColors = {
+  onDark: "#4ade80",
+  onLight: "#166534",
+  onGold: "#0c3b20",
+} as const;
+
 export const spacing = {
   xs: 4,
   sm: 8,

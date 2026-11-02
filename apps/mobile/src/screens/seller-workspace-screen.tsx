@@ -39,7 +39,7 @@ import { mergeUniquePages, nextPageOffset } from "../query/paged-data";
 import {
   formatCount,
   formatCurrencyAmountAsUsd,
-  formatWholeUsdtNumber,
+  formatUsdtNumber,
 } from "../finance/financial-display";
 import { useUsdDisplayRate } from "../finance/use-usd-display-rate";
 
@@ -231,19 +231,19 @@ export function SellerWorkspaceScreen() {
               </View>
               <View style={styles.metricsRow}>
                 <View style={styles.metric}>
-                  <Text style={styles.metricLabel}>{t("available")}</Text>
-                  <Text style={styles.metricValue}>{formatWholeUsdtNumber(item.availableAmount)} USDT</Text>
+                  <Text monetary style={styles.metricLabel}>{t("available")}</Text>
+                  <Text monetary style={styles.metricValue}>{formatUsdtNumber(item.availableAmount)} USDT</Text>
                 </View>
                 <View style={styles.metric}>
-                  <Text style={styles.metricLabel}>{t("price")}</Text>
-                  <Text style={styles.metricValue}>{formatCurrencyAmountAsUsd(item.price, item.currency, usdIlsRate, 4)}</Text>
+                  <Text monetary style={styles.metricLabel}>{t("price")}</Text>
+                  <Text monetary style={styles.metricValue}>{formatCurrencyAmountAsUsd(item.price, item.currency, usdIlsRate, 4)}</Text>
                 </View>
               </View>
               <Text style={[styles.detail, isRTL && styles.rtlText]}>
                 {item.network} · {item.paymentMethods.join(" · ")}
               </Text>
-              <Text style={[styles.detail, isRTL && styles.rtlText]}>
-                {t("minimum")}: {formatWholeUsdtNumber(item.minimumTrade)} · {t("maximum")}: {formatWholeUsdtNumber(item.maximumTrade)} USDT
+              <Text monetary style={[styles.detail, isRTL && styles.rtlText]}>
+                {t("minimum")}: {formatUsdtNumber(item.minimumTrade)} · {t("maximum")}: {formatUsdtNumber(item.maximumTrade)} USDT
               </Text>
               {item.approvalStatus ? (
                 <Text style={[styles.detail, isRTL && styles.rtlText]}>

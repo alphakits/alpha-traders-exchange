@@ -253,7 +253,7 @@ describe("USDT request workspace", () => {
     fireEvent.change(screen.getByLabelText("Amount (USDT)"), { target: { value: "5,000" } });
     expect((screen.getByRole("button", { name: "Publish request" }) as HTMLButtonElement).disabled).toBe(false);
     failed = true; fireEvent.focus(window);
-    await screen.findByText(/We could not refresh the latest price/);
+    await waitFor(() => expect(screen.getAllByRole("status").some(node => node.textContent?.includes("We could not refresh the latest price"))).toBe(true));
     expect((screen.getByRole("button", { name: "Publish request" }) as HTMLButtonElement).disabled).toBe(true);
     failed = false; fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
     await waitFor(() => expect((screen.getByRole("button", { name: "Publish request" }) as HTMLButtonElement).disabled).toBe(false));

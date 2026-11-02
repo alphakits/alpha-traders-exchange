@@ -42,7 +42,7 @@ for (const locale of ["en", "ar"] as const) {
       const card = sellerPage.locator(`[id="seller-listing-${id}"]`);
       await card.getByRole("button", { name: locale === "ar" ? "تعديل" : "Edit", exact: true }).click();
       await card.getByPlaceholder(locale === "ar" ? "الكمية المتاحة" : "Available Amount").fill("2000");
-      await expect(card.getByPlaceholder(locale === "ar" ? "الحد الأقصى للصفقة" : "Maximum Trade")).toHaveValue("2000");
+      await expect(card.getByPlaceholder(locale === "ar" ? "الحد الأقصى للصفقة" : "Maximum Trade")).toHaveValue("2,000");
       await card.getByLabel(locale === "ar" ? "سبب تغيير العرض" : "Reason for listing change").selectOption("Changed available balance");
       await card.getByPlaceholder(locale === "ar" ? "اشرح هذا التغيير باختصار" : "Briefly explain this change").fill("Synthetic inventory replenishment");
       const saved = sellerPage.waitForResponse(response => response.url().endsWith(`/api/alpha-exchange/listings/${id}`) && response.request().method() === "PATCH");
@@ -63,6 +63,7 @@ for (const locale of ["en", "ar"] as const) {
       await capInput.fill("600");
       await amountInput.fill("");
       await amountInput.pressSequentially("6000");
+      await expect(amountInput).toHaveValue("6,000");
       await expect(capInput).toHaveValue("600");
       await card.getByLabel(locale === "ar" ? "سبب تغيير العرض" : "Reason for listing change").selectOption("Changed available balance");
       await card.getByPlaceholder(locale === "ar" ? "اشرح هذا التغيير باختصار" : "Briefly explain this change").fill("Synthetic explicit per-trade cap");

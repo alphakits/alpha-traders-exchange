@@ -1,5 +1,7 @@
 "use client";
 
+import { formatMoneyNumber } from "@/lib/accent-text";
+import { currencyText } from "@/components/ui/currency-text";
 import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { clearPendingTradeAction, executeTradeOwnerAction, isTradeActionInFlight, readPendingTradeAction, TRADE_ACTION_EVENT, type PendingTradeAction } from "@/lib/owner-trade-action";
@@ -147,7 +149,7 @@ export function TradeOwnerActions({ locale, request, isOwner, openDispute, onUpd
       <Button type="button" variant="secondary" disabled={locked || !controls.canClose} onClick={() => select("force-close")} className="min-h-11 whitespace-normal border-red-400/35 text-red-200">{labels["force-close"]}</Button>
       <Button type="button" variant="secondary" disabled={locked || !controls.canUnlockReview} onClick={() => select("unlock-review")} className="min-h-11 whitespace-normal">{labels["unlock-review"]}</Button>
     </div>
-    <p className="mt-3 text-xs text-[#D1D5DB]">{controls.completed
+    <p className="mt-3 text-xs text-[#D1D5DB]">{currencyText(controls.completed
       ? t("Already completed. Closing preserves the chat, reviews, commission and completed amounts.", "الصفقة مكتملة بالفعل. الإغلاق يحفظ المحادثة والتقييمات والعمولة والمبالغ المكتملة.")
       : isOwner
         ? controls.cancelled
@@ -161,13 +163,13 @@ export function TradeOwnerActions({ locale, request, isOwner, openDispute, onUpd
             ? t("The pending amount or price proposal must be resolved before marking this trade completed.", "يجب حسم اقتراح المبلغ أو السعر المعلق قبل إكمال هذه الصفقة.")
           : !controls.canClose && !currentDispute
             ? t("Payment or transfer progress is recorded. Verify delivery and mark completed, or resolve the trade through its dispute review.", "تم تسجيل تقدم في الدفع أو التحويل. تحقق من التسليم وأكمل الصفقة أو عالجها عبر مراجعة النزاع.")
-            : t("Mark completed only after verifying the exchange. Force close cancels a trade before payment begins.", "أكمل الصفقة بعد التحقق من التبادل. الإغلاق الإجباري يلغي الصفقة قبل بدء الدفع.")}</p>
+            : t("Mark completed only after verifying the exchange. Force close cancels a trade before payment begins.", "أكمل الصفقة بعد التحقق من التبادل. الإغلاق الإجباري يلغي الصفقة قبل بدء الدفع."))}</p>
     {currentRequest.closedAt ? <p className="mt-2 text-xs text-amber-200">{t("Trade closed by owner/admin. History retained.", "أغلقت الصفقة بواسطة المالك أو الإدارة. تم الاحتفاظ بالسجل.")}</p> : null}
     {action ? <form onSubmit={(event) => void submit(event)} className="mt-4 space-y-3 rounded-xl border border-white/15 bg-black/30 p-3">
       <h3 className="text-sm font-semibold">{labels[action]}</h3>
-      {action === "force-complete" ? <p className="text-xs text-[#D1D5DB]">{t("Confirm payment and USDT delivery. This runs the normal completion, commission and review process.", "تحقق من الدفع وتسليم USDT. سيُنفّذ مسار الإكمال والعمولة والتقييم المعتاد.")}</p> : null}
-      {action === "force-close" && !controls.completed ? <p className="text-xs text-[#D1D5DB]">{t("This marks the trade Cancelled, retains its history and stops trade reminders. It does not transfer or refund money.", "سيتم تحديد الصفقة كملغاة مع حفظ سجلها وإيقاف تذكيراتها. هذا الإجراء لا يحوّل أموالًا ولا يعيدها.")}</p> : null}
-      {isOwner && action === "force-complete" && currentRequest.termsProposal?.status === "pending" ? <p className="text-xs text-amber-200">{t("Completion uses the current agreed amounts. The unaccepted proposal will be withdrawn.", "يعتمد الإكمال المبالغ المتفق عليها حاليًا. سيتم سحب الاقتراح غير المقبول.")}</p> : null}
+      {action === "force-complete" ? <p className="text-xs text-[#D1D5DB]">{currencyText(t("Confirm payment and USDT delivery. This runs the normal completion, commission and review process.", "تحقق من الدفع وتسليم USDT. سيُنفّذ مسار الإكمال والعمولة والتقييم المعتاد."))}</p> : null}
+      {action === "force-close" && !controls.completed ? <p className="currency-money text-xs text-[#D1D5DB]">{formatMoneyNumber(t("This marks the trade Cancelled, retains its history and stops trade reminders. It does not transfer or refund money.", "سيتم تحديد الصفقة كملغاة مع حفظ سجلها وإيقاف تذكيراتها. هذا الإجراء لا يحوّل أموالًا ولا يعيدها."))}</p> : null}
+      {isOwner && action === "force-complete" && currentRequest.termsProposal?.status === "pending" ? <p className="text-xs text-amber-200">{currencyText(t("Completion uses the current agreed amounts. The unaccepted proposal will be withdrawn.", "يعتمد الإكمال المبالغ المتفق عليها حاليًا. سيتم سحب الاقتراح غير المقبول."))}</p> : null}
       <label className="block text-sm" htmlFor={`${formId}-reason`}>{action === "resolve-dispute" ? t("Resolution notes", "ملاحظات حل النزاع") : t("Reason", "السبب")}</label>
       <textarea id={`${formId}-reason`} autoFocus required maxLength={1000} rows={3} disabled={locked} value={reason} onChange={(event) => setReason(event.target.value)} className="w-full rounded-xl border border-white/20 bg-black/40 p-3 text-base text-white" />
       <div className="flex flex-wrap gap-2">
@@ -181,7 +183,7 @@ export function TradeOwnerActions({ locale, request, isOwner, openDispute, onUpd
       {pending.outcome !== "saved" ? <label className="flex items-start gap-2"><input type="checkbox" checked={auditChecked} disabled={busy || isTradeActionInFlight(request.id)} onChange={event => setAuditChecked(event.target.checked)} />{t("I checked the trade and audit history for the previous action.", "راجعت الصفقة وسجل الإجراءات للتحقق من الإجراء السابق.")}</label> : null}
       <Button type="button" variant="secondary" disabled={busy || accessLost || isTradeActionInFlight(request.id) || (pending.outcome !== "saved" && !auditChecked)} onClick={() => void recover()}>{t("Verify current state", "تحقق من الحالة الحالية")}</Button>
     </div> : null}
-    {error ? <p role="alert" className="mt-3 text-sm text-red-200">{error}</p> : null}
-    {success ? <p role="status" className="mt-3 text-sm text-emerald-200">{success}</p> : null}
+    {error ? <p role="alert" className="mt-3 text-sm text-red-200">{currencyText(error)}</p> : null}
+    {success ? <p role="status" className="mt-3 text-sm text-emerald-200">{currencyText(success)}</p> : null}
   </section>;
 }

@@ -35,7 +35,7 @@ const ARABIC_TEXT = /[\u0600-\u06ff]/;
 describe("USDT exchange localized mobile copy", () => {
   it("groups every marketplace financial amount above 999", () => {
     expect(formatUsdt(1_000)).toBe("1,000 USDT");
-    expect(formatUsdt(1.234567)).toBe("1 USDT");
+    expect(formatUsdt(1_234.56789)).toBe("1,234.56789 USDT");
     expect(formatIls(1_050_000)).toBe("₪1,050,000.00");
   });
 
@@ -177,7 +177,6 @@ describe("USDT exchange localized mobile copy", () => {
     expect(marketplace).toContain('"±₪0.35 من سعر الإعلان"');
     expect(marketplace).toContain('listing.currency.trim().toUpperCase() === "ILS"');
     expect(marketplace).toContain('seller-marketplace-action--offer');
-    expect(purchaseDialog).toContain('id="buyer-offered-price"');
     expect(purchaseDialog).toContain('type="number"');
     expect(purchaseDialog).toContain('step="0.01"');
     expect(purchaseDialog).toContain('"Submit Price Offer"');

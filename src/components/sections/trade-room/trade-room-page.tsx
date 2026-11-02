@@ -1,10 +1,11 @@
 "use client";
+import { formatMoneyNumber } from "@/lib/accent-text";
 import { sellerFeeResponsibilityNotice, tradePaymentReceiptConfirmation, TRADE_CHAT_MESSAGE_MAX_LENGTH, OWNER_TRADE_CHAT_MESSAGE_MAX_LENGTH } from "@alpha-traders/contracts";
 
 import { AttentionSiren } from "@/components/ui/attention-siren";
 import { publicAccountName } from "@/lib/public-account-identity";
 
-import { currencyText } from "@/components/ui/currency-text";
+import { currencyText, moneyText } from "@/components/ui/currency-text";
 import { ACTION_FEEDBACK_REVEALED, ActionFeedback, useActionFeedbackState } from "@/components/ui/action-feedback";
 import { useActionDialog } from "@/components/ui/use-action-dialog";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from "react";
@@ -3092,7 +3093,7 @@ function TradeRoomPageSession({
                 <p>{isSeller ? (isAr ? "المشتري" : "Buyer") : (isAr ? "البائع" : "Seller")}: <span className="text-white">{currencyText(counterpartName)}</span></p>
                 <p>{isAr ? "حسابك" : "Your account"}: {currencyText(publicAccountName(actor))}</p>
                 <p>{isAr ? "طريقة الدفع" : "Payment Method"}: {currencyText(requestPaymentMethodLabel)}</p>
-                <p>{currencyText(isAr ? "السعر لكل USDT" : "Price per USDT")}: <bdi dir="ltr">{currencyText(`${request.currency} ${(toNumber(request.pricePerUsdt) || (toNumber(request.fiatAmount) / Math.max(1, toNumber(request.usdtAmount)))).toFixed(2)}`)} / <span className="currency-usdt">USDT</span></bdi></p>
+                <p>{currencyText(isAr ? "السعر لكل USDT" : "Price per USDT")}: <bdi dir="ltr">{currencyText(`${request.currency} ${(toNumber(request.pricePerUsdt) || (toNumber(request.fiatAmount) / Math.max(1, toNumber(request.usdtAmount)))).toFixed(2)}`)} / <span className="currency-money currency-usdt">USDT</span></bdi></p>
                 {request.bankName ? <p>{isCardlessAtmTrade ? (isAr ? "بنك السحب" : "Withdrawal bank") : (isAr ? "البنوك المعتمدة" : "Supported Banks")}: <bdi dir="auto">{currencyText(requestBankNamesLabel)}</bdi></p> : null}
                 {request.closedAt ? <p className="text-red-300">{isHistoricalCompletion ? (isAr ? "سبب الإغلاق السابق" : "Earlier close reason") : (isAr ? "سبب إغلاق الصفقة" : "Close reason")}: {currencyText(request.closeReason ?? (isAr ? "غير محدد" : "Not specified"))}</p> : null}
                 <UserSafetyActions context="trade" locale={locale} targetUserId={isSeller ? request.buyerId : request.sellerId} viewerSignedIn />
@@ -3111,8 +3112,8 @@ function TradeRoomPageSession({
             </p>
           ) : null}
           <div data-testid="inclusive-payment-total" className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-3 text-sm">
-            <p>{isHistoricalCompletion ? (isAr ? "المبلغ المحسوب وفق السعر المحفوظ" : "Amount calculated from the saved quote") : isSeller ? (isAr ? "الإجمالي المطلوب استلامه من المشتري" : "Full amount to collect from buyer") : (isAr ? "الإجمالي المطلوب دفعه للبائع" : "Full amount to pay the seller")}: <bdi dir="ltr" className="currency-money font-semibold">{currencyText(`${request.currency} ${toNumber(request.fiatAmount).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`)}</bdi></p>
-            {isHistoricalCompletion ? <p>{isAr ? "أكد مالك المنصة إتمام هذه الصفقة خارج الموقع. المبلغ المعروض محسوب من السعر والرسوم المحفوظة؛ لم يُسجّل مبلغ الدفع الفعلي خارج الموقع. لا يلزم دفع جديد لهذه الصفقة." : "The owner confirmed this trade was completed outside the site. The displayed amount uses the saved price and fees; the actual offline payment amount was not recorded. No new payment is needed for this trade."}</p> : request.feePolicyVersion === "buyer_seller_1pct_v1" ? <p className="commission-notice">{currencyText(isAr ? "يشمل عمولة المشتري 1%. ادفع هذا الإجمالي مرة واحدة. للبائع: تأكد من استلامه كاملًا قبل إرسال USDT." : "Buyer’s 1% fee included. Pay this total once. Seller: confirm full receipt before sending USDT.")}</p> : null}
+            <p>{currencyText(isHistoricalCompletion ? (isAr ? "المبلغ المحسوب وفق السعر المحفوظ" : "Amount calculated from the saved quote") : isSeller ? (isAr ? "الإجمالي المطلوب استلامه من المشتري" : "Full amount to collect from buyer") : (isAr ? "الإجمالي المطلوب دفعه للبائع" : "Full amount to pay the seller"))}: <bdi dir="ltr" className="currency-money font-semibold">{currencyText(`${request.currency} ${toNumber(request.fiatAmount).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`)}</bdi></p>
+            {isHistoricalCompletion ? <p>{currencyText(isAr ? "أكد مالك المنصة إتمام هذه الصفقة خارج الموقع. المبلغ المعروض محسوب من السعر والرسوم المحفوظة؛ لم يُسجّل مبلغ الدفع الفعلي خارج الموقع. لا يلزم دفع جديد لهذه الصفقة." : "The owner confirmed this trade was completed outside the site. The displayed amount uses the saved price and fees; the actual offline payment amount was not recorded. No new payment is needed for this trade.")}</p> : request.feePolicyVersion === "buyer_seller_1pct_v1" ? <p className="commission-notice">{currencyText(isAr ? "يشمل عمولة المشتري 1%. ادفع هذا الإجمالي مرة واحدة. للبائع: تأكد من استلامه كاملًا قبل إرسال USDT." : "Buyer’s 1% fee included. Pay this total once. Seller: confirm full receipt before sending USDT.")}</p> : null}
           </div>
           <div className="flex items-center justify-between gap-3">
             <h1 className="min-w-0 text-base font-semibold sm:text-lg">{isAr ? "الصفقة" : "Trade"} <bdi dir="ltr">{currencyText(formatTradeId(request.displayNumber, request.tradeId ?? request.id))}</bdi></h1>
@@ -3297,9 +3298,9 @@ function TradeRoomPageSession({
               {room.sellerCommissionDueCount > 0 && isSeller ? (
                 <div className="commission-surface rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-amber-100">
                   <p className="commission-notice flex items-center gap-2 font-semibold text-red-100"><AttentionSiren />{isAr ? "عمولة مستحقة" : "Commission Due"}</p>
-                  <p>{currencyText(isAr ? `ادفع الآن لألفا: ${formatUsdtAmount(room.sellerPayableCommissionAmount)}` : `Pay Alpha now: ${formatUsdtAmount(room.sellerPayableCommissionAmount)}`)}</p>
+                  <p>{moneyText(isAr ? `ادفع الآن لألفا: ${formatUsdtAmount(room.sellerPayableCommissionAmount)}` : `Pay Alpha now: ${formatUsdtAmount(room.sellerPayableCommissionAmount)}`)}</p>
                   <p className="commission-notice text-xs text-amber-100">{currencyText(request.feePolicyVersion === "buyer_seller_1pct_v1" ? sellerFeeResponsibilityNotice(isAr ? "ar" : "en") : (isAr ? "تظل العمولة الأصلية لهذه الصفقة مستحقة حتى السداد." : "This trade retains its original commission until paid."))}</p>
-                  {room.sellerCommissionDueCount > 1 ? <p className="text-xs">{currencyText(isAr ? `إجمالي المستحق: ${formatUsdtAmount(room.sellerCommissionDueAmount)}` : `Total outstanding: ${formatUsdtAmount(room.sellerCommissionDueAmount)}`)}</p> : null}
+                  {room.sellerCommissionDueCount > 1 ? <p className="text-xs">{moneyText(isAr ? `إجمالي المستحق: ${formatUsdtAmount(room.sellerCommissionDueAmount)}` : `Total outstanding: ${formatUsdtAmount(room.sellerCommissionDueAmount)}`)}</p> : null}
                   <p className="text-xs">{isAr ? "سدّد جميع العمولات المستحقة لقبول طلب جديد أو نشر عرض جديد. تبقى الطلبات محفوظة ويمكنك إكمال صفقاتك الحالية." : "Pay all outstanding commission before accepting new requests or creating listings. Requests stay saved and existing trades can continue."}</p>
                   <Button type="button" size="sm" className="mt-2" disabled={!room.sellerPayableCommissionId} onClick={() => openCommissionPayNow(room.sellerPayableCommissionId)}>
                     <span aria-hidden="true">💳</span>{isAr ? "ادفع الآن" : "Pay Now"}
@@ -3417,13 +3418,13 @@ function TradeRoomPageSession({
                         {bankDetails.accountHolderName ? <p>{isAr ? "اسم صاحب الحساب" : "Account holder"}: <span className="text-white"><bdi dir="auto">{currencyText(bankDetails.accountHolderName)}</bdi></span></p> : null}
                         <p>{isAr ? "اسم البنك" : "Bank"}: <span className="text-white"><bdi dir="auto">{currencyText(getIsraeliBankDisplayName(bankDetails.bankName, locale))}</bdi></span></p>
                         {bankDetails.bankTransferProvider === "wise" ? <>
-                          <p>{isAr ? "طريقة التحويل" : "Transfer route"}: <bdi dir="ltr">Wise · USD · ACH</bdi></p>
+                          <p>{isAr ? "طريقة التحويل" : "Transfer route"}: <bdi dir="ltr">{currencyText("Wise · USD · ACH")}</bdi></p>
                           <p>{isAr ? "رقم التوجيه ACH" : "ACH routing number"}: <bdi dir="ltr">{bankDetails.routingNumber}</bdi></p>
                           <p>{isAr ? "نوع الحساب" : "Account type"}: {bankDetails.accountType === "checking" ? (isAr ? "جارٍ" : "Checking") : (isAr ? "توفير" : "Savings")}</p>
                           {bankDetails.bankAddress ? <p>{isAr ? "عنوان البنك" : "Bank address"}: <bdi>{bankDetails.bankAddress}</bdi></p> : null}
                         </> : <p>{isAr ? "رقم الفرع" : "Branch"}: <span className="text-white"><bdi dir="ltr">{currencyText(bankDetails.branchNumber)}</bdi></span></p>}
                         <p>{isAr ? "رقم الحساب" : "Account number"}: <span className="font-mono text-white"><bdi dir="ltr">{currencyText(bankDetails.accountNumber)}</bdi></span></p>
-                        {bankDetails.buyerSender ? <div className="mt-3 space-y-1 border-t border-white/20 pt-3"><p className="font-semibold">{isAr ? "حساب المشتري المُرسِل المحدد لهذه الصفقة" : "Buyer's sending account selected for this trade"}</p><p><bdi>{bankDetails.buyerSender.accountHolderName}</bdi> · USD</p><p>{isAr ? "رقم التوجيه" : "Routing number"}: <bdi>{bankDetails.buyerSender.routingNumber}</bdi></p><p>{isAr ? "رقم الحساب" : "Account number"}: <bdi>{bankDetails.buyerSender.accountNumber}</bdi></p><p className="text-xs text-amber-200">{isAr ? "طابق اسم المرسل والمبلغ مع الدفعة الفعلية. الإيصال وحده ليس تأكيدًا لوصول المال." : "Match the sender and amount against the actual credited payment. A receipt alone is not confirmation that funds arrived."}</p></div> : null}
+                        {bankDetails.buyerSender ? <div className="mt-3 space-y-1 border-t border-white/20 pt-3"><p className="font-semibold">{isAr ? "حساب المشتري المُرسِل المحدد لهذه الصفقة" : "Buyer's sending account selected for this trade"}</p><p><bdi>{bankDetails.buyerSender.accountHolderName}</bdi>{currencyText(" · USD")}</p><p>{isAr ? "رقم التوجيه" : "Routing number"}: <bdi>{bankDetails.buyerSender.routingNumber}</bdi></p><p>{isAr ? "رقم الحساب" : "Account number"}: <bdi>{bankDetails.buyerSender.accountNumber}</bdi></p><p className="text-xs text-amber-200">{currencyText(isAr ? "طابق اسم المرسل والمبلغ مع الدفعة الفعلية. الإيصال وحده ليس تأكيدًا لوصول المال." : "Match the sender and amount against the actual credited payment. A receipt alone is not confirmation that funds arrived.")}</p></div> : null}
                       </div>
                     ) : (
                       <div className="mt-2 space-y-3 text-sm text-[#D1D5DB]">
@@ -3451,7 +3452,7 @@ function TradeRoomPageSession({
                       {cancelBusy ? (isAr ? "جاري الإلغاء..." : "Cancelling...") : (isAr ? "إلغاء الصفقة" : "Cancel Trade")}
                     </Button>
                     <p id="trade-cancel-help" className="text-xs text-[#9CA3AF]">
-                      {currencyText(room.hasOpenDispute
+                      {moneyText(room.hasOpenDispute
                         ? (isAr ? "الإلغاء مقفل أثناء مراجعة النزاع." : "Cancellation is locked while the dispute is under review.")
                         : canBuyerCancelTrade(request, actor.id) || canSellerCancelTrade(request, actor.id)
                           ? request.status === "pending"
@@ -3516,7 +3517,7 @@ function TradeRoomPageSession({
                 </details>
                   {request.priceMode === "buyer_offer" ? (
                     <div className="mt-3 rounded-xl border border-[#C9A227]/35 bg-[#C9A227]/10 p-3 text-sm text-[#F4D87A]">
-                      <p className="font-semibold">{request.priceOfferAcceptedAt ? (isAr ? "صفقة بسعر متفاوض عليه" : "Negotiated-price trade") : (isAr ? "عرض السعر" : "Price offer")}</p>
+                      <p className="font-semibold">{currencyText(request.priceOfferAcceptedAt ? (isAr ? "صفقة بسعر متفاوض عليه" : "Negotiated-price trade") : (isAr ? "عرض السعر" : "Price offer"))}</p>
                       <p className="mt-1 text-[#E5E7EB]">
                         {currencyText(request.priceOfferAcceptedAt
                           ? (isAr
@@ -3795,13 +3796,13 @@ function TradeRoomPageSession({
                   ) : null}
                   {!isCashTrade && room.releaseDeadlineActive ? (
                     <p className="rounded-xl border border-red-500/35 bg-red-500/10 p-3 text-xs text-red-100">
-                      {isSeller
+                      {currencyText(isSeller
                         ? (isAr
                             ? "يجب إكمال الصفقة قبل انتهاء المؤقت. قد يؤثر التأخير المتكرر أو عدم إرسال الأموال في سمعتك كبائع وعروضك المستقبلية، وقد يؤدي إلى مراجعة إدارية."
                             : "You must complete this trade before the timer expires. Repeated delays or failure to deliver funds may affect your seller reputation, future listings, and may result in administrative review.")
                         : (isAr
                             ? "تحقق من محفظتك. يجب على البائع تأكيد إرسال USDT وإكمال الصفقة. إذا ظهرت مشكلة، تواصل معه أو افتح نزاعًا."
-                            : "Check your wallet. The seller must confirm USDT delivery and complete the trade. If there is a problem, contact the seller or open a dispute.")}
+                            : "Check your wallet. The seller must confirm USDT delivery and complete the trade. If there is a problem, contact the seller or open a dispute."))}
                     </p>
                   ) : null}
                 </div>
@@ -3813,7 +3814,7 @@ function TradeRoomPageSession({
             <details className="group rounded-2xl border border-white/10 bg-[#0B0B0B]/90 p-4">
               <summary className="flex min-h-11 cursor-pointer items-center justify-between gap-3 font-semibold">
                 {isAr ? "الخط الزمني للصفقة" : "Trade Timeline"}
-                <span className="ms-auto text-xs font-normal text-[#9CA3AF]">{activeTimeline.length}</span><ChevronDown className="h-4 w-4 shrink-0 group-open:rotate-180" aria-hidden="true" />
+                <span className="ms-auto text-xs font-normal text-[#9CA3AF]">{formatMoneyNumber(activeTimeline.length)}</span><ChevronDown className="h-4 w-4 shrink-0 group-open:rotate-180" aria-hidden="true" />
               </summary>
               <div className="mt-3 space-y-2">
                 {visibleTimeline.length ? (
@@ -3823,7 +3824,7 @@ function TradeRoomPageSession({
                       <div className="min-w-0 flex-1">
                         <div className="flex items-start justify-between gap-2">
                           <p className="text-white">{currencyText(timelineEventLabel(event, isAr))}</p>
-                          {count > 1 ? <span className="shrink-0 rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-xs text-[#D1D5DB]">×{count}</span> : null}
+                          {count > 1 ? <span className="shrink-0 rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-xs text-[#D1D5DB]">×{formatMoneyNumber(count)}</span> : null}
                         </div>
                         <p className="text-xs text-[#9CA3AF]">{new Date(event.createdAt).toLocaleString(dateLocale)}</p>
                       </div>
@@ -3887,7 +3888,7 @@ function TradeRoomPageSession({
                     <p><span className="text-[#9CA3AF]">{isAr ? "الحالة" : "Status"}:</span> {currencyText(tradeStatusLabel(request.status, isAr, isOverdueTrade, isCashTrade))}</p>
                     <p><span className="text-[#9CA3AF]">{isAr ? "البائع" : "Seller"}:</span> <bdi dir="ltr">{tradeChatPublicId(room, "seller")}</bdi></p>
                     <p><span className="text-[#9CA3AF]">{isAr ? "المشتري" : "Buyer"}:</span> <bdi dir="ltr">{tradeChatPublicId(room, "buyer")}</bdi></p>
-                    <p><span className="text-[#9CA3AF]">{isAr ? "المبلغ" : "Amount"}:</span> <bdi dir="ltr">{currencyText(`${toNumber(request.usdtAmount).toLocaleString("en-US", { maximumFractionDigits: 6 })} USDT`)}</bdi></p>
+                    <p><span className="text-[#9CA3AF]">{currencyText(isAr ? "المبلغ" : "Amount")}:</span> <bdi dir="ltr">{currencyText(`${toNumber(request.usdtAmount).toLocaleString("en-US", { maximumFractionDigits: 6 })} USDT`)}</bdi></p>
                     <p><span className="text-[#9CA3AF]">{isAr ? "الشبكة" : "Network"}:</span> <bdi dir="ltr">{request.network}</bdi></p>
                     <p><span className="text-[#9CA3AF]">{isAr ? "الإجراء" : "Action"}:</span> <bdi dir="auto">{currencyText(turn?.detail)}</bdi></p>
                   </div>
@@ -4083,7 +4084,7 @@ function TradeRoomPageSession({
                 <CardContent className="text-sm text-[#FDE68A]">
                   <p className="commission-notice">{currencyText(isAr ? `عدد العمولات غير المدفوعة: ${room.sellerCommissionDueCount}` : `Pending commissions: ${room.sellerCommissionDueCount}`)}</p>
                   <p className="mt-1">{currencyText(isAr ? `المبلغ الإجمالي: ${formatUsdtAmount(room.sellerCommissionDueAmount)}` : `Total due: ${formatUsdtAmount(room.sellerCommissionDueAmount)}`)}</p>
-                  <p className="mt-1">{currencyText(isAr ? `الدفع الحالي: ${formatUsdtAmount(room.sellerPayableCommissionAmount)}` : `Current payment: ${formatUsdtAmount(room.sellerPayableCommissionAmount)}`)}</p>
+                  <p className="mt-1">{moneyText(isAr ? `الدفع الحالي: ${formatUsdtAmount(room.sellerPayableCommissionAmount)}` : `Current payment: ${formatUsdtAmount(room.sellerPayableCommissionAmount)}`)}</p>
                   <p className="mt-1 text-xs text-amber-100">{isAr ? "سدّد جميع العمولات المستحقة لقبول طلب جديد أو نشر عرض جديد. تبقى الطلبات محفوظة ويمكنك إكمال صفقاتك الحالية." : "Pay all outstanding commission before accepting new requests or creating listings. Requests stay saved and existing trades can continue."}</p>
                   <Button type="button" size="sm" className="mt-2" disabled={!room.sellerPayableCommissionId} onClick={() => openCommissionPayNow(room.sellerPayableCommissionId)}>
                     <span aria-hidden="true">💳</span>{isAr ? "ادفع الآن" : "Pay Now"}

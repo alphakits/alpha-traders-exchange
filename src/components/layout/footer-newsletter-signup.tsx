@@ -1,5 +1,6 @@
 "use client";
 
+import { currencyText } from "@/components/ui/currency-text";
 import { ActionFeedback } from "@/components/ui/action-feedback";
 import { useState, type FormEvent } from "react";
 import type { AppLocale } from "@/i18n/routing";
@@ -75,7 +76,7 @@ export function FooterNewsletterSignup({ locale }: { locale: AppLocale }) {
     <form className="mt-4" onSubmit={handleSubmit} aria-label={copy.submit}>
       <div className="flex flex-col gap-2 sm:flex-row">
         <label htmlFor="footer-newsletter-email" className="sr-only">
-          {copy.label}
+          {currencyText(copy.label)}
         </label>
         <input
           id="footer-newsletter-email"

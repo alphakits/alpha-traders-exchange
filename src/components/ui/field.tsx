@@ -1,4 +1,5 @@
 import * as React from "react";
+import { currencyText } from "@/components/ui/currency-text";
 import { cn } from "@/lib/utils";
 
 /**
@@ -25,7 +26,7 @@ export function FieldLabel({
       htmlFor={htmlFor}
       className={cn("flex items-center gap-1 text-xs font-semibold uppercase tracking-[0.12em] text-[#D1D5DB]", className)}
     >
-      <span>{children}</span>
+      <span>{currencyText(children)}</span>
       {required ? (
         <span className="text-sm font-bold leading-none text-[#F04438]" aria-hidden="true">*</span>
       ) : null}

@@ -30,6 +30,11 @@ function Harness({ locale = "en", sellerProfileData = null, selectedMinTrade = 1
 }
 const preparedBankCode = { cardlessBankName: "Bank Hapoalim", cardlessWithdrawalCode: "482913", cardlessVerificationValue: "1995-08-25" };
 afterEach(cleanup);
+it("displays all six decimals of available stock at purchase", () => {
+  render(<Harness selectedMaxTrade={1234.123456} />);
+  expect(screen.getByText("1,234.123456").classList.contains("currency-money")).toBe(true);
+});
+
 describe("Wise USD purchase draft", () => {
   const reviewed = { id: "own-wise", provider: "wise" as const, currency: "USD" as const, accountHolderName: "Draft Buyer", accountLast4: "0042", routingLast4: "0000", accountType: "checking" as const, ownershipReviewStatus: "manually_reviewed" as const };
   it("requires a reviewed own sending account and displays the payment total in USD", () => {
@@ -184,8 +189,8 @@ describe("cardless listing limits and escape", () => {
     render(<Harness selectedPaymentMethod={selectedPaymentMethod} onClose={close} />);
     const amount = screen.getByLabelText(/USDT Amount/) as HTMLInputElement;
     expect(amount.readOnly).toBe(false);
-    fireEvent.change(amount, { target: { value: "660" } });
-    expect(amount.value).toBe("660");
+    fireEvent.change(amount, { target: { value: "1,660.123000" } });
+    expect(amount.value).toBe("1,660.123000");
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(close).toHaveBeenCalledOnce();
   });
@@ -235,8 +240,22 @@ it("shows and enforces the symmetric buyer offer range", () => {
   const field = screen.getByRole("spinbutton", { name: /price|offer/i }) as HTMLInputElement;
   expect(field.min).toBe("2.85");
   expect(field.max).toBe("3.55");
+  fireEvent.change(field, { target: { value: "2.84" } });
+  expect(field.getAttribute("aria-invalid")).toBe("true");
   fireEvent.change(field, { target: { value: "3.55" } });
   expect(field.getAttribute("aria-invalid")).not.toBe("true");
   fireEvent.change(field, { target: { value: "3.56" } });
+  expect(field.getAttribute("aria-invalid")).toBe("true");
+});
+
+it.each(["en", "ar"] as const)("groups four-digit negotiated prices and rejects out-of-range offers in %s", locale => {
+  render(<Harness locale={locale} priceMode="buyer_offer" selectedPrice={1250} />);
+  const field = screen.getByRole("textbox", { name: locale === "en" ? /price|offer/i : /سعر/ }) as HTMLInputElement;
+  expect(field.id).toBe("buyer-offered-price");
+  expect(field.getAttribute("aria-describedby")).toBe("buyer-offer-price-help");
+  fireEvent.change(field, { target: { value: "1250.30" } });
+  expect(field.value).toBe("1,250.30");
+  expect(field.getAttribute("aria-invalid")).not.toBe("true");
+  fireEvent.change(field, { target: { value: "1,250.36" } });
   expect(field.getAttribute("aria-invalid")).toBe("true");
 });

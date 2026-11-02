@@ -1,5 +1,6 @@
 "use client";
 
+import { formatMoneyNumber } from "@/lib/accent-text";
 import { navigateToPageSection } from "@/lib/page-section-navigation";
 import { brandText } from "@/components/ui/currency-text";
 
@@ -564,7 +565,7 @@ function NotificationBellSession({
             {isAr ? "الإشعارات" : "Notifications"}
             {hasUnread ? (
               <span className="badge-chip border-[#C9A227]/35 bg-[#C9A227]/10 font-normal text-[#C9A227]">
-                {unreadCount} {isAr ? "غير مقروء" : "unread"}
+                {formatMoneyNumber(unreadCount)} {isAr ? "غير مقروء" : "unread"}
               </span>
             ) : null}
             {hasActionRequired ? (

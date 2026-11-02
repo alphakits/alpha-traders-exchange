@@ -108,7 +108,7 @@ function formatInteger(value: number): string {
 
 function formatUsdt(value: number): string {
   return `${Math.max(0, value).toLocaleString("en-IL", {
-    maximumFractionDigits: 2,
+    maximumFractionDigits: 6,
   })} USDT`;
 }
 
@@ -209,7 +209,7 @@ function leaderboardMessage(
     ? "No public approved seller completed a qualifying trade in the current UTC week."
     : snapshot.entries.map((entry, index) => {
         const details = [
-          `${entry.completedTrades} completed`,
+          `${formatInteger(entry.completedTrades)} completed`,
           entry.alphaScore || entry.trustScore !== null ? sellerScoreDisplay(entry).text : null,
           entry.rating == null && entry.totalReviews == null ? null : sellerRatingDisplay(entry).text,
         ].filter(Boolean).join(" • ");

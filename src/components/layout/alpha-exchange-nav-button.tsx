@@ -1,5 +1,6 @@
 "use client";
 
+import { currencyText } from "@/components/ui/currency-text";
 import { Link, usePathname } from "@/i18n/navigation";
 import type { AppLocale } from "@/i18n/routing";
 import { cn } from "@/lib/utils";
@@ -26,7 +27,7 @@ export function AlphaExchangeNavButton({ locale, label, mobile = false }: AlphaE
           isActive ? "ring-1 ring-[#9DCCFF] shadow-[0_0_0_1px_rgba(157,204,255,0.45),0_16px_34px_rgba(36,121,255,0.5)]" : "",
         )}
       >
-        <span className="relative z-10">{label}</span>
+        <span className="relative z-10">{currencyText(label)}</span>
         <span className="pointer-events-none absolute inset-y-0 -left-1/3 w-1/3 -skew-x-12 bg-gradient-to-r from-transparent via-white/30 to-transparent opacity-0 transition duration-700 group-hover:left-[120%] group-hover:opacity-100" />
       </Link>
     );
@@ -44,7 +45,7 @@ export function AlphaExchangeNavButton({ locale, label, mobile = false }: AlphaE
             : "",
         )}
       >
-        <span className="relative z-10">{label}</span>
+        <span className="relative z-10">{currencyText(label)}</span>
         <span className="pointer-events-none absolute inset-y-0 -left-1/3 w-1/3 -skew-x-12 bg-gradient-to-r from-transparent via-white/30 to-transparent opacity-0 transition duration-700 group-hover:left-[120%] group-hover:opacity-100" />
       </span>
     </Link>

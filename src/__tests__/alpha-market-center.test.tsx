@@ -42,10 +42,10 @@ describe("AlphaMarketCenterView", () => {
       ? "سوق USD/ILS مغلق. يظهر آخر سعر إغلاق صالح؛ وتستمر تحديثات BTC وETH."
       : "USD/ILS market closed. Showing the valid last close; BTC and ETH continue updating.";
     const outage = locale === "ar" ? "السوق غير متاح مؤقتًا" : "Market temporarily unavailable.";
-    expect(screen.getByText(closure)).toBeTruthy();
+    expect(screen.getByText((_, node) => node?.tagName === "P" && node.textContent === closure)).toBeTruthy();
     expect(screen.queryByText(outage)).toBeNull();
     rerender(<AlphaMarketCenterView locale={locale} snapshot={{ ...closed, unavailablePairs: ["btcUsdt"] }} isLoading={false} error={null} />);
-    expect(screen.queryByText(closure)).toBeNull();
+    expect(screen.queryByText((_, node) => node?.tagName === "P" && node.textContent === closure)).toBeNull();
     expect(screen.getByText(outage)).toBeTruthy();
   });
 

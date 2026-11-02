@@ -1,4 +1,5 @@
 "use client";
+import { formatMoneyNumber } from "@/lib/accent-text";
 import { formatMeasuredResponseTime, sellerRatingDisplay, sellerScoreDisplay } from "@alpha-traders/contracts";
 import { csvRow } from "@/lib/csv";
 import { OwnerAttentionQueue } from "@/components/admin/owner-attention-queue";
@@ -26,6 +27,7 @@ import { MarketplaceEnforcementOwnerPanel } from "@/components/sections/seller/m
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { GroupedDecimalInput } from "@/components/sections/usdt-exchange/usdt-number-input";
 import { Textarea } from "@/components/ui/textarea";
 import { createExchangeDisplayLookup, replaceExchangeEntityIds } from "@/lib/alpha-exchange-display";
 import { parseAdminDashboardDestination, type AdminDashboardSection } from "@/lib/action-destinations";
@@ -1545,8 +1547,8 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
     const seller = sellersById.get(manualCommissionSellerId);
     const amount = Number(manualCommissionAmount);
     const reason = manualCommissionReason.trim();
-    if (!seller || !Number.isFinite(amount) || amount < 0.01 || !reason) {
-      pushToast(t("Select a seller, enter at least 0.01 USDT, and provide a reason.", "اختر بائعًا وأدخل 0.01 USDT على الأقل وأضف السبب."));
+    if (!seller || !Number.isFinite(amount) || amount < 0.01 || amount > 1_000_000 || !reason) {
+      pushToast(t("Select a seller, enter 0.01 to 1,000,000 USDT, and provide a reason.", "اختر بائعًا وأدخل مبلغًا من 0.01 إلى 1,000,000 USDT وأضف السبب."));
       return;
     }
     if (!(await confirmAction(t(
@@ -1879,7 +1881,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                             </div>
                             <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
                               <p className="text-[11px] uppercase tracking-[0.12em] text-[#9CA3AF]">{t("Outstanding", "مستحق")}</p>
-                              <p className="mt-1 text-lg font-semibold text-[#FDE68A]">{currencyText(formatUsdt(data.enforcement.metrics.outstandingFeeAmountUsdt))}</p>
+                              <p className="mt-1 text-lg font-semibold text-[#FDE68A]">{moneyText(formatUsdt(data.enforcement.metrics.outstandingFeeAmountUsdt))}</p>
                             </div>
                           </div>
                           <Button type="button" variant="secondary" onClick={() => setActiveSection("marketplace-enforcement")}>
@@ -1895,9 +1897,9 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                             <CardDescription>{t("Operational metrics for the current day.", "مؤشرات التشغيل لليوم الحالي.")}</CardDescription>
                           </CardHeader>
                           <CardContent className="grid gap-3 text-sm text-[#D1D5DB] md:grid-cols-2 xl:grid-cols-3">
-                            <p>{t("Completed Trades:", "الصفقات المكتملة:")} <span className="text-white">{data.ownerBusiness.today.completedTrades}</span></p>
-                            <p>{t("Trade Volume:", "حجم التداول:")} <span className="text-white">{currencyText(formatUsdt(data.ownerBusiness.today.tradeVolumeUsdt))}</span></p>
-                            <p>{t("Estimated Commission:", "العمولة المقدّرة:")} <span className="text-white">{currencyText(formatUsdt(data.ownerBusiness.today.estimatedCommission))}</span></p>
+                            <p>{t("Completed Trades:", "الصفقات المكتملة:")} <span className="text-white">{formatMoneyNumber(data.ownerBusiness.today.completedTrades)}</span></p>
+                            <p>{t("Trade Volume:", "حجم التداول:")} <span className="text-white">{moneyText(formatUsdt(data.ownerBusiness.today.tradeVolumeUsdt))}</span></p>
+                            <p>{t("Estimated Commission:", "العمولة المقدّرة:")} <span className="text-white">{moneyText(formatUsdt(data.ownerBusiness.today.estimatedCommission))}</span></p>
                             <p>{t("New Buyers:", "المشترون الجدد:")} <span className="text-white">{data.ownerBusiness.today.newBuyers}</span></p>
                             <p>{t("New Sellers:", "البائعون الجدد:")} <span className="text-white">{data.ownerBusiness.today.newSellers}</span></p>
                             <p>{t("New Listings:", "العروض الجديدة:")} <span className="text-white">{data.ownerBusiness.today.newListings}</span></p>
@@ -1921,8 +1923,8 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                             <CardDescription>{t("Weekly business momentum and trust movement.", "أداء الأعمال والثقة خلال الأسبوع.")}</CardDescription>
                           </CardHeader>
                           <CardContent className="grid gap-3 text-sm text-[#D1D5DB] md:grid-cols-2 xl:grid-cols-3">
-                            <p>{t("Trade Volume:", "حجم التداول:")} <span className="text-white">{currencyText(formatUsdt(data.ownerBusiness.thisWeek.tradeVolumeUsdt))}</span></p>
-                            <p>{t("Estimated Commission:", "العمولة التقديرية:")} <span className="text-white">{currencyText(formatUsdt(data.ownerBusiness.thisWeek.revenue))}</span></p>
+                            <p>{t("Trade Volume:", "حجم التداول:")} <span className="text-white">{moneyText(formatUsdt(data.ownerBusiness.thisWeek.tradeVolumeUsdt))}</span></p>
+                            <p>{t("Estimated Commission:", "العمولة التقديرية:")} <span className="text-white">{moneyText(formatUsdt(data.ownerBusiness.thisWeek.revenue))}</span></p>
                             <p>{t("Top Seller:", "أفضل بائع:")} <span className="text-white">{currencyText(data.ownerBusiness.thisWeek.topSeller)}</span></p>
                             <p>{t("Fastest Growing Seller:", "الأسرع نموًا:")} <span className="text-white">{currencyText(data.ownerBusiness.thisWeek.fastestGrowingSeller)}</span></p>
                             <p>{t("Highest Trust Score Increase:", "أكبر ارتفاع في الثقة:")} <span className="text-white">{currencyText(data.ownerBusiness.thisWeek.highestTrustScoreIncrease)}</span></p>
@@ -1946,7 +1948,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                 <div>
                                   <p className="font-medium text-white">#{index + 1} {currencyText(seller.sellerName)}</p>
                                   <p className="text-xs text-[#9CA3AF]">
-                                    {sellerScoreDisplay(seller, isArabic).text} • {t("Volume", "الحجم")} {currencyText(formatUsdt(seller.tradeVolumeUsdt))} • {t("Trades", "الصفقات")} {seller.completedTrades}
+                                    {sellerScoreDisplay(seller, isArabic).text} • {t("Volume", "الحجم")} {moneyText(formatUsdt(seller.tradeVolumeUsdt))} • {t("Trades", "الصفقات")} {formatMoneyNumber(seller.completedTrades)}
                                   </p>
                                 </div>
                                 <p className="text-xs text-[#D1D5DB]">
@@ -1983,13 +1985,13 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                             <CardDescription>{t("Commission and trade-value performance snapshot.", "ملخص أداء العمولات وقيمة الصفقات.")}</CardDescription>
                           </CardHeader>
                           <CardContent className="grid gap-3 text-sm text-[#D1D5DB] md:grid-cols-2 xl:grid-cols-2">
-                            <p>{t("Commission Today:", "عمولة اليوم:")} <span className="text-white">{currencyText(formatUsdt(data.ownerBusiness.financialOverview.estimatedCommissionToday))}</span></p>
-                            <p>{t("Commission This Week:", "عمولة الأسبوع:")} <span className="text-white">{currencyText(formatUsdt(data.ownerBusiness.financialOverview.estimatedCommissionThisWeek))}</span></p>
-                            <p>{t("Commission This Month:", "عمولة الشهر:")} <span className="text-white">{currencyText(formatUsdt(data.ownerBusiness.financialOverview.estimatedCommissionThisMonth))}</span></p>
-                            <p>{t("Largest Trade:", "أكبر صفقة:")} <span className="text-white">{currencyText(formatUsdt(data.ownerBusiness.financialOverview.largestTradeUsdt))}</span></p>
+                            <p>{t("Commission Today:", "عمولة اليوم:")} <span className="text-white">{moneyText(formatUsdt(data.ownerBusiness.financialOverview.estimatedCommissionToday))}</span></p>
+                            <p>{t("Commission This Week:", "عمولة الأسبوع:")} <span className="text-white">{moneyText(formatUsdt(data.ownerBusiness.financialOverview.estimatedCommissionThisWeek))}</span></p>
+                            <p>{t("Commission This Month:", "عمولة الشهر:")} <span className="text-white">{moneyText(formatUsdt(data.ownerBusiness.financialOverview.estimatedCommissionThisMonth))}</span></p>
+                            <p>{t("Largest Trade:", "أكبر صفقة:")} <span className="text-white">{moneyText(formatUsdt(data.ownerBusiness.financialOverview.largestTradeUsdt))}</span></p>
                             <p>{t("Largest Trade ID:", "رقم أكبر صفقة:")} <span className="font-mono font-medium text-white">{currencyText(replaceExchangeEntityIds(data.ownerBusiness.financialOverview.largestTradeId, displayLookup))}</span></p>
                             <p>{t("Largest Seller:", "صاحب أكبر صفقة:")} <span className="text-white">{currencyText(data.ownerBusiness.financialOverview.largestSeller)}</span></p>
-                            <p>{t("Average Trade Size:", "متوسط حجم الصفقة:")} <span className="text-white">{currencyText(formatUsdt(data.ownerBusiness.financialOverview.averageTradeSizeUsdt))}</span></p>
+                            <p>{t("Average Trade Size:", "متوسط حجم الصفقة:")} <span className="text-white">{moneyText(formatUsdt(data.ownerBusiness.financialOverview.averageTradeSizeUsdt))}</span></p>
                           </CardContent>
                         </Card>
 
@@ -2262,9 +2264,9 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                       <span className="font-medium capitalize text-white">{sellerLevelLabel(seller.sellerPrestigeRank)}</span>
                                       {seller.sellerRankOverride ? <p className="text-[11px] text-[#FDE68A]">{t("Override active", "تعديل يدوي نشط")}</p> : null}
                                     </td>
-                                    <td className="px-4 py-3 text-[#D1D5DB]">{currencyText(formatUsdt(Math.max(0, Number(seller.lifetimeCompletedVolumeUsdt ?? 0))))}</td>
-                                    <td className="px-4 py-3 text-[#D1D5DB]">{activeListings}</td>
-                                    <td className="px-4 py-3 text-[#D1D5DB]">{completedTrades}</td>
+                                    <td className="px-4 py-3 text-[#D1D5DB]">{moneyText(formatUsdt(Math.max(0, Number(seller.lifetimeCompletedVolumeUsdt ?? 0))))}</td>
+                                    <td className="px-4 py-3 text-[#D1D5DB]">{formatMoneyNumber(activeListings)}</td>
+                                    <td className="px-4 py-3 text-[#D1D5DB]">{formatMoneyNumber(completedTrades)}</td>
                                     <td className="px-4 py-3">
                                       {isSuspended ? (
                                         <span className="rounded-full border border-red-500/35 bg-red-500/10 px-2.5 py-1 text-xs text-red-300">{t("Suspended", "موقوف")}</span>
@@ -2369,7 +2371,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                               onClick={() => setRankMgmtFilter(rankMgmtFilter === rank ? "all" : rank)}
                               className={`rounded-xl border p-3 text-center transition hover:opacity-80 ${rankColors[rank]} ${rankMgmtFilter === rank ? "ring-1 ring-white/30" : ""}`}
                             >
-                              <p className="text-xl font-bold">{count}</p>
+                              <p className="text-xl font-bold">{formatMoneyNumber(count)}</p>
                               <p className="mt-0.5 text-[11px] uppercase tracking-[0.12em] capitalize">{sellerLevelLabel(rank)}</p>
                             </button>
                           );
@@ -2622,9 +2624,9 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                           </select>
                           <select value={listingsSort} onChange={(event) => setListingsSort(event.target.value as typeof listingsSort)} className="flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 text-sm text-white">
                             <option value="newest">{t("Sort: Newest", "الترتيب: الأحدث")}</option>
-                            <option value="price-asc">{t("Price: Low to High", "السعر: من الأقل للأعلى")}</option>
-                            <option value="price-desc">{t("Price: High to Low", "السعر: من الأعلى للأقل")}</option>
-                            <option value="amount-desc">{t("Amount: High to Low", "الكمية: من الأعلى للأقل")}</option>
+                            <option className="currency-money" value="price-asc">{t("Price: Low to High", "السعر: من الأقل للأعلى")}</option>
+                            <option className="currency-money" value="price-desc">{t("Price: High to Low", "السعر: من الأعلى للأقل")}</option>
+                            <option className="currency-money" value="amount-desc">{t("Amount: High to Low", "الكمية: من الأعلى للأقل")}</option>
                           </select>
                         </div>
 
@@ -2639,8 +2641,8 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                             <thead className="bg-white/[0.03] text-left text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">
                               <tr>
                                 <th className="px-4 py-3">{t("Seller", "البائع")}</th>
-                                <th className="px-4 py-3">{t("Amount", "الكمية")}</th>
-                                <th className="px-4 py-3">{t("Price", "السعر")}</th>
+                                <th className="px-4 py-3">{currencyText(t("Amount", "الكمية"))}</th>
+                                <th className="px-4 py-3">{currencyText(t("Price", "السعر"))}</th>
                                 <th className="px-4 py-3">{t("Network", "الشبكة")}</th>
                                 <th className="px-4 py-3">{t("Bank", "البنك")}</th>
                                 <th className="px-4 py-3">{t("Status", "الحالة")}</th>
@@ -2850,11 +2852,11 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                               <div className="grid gap-3 sm:grid-cols-3">
                                 <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
                                   <p className="text-xs uppercase tracking-[0.12em] text-[#9CA3AF]">{t("Sellers tracked", "البائعون المتابَعون")}</p>
-                                  <p className="mt-1 text-2xl font-bold text-white">{reports.length}</p>
+                                  <p className="mt-1 text-2xl font-bold text-white">{formatMoneyNumber(reports.length)}</p>
                                 </div>
                                 <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
                                   <p className="text-xs uppercase tracking-[0.12em] text-[#9CA3AF]">{t("Needing attention", "تحتاج متابعة")}</p>
-                                  <p className="mt-1 text-2xl font-bold text-amber-200">{flagged.length}</p>
+                                  <p className="mt-1 text-2xl font-bold text-amber-200">{formatMoneyNumber(flagged.length)}</p>
                                 </div>
                                 <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
                                   <p className="text-xs uppercase tracking-[0.12em] text-[#9CA3AF]">{t("Avg. reliability", "متوسط الموثوقية")}</p>
@@ -2889,7 +2891,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                         <td className="px-3 py-2 text-[#D1D5DB]">{report.reliability.editRate}%</td>
                                         <td className="px-3 py-2 text-[#D1D5DB]">{report.reliability.removalRate}%</td>
                                         <td className="px-3 py-2 text-[#D1D5DB]">{report.reliability.averageListingLifetimeHours || "—"}</td>
-                                        <td className="px-3 py-2 text-[#D1D5DB]">{report.completedTrades}✓ / {report.cancelledTrades}✗</td>
+                                        <td className="px-3 py-2 text-[#D1D5DB]">{formatMoneyNumber(report.completedTrades)}✓ / {formatMoneyNumber(report.cancelledTrades)}✗</td>
                                         <td className="px-3 py-2">
                                           <span className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold capitalize ${tierTone[report.reliability.warningTier]}`}>
                                             {isArabic ? ({ none: "جيد", notice: "ملاحظة", warning: "تحذير", critical: "حرج" } as const)[report.reliability.warningTier] : report.reliability.warningTier}
@@ -2978,7 +2980,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                 <th className="w-[11rem] px-4 py-3 text-center">{t("Trade ID", "رقم الصفقة")}</th>
                                 <th className="px-4 py-3">{t("Buyer", "المشتري")}</th>
                                 <th className="px-4 py-3">{t("Seller", "البائع")}</th>
-                                <th className="px-4 py-3">{t("Amount", "الكمية")}</th>
+                                <th className="px-4 py-3">{currencyText(t("Amount", "الكمية"))}</th>
                                 <th className="px-4 py-3">{t("Listing", "العرض")}</th>
                                 <th className="px-4 py-3">{t("Bank", "البنك")}</th>
                                 <th className="px-4 py-3">{t("Current Status", "الحالة الحالية")}</th>
@@ -3003,7 +3005,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                     <td className="px-4 py-3 text-[#D1D5DB]">
                                       <p>{currencyText(`${request.usdtAmount ?? listing?.availableAmount ?? "—"} USDT`)}</p>
                                       <p className={`mt-1 text-xs ${request.priceMode === "buyer_offer" ? "font-semibold text-[#F4D87A]" : "text-[#9CA3AF]"}`}>
-                                        {request.priceMode === "buyer_offer" ? t("Offer", "عرض سعر") : t("Price", "السعر")} {currencyText(`${(toNumber(request.pricePerUsdt) || (toNumber(request.fiatAmount) / Math.max(1, toNumber(request.usdtAmount)))).toFixed(2)} ${request.currency || "ILS"}`)}
+                                        {currencyText(request.priceMode === "buyer_offer" ? t("Offer", "عرض سعر") : t("Price", "السعر"))} {currencyText(`${(toNumber(request.pricePerUsdt) || (toNumber(request.fiatAmount) / Math.max(1, toNumber(request.usdtAmount)))).toFixed(2)} ${request.currency || "ILS"}`)}
                                       </p>
                                     </td>
                                     <td className="px-4 py-3 font-mono font-medium whitespace-nowrap text-[#D1D5DB]">{currencyText(displayListingId(listing, request.listingId))}</td>
@@ -3086,15 +3088,11 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                             </div>
                             <div>
                               <label htmlFor="manual-commission-amount" className="mb-1.5 block text-xs font-medium text-[#D1D5DB]">{currencyText(t("Commission amount (USDT)", "قيمة العمولة (USDT)"))}</label>
-                              <Input className="currency-money"
+                              <GroupedDecimalInput className="currency-money"
                                 id="manual-commission-amount"
-                                type="number"
-                                inputMode="decimal"
-                                min="0.01"
-                                max="1000000"
-                                step="0.01"
                                 value={manualCommissionAmount}
-                                onChange={(event) => setManualCommissionAmount(event.target.value)}
+                                maxFractionDigits={2}
+                                onValueChange={setManualCommissionAmount}
                                 placeholder="0.00"
                                 required
                               />
@@ -3110,7 +3108,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                 placeholder={t("Explain exactly why this commission is being issued.", "اشرح بدقة سبب إصدار هذه العمولة.")}
                                 required
                               />
-                              <p className="mt-1 text-end text-[11px] text-[#9CA3AF]">{manualCommissionReason.length}/500</p>
+                              <p className="mt-1 text-end text-[11px] text-[#9CA3AF]">{formatMoneyNumber(manualCommissionReason.length)}/500</p>
                             </div>
                             <div>
                               <label htmlFor="manual-commission-due-date" className="mb-1.5 block text-xs font-medium text-[#D1D5DB]">{t("Due date (optional, end of day)", "تاريخ الاستحقاق (اختياري، نهاية اليوم)")}</label>
@@ -3125,7 +3123,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                               <Button
                                 type="submit"
                                 className="h-11 w-full bg-[#C9A227] text-black hover:bg-[#E3C65A]"
-                                disabled={manualCommissionSubmitting || !manualCommissionSellerId || Number(manualCommissionAmount) < 0.01 || !manualCommissionReason.trim()}
+                                disabled={manualCommissionSubmitting || !manualCommissionSellerId || Number(manualCommissionAmount) < 0.01 || Number(manualCommissionAmount) > 1_000_000 || !manualCommissionReason.trim()}
                               >
                                 {manualCommissionSubmitting ? t("Issuing commission...", "جارٍ إصدار العمولة...") : t("Issue Commission & Notify Seller", "إصدار العمولة وإشعار البائع")}
                               </Button>
@@ -3198,16 +3196,16 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                 <div className="mt-4 grid grid-cols-2 gap-2.5 sm:grid-cols-4">
                                   <div className="rounded-xl border border-[#C9A227]/20 bg-[#C9A227]/[0.07] p-3">
                                     <p className="text-[10px] uppercase tracking-[0.12em] text-[#A58A38]">{t("Commission", "العمولة")}</p>
-                                    <p className="mt-1 text-sm font-semibold text-emerald-300">{currencyText(formatUsdt(record.commissionAmount))}</p>
-                                    {record.feePolicyVersion === "buyer_seller_1pct_v1" ? <p className="mt-1 text-xs text-emerald-300">{t("Seller 1%", "البائع 1%")}: {currencyText(formatUsdt(record.sellerFeeAmount ?? 0))} · {t("Buyer 1%", "المشتري 1%")}: {currencyText(formatUsdt(record.buyerFeeCollectedAmount ?? 0))}</p> : null}
+                                    <p className="mt-1 text-sm font-semibold text-emerald-300">{formatUsdt(record.commissionAmount)}</p>
+                                    {record.feePolicyVersion === "buyer_seller_1pct_v1" ? <p className="mt-1 text-xs text-emerald-300">{t("Seller 1%", "البائع 1%")}: {formatUsdt(record.sellerFeeAmount ?? 0)} · {t("Buyer 1%", "المشتري 1%")}: {formatUsdt(record.buyerFeeCollectedAmount ?? 0)}</p> : null}
                                   </div>
                                   <div className="rounded-xl border border-white/10 bg-black/20 p-3">
                                     <p className="text-[10px] uppercase tracking-[0.12em] text-[#7F8490]">{t("Exact payment", "الدفع الدقيق")}</p>
-                                    <p className="mt-1 text-sm font-medium text-white">{currencyText(formatExactUsdt(exactPayment))}</p>
+                                    <p className="mt-1 text-sm font-medium text-white">{moneyText(formatExactUsdt(exactPayment))}</p>
                                   </div>
                                   <div className="rounded-xl border border-white/10 bg-black/20 p-3">
                                     <p className="text-[10px] uppercase tracking-[0.12em] text-[#7F8490]">{t("Trade value", "قيمة الصفقة")}</p>
-                                    <p className="mt-1 text-sm font-medium text-white">{currencyText(isAdminIssued ? "—" : tradeCurrency ? formatCurrency(record.grossAmount, tradeCurrency) : t("Currency unavailable", "العملة غير متاحة"))}</p>
+                                    <p className="mt-1 text-sm font-medium text-white">{moneyText(isAdminIssued ? "—" : tradeCurrency ? formatCurrency(record.grossAmount, tradeCurrency) : t("Currency unavailable", "العملة غير متاحة"))}</p>
                                   </div>
                                   <div className="rounded-xl border border-white/10 bg-black/20 p-3">
                                     <p className="text-[10px] uppercase tracking-[0.12em] text-[#7F8490]">{t("Issued", "تاريخ الإصدار")}</p>
@@ -3495,7 +3493,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                           <p>{t("Resolved Cases:", "الحالات المحلولة:")} <span className="text-white">{data.enforcement.metrics.resolvedCases}</span></p>
                           <p>{t("Revoked Sellers:", "البائعون الملغون:")} <span className="text-white">{data.enforcement.metrics.revokedCases}</span></p>
                           <p>{t("Total Cases:", "إجمالي الحالات:")} <span className="text-white">{data.enforcement.metrics.totalCases}</span></p>
-                          <p>{t("Outstanding Fees:", "الرسوم المستحقة:")} <span className="text-white">{currencyText(formatUsdt(data.enforcement.metrics.outstandingFeeAmountUsdt))}</span></p>
+                          <p>{t("Outstanding Fees:", "الرسوم المستحقة:")} <span className="text-white">{moneyText(formatUsdt(data.enforcement.metrics.outstandingFeeAmountUsdt))}</span></p>
                         </CardContent>
                       </Card>
 
@@ -3595,9 +3593,9 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                             </div>
                           </div>
                           <div className="grid gap-3 text-sm text-[#D1D5DB] md:grid-cols-3">
-                            <p>{t("Pending Invites:", "الدعوات المعلّقة:")} <span className="text-white">{data.privateBeta.pendingInvites.length}</span></p>
-                            <p>{t("Used Invites:", "الدعوات المستخدمة:")} <span className="text-white">{data.privateBeta.inviteUses.length}</span></p>
-                            <p>{t("Invite History:", "سجل الدعوات:")} <span className="text-white">{data.privateBeta.inviteCodes.length}</span></p>
+                            <p>{t("Pending Invites:", "الدعوات المعلّقة:")} <span className="text-white">{formatMoneyNumber(data.privateBeta.pendingInvites.length)}</span></p>
+                            <p>{t("Used Invites:", "الدعوات المستخدمة:")} <span className="text-white">{formatMoneyNumber(data.privateBeta.inviteUses.length)}</span></p>
+                            <p>{t("Invite History:", "سجل الدعوات:")} <span className="text-white">{formatMoneyNumber(data.privateBeta.inviteCodes.length)}</span></p>
                           </div>
                           <div className="overflow-x-auto rounded-xl border border-white/10">
                             <table className="w-full min-w-[900px] text-sm">
@@ -4019,7 +4017,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                 { key: "integrity", label: t("Data issues", "مشاكل الربط"), value: systemHealth.operations.dataIntegrityIssues, alert: systemHealth.operations.dataIntegrityIssues > 0 },
                               ].map((metric) => (
                                 <div key={metric.key} className={`rounded-2xl border p-3 ${metric.alert ? "border-amber-500/35 bg-amber-500/10" : "border-white/10 bg-black/20"}`}>
-                                  <p className={`text-2xl font-semibold ${metric.alert ? "text-amber-200" : "text-white"}`}>{metric.value}</p>
+                                  <p className={`text-2xl font-semibold ${metric.alert ? "text-amber-200" : "text-white"}`}>{formatMoneyNumber(metric.value)}</p>
                                   <p className="mt-1 text-xs leading-5 text-[#B7BDC8]">{currencyText(metric.label)}</p>
                                 </div>
                               ))}
@@ -4304,7 +4302,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                 <p>{t("Status:", "الحالة:")} <span className="text-white">{currencyText(statusLabel(selectedSeller.sellerStatus))}</span></p>
                 <p>{t("Availability:", "التوفر:")} <span className="text-white">{currencyText(statusLabel(selectedSeller.availabilityStatus ?? "available"))}</span></p>
                 <p>{t("Prestige Rank:", "الرتبة:")} <span className="text-white capitalize">{sellerLevelLabel(selectedSeller.sellerPrestigeRank)}</span></p>
-                <p>{t("Lifetime Completed Volume:", "إجمالي حجم الصفقات المكتملة:")} <span className="text-white">{currencyText(formatUsdt(Math.max(0, Number(selectedSeller.lifetimeCompletedVolumeUsdt ?? 0))))}</span></p>
+                <p>{t("Lifetime Completed Volume:", "إجمالي حجم الصفقات المكتملة:")} <span className="text-white">{moneyText(formatUsdt(Math.max(0, Number(selectedSeller.lifetimeCompletedVolumeUsdt ?? 0))))}</span></p>
                 {selectedSeller.sellerRankOverride ? (
                   <p>{t("Override:", "التعديل اليدوي:")} <span className="text-white capitalize">{sellerLevelLabel(selectedSeller.sellerRankOverride.rank)}</span> • {currencyText(selectedSeller.sellerRankOverride.reason)}</p>
                 ) : null}
@@ -4424,9 +4422,9 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                 <p>{t("Seller:", "البائع:")} <span className="text-white">{currencyText(accountLabel(selectedRequest.sellerId))}</span></p>
                 <p>{t("Status:", "الحالة:")} <span className="text-white">{currencyText(statusLabel(selectedRequest.status))}</span></p>
                 <p>{currencyText(t("USDT Amount:", "كمية USDT:"))} <span className="text-white">{moneyText(selectedRequest.usdtAmount ?? "—")}</span></p>
-                <p>{t("Fiat Amount:", "المبلغ النقدي:")} <span className="text-white">{currencyText(`${selectedRequest.fiatAmount} ${selectedRequest.currency}`)}</span></p>
+                <p>{currencyText(t("Fiat Amount:", "المبلغ النقدي:"))} <span className="text-white">{currencyText(`${selectedRequest.fiatAmount} ${selectedRequest.currency}`)}</span></p>
                 <p>{currencyText(selectedRequest.priceMode === "buyer_offer" ? t("Buyer Offered Price:", "سعر المشتري المقترح:") : t("Price per USDT:", "السعر لكل USDT:"))} <span className={selectedRequest.priceMode === "buyer_offer" ? "font-semibold text-[#F4D87A]" : "text-white"}>{currencyText(`${(toNumber(selectedRequest.pricePerUsdt) || (toNumber(selectedRequest.fiatAmount) / Math.max(1, toNumber(selectedRequest.usdtAmount)))).toFixed(2)} ${selectedRequest.currency || "ILS"}`)}</span></p>
-                {selectedRequest.priceMode === "buyer_offer" ? <p>{t("Original Listing Price:", "سعر العرض الأصلي:")} <span className="text-white">{currencyText(`${selectedRequest.listingPriceAtRequest ?? "—"} ${selectedRequest.currency || "ILS"}`)}</span></p> : null}
+                {selectedRequest.priceMode === "buyer_offer" ? <p>{currencyText(t("Original Listing Price:", "سعر العرض الأصلي:"))} <span className="text-white">{currencyText(`${selectedRequest.listingPriceAtRequest ?? "—"} ${selectedRequest.currency || "ILS"}`)}</span></p> : null}
                 <p>{t("Network:", "الشبكة:")} <span className="text-white">{selectedRequest.network}</span></p>
                 <p>{t("Payment Method:", "طريقة الدفع:")} <span className="text-white">{currencyText(marketplacePaymentMethodLabelForLocale(selectedRequest.paymentMethod, locale))}</span></p>
                 <p>{t("Receiving Bank:", "البنك المستلم:")} <span className="text-white">{currencyText(selectedRequest.bankName ?? "—")}</span></p>
@@ -4511,10 +4509,10 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                     </h3>
                   </div>
                   <p id="commission-paid-dialog-description" className="mt-1 text-sm leading-5 text-[#9CA3AF]">
-                    {t(
+                    {currencyText(t(
                       "Review the seller and amount before changing the account status.",
                       "راجع البائع والمبلغ قبل تغيير حالة الحساب.",
-                    )}
+                    ))}
                   </p>
                 </div>
                 <button
@@ -4542,12 +4540,12 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                 <div className="mt-4 grid grid-cols-2 gap-2.5">
                   <div className="rounded-xl border border-[#C9A227]/20 bg-[#C9A227]/[0.07] p-3">
                     <p className="text-[10px] uppercase tracking-[0.12em] text-[#A58A38]">{t("Commission", "العمولة")}</p>
-                    <p className="mt-1 font-semibold text-[#F4D87A]">{currencyText(formatUsdt(commissionPaidPending.record.commissionAmount))}</p>
+                    <p className="mt-1 font-semibold text-[#F4D87A]">{moneyText(formatUsdt(commissionPaidPending.record.commissionAmount))}</p>
                   </div>
                   <div className="rounded-xl border border-white/10 bg-black/20 p-3">
                     <p className="text-[10px] uppercase tracking-[0.12em] text-[#7F8490]">{t("Requested payment", "الدفع المطلوب")}</p>
                     <p className="mt-1 font-medium text-white">
-                      {currencyText(formatExactUsdt(commissionPaidPending.record.paymentExpectedAmount ?? commissionPaidPending.record.commissionAmount))}
+                      {moneyText(formatExactUsdt(commissionPaidPending.record.paymentExpectedAmount ?? commissionPaidPending.record.commissionAmount))}
                     </p>
                   </div>
                 </div>
@@ -4578,7 +4576,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                   )}
                   className="mt-2 min-h-24"
                 />
-                <p className="mt-1 text-end text-[11px] text-[#6B7280]">{commissionPaidReason.length}/500</p>
+                <p className="mt-1 text-end text-[11px] text-[#6B7280]">{formatMoneyNumber(commissionPaidReason.length)}/500</p>
               </div>
 
               {commissionPaidError ? (
@@ -4669,7 +4667,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                   className="w-full resize-none rounded-lg border border-white/15 bg-[#101010] px-3 py-2 text-sm text-white placeholder:text-[#4B5563] focus:border-[#C9A227]/50 focus:outline-none"
                 />
                 {rankConfirmReason.length > 0 && (
-                  <p className="mt-1 text-right text-[10px] text-[#6B7280]">{rankConfirmReason.length}/300</p>
+                  <p className="mt-1 text-right text-[10px] text-[#6B7280]">{formatMoneyNumber(rankConfirmReason.length)}/300</p>
                 )}
               </div>
 

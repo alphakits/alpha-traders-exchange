@@ -1,7 +1,7 @@
 "use client";
 
 import { marketFeedStatus } from "@/lib/market-feed-status";
-import { currencyText } from "@/components/ui/currency-text";
+import { currencyText, moneyText } from "@/components/ui/currency-text";
 import dynamic from "next/dynamic";
 import { useEffect, useState } from "react";
 import { AlertTriangle, ArrowUpRight, CheckCircle2 } from "lucide-react";
@@ -130,7 +130,7 @@ export function AlphaMarketCenterView({
           <div className="overflow-hidden rounded-[1.75rem] border border-[#C9A227]/20 bg-[radial-gradient(circle_at_top_right,rgba(201,162,39,0.16),transparent_34%),linear-gradient(145deg,rgba(201,162,39,0.12),rgba(0,0,0,0.32)_45%,rgba(0,0,0,0.55))] p-5 md:p-6">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <p className="text-[11px] uppercase tracking-[0.18em] text-[#D4AF37]">{isAr ? "مرساة التسعير" : "Pricing Anchor"}</p>
+                <p className="text-[11px] uppercase tracking-[0.18em] text-[#D4AF37]">{currencyText(isAr ? "مرساة التسعير" : "Pricing Anchor")}</p>
                 <p className="mt-2 text-sm text-[#CFCFCF]"><bdi dir="ltr">{currencyText(heroPair.label)}</bdi></p>
               </div>
               <span className={cn("inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-[11px] font-medium", statusClass)}>
@@ -141,7 +141,7 @@ export function AlphaMarketCenterView({
             <div className="mt-6 flex flex-wrap items-end justify-between gap-4">
               <div>
                 <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{currencyText("USD / ILS")}</p>
-                <p className="mt-2 text-4xl font-semibold tracking-tight text-white md:text-5xl"><bdi dir="ltr">{currencyText(formatPrice(heroPair.price, heroPair.key))}</bdi></p>
+                <p className="mt-2 text-4xl font-semibold tracking-tight text-white md:text-5xl"><bdi dir="ltr">{moneyText(formatPrice(heroPair.price, heroPair.key))}</bdi></p>
                 <div className={`mt-3 inline-flex items-center gap-1.5 text-sm ${heroPair.changePercent !== null && heroPair.changePercent >= 0 ? "text-emerald-300" : "text-rose-300"}`}>
                   <ArrowUpRight className={`h-4 w-4 ${heroPair.changePercent !== null && heroPair.changePercent >= 0 ? "" : "rotate-90"}`} />
                   <bdi dir="ltr">{currencyText(formatChange(heroPair.changePercent))}</bdi>
@@ -161,7 +161,7 @@ export function AlphaMarketCenterView({
                 <div key={pair.key} className="rounded-[1.5rem] border border-white/10 bg-black/25 p-4 md:p-5">
                   <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]"><bdi dir="ltr">{currencyText(pair.label)}</bdi></p>
                   <div className="mt-3 flex items-end justify-between gap-3">
-                    <p className="text-2xl font-semibold text-white"><bdi dir="ltr">{currencyText(formatPrice(pair.price, pair.key))}</bdi></p>
+                    <p className="text-2xl font-semibold text-white"><bdi dir="ltr">{moneyText(formatPrice(pair.price, pair.key))}</bdi></p>
                     <div className={`inline-flex items-center gap-1 text-xs ${positive ? "text-emerald-300" : "text-rose-300"}`}>
                       <ArrowUpRight className={`h-3.5 w-3.5 ${positive ? "" : "rotate-90"}`} />
                       <bdi dir="ltr">{currencyText(formatChange(pair.changePercent))}</bdi>
@@ -177,19 +177,19 @@ export function AlphaMarketCenterView({
         <MarketPriceCharts locale={locale} />
 
         <div className="rounded-2xl border border-[#C9A227]/25 bg-[#C9A227]/10 p-4 text-sm text-[#E5E7EB]">
-          <p className="text-xs uppercase tracking-[0.14em] text-[#D4AF37]">{isAr ? "كيف يعمل التسعير" : "How pricing works"}</p>
+          <p className="text-xs uppercase tracking-[0.14em] text-[#D4AF37]">{currencyText(isAr ? "كيف يعمل التسعير" : "How pricing works")}</p>
           <p className="mt-2 leading-6">
-            {isAr
+            {currencyText(isAr
               ? "يتم تقييد أسعار البائعين مقارنةً بمرجع USD/ILS المباشر لضمان تسعير عادل. كل بائع معتمد يلتزم بنفس سياسة التسعير."
-              : "Seller prices are capped relative to the live USD/ILS reference to protect buyers from unreasonable pricing. Every approved seller follows the same pricing policy."}
+              : "Seller prices are capped relative to the live USD/ILS reference to protect buyers from unreasonable pricing. Every approved seller follows the same pricing policy.")}
           </p>
         </div>
 
         {isClosed ? (
           <p className="text-xs text-amber-200">
-            {isAr
+            {currencyText(isAr
               ? "سوق USD/ILS مغلق. يظهر آخر سعر إغلاق صالح؛ وتستمر تحديثات BTC وETH."
-              : "USD/ILS market closed. Showing the valid last close; BTC and ETH continue updating."}
+              : "USD/ILS market closed. Showing the valid last close; BTC and ETH continue updating.")}
           </p>
         ) : !isLive ? (
           <div className="rounded-2xl border border-amber-500/35 bg-amber-500/10 p-3 text-sm text-amber-200">
@@ -197,7 +197,7 @@ export function AlphaMarketCenterView({
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
               <div>
                 <p className="font-medium">{isAr ? "السوق غير متاح مؤقتًا" : "Market temporarily unavailable."}</p>
-                <p className="text-xs text-amber-100/90">{isAr ? "يتم استخدام آخر سعر معروف حاليًا." : "Using last known price."}</p>
+                <p className="text-xs text-amber-100/90">{currencyText(isAr ? "يتم استخدام آخر سعر معروف حاليًا." : "Using last known price.")}</p>
               </div>
             </div>
           </div>

@@ -1,5 +1,6 @@
 "use client";
 
+import { currencyText } from "@/components/ui/currency-text";
 import { FileSearch, Home, BookOpen, BarChart2 } from "lucide-react";
 import { Link } from "@/i18n/navigation";
 import { buttonVariants } from "@/components/ui/button";
@@ -61,7 +62,7 @@ export function NotFoundContent({ locale }: { locale: Locale }) {
           <h1
             className="alpha-reveal-rise alpha-delay-2 mt-2 text-center text-2xl font-semibold leading-tight text-white md:text-3xl"
           >
-            {t.title}
+            {currencyText(t.title)}
           </h1>
 
           {/* Description */}

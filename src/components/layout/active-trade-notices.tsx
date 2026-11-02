@@ -1,5 +1,6 @@
 "use client";
 
+import { formatMoneyNumber } from "@/lib/accent-text";
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { ArrowUpRight, ChevronDown } from "lucide-react";
 import { Link, usePathname } from "@/i18n/navigation";
@@ -187,7 +188,7 @@ export function ActiveTradeNotices({ locale, actorId, initialTrades, audience }:
         <span className="flex min-w-0 items-center gap-2 font-semibold">
           <span aria-hidden="true" className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-400" />
           {isAr ? "الصفقات النشطة" : "Active trades"}
-          <span className="rounded-md bg-emerald-400/15 px-1.5 py-0.5 text-xs tabular-nums text-emerald-300">{trades.length}</span>
+          <span className="rounded-md bg-emerald-400/15 px-1.5 py-0.5 text-xs tabular-nums text-emerald-300">{formatMoneyNumber(trades.length)}</span>
         </span>
         <span className="flex shrink-0 items-center gap-1.5 text-xs text-emerald-200/80" aria-hidden="true">
           {expanded ? (isAr ? "إخفاء" : "Hide") : (isAr ? "عرض" : "View")}

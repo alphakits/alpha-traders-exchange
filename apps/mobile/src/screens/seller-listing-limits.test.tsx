@@ -43,14 +43,14 @@ describe("native seller quantity limits", () => {
     render(<NewSellerListingScreen />);
     const { amount, maximum } = inputs();
     fireEvent.change(amount, { target: { value: "2000" } });
-    expect(maximum.value).toBe("2000");
+    expect(maximum.value).toBe("2,000");
     expect((screen.getByPlaceholderText("100") as HTMLInputElement).value).toBe("200");
   });
   it("keeps the full maximum through clearing and incremental typing", () => {
     render(<NewSellerListingScreen />);
     const { amount, maximum } = inputs();
     for (const value of ["", "2", "20", "200", "2000"]) fireEvent.change(amount, { target: { value } });
-    expect(maximum.value).toBe("2000");
+    expect(maximum.value).toBe("2,000");
   });
   it("preserves an explicit lower cap while the amount crosses it during typing", () => {
     fixture.maximum = "400";
@@ -64,7 +64,7 @@ describe("native seller quantity limits", () => {
     render(<NewSellerListingScreen />);
     const { amount, maximum } = inputs();
     for (const value of ["2", "20", "200", "2000"]) fireEvent.change(amount, { target: { value } });
-    expect(maximum.value).toBe("2000");
+    expect(maximum.value).toBe("2,000");
   });
   it("retains a newly entered custom cap until the seller explicitly makes it full balance", () => {
     render(<NewSellerListingScreen />);
@@ -74,6 +74,6 @@ describe("native seller quantity limits", () => {
     expect(maximum.value).toBe("300");
     fireEvent.change(maximum, { target: { value: "3000" } });
     fireEvent.change(amount, { target: { value: "5000" } });
-    expect(maximum.value).toBe("5000");
+    expect(maximum.value).toBe("5,000");
   });
 });

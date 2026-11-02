@@ -32,8 +32,8 @@ export function BuyerRankCard({ summary, error = false, locale }: { summary?: Bu
           <div className={`buyer-rank-progress buyer-rank-progress--${rank.key} h-full rounded-full transition-[width] duration-700`} style={{ width: `${rank.progressPercent}%` }} />
         </div>
         <div className="mt-4 grid grid-cols-2 gap-3">
-          <div><p className="text-[10px] uppercase tracking-wider text-[#94A3B8]">{isAr ? "تم شراؤه" : "Purchased"}</p><p className="mt-1 text-sm font-semibold"><bdi dir="ltr">{currencyText(`${rank.lifetimeCompletedVolumeUsdt.toLocaleString("en-US", { maximumFractionDigits: 0 })} USDT`)}</bdi></p></div>
-          <div><p className="text-[10px] uppercase tracking-wider text-[#94A3B8]">{isAr ? "المتبقي" : "Remaining"}</p><p className="mt-1 text-sm font-semibold"><bdi dir="ltr">{currencyText(`${rank.remainingVolumeUsdt.toLocaleString("en-US", { maximumFractionDigits: 0 })} USDT`)}</bdi></p></div>
+          <div><p className="text-[10px] uppercase tracking-wider text-[#94A3B8]">{isAr ? "تم شراؤه" : "Purchased"}</p><p className="mt-1 text-sm font-semibold"><bdi dir="ltr">{currencyText(`${rank.lifetimeCompletedVolumeUsdt.toLocaleString("en-US", { maximumFractionDigits: 6 })} USDT`)}</bdi></p></div>
+          <div><p className="text-[10px] uppercase tracking-wider text-[#94A3B8]">{isAr ? "المتبقي" : "Remaining"}</p><p className="mt-1 text-sm font-semibold"><bdi dir="ltr">{currencyText(`${rank.remainingVolumeUsdt.toLocaleString("en-US", { maximumFractionDigits: 6 })} USDT`)}</bdi></p></div>
         </div>
         <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-white/10 pt-3">
           <span className="text-xs text-[#94A3B8]">{rank.nextRank ? (isAr ? "الرتبة التالية" : "Next rank") : (isAr ? "أعلى رتبة" : "Top tier")}</span>

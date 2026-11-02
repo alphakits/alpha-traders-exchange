@@ -34,6 +34,9 @@ function load(path, dependencies = {}) {
   return loadedModule.exports;
 }
 const indexing = load("src/lib/seo-indexing.ts");
+const currencyText = load("src/components/ui/currency-text.tsx", {
+  "@/lib/accent-text": load("packages/contracts/src/display-amount.ts"),
+});
 const seo = load("src/lib/seo.ts", {
   "@/lib/seo-indexing": indexing,
   "@/lib/brand": { BRAND_NAME: "Alpha Traders", BRAND_PRIMARY_NAME: "Alpha Traders", BRAND_SUPPORT_EMAIL: "test@example.invalid", BRAND_OFFICIAL_SOCIALS: [] },
@@ -57,6 +60,7 @@ const freeCourseEntry = load("src/components/academy/free-course-entry.tsx", {
   "@/i18n/navigation": { Link: "test-link" },
 });
 const page = (name) => load(`src/app/[locale]/${name}/page.tsx`, {
+  "@/components/ui/currency-text": currencyText,
   "@/lib/auth": { getCurrentSessionUser: async () => ({ id: "signed-in-learner" }) },
   "@/lib/protected-page": { getSignedOutPageDestination: () => { throw new Error("Authenticated fixture must not redirect"); } },
   "next/navigation": { redirect: () => { throw new Error("Authenticated fixture must not redirect"); } },
@@ -77,7 +81,7 @@ function walk(value, predicate) {
   return [...(predicate(value) ? [value] : []), ...walk(value.props?.children, predicate)];
 }
 function visibleText(value) {
-  if (Array.isArray(value)) return value.map(visibleText).join(" ");
+  if (Array.isArray(value)) return value.map(visibleText).join("");
   if (value && typeof value === "object") return value.type === "script" ? "" : visibleText(value.props?.children);
   return value == null || typeof value === "boolean" ? "" : String(value);
 }
@@ -124,11 +128,16 @@ for (const locale of variants) {
       trail.itemListElement.forEach((item, index) => assert.equal(item.position, index + 1));
       const faq = data.find((entry) => entry["@type"] === "FAQPage");
       assert.ok(faq?.mainEntity.length);
-      const text = visibleText(view);
-      for (const item of faq.mainEntity) {
-        assert.ok(text.includes(item.name));
-        assert.ok(text.includes(item.acceptedAnswer.text));
-      }
+      const [section] = walk(view, (node) => node.props.id === "faq");
+      assert.ok(section);
+      const questions = walk(section, (node) => node.type === "h3" || node.type === "summary");
+      const answers = walk(section, (node) => node.type === "p");
+      assert.equal(questions.length, faq.mainEntity.length);
+      assert.equal(answers.length, questions.length);
+      faq.mainEntity.forEach((item, index) => {
+        assert.equal(visibleText(questions[index]), item.name);
+        assert.equal(visibleText(answers[index]), item.acceptedAnswer.text);
+      });
       assert.equal(walk(view, (node) => node.type === "form").length, 0);
     });
   }
@@ -233,7 +242,7 @@ test("start title leaves the shared brand suffix to the root template", async ()
 });
 test("AI public directory lists canonical sitemap pages; account entry stays separate", () => {
   const text = read("public/llms.txt");
-  const directory = text.split("Useful public discovery pages:\n")[1]?.split("## Access model")[0];
+  const directory = text.split(/Useful public discovery pages:\r?\n/)[1]?.split("## Access model")[0];
   assert.ok(directory);
   const urls = directory.match(/https:\/\/www\.alphatraders\.co\.il\/[^\s]+/g) ?? [];
   assert.ok(urls.length >= 10);

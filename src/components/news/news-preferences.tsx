@@ -1,5 +1,6 @@
 "use client";
 
+import { currencyText } from "@/components/ui/currency-text";
 import { useEffect, useState, type FormEvent } from "react";
 import { BellRing } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -48,7 +49,7 @@ export function NewsPreferences({ locale }: { locale: NewsLocale }) {
 
   return (
     <section id="news-preferences" className="scroll-mt-24 rounded-2xl border border-white/10 bg-white/[0.025] p-4 sm:p-5" aria-label={isAr ? "إشعارات الأخبار" : "News alerts"}>
-      <div className="flex items-center gap-2"><BellRing className="h-4 w-4 text-[#D4AF37]" aria-hidden="true" /><h2 className="font-semibold text-white">{isAr ? "إشعارات أخبار الدولار" : "USD news alerts"}</h2></div>
+      <div className="flex items-center gap-2"><BellRing className="h-4 w-4 text-[#D4AF37]" aria-hidden="true" /><h2 className="font-semibold text-white">{currencyText(isAr ? "إشعارات أخبار الدولار" : "USD news alerts")}</h2></div>
       <p className="mt-2 text-sm leading-relaxed text-[#9CA3AF]">{isAr ? "اختر كيف تصلك النتائج بعد صدورها. هذه التفضيلات مستقلة عن إشعارات الصفقات." : "Choose how to receive results after release. These preferences are separate from trade alerts."}</p>
       {payload?.available ? (
         <form onSubmit={save} className="mt-4 space-y-3">

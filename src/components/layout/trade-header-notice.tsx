@@ -1,5 +1,6 @@
 "use client";
 
+import { currencyText } from "@/components/ui/currency-text";
 import { useCallback, useSyncExternalStore } from "react";
 import { Link, usePathname } from "@/i18n/navigation";
 import type { AppLocale } from "@/i18n/routing";
@@ -33,7 +34,7 @@ export function TradeHeaderNotice({ locale, actorId, initialTrade, counterpartyN
   return <div className="section-container pb-2" data-testid="trade-header-notice">
     <div className={`flex flex-col items-stretch justify-between gap-2 rounded-xl px-3 py-2 text-xs sm:flex-row sm:items-center ${reminder ? "border border-amber-400/35 bg-amber-500/10 text-amber-100" : "border border-emerald-400/35 bg-emerald-500/10 text-emerald-100"}`}>
       <p className="min-w-0 leading-5">{reminder ? <>
-        🔔 <span className="font-semibold text-white">{reminder.title}</span> — {reminder.messageBeforeReference}{" "}
+        🔔 <span className="font-semibold text-white">{currencyText(reminder.title)}</span> — {reminder.messageBeforeReference}{" "}
         <bdi dir="ltr" className="font-semibold text-white">{reminder.reference}</bdi>{" "}{reminder.messageAfterReference}
       </> : <>
         🟢 {locale === "ar" ? "صفقة نشطة" : "Active Trade"} — {locale === "ar" ? "تابع الصفقة مع" : "Continue trade with"}{" "}

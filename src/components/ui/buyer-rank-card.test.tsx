@@ -7,6 +7,13 @@ afterEach(cleanup);
 const summaryFor = (volume: number) => deriveBuyerRankSummary({ lifetimeCompletedVolumeUsdt: volume, completedTrades: 1, activeTrades: 0, reviewsGiven: 1 });
 
 describe("buyer rank card", () => {
+  it("shows the final micro-USDT remaining before the Silver threshold", () => {
+    const { container } = render(<BuyerRankCard locale="en" summary={summaryFor(14_999.999999)} />);
+    expect(screen.getByRole("heading", { name: "Bronze Buyer" })).toBeTruthy();
+    expect(container.textContent).toContain("14,999.999999 USDT");
+    expect(container.textContent).toContain("0.000001 USDT");
+  });
+
   it.each(["en", "ar"] as const)("shows earned Silver Buyer progress at 15,000 USDT in %s", locale => {
     const { container } = render(<BuyerRankCard locale={locale} summary={summaryFor(15_000)} />);
     expect(screen.getByRole("heading", { name: locale === "ar" ? "مشتري فضي" : "Silver Buyer" })).toBeTruthy();

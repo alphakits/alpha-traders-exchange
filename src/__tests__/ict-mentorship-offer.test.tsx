@@ -30,7 +30,7 @@ it.each(["en", "ar"] as const)("shows one programme and the confirmed %s startin
   vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-09-27T11:00:00Z"));
   const html = renderToStaticMarkup(await MentorshipPage({ params: Promise.resolve({ locale }) }));
   expect(html).toContain('name="experience"');
-  expect(html).toContain("₪6,700");
-  expect(html).toContain("₪7,500");
+  const rendered = new DOMParser().parseFromString(html, "text/html");
+  expect(Array.from(rendered.querySelectorAll("dd .currency-money[dir=ltr]"), (price) => price.textContent)).toEqual(["₪6,700", "₪7,500"]);
   expect(html).not.toMatch(/₪6,?500/);
 });

@@ -1,5 +1,6 @@
 "use client";
 
+import { currencyText } from "@/components/ui/currency-text";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { BellRing, Check, Mail, Smartphone, X } from "lucide-react";
 import { NATIVE_WEB_BRIDGE_VERSION } from "@alpha-traders/contracts";
@@ -220,7 +221,7 @@ export function BrowserPushPrompt({ locale }: { locale: AppLocale }) {
     <section id="notification-setup" aria-label={isAr ? "تفعيل الإشعارات" : "Notification setup"} dir={isAr ? "rtl" : "ltr"} className="mx-auto my-4 max-w-5xl rounded-2xl border border-[#C9A227]/35 bg-[#11100D] p-4 text-white shadow-lg sm:p-5">
       <div className="flex items-start gap-3">
         <BellRing className="mt-1 h-6 w-6 shrink-0 text-[#C9A227]" aria-hidden="true" />
-        <div className="flex-1"><h2 className="font-semibold">{allOn ? (isAr ? "إشعاراتك مفعّلة" : "Your alerts are switched on") : (isAr ? "لا تفوّت عروض USDT الجديدة" : "Stay close to new USDT deals")}</h2>
+        <div className="flex-1"><h2 className="font-semibold">{currencyText(allOn ? (isAr ? "إشعاراتك مفعّلة" : "Your alerts are switched on") : (isAr ? "لا تفوّت عروض USDT الجديدة" : "Stay close to new USDT deals"))}</h2>
           <p className="mt-1 text-sm text-[#C6C4BC]">{isAr ? "فعّل التنبيهات للعروض وطلبات الشراء والرسائل وتحديثات صفقاتك." : "Get alerts for listings, Buy Requests, messages and trade updates."}</p></div>
         <button type="button" aria-label={isAr ? "لاحقاً" : "Remind me later"} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg hover:bg-white/5" onClick={() => setVisible(false)}><X className="h-4 w-4" /></button>
       </div>
@@ -233,7 +234,7 @@ export function BrowserPushPrompt({ locale }: { locale: AppLocale }) {
         <button type="button" className={actionClass} disabled={busy} onClick={() => void sendTestAlert()}>{isAr ? "إرسال تنبيه تجريبي" : "Send test alert"}</button>
         <span className="text-xs text-[#A9A69B]">{isAr ? "اختبر الإشعارات على أجهزتك المتصلة، ثم تحقق من ظهور التنبيه على جهازك." : "Test alerts on your connected devices, then check your device to confirm it appears."}</span>
       </div> : null}
-      {notice ? <p role="status" className="mt-3 text-sm text-[#F5D878]">{notice}</p> : null}
+      {notice ? <p role="status" className="mt-3 text-sm text-[#F5D878]">{currencyText(notice)}</p> : null}
       <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-[#A9A69B]">
         <span>{isAr ? "تذكير بحد أقصى مرتين يومياً أثناء استخدامك للمنصة." : "At most two reminders a day while you use Alpha."}</span>
         <button type="button" className="min-h-11 underline underline-offset-4" disabled={busy} onClick={() => void snooze()}>{isAr ? "ذكّرني بعد أسبوع" : "Remind me in 7 days"}</button>

@@ -9,7 +9,7 @@ import { PayoutCalculator } from "./payout-calculator";
 import s from "./prop-firms.module.css";
 
 function Panel({ title, icon, children, open, id }: { title: string; icon: ReactNode; children: ReactNode; open?: boolean; id?: string }) {
-  return <details className={s.panel} open={open} id={id}><summary>{icon}<span>{title}</span><ChevronDown className={s.chevron} /></summary><div className={s.panelBody}>{children}</div></details>;
+  return <details className={s.panel} open={open} id={id}><summary>{icon}<span>{currencyText(title)}</span><ChevronDown className={s.chevron} /></summary><div className={s.panelBody}>{children}</div></details>;
 }
 
 export function FirmGuide({ firm, navigation, locale, initialProgram, initialSize }: { firm: PropFirm; navigation: { slug: string; name: string }[]; locale: "ar" | "en"; initialProgram?: string; initialSize?: number }) {
@@ -40,7 +40,7 @@ export function FirmGuide({ firm, navigation, locale, initialProgram, initialSiz
     catch { setCopyError(true); }
   }
   const list = (items: Localized[]) => <ul className={s.bullets}>{items.map((item, i) => <li key={i}>{currencyText(item[locale])}</li>)}</ul>;
-  const fact = (label: string, value: ReactNode) => <div className={s.fact}><dt>{label}</dt><dd>{value}</dd></div>;
+  const fact = (label: string, value: ReactNode) => <div className={s.fact}><dt>{currencyText(label)}</dt><dd>{value}</dd></div>;
   return <div className={s.guide} dir={ar ? "rtl" : "ltr"} style={{ "--accent": firm.accent } as CSSProperties}>
     <nav className={s.firmNav} aria-label={choose("Prop firm guides", "أدلة الشركات المموّلة")}>
       <Link href="/prop-firms"><Landmark size={14} />{choose("All firms", "كل الشركات")}</Link>
@@ -63,7 +63,7 @@ export function FirmGuide({ firm, navigation, locale, initialProgram, initialSiz
         <label className={s.field} htmlFor="firm-program">{choose(topstep ? "01 · Funded payout path (XFA)" : "01 · Your program", topstep ? "01 · مسار السحب بالمموّل (XFA)" : "01 · برنامجك")}
           <select id="firm-program" value={program.id} onChange={event => select(event.target.value, tier.size)} dir="ltr">{firm.programs.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select>
         </label>
-        <div className={s.field}><span id="size-label">{choose("02 · Account size (USD)", "02 · حجم الحساب بالدولار")}</span><div className={s.sizes} role="group" aria-labelledby="size-label">{program.tiers.map(t => <button key={t.size} className={s.sizeButton} aria-pressed={t.size === tier.size} onClick={() => select(program.id, t.size)}>{t.size / 1000}K</button>)}</div></div>
+        <div className={s.field}><span id="size-label">{currencyText(choose("02 · Account size (USD)", "02 · حجم الحساب بالدولار"))}</span><div className={s.sizes} role="group" aria-labelledby="size-label">{program.tiers.map(t => <button key={t.size} className={s.sizeButton} aria-pressed={t.size === tier.size} onClick={() => select(program.id, t.size)}>{usd(t.size)}</button>)}</div></div>
       </div>
       <p className={s.selectedNote}><Info size={14} aria-hidden="true" />{currencyText(program.tagline[locale])}</p>
     </section>
@@ -77,10 +77,10 @@ export function FirmGuide({ firm, navigation, locale, initialProgram, initialSiz
       <div className={s.sections}>
         <Panel icon={<BadgeDollarSign />} title={choose("What does it cost?", "قديش تكلفة الحساب؟")} open>
           {topstep && <label className={s.field} htmlFor="topstep-billing">{choose("Combine billing path", "مسار دفع Combine")}<select id="topstep-billing" value={billing} onChange={event => setBilling(event.target.value)}><option value="standard">Standard · {choose("activation fee", "رسوم تفعيل")}</option><option value="no-activation">No Activation Fee · {choose("no activation charge", "بدون رسوم تفعيل")}</option></select></label>}
-          {currentPrice !== undefined ? <div className={s.price}><span className={s.money}>{usd(currentPrice)}</span><small>{choose(topstep ? "/ month · base price" : "base price · one time", topstep ? "/ شهر · السعر الأساسي" : "سعر أساسي · مرة واحدة")}</small></div> : <p className={s.notice}>{choose("The current price is quoted in the official account selector. Check your size, platform and add-ons before payment.", "السعر الحالي يظهر باختيار الحساب على موقع الشركة. تأكد من الحجم والمنصة والإضافات قبل الدفع.")}</p>}
+          {currentPrice !== undefined ? <div className={s.price}><span className={s.money}>{usd(currentPrice)}</span><small>{currencyText(choose(topstep ? "/ month · base price" : "base price · one time", topstep ? "/ شهر · السعر الأساسي" : "سعر أساسي · مرة واحدة"))}</small></div> : <p className={s.notice}>{currencyText(choose("The current price is quoted in the official account selector. Check your size, platform and add-ons before payment.", "السعر الحالي يظهر باختيار الحساب على موقع الشركة. تأكد من الحجم والمنصة والإضافات قبل الدفع."))}</p>}
           {topstep && <p>{currencyText(choose(`Activation after passing: ${billing === "standard" ? "$149" : "$0"} per XFA.`, `التفعيل بعد النجاح: ${billing === "standard" ? "$149" : "$0"} لكل XFA.`))}</p>}
           {list([program.pricing, program.activation])}
-          <a className={s.button} style={{ marginTop: 16 }} href={firm.website} target="_blank" rel="noopener noreferrer">{choose("Check the current quote", "افحص السعر الحالي")}<ExternalLink size={13} /></a>
+          <a className={s.button} style={{ marginTop: 16 }} href={firm.website} target="_blank" rel="noopener noreferrer">{currencyText(choose("Check the current quote", "افحص السعر الحالي"))}<ExternalLink size={13} /></a>
         </Panel>
         <Panel icon={<Target />} title={direct ? choose("01 · Direct account rules", "01 · شروط الحساب المباشر") : choose("01 · How to pass", "01 · شو لازم للنجاح؟")} open id="evaluation-rules">
           <dl className={s.facts}>
@@ -107,7 +107,7 @@ export function FirmGuide({ firm, navigation, locale, initialProgram, initialSiz
         <Panel icon={<Landmark />} title={choose("04 · Where the money arrives", "04 · كيف ووين بتستلم المصاري؟")}>{list(firm.receiving)}</Panel>
         <Panel icon={<ListChecks />} title={choose("Rules you should not miss", "قواعد مهم ما تفوتك")}>{list([...program.cautions, ...firm.important])}</Panel>
         <Panel icon={<BookOpen />} title={choose("Official sources & review date", "المصادر الرسمية وتاريخ المراجعة")}>
-          <p className={s.subtle}>{choose("Reviewed on 28 September 2026. Prices, availability and account versions can change. This guide does not automatically update when a firm changes its terms.", "تمت المراجعة في 28 سبتمبر 2026. الأسعار والتوافر ونسخ الحسابات ممكن تتغير. الدليل لا يتحدث تلقائياً عند تغيير الشركة لشروطها.")}</p>
+          <p className={s.subtle}>{currencyText(choose("Reviewed on 28 September 2026. Prices, availability and account versions can change. This guide does not automatically update when a firm changes its terms.", "تمت المراجعة في 28 سبتمبر 2026. الأسعار والتوافر ونسخ الحسابات ممكن تتغير. الدليل لا يتحدث تلقائياً عند تغيير الشركة لشروطها."))}</p>
           <ul className={s.sourceList}>{sources.map(source => <li key={source.url}><a href={source.url} target="_blank" rel="noopener noreferrer"><span dir="ltr">{source.title}</span><ExternalLink size={14} /></a></li>)}</ul>
         </Panel>
       </div>

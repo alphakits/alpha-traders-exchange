@@ -1,3 +1,4 @@
+import { formatMoneyNumber } from "@/lib/accent-text";
 import { OwnerPrivateContact } from "@/components/profile/owner-private-contact";
 import { AccountVerificationBadges } from "@/components/profile/account-verification-badges";
 import { brandText, currencyText } from "@/components/ui/currency-text";
@@ -268,7 +269,7 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, vi
     },
     ...(profile.tradeVolume !== undefined ? [{
       label: isAr ? "الحجم" : "Trade Volume",
-      value: `${profile.tradeVolume.toLocaleString("en-IL")} USDT`,
+      value: `${profile.tradeVolume.toLocaleString("en-US", { maximumFractionDigits: 6 })} USDT`,
       icon: <WalletCards className="h-3.5 w-3.5" />,
     }] : []),
     {
@@ -283,13 +284,13 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, vi
       ? (isAr ? "مشغول" : "Away")
       : (isAr ? "إجازة" : "Vacation");
   const stats: Array<{ label: string; value: string; isUsdt?: boolean }> = [
-    { label: isAr ? "صفقات مكتملة" : "Completed trades", value: profile.completedTrades.toString() },
-    ...(profile.tradeVolume !== undefined ? [{ label: isAr ? "حجم التداول" : "Trade volume", value: `${profile.tradeVolume.toLocaleString("en-IL")} USDT`, isUsdt: true }] : []),
+    { label: isAr ? "صفقات مكتملة" : "Completed trades", value: formatMoneyNumber(profile.completedTrades) },
+    ...(profile.tradeVolume !== undefined ? [{ label: isAr ? "حجم التداول" : "Trade volume", value: `${profile.tradeVolume.toLocaleString("en-US", { maximumFractionDigits: 6 })} USDT`, isUsdt: true }] : []),
     { label: isAr ? "التقييم المتوسط" : "Average rating", value: rating.text },
     { label: isAr ? "المشترون المتكرّرون" : "Repeat buyers", value: `${profile.repeatBuyersPercent.toFixed(1)}${isAr ? "٪" : "%"}` },
     { label: isAr ? "معدل الإكمال" : "Completion rate", value: `${profile.completionRate.toFixed(1)}${isAr ? "٪" : "%"}` },
     { label: isAr ? "متوسط سرعة الرد" : "Avg response", value: response },
-    { label: isAr ? "العروض النشطة" : "Active listings", value: data.sellerListings.length.toString(), isUsdt: true },
+    { label: isAr ? "العروض النشطة" : "Active listings", value: formatMoneyNumber(data.sellerListings.length), isUsdt: true },
     { label: isAr ? "سنوات على المنصة" : "Years on platform", value: `${profile.yearsOnPlatform.toFixed(1)}` },
   ];
 
@@ -586,7 +587,7 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, vi
                     <details className="group min-w-0">
                       <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-[#D1D5DB] hover:border-[#C9A227]/30 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C9A227] [&::-webkit-details-marker]:hidden">
                         <span className="min-w-0 group-open:hidden">
-                          {isAr ? "عرض التقييمات السابقة" : "Show older reviews"} ({olderReviews.length})
+                          {isAr ? "عرض التقييمات السابقة" : "Show older reviews"} ({formatMoneyNumber(olderReviews.length)})
                         </span>
                         <span className="hidden min-w-0 group-open:inline">
                           {isAr ? "إخفاء التقييمات السابقة" : "Hide older reviews"}

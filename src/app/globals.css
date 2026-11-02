@@ -466,7 +466,6 @@ html[lang="ar"] :where(body, body *) {
 }
 
 .trade-chat-text .currency-money {
-  direction: ltr;
   unicode-bidi: isolate;
 }
 
@@ -713,7 +712,7 @@ html[lang="ar"] :where(body, body *) {
 }
 
 /* Numeric fields keep their raw values for validation and payment submission. */
-input.currency-money::placeholder { color: #9ca3af; -webkit-text-fill-color: #9ca3af; }
+input.currency-money::placeholder { color: var(--usdt-ink, #34d399); -webkit-text-fill-color: currentColor; opacity: .85; }
 
 .brand-alpha-traders {
   color: var(--brand-ink, #fda4af) !important;
@@ -721,8 +720,11 @@ input.currency-money::placeholder { color: #9ca3af; -webkit-text-fill-color: #9c
   font-weight: 700;
 }
 
-.gold-gradient { --usdt-ink: #065f46; --brand-ink: #9f1239; }
-.gold-gradient.bg-clip-text { --brand-ink: #fda4af; }
+.gold-gradient { --usdt-ink: #0c3b20; --brand-ink: #9f1239; }
+.bg-blue-600 { --usdt-ink: #caffdf; }
+.bg-white, .bg-emerald-300, .bg-emerald-400, .bg-emerald-500 { --usdt-ink: #0c3b20; }
+.gold-gradient.bg-clip-text { --usdt-ink: #34d399; --brand-ink: #fda4af; }
+select:has(option.currency-money:checked),
 option[value="USDT"], option[value="usdt"] { color: #34d399; }
 select:has(option[value="USDT"]:checked), select:has(option[value="usdt"]:checked) { color: #34d399; }
 input[placeholder*="usdt" i]::placeholder { color: #34d399; }

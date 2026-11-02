@@ -99,7 +99,7 @@ export function NativeMarketCenter() {
         <Text style={[styles.eyebrow, isRTL && styles.rtlText]}>{isAr ? "مرساة التسعير" : "PRICING ANCHOR"}</Text>
         <Text style={[styles.pair, isRTL && styles.rtlText]}>USD / ILS</Text>
         <View style={[styles.priceRow, isRTL && styles.rowReverse]}>
-          <Text style={styles.heroPrice}>{formatPrice(heroPair)}</Text>
+          <Text monetary style={styles.heroPrice}>{formatPrice(heroPair)}</Text>
           <Text style={styles.change}>{formatChange(heroPair.changePercent)}</Text>
         </View>
         <Text style={[styles.source, isRTL && styles.rtlText]}>{isAr ? "مرجع USD/ILS لعروض USDT" : "USD/ILS benchmark for USDT listings"}</Text>
@@ -110,7 +110,7 @@ export function NativeMarketCenter() {
         {supportingPairs.map((pair) => (
           <View key={pair.key} style={styles.pairCard}>
             <Text style={styles.pairLabel}>{pair.label}</Text>
-            <Text style={styles.pairPrice}>{formatPrice(pair)}</Text>
+            <Text monetary style={styles.pairPrice}>{formatPrice(pair)}</Text>
             <Text style={[styles.change, (pair.changePercent ?? 0) < 0 && styles.negative]}>{formatChange(pair.changePercent)}</Text>
             <Text numberOfLines={1} style={styles.source}>{sourceLabel(pair, isAr)}</Text>
           </View>

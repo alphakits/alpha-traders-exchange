@@ -1,4 +1,5 @@
 import { getPriceOfferBounds, validatePriceOffer } from "@alpha-traders/contracts";
+import { MoneyInput } from "../components/money-input";
 import { BrandedText as Text } from "../components/branded-text";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -38,7 +39,7 @@ import {
   formatFinancialText,
   formatUsd,
   priceForUsdInput,
-  formatWholeUsdtNumber,
+  formatUsdtNumber,
 } from "../finance/financial-display";
 import { useUsdDisplayRate } from "../finance/use-usd-display-rate";
 
@@ -169,7 +170,7 @@ export function TradeFormScreen({
       ? t("tronWalletHint")
       : t("solWalletHint");
   const amountRange = listing
-    ? `${isCardless ? "" : formatWholeUsdtNumber(listing.minimumTrade) + "–"}${formatWholeUsdtNumber(listing.maximumTrade)} USDT`
+    ? `${isCardless ? "" : formatUsdtNumber(listing.minimumTrade) + "–"}${formatUsdtNumber(listing.maximumTrade)} USDT`
     : "";
   const formIsValid = useMemo(() => {
     if (!listing || listing.seller.isCurrentUser || !user || !paymentMethodAvailable || walletValidationError) return false;
@@ -325,18 +326,17 @@ export function TradeFormScreen({
 
         <View style={styles.priceCard}>
           <Text style={[styles.label, isRTL && styles.rtlText]}>{t("listingPrice")}</Text>
-          <Text style={[styles.price, isRTL && styles.rtlText]}>{formatCurrencyAmountAsUsd(listing.price, listing.currency, usdIlsRate, 4)}</Text>
+          <Text monetary style={[styles.price, isRTL && styles.rtlText]}>{formatCurrencyAmountAsUsd(listing.price, listing.currency, usdIlsRate, 4)}</Text>
         </View>
 
         <View style={styles.form}>
           <View style={styles.field}>
             <Text style={[styles.label, isRTL && styles.rtlText]}>{t("tradeAmount")}</Text>
-            <TextInput
+            <MoneyInput
               accessibilityHint={`${t("amountHint")}: ${amountRange}`}
               accessibilityLabel={t("tradeAmount")}
               editable={!isSubmitting && !isCardless}
               inputMode="decimal"
-              onBlur={() => setAmount(formatFinancialNumber(amount, { maximumFractionDigits: 6 }))}
               onChangeText={(value) => setAmount(normalizeTradeAmountInput(value))}
               placeholder={listing.minimumTrade}
               placeholderTextColor={colors.textMuted}
@@ -349,7 +349,7 @@ export function TradeFormScreen({
           {mode === "offer" ? (
             <View style={styles.field}>
               <Text style={[styles.label, isRTL && styles.rtlText]}>{t("offerPrice")}</Text>
-              <TextInput
+              <MoneyInput
                 accessibilityHint={`${t("priceOfferHint")} ${offerRangeUsd}`.trim()}
                 accessibilityLabel={t("offerPrice")}
                 editable={!isSubmitting}
@@ -434,7 +434,7 @@ export function TradeFormScreen({
             <TextInput accessibilityLabel={verificationKind === "date_of_birth" ? "DD/MM/YYYY" : "ID number"} placeholder={verificationKind === "date_of_birth" ? "DD/MM/YYYY" : (locale === "ar" ? "رقم الهوية" : "ID number")} placeholderTextColor={colors.textMuted} keyboardType={verificationKind === "date_of_birth" ? "default" : "number-pad"} value={verificationValue} onChangeText={setVerificationValue} style={styles.input} editable={!isSubmitting} />
             <Text style={styles.hint}>{locale === "ar" ? "تُحسب كمية USDT من مبلغ الرمز شاملاً عمولتك. يجب أن يقبل البائع الكمية، وقد تكون أقل من الحد المعتاد للعرض." : "USDT is calculated from the code total including your fee. The seller must accept the quantity, which may be below the usual listing minimum."}</Text>
             <Text style={styles.label}>{locale === "ar" ? "إجمالي رمز السحب: 100–10,000 شيكل بمضاعفات 100، يشمل عمولتك 1%" : "ATM code total: 100–10,000 ILS in ₪100 steps, including your 1% fee"}</Text>
-            <TextInput accessibilityLabel="Withdrawal amount ILS" placeholder="100–10,000 ILS" placeholderTextColor={colors.textMuted} keyboardType="number-pad" value={cashAmount} onChangeText={(value) => {
+            <MoneyInput accessibilityLabel="Withdrawal amount ILS" placeholder="100–10,000 ILS" placeholderTextColor={colors.textMuted} keyboardType="number-pad" value={cashAmount} onChangeText={(value) => {
               setCashAmount(value);
               const calculated = calculateCardlessUsdtAmount(value, mode === "offer" ? canonicalOfferPrice : canonicalListingPrice(listing.price), true);
               setAmount(calculated ?? "");
@@ -462,7 +462,7 @@ export function TradeFormScreen({
 
         <View style={styles.totalCard}>
           <Text style={[styles.label, isRTL && styles.rtlText]}>{t("estimatedTotal")}</Text>
-          <Text style={[styles.total, isRTL && styles.rtlText]}>{formatFinancialNumber(buyerTotal, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {listing?.currency}</Text>
+          <Text monetary style={[styles.total, isRTL && styles.rtlText]}>{formatFinancialNumber(buyerTotal, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {listing?.currency}</Text>
           {numericValue(amount) > 0 && Number(buyerTotal) <= 0 ? <Text style={styles.error}>{isRTL ? "زد الكمية حتى يبلغ إجمالي الدفع 0.01 على الأقل بعملة العرض." : "Increase the amount until the payment total is at least 0.01 in the listing currency."}</Text> : null}
           <Text style={[styles.fee, isRTL && styles.rtlText]}>
             {isRTL ? `قيمة الصفقة: ${formatFinancialNumber(tradeValue, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${listing?.currency} · عمولتك كمشتري (1٪): ${formatFinancialNumber(buyerFee, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${listing?.currency}` : `Trade value: ${formatFinancialNumber(tradeValue, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${listing?.currency} · Your buyer fee (1%): ${formatFinancialNumber(buyerFee, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${listing?.currency}`}

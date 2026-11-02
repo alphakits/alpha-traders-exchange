@@ -1,5 +1,6 @@
 "use client";
 
+import { formatMoneyNumber } from "@/lib/accent-text";
 import { ShieldCheck } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
@@ -20,7 +21,7 @@ export function OwnerAttentionQueue({ isAr, operations, disputes = [], commissio
     pending_trade_trust: isAr ? "تأخر تحديث سمعة الصفقة" : "Trade reputation update is delayed",
   };
   return <section className="rounded-2xl border border-[#C9A227]/30 bg-[#0B0B0B]/95 p-4 sm:p-5" aria-label={isAr ? "قائمة متابعة المالك" : "Owner attention queue"} aria-busy={snapshotStatus === "loading"}>
-    <div className="flex flex-wrap items-start justify-between gap-3"><div><h2 className="text-lg font-semibold">{isAr ? "أولويات المتابعة" : "Follow-up priorities"} {ready ? <span className="text-[#D4AF37]">({queue.length})</span> : null}</h2><p className="mt-1 text-sm text-[#9CA3AF]">{isAr ? "صفقات متأخرة، حالات دعم، ودفعات تحتاج إلى مطابقة؛ افتح السجل لاتخاذ الإجراء المتاح." : "Delayed trades, support cases and payments awaiting a match. Open the record to use its available actions."}</p></div><Link href={`/${isAr ? "ar" : "en"}/settings?tab=security`} className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-[#C9A227]/30 px-3 text-sm text-[#D4AF37]"><ShieldCheck className="h-4 w-4" />{isAr ? "أمان حساب المالك" : "Owner account security"}</Link></div>
+    <div className="flex flex-wrap items-start justify-between gap-3"><div><h2 className="text-lg font-semibold">{isAr ? "أولويات المتابعة" : "Follow-up priorities"} {ready ? <span className="text-[#D4AF37]">({formatMoneyNumber(queue.length)})</span> : null}</h2><p className="mt-1 text-sm text-[#9CA3AF]">{isAr ? "صفقات متأخرة، حالات دعم، ودفعات تحتاج إلى مطابقة؛ افتح السجل لاتخاذ الإجراء المتاح." : "Delayed trades, support cases and payments awaiting a match. Open the record to use its available actions."}</p></div><Link href={`/${isAr ? "ar" : "en"}/settings?tab=security`} className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-[#C9A227]/30 px-3 text-sm text-[#D4AF37]"><ShieldCheck className="h-4 w-4" />{isAr ? "أمان حساب المالك" : "Owner account security"}</Link></div>
     {!ready ? <p role="status" className="mt-3 text-sm text-[#9CA3AF]">{snapshotStatus === "loading"
       ? (isAr ? "جارٍ تحميل أولويات المتابعة…" : "Loading follow-up priorities…")
       : (isAr ? "أولويات المتابعة غير متاحة. أعد تحديث اللوحة." : "Follow-up priorities are unavailable. Refresh the dashboard.")}</p> : !operations ? <p role="status" className="mt-3 rounded-lg border border-amber-300/20 p-3 text-sm text-amber-200">{isAr ? "حالة مراقبة الصفقات غير متاحة في هذا التحديث. أعد تحديث اللوحة." : "Trade monitoring is unavailable in this snapshot. Refresh the dashboard."}</p> : <p className="mt-3 text-xs text-[#9CA3AF]">{isAr ? "تحديث مراقبة الصفقات" : "Trade monitoring snapshot"}: <time dateTime={operations.generatedAt}>{Number.isFinite(Date.parse(operations.generatedAt)) ? new Date(operations.generatedAt).toLocaleString(isAr ? "ar" : "en-US") : "—"}</time></p>}

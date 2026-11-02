@@ -1,3 +1,4 @@
+import { currencyText } from "@/components/ui/currency-text";
 import { LearningNextStep } from "@/components/academy/learning-next-step";
 import { LearningShareActions } from "@/components/academy/learning-share-actions";
 import { FreeCourseAccessNote, FreeCourseEntryLink, FreeCourseSetupSteps } from "@/components/academy/free-course-entry";
@@ -66,14 +67,14 @@ export default async function LearnTradingFreePage({ params }: { params: Promise
           {isAr ? "تعلّم التداول. ابدأ مجانًا." : "Learn Trading. Start Free."}
           <span className="mt-3 block text-lg font-normal text-[#D1D5DB]">{isAr ? "دورة تداول مجانية للمبتدئين" : "Free Trading Course for Beginners"}</span>
         </h1>
-        <p className="page-subtitle">{isAr?"ابنِ أساسك في حركة السعر وإدارة المخاطر وعلم نفس التداول. تعلّم ضمن مسار منظّم، بالسرعة المناسبة لك، دون رسوم للدورة." : "Build your foundation in price action, risk management and trading psychology. Follow a structured course at your own pace, with no course fee."}</p>
+        <p className="page-subtitle">{currencyText(isAr?"ابنِ أساسك في حركة السعر وإدارة المخاطر وعلم نفس التداول. تعلّم ضمن مسار منظّم، بالسرعة المناسبة لك، دون رسوم للدورة." : "Build your foundation in price action, risk management and trading psychology. Follow a structured course at your own pace, with no course fee.")}</p>
         <div className="space-y-3">
           <FreeCourseEntryLink locale={isAr ? "ar" : "en"} className={buttonVariants({ className: "w-full sm:w-auto" })} />
           <FreeCourseAccessNote locale={isAr ? "ar" : "en"} />
         </div>
         <p className="text-sm leading-7 text-[#D1D5DB]">{isAr ? "عندك خبرة وبدك تشتغل على التطبيق؟ " : "Already have experience and want to work on applying it? "}<Link href="/learn-with-mark" className="inline-flex min-h-11 items-center text-[#E5CA77] underline underline-offset-4">{isAr ? "تعرّف على ICT Mentorship مع مارك" : "Explore ICT Mentorship with Mark"}</Link></p>
       </div>
-      <div className="grid gap-3 md:grid-cols-2">{topics.map((topic,i)=><div key={topic.title} className="rounded-2xl border border-white/10 bg-[#0B0B0B]/90 p-5"><p className="text-xs text-[#C9A227]">{isAr?`المرحلة ${i+1}`:`Stage ${i+1}`}</p><h2 className="mt-2 font-semibold">{topic.title}</h2><p className="mt-3 text-sm leading-7 text-[#D1D5DB]">{topic.description}</p></div>)}</div>
+      <div className="grid gap-3 md:grid-cols-2">{topics.map((topic,i)=><div key={topic.title} className="rounded-2xl border border-white/10 bg-[#0B0B0B]/90 p-5"><p className="text-xs text-[#C9A227]">{isAr?`المرحلة ${i+1}`:`Stage ${i+1}`}</p><h2 className="mt-2 font-semibold">{currencyText(topic.title)}</h2><p className="mt-3 text-sm leading-7 text-[#D1D5DB]">{currencyText(topic.description)}</p></div>)}</div>
       <div className="rounded-3xl border border-white/10 bg-[#0B0B0B]/90 p-6">
         <h2 className="text-xl font-semibold">{isAr?"لمن صُمم هذا المسار؟":"Who is this learning path for?"}</h2>
         <p className="mt-3 text-sm leading-7 text-[#D1D5DB]">{isAr?"صُمم للمبتدئين والمتداولين الذين يريدون مراجعة الأساسيات ضمن مسار واضح باللغة العربية أو الإنجليزية. يمكنك استكشاف محتوى الدورة علنًا، لكن الدخول إلى الدروس وحفظ التقدم يتطلب حسابًا وبريدًا إلكترونيًا مؤكدًا.":"It is designed for beginners and traders who want to rebuild their foundations through a clear Arabic or English learning path. You can discover the course publicly, while lesson access and saved progress require an account with a verified email."}</p>
@@ -88,7 +89,7 @@ export default async function LearnTradingFreePage({ params }: { params: Promise
       </div>
       <div id="faq" className="rounded-3xl border border-white/10 bg-[#0B0B0B]/90 p-6">
         <h2 className="text-xl font-semibold">{isAr ? "أسئلة شائعة" : "Frequently asked questions"}</h2>
-        <div className="mt-4 space-y-4">{faqs.map((faq) => <div key={faq.question}><h3 className="font-semibold text-white">{faq.question}</h3><p className="mt-1 text-sm leading-7 text-[#D1D5DB]">{faq.answer}</p></div>)}</div>
+        <div className="mt-4 space-y-4">{faqs.map((faq) => <div key={faq.question}><h3 className="font-semibold text-white">{currencyText(faq.question)}</h3><p className="mt-1 text-sm leading-7 text-[#D1D5DB]">{currencyText(faq.answer)}</p></div>)}</div>
       </div>
       <LearningNextStep locale={locale} />
       <LearningShareActions locale={locale} destination="academy" />

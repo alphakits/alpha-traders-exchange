@@ -6,12 +6,12 @@ export function CommissionNetworkFeeNotice({ isAr, receiveAmountUsdt = 40 }: { i
   const receive = format(receiveAmountUsdt);
   const send = format((Math.round(receiveAmountUsdt * 1e6) + 1_000_000) / 1e6);
   return <div className="space-y-2">
-    <p className="commission-notice text-sm leading-6">{isAr
+    <p className="commission-notice text-sm leading-6">{currencyText(isAr
       ? "يرجى تحمّل رسوم الشبكة ليصل المبلغ كاملًا."
-      : "Please cover the network fee so the full amount shown arrives."}</p>
-    <p className="text-sm leading-6 text-slate-300">{isAr
+      : "Please cover the network fee so the full amount shown arrives.")}</p>
+    <p className="text-sm leading-6 text-slate-300">{currencyText(isAr
       ? "إذا قُبلت دفعة ناقصة، يُضاف المبلغ المتبقي فقط إلى عمولتك التالية."
-      : "Any accepted shortfall is added to your next commission."}</p>
+      : "Any accepted shortfall is added to your next commission.")}</p>
     <HelpDetails title={isAr ? "مثال على الرسوم" : "Fee example"}>
       <p>{currencyText(isAr
         ? `مثال: إذا كان المطلوب وصوله ${receive} USDT وتُخصم رسوم 1 USDT من التحويل، أرسل ${send} USDT ليصل ${receive} USDT.`

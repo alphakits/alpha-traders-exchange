@@ -36,6 +36,21 @@ const snapshot: DiscordListingSnapshot = {
 };
 
 describe("Discord listing message", () => {
+  it("retains trailing USDT and price precision in the public listing display", () => {
+    const embed = buildDiscordListingMessage({ ...snapshot, availableAmount: "10000.000050", price: "3.4200" }).embeds?.[0];
+    expect(embed?.fields).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: "Available USDT", value: "**10,000.000050 USDT**" }),
+      expect.objectContaining({ name: "Price per USDT", value: "**₪3.4200**" }),
+    ]));
+  });
+
+  it("shows the actual settlement currency on a USD listing", () => {
+    const embed = buildDiscordListingMessage({ ...snapshot, currency: "USD", price: "1.0050" }).embeds?.[0];
+    expect(embed?.fields).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: "Price per USDT", value: "**$1.0050**" }),
+    ]));
+  });
+
   it("renders the exact premium active hierarchy and authoritative fields", () => {
     const payload = buildDiscordListingMessage(snapshot);
     const embed = payload.embeds?.[0];

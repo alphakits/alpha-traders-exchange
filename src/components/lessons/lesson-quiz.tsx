@@ -1,5 +1,7 @@
 "use client";
 
+import { formatMoneyNumber } from "@/lib/accent-text";
+import { currencyText } from "@/components/ui/currency-text";
 import { useMemo, useState } from "react";
 import { RotateCcw } from "lucide-react";
 import { useLocale } from "next-intl";
@@ -56,7 +58,7 @@ export function LessonQuiz({
             <p className="text-sm text-[#9CA3AF]">
               {isAr ? "سؤال" : "Question"} {index + 1}
             </p>
-            <legend className="px-1 text-base font-medium">{label}</legend>
+            <legend className="px-1 text-base font-medium">{currencyText(label)}</legend>
             <div className="space-y-2">
               {options.map((option, optionIndex) => (
                 <label key={`${question.id}-${optionIndex}`} data-selected={selected === optionIndex} data-correct={submitted && optionIndex === question.correctIndex} className={`flex items-center gap-2 rounded-lg border border-white/10 p-3 text-sm ${styles.quizOption}`}>
@@ -91,7 +93,7 @@ export function LessonQuiz({
       {questions.length ? (
         <div className="flex flex-wrap items-center gap-2">
           {!submitted ? (
-            <><p className="w-full text-xs text-[#9CA3AF]" role="status">{answeredCount} / {questions.length} {isAr ? "إجابات · أجب عن كل الأسئلة ثم أرسل الاختبار" : "answered · Answer every question, then submit"}</p><Button onClick={submitQuiz} disabled={answeredCount !== questions.length}>{isAr ? "إرسال الاختبار" : "Submit Quiz"}</Button></>
+            <><p className="w-full text-xs text-[#9CA3AF]" role="status">{answeredCount} / {formatMoneyNumber(questions.length)} {isAr ? "إجابات · أجب عن كل الأسئلة ثم أرسل الاختبار" : "answered · Answer every question, then submit"}</p><Button onClick={submitQuiz} disabled={answeredCount !== questions.length}>{isAr ? "إرسال الاختبار" : "Submit Quiz"}</Button></>
           ) : (
             <>
               <p className={styles.quizResult} role="status"><span aria-hidden="true">{scorePercent >= 70 ? "🎯" : "💡"}</span>{" "}

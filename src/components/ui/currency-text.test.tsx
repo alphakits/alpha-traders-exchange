@@ -16,8 +16,9 @@ describe("currency text", () => {
   it("keeps form labels accessible and does not modify unrelated words or numbers", () => {
     const { container } = render(<><label htmlFor="amount">{currencyText("USDT Amount")}</label><input id="amount" /><p>{currencyText("USDTlike USD 15,000")}</p></>);
     expect(screen.getByLabelText("USDT Amount")).toBeTruthy();
-    expect(container.querySelectorAll(".currency-usdt")).toHaveLength(1);
-    expect(currencyText(15_000)).toBe(15_000);
+    expect(container.querySelector("p .currency-money")?.textContent).toBe("USD 15,000");
+    expect(container.querySelector("p")?.firstChild?.textContent).toBe("USDTlike ");
+    expect(currencyText(15_000)).toBe("15,000");
     expect(currencyText(null)).toBeNull();
   });
   it("accents English and Arabic brand mentions without changing copy or currency styling", () => {
@@ -53,14 +54,19 @@ describe("currency text", () => {
     expect(container.querySelector(".currency-money")?.textContent).toBe(expected);
   });
 
-  it("leaves counts, ratings, IDs, percentages, dates and network numbers unchanged", () => {
+  it("groups trade counts while preserving ratings, IDs, percentages, dates and network numbers", () => {
     const value = "Trust 65.0 · Rating 5.00 · 1000 trades · AT-001000 · 1% · 24/09/2026 · TRC20 · BEP20 · ₪1050000.00 · 2 min";
     const { container, rerender } = render(<p>{currencyText(value)}</p>);
-    expect(container.textContent).toBe(value.replace("1050000", "1,050,000"));
+    expect(container.textContent).toBe(value.replace("1000 trades", "1,000 trades").replace("1050000", "1,050,000"));
     expect([...container.querySelectorAll(".currency-money")].map(node => node.textContent)).toEqual(["₪1,050,000.00"]);
     rerender(<p>{currencyText("تم شراء 15000 USDT مقابل 45000 ILS · 2 صفقات")}</p>);
     expect(container.textContent).toBe("تم شراء 15,000 USDT مقابل 45,000 ILS · 2 صفقات");
     expect([...container.querySelectorAll(".currency-money")].map(node => node.textContent)).toEqual(["15,000 USDT", "45,000 ILS"]);
+  });
+
+  it("renders a split symbol and value as a single green price", () => {
+    const { container } = render(<p>{currencyText(["$", 12000.25])}</p>);
+    expect(container.querySelector(".currency-money")?.textContent).toBe("$12,000.25");
   });
 
   it("formats explicitly identified amounts whose currency is in a separate label", () => {

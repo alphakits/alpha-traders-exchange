@@ -85,10 +85,16 @@ it("submits an ILS total correction for buyer approval", async () => {
   render(<TradeTermsPanel request={{ ...base, status: "pending", priceMode: "listing_price" }} actorId="seller" isAr={false} onUpdated={vi.fn()} />);
   fireEvent.click(screen.getByRole("button", { name: "Adjust Amount" }));
   fireEvent.change(screen.getByRole("combobox", { name: "Adjustment unit" }), { target: { value: "ILS" } });
-  fireEvent.change(screen.getByLabelText("Correct total ILS payment (including buyer fee if applicable)"), { target: { value: "404" } });
+  const input = screen.getByLabelText("Correct total ILS payment (including buyer fee if applicable)") as HTMLInputElement;
+  fireEvent.change(input, { target: { value: "1404.50" } });
+  expect(input.value).toBe("1,404.50");
+  fireEvent.change(input, { target: { value: "1,404.5000001" } });
+  fireEvent.click(screen.getByRole("button", { name: "Propose corrected amount" }));
+  expect(fetch).not.toHaveBeenCalled();
+  fireEvent.change(input, { target: { value: "1,404.50" } });
   fireEvent.click(screen.getByRole("button", { name: "Propose corrected amount" }));
   await waitFor(() => expect(fetch).toHaveBeenCalledOnce());
-  expect(JSON.parse(fetch.mock.calls[0][1].body)).toMatchObject({ action: "propose_ils_amount", value: "404" });
+  expect(JSON.parse(fetch.mock.calls[0][1].body)).toMatchObject({ action: "propose_ils_amount", value: "1404.50" });
 });
 
 it("keeps an amount draft after acceptance and closes it once payment is sent", () => {

@@ -1,5 +1,6 @@
 "use client";
 
+import { currencyText } from "@/components/ui/currency-text";
 import { ActionFeedback } from "@/components/ui/action-feedback";
 import {
   Activity,
@@ -83,7 +84,7 @@ function Stat({
   return (
     <div className="min-w-0 rounded-xl border border-white/10 bg-black/25 p-3">
       <dt className="text-xs font-medium uppercase tracking-[0.12em] text-[#9CA3AF]">
-        {label}
+        {currencyText(label)}
       </dt>
       <dd className="mt-1 break-words text-lg font-semibold text-white">{value}</dd>
     </div>

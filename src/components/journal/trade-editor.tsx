@@ -1,5 +1,7 @@
 "use client";
 /* eslint-disable @next/next/no-img-element -- Private chart endpoints require the viewer's cookie and must bypass the public image optimizer. */
+import { JournalNumberInput } from "./journal-number-input";
+import { currencyText } from "@/components/ui/currency-text";
 import { useEffect, useRef, useState } from "react";
 import { Check, ImagePlus, LoaderCircle, Share2, Trash2, X } from "lucide-react";
 import type { JournalAdapter } from "@/lib/journal/client";
@@ -67,14 +69,14 @@ export function TradeEditor({ initial, adapter, locale, timezone, onSaved, onDel
     try{const blob=await prepareChart(file);const chart=await adapter.uploadChart(trade.id,blob);setCharts(old=>[...old,chart]);}
     catch(e){reportError(e);}finally{setBusy(false);if(fileRef.current)fileRef.current.value="";}
   };
-  const optionalPrice=(key:"entry"|"exit"|"stop"|"target"|"quantity",label:string)=><label className="j-field" key={key}><span>{label}</span><input type="number" inputMode="decimal" min="0.00000001" step="any" dir="ltr" value={trade[key]??""} onChange={e=>field(key,e.target.value===""?null:Number(e.target.value))}/></label>;
+  const optionalPrice=(key:"entry"|"exit"|"stop"|"target"|"quantity",label:string)=><label className="j-field" key={key}><span>{currencyText(label)}</span><JournalNumberInput money={key !== "quantity"} type="number" inputMode="decimal" min="0.00000001" step="any" dir="ltr" value={trade[key]??""} onChange={e=>field(key,e.target.value===""?null:Number(e.target.value))}/></label>;
   const net=trade.status==="closed" && parseMoney(gross)!==null && parseMoney(fees)!==null ? (parseMoney(gross)??0)-(parseMoney(fees)??0):null;
   return <Dialog title={trade.version?t("Trade details","تفاصيل الصفقة"):t("Add a trade","إضافة صفقة")} onClose={close}>
     <div className="j-editor-tabs" role="tablist" aria-label={t("Trade sections","أقسام الصفقة")}>
       {(["trade","notes","charts"] as const).map(key=><button key={key} role="tab" aria-selected={tab===key} className={tab===key?"active":""} onClick={()=>setTab(key)}>{key==="trade"?t("Trade","الصفقة"):key==="notes"?t("Notes & behavior","ملاحظات وسلوك"):t("Charts","الرسوم")}</button>)}
     </div>
     {trade.version>0&&<div className="j-trade-share-bar"><button type="button" className="j-btn" disabled={busy||dirty} onClick={()=>setSharing(true)}><Share2 size={16}/>{t("Share this trade","مشاركة هذه الصفقة")}</button><span>{dirty?t("Save changes before sharing.","احفظ التعديلات قبل المشاركة."):t("Private unless you choose to share.","خاصة إلا إذا اخترت مشاركتها.")}</span></div>}
-    {error && <div className="j-error" role="alert">{error}</div>}
+    {error && <div className="j-error" role="alert">{currencyText(error)}</div>}
     <form aria-busy={busy} onSubmit={e=>{e.preventDefault();void save();}}>
       <fieldset className="j-form-lock" disabled={busy}>
       <div hidden={tab!=="trade"}>
@@ -85,17 +87,17 @@ export function TradeEditor({ initial, adapter, locale, timezone, onSaved, onDel
           <label className="j-field"><span>{t("Entry time","وقت الدخول")}</span><input type="time" dir="ltr" value={trade.time} onChange={e=>field("time",e.target.value)}/></label>
           <label className="j-field"><span>{t("Status","الحالة")}</span><select value={trade.status} onChange={e=>field("status",e.target.value as "closed"|"open")}><option value="closed">{t("Closed","مغلقة")}</option><option value="open">{t("Still open","ما زالت مفتوحة")}</option></select></label>
           <label className="j-field"><span>{t("Session","الجلسة")}</span><select value={trade.session} onChange={e=>field("session",e.target.value)}><option value="">{t("Not recorded","غير مسجل")}</option>{["asia","london","new_york","other"].map(s=><option key={s} value={s}>{codeLabel(s,locale)}</option>)}</select></label>
-          <label className="j-field"><span>{t("P&L before fees · USD","النتيجة قبل الرسوم · USD")}</span><input type="text" inputMode="decimal" dir="ltr" disabled={trade.status==="open"} value={trade.status==="open"?"":gross} placeholder={t("Use − for a loss","ضع − للخسارة")} onChange={e=>{setGross(e.target.value);setDirty(true);}}/></label>
-          <label className="j-field"><span>{t("Fees · USD","الرسوم · USD")}</span><input type="text" inputMode="decimal" dir="ltr" value={fees} onChange={e=>{setFees(e.target.value);setDirty(true);}}/></label>
+          <label className="j-field"><span>{currencyText(t("P&L before fees · USD","النتيجة قبل الرسوم · USD"))}</span><JournalNumberInput type="text" inputMode="decimal" dir="ltr" disabled={trade.status==="open"} value={trade.status==="open"?"":gross} placeholder={t("Use − for a loss","ضع − للخسارة")} onChange={e=>{setGross(e.target.value);setDirty(true);}}/></label>
+          <label className="j-field"><span>{currencyText(t("Fees · USD","الرسوم · USD"))}</span><JournalNumberInput type="text" inputMode="decimal" dir="ltr" value={fees} onChange={e=>{setFees(e.target.value);setDirty(true);}}/></label>
         </div>
         <div className="j-result-strip"><span>{t("Net result","صافي النتيجة")}</span>{net!==null?<Amount cents={net} locale={locale}/>:<span>{t("Not realized","غير محقق")}</span>}</div>
         <p className="j-hint">{t("Record a closed trade on its closing session date.","سجّل الصفقة المغلقة في تاريخ جلسة إغلاقها.")} <span dir="ltr">{timezone.replaceAll("_"," ")}</span></p>
-        <details className="j-optional"><summary>{t("Setup, risk & prices","الإعداد والمخاطرة والأسعار")} <span>{t("Optional","اختياري")}</span></summary>
+        <details className="j-optional"><summary>{currencyText(t("Setup, risk & prices","الإعداد والمخاطرة والأسعار"))} <span>{t("Optional","اختياري")}</span></summary>
           <div className="j-form-grid">
             <label className="j-field"><span>{t("Setup / strategy","الإعداد / الاستراتيجية")}</span><input dir="auto" list="journal-setups" maxLength={80} value={trade.strategy} placeholder="FVG, Breaker, Liquidity sweep…" onChange={e=>field("strategy",e.target.value)}/><datalist id="journal-setups">{["FVG","Breaker block","Liquidity sweep","Order block","Silver bullet","Breakout"].map(s=><option key={s} value={s}/>)}</datalist></label>
-            <label className="j-field"><span>{t("Initial risk · USD","المخاطرة الأولية · USD")}</span><input dir="ltr" inputMode="decimal" value={risk} placeholder="100.00" onChange={e=>{setRisk(e.target.value);setDirty(true);}}/></label>
+            <label className="j-field"><span>{currencyText(t("Initial risk · USD","المخاطرة الأولية · USD"))}</span><JournalNumberInput dir="ltr" inputMode="decimal" value={risk} placeholder="100.00" onChange={e=>{setRisk(e.target.value);setDirty(true);}}/></label>
             {optionalPrice("quantity",t("Quantity","الحجم"))}{optionalPrice("entry",t("Entry price","سعر الدخول"))}{optionalPrice("exit",t("Exit price","سعر الخروج"))}{optionalPrice("stop",t("Stop loss","وقف الخسارة"))}{optionalPrice("target",t("Take profit","جني الأرباح"))}
-          </div><p className="j-hint">{t("Enter your broker’s actual result. Prices alone do not account for contract size or conversion.","أدخل النتيجة الفعلية من الوسيط؛ الأسعار وحدها لا تعكس حجم العقد أو تحويل العملة.")}</p>
+          </div><p className="j-hint">{currencyText(t("Enter your broker’s actual result. Prices alone do not account for contract size or conversion.","أدخل النتيجة الفعلية من الوسيط؛ الأسعار وحدها لا تعكس حجم العقد أو تحويل العملة."))}</p>
         </details>
       </div>
       <div hidden={tab!=="notes"}>

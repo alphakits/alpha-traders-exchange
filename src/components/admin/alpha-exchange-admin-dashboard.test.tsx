@@ -715,7 +715,7 @@ describe("AlphaExchangeAdminDashboard admin destinations", () => {
       issueReason: "Documented settlement adjustment",
       rate: 0,
       grossAmount: 0,
-      commissionAmount: 12.5,
+      commissionAmount: 1234.5,
       paymentStatus: "pending",
       dueAt: "2026-09-20T20:59:59.999Z",
       createdAt: "2026-09-12T00:00:00.000Z",
@@ -739,9 +739,13 @@ describe("AlphaExchangeAdminDashboard admin destinations", () => {
     expect(screen.getByText(/separate from Recovery Fees/i)).toBeTruthy();
 
     fireEvent.change(screen.getByLabelText("Seller"), { target: { value: seller.id } });
-    fireEvent.change(screen.getByLabelText("Commission amount (USDT)"), { target: { value: "12.50" } });
+    const amountInput = screen.getByLabelText("Commission amount (USDT)") as HTMLInputElement;
+    fireEvent.change(amountInput, { target: { value: "1000001" } });
     fireEvent.change(screen.getByLabelText("Seller-visible reason"), { target: { value: "Documented settlement adjustment" } });
     const issueButton = screen.getByRole("button", { name: "Issue Commission & Notify Seller" }) as HTMLButtonElement;
+    expect(issueButton.disabled).toBe(true);
+    fireEvent.change(amountInput, { target: { value: "1234.50" } });
+    expect(amountInput.value).toBe("1,234.50");
     expect(issueButton.disabled).toBe(false);
     fireEvent.click(issueButton);
     fireEvent.click(await screen.findByRole("button", { name: "Confirm" }));
@@ -751,7 +755,7 @@ describe("AlphaExchangeAdminDashboard admin destinations", () => {
       expect(request).toBeTruthy();
       expect(JSON.parse(String(request?.[1]?.body))).toEqual({
         sellerId: seller.id,
-        commissionAmount: 12.5,
+        commissionAmount: 1234.5,
         reason: "Documented settlement adjustment",
         clientOperationId: expect.stringMatching(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/),
       });
@@ -949,7 +953,7 @@ describe("AlphaExchangeAdminDashboard admin destinations", () => {
     render(<AlphaExchangeAdminDashboard />);
 
     expect(await screen.findByText("Marketplace Operational Guard")).toBeTruthy();
-    expect(screen.getByText("Price offer waiting for seller response")).toBeTruthy();
+    expect(screen.getByText((_, element) => element?.textContent === "Price offer waiting for seller response" && !Array.from(element.children).some(child => child.textContent === element.textContent))).toBeTruthy();
     expect(screen.getByText("Stale offers")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Open Trade" }));
 
@@ -1028,7 +1032,7 @@ describe("AlphaExchangeAdminDashboard admin destinations", () => {
     render(<AlphaExchangeAdminDashboard locale="ar" />);
 
     expect(await screen.findByText("مراقبة عمليات السوق")).toBeTruthy();
-    expect(screen.getByText("عرض سعر بانتظار رد البائع")).toBeTruthy();
+    expect(screen.getByText((_, element) => element?.textContent === "عرض سعر بانتظار رد البائع" && !Array.from(element.children).some(child => child.textContent === element.textContent))).toBeTruthy();
     expect(screen.getByText("عروض بلا رد")).toBeTruthy();
     expect(screen.getByRole("button", { name: "فتح الصفقة" })).toBeTruthy();
     expect(screen.queryByText("Marketplace Operational Guard")).toBeNull();

@@ -1,5 +1,6 @@
 "use client";
 
+import { currencyText } from "@/components/ui/currency-text";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { CalendarDays, ChevronDown, Clock3, RefreshCw } from "lucide-react";
@@ -198,7 +199,7 @@ export function NewsPage({ locale, initialFeed, initialNow, eventId }: {
     <div className="section-container py-6 sm:py-9" dir={isAr ? "rtl" : "ltr"}>
       <div className={styles.page}>
         <div className={styles.header}>
-          <h1 className={styles.heading}>{isAr ? "أخبار الدولار" : "USD news"}</h1>
+          <h1 className={styles.heading}>{currencyText(isAr ? "أخبار الدولار" : "USD news")}</h1>
           <Button variant="secondary" size="sm" className={styles.refresh} loading={refreshing} loadingLabel={isAr ? "جارٍ التحقق…" : "Checking…"} aria-label={isAr ? "تحديث الأخبار" : "Refresh news"} onClick={() => { setRefreshFeedback(null); setRefreshKey((value) => value + 1); }}><span className="inline-flex items-center gap-2"><RefreshCw className="h-4 w-4" aria-hidden="true" />{isAr ? "تحديث" : "Refresh"}</span></Button>
         </div>
         {refreshFeedback ? <p role="status" className={`mt-3 text-sm ${refreshFeedback === "failed" ? "text-amber-200" : "text-[#C7CDD6]"}`}>{refreshMessages[refreshFeedback]}</p> : null}
@@ -210,7 +211,7 @@ export function NewsPage({ locale, initialFeed, initialNow, eventId }: {
           : (isAr ? "نتائج مؤكدة من المصادر الرسمية · ليست لحظية" : "Verified official results · Not real time")}</span></p> : null}
         {stale ? <p role="status" className="mt-4 rounded-xl border border-amber-400/20 bg-amber-400/5 p-3 text-sm text-amber-200">{weekly ? (isAr ? "قد يكون التقويم الأسبوعي قديمًا. المعروض هو آخر تحديث تم التحقق منه." : "The weekly calendar may be out of date. This is the last verified snapshot.") : (isAr ? "تحديث الأخبار متأخر. الأرقام المعروضة هي آخر بيانات تم استلامها." : "News updates are delayed. The figures shown are the last received data.")}</p> : null}
         {!available ? (
-          <div role="status" className={styles.empty}><CalendarDays size={28} aria-hidden="true" /><h2 className="font-semibold text-white">{feed.status === "not_configured" ? (isAr ? "جارٍ تجهيز أخبار الدولار" : "USD news is being prepared") : (isAr ? "الأخبار غير متاحة مؤقتًا" : "News is temporarily unavailable")}</h2><p className="mx-auto mt-2 max-w-md">{feed.status === "not_configured"
+          <div role="status" className={styles.empty}><CalendarDays size={28} aria-hidden="true" /><h2 className="font-semibold text-white">{currencyText(feed.status === "not_configured" ? (isAr ? "جارٍ تجهيز أخبار الدولار" : "USD news is being prepared") : (isAr ? "الأخبار غير متاحة مؤقتًا" : "News is temporarily unavailable"))}</h2><p className="mx-auto mt-2 max-w-md">{feed.status === "not_configured"
             ? (isAr ? "ستظهر الأحداث هنا عند توفرها. نتحقق تلقائيًا من التحديثات." : "Events will appear here when available. We check for updates automatically.")
             : (isAr ? "حاول التحديث بعد قليل." : "Try refreshing again shortly.")}</p></div>
         ) : (

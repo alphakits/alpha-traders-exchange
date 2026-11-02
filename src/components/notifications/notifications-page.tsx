@@ -1,4 +1,5 @@
 "use client";
+import { formatMoneyNumber } from "@/lib/accent-text";
 import { navigateToPageSection } from "@/lib/page-section-navigation";
 import { HelpDetails } from "@/components/ui/help-details";
 
@@ -671,7 +672,7 @@ function NotificationsPageSession({ locale, userId }: NotificationsPageProps) {
               <span>{isAr ? "مركز الإشعارات" : "Notification center"}</span>
               {unreadCount > 0 ? (
                 <span className="rounded-full border border-[#C9A227]/35 bg-[#C9A227]/10 px-2.5 py-1 text-xs font-semibold text-[#F3CF58]">
-                  {unreadCount} {isAr ? "غير مقروء" : "unread"}
+                  {formatMoneyNumber(unreadCount)} {isAr ? "غير مقروء" : "unread"}
                 </span>
               ) : null}
             </h1>
@@ -709,7 +710,7 @@ function NotificationsPageSession({ locale, userId }: NotificationsPageProps) {
               }`}
             >
               <span className="block text-sm font-medium leading-5 text-[#D7DBE2]">{isAr ? "غير مقروء" : "Unread"}</span>
-              <span className="mt-1 block text-2xl font-semibold leading-none text-white">{unreadCount}</span>
+              <span className="mt-1 block text-2xl font-semibold leading-none text-white">{formatMoneyNumber(unreadCount)}</span>
             </button>
           </div>
         </CardHeader>
@@ -759,7 +760,7 @@ function NotificationsPageSession({ locale, userId }: NotificationsPageProps) {
                   >
                     <span>{notificationFilterLabel(item, locale)}</span>
                     {count !== null && count > 0 ? (
-                      <span className="inline-flex min-w-5 items-center justify-center rounded-full bg-white/10 px-1.5 text-xs leading-5 text-white">{count}</span>
+                      <span className="inline-flex min-w-5 items-center justify-center rounded-full bg-white/10 px-1.5 text-xs leading-5 text-white">{formatMoneyNumber(count)}</span>
                     ) : null}
                   </button>
                 );
@@ -798,7 +799,7 @@ function NotificationsPageSession({ locale, userId }: NotificationsPageProps) {
                     </h2>
                     {group.description ? <p className="mt-0.5 text-sm leading-5 text-[#AEB4BE]">{currencyText(group.description)}</p> : null}
                   </div>
-                  <span className="shrink-0 text-xs text-[#8F96A1]">{group.items.length}</span>
+                  <span className="shrink-0 text-xs text-[#8F96A1]">{formatMoneyNumber(group.items.length)}</span>
                 </div>
                 {group.items.map((notification) => {
                   const Icon = notificationIcon(notification);
@@ -915,7 +916,7 @@ function NotificationsPageSession({ locale, userId }: NotificationsPageProps) {
 
           <div className="flex flex-col gap-3 border-t border-white/10 pt-4 sm:flex-row sm:items-center sm:justify-between">
             <p className="text-sm leading-5 text-[#9CA3AF]">
-              {isAr ? "عرض" : "Showing"} {pageItems.length ? pageStart + 1 : 0}-{Math.min(pageStart + PAGE_SIZE, filteredNotifications.length)} {isAr ? "من" : "of"} {filteredNotifications.length}
+              {isAr ? "عرض" : "Showing"} {pageItems.length ? pageStart + 1 : 0}-{Math.min(pageStart + PAGE_SIZE, filteredNotifications.length)} {isAr ? "من" : "of"} {formatMoneyNumber(filteredNotifications.length)}
               {currencyText(totalCount > notifications.length ? (isAr ? ` (تم تحميل ${notifications.length} من ${totalCount})` : ` loaded (${notifications.length}/${totalCount} total)`) : "")}
             </p>
             <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 sm:flex">

@@ -1,10 +1,11 @@
 "use client";
 /* eslint-disable @next/next/no-img-element -- Local, user-approved share images and authenticated journal charts. */
+import { currencyText } from "@/components/ui/currency-text";
 import { useEffect, useMemo, useState } from "react";
 import { Copy, Download, LoaderCircle, LockKeyhole, Share2 } from "lucide-react";
 import type { JournalAdapter } from "@/lib/journal/client";
 import type { JournalAttachment, JournalLocale } from "@/lib/journal/model";
-import { selectedShare, shareText, type JournalShare } from "@/lib/journal/sharing";
+import { isShareMoney, selectedShare, shareText, type JournalShare } from "@/lib/journal/sharing";
 import { makeShareImage } from "@/lib/journal/share-image";
 import { Dialog, phrase } from "./journal-ui";
 
@@ -74,7 +75,7 @@ export function JournalShareDialog({ doc, locale, onClose, adapter, tradeId }: {
     <div className="j-share-intro"><LockKeyhole size={18}/><p>{t("Share a copy of selected content. This does not give anyone access to your journal. Recipients can keep or forward the copy.", "شارك نسخة من المحتوى المختار فقط، دون منح أي شخص وصولاً إلى جورنالك. يستطيع المستلم الاحتفاظ بالنسخة أو إعادة إرسالها.")}</p></div>
     <div className="j-share-layout">
       <fieldset className="j-share-options" disabled={busy}><legend>{t("Include in this share", "تضمين في هذه المشاركة")}</legend>
-        {doc.fields.map(field => <label key={field.key}><input type="checkbox" checked={keys.has(field.key)} onChange={() => toggle(field.key)}/><span>{field.label}</span></label>)}
+        {doc.fields.map(field => <label key={field.key}><input type="checkbox" checked={keys.has(field.key)} onChange={() => toggle(field.key)}/><span>{currencyText(field.label)}</span></label>)}
         {chartLoading && <p className="j-hint" role="status">{t("Loading optional charts…", "تحميل صور الشارت الاختيارية…")}</p>}
         {chartError && <p className="j-hint" role="alert">{t("Charts could not load. Close and reopen sharing to retry.", "تعذّر تحميل الشارت. أغلق المشاركة وافتحها مجدداً للمحاولة.")}</p>}
         {charts.map((chart, index) => <label key={chart.id}><input type="checkbox" checked={chartKeys.has(chart.id)} onChange={() => toggle(chart.id, true)}/><span>{t("Chart", "الشارت")} {index + 1}</span></label>)}
@@ -82,8 +83,8 @@ export function JournalShareDialog({ doc, locale, onClose, adapter, tradeId }: {
       </fieldset>
       <section className="j-share-preview" aria-label={t("Share preview", "معاينة المشاركة")}>
         <span className="j-kicker">{t("ONLY THIS WILL BE SHARED", "هذا فقط ما ستتم مشاركته")}</span>
-        <div className="j-share-card"><strong className="j-share-brand">Alpha Traders</strong><span>TRADING JOURNAL</span><h3>{projection.title}</h3>{projection.context && <p>{projection.context}</p>}
-          {projection.fields.map(field => <div className="j-share-value" key={field.key}><span>{field.label}</span><strong className={field.tone ?? ""} dir="auto">{field.value}</strong></div>)}
+        <div className="j-share-card"><strong className="j-share-brand">Alpha Traders</strong><span>TRADING JOURNAL</span><h3>{currencyText(projection.title)}</h3>{projection.context && <p>{projection.context}</p>}
+          {projection.fields.map(field => <div className="j-share-value" key={field.key}><span>{currencyText(field.label)}</span><strong className={isShareMoney(field.key) ? "currency-money" : field.tone} dir="auto">{currencyText(field.value)}</strong></div>)}
           {charts.filter(chart => chartKeys.has(chart.id)).map((chart, index) => <img key={chart.id} src={chart.url} alt={`${t("Selected chart", "الشارت المختار")} ${index + 1}`}/>)}
           {!hasSelection && <p>{t("Select at least one item.", "اختر عنصراً واحداً على الأقل.")}</p>}
         </div>

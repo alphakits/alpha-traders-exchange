@@ -501,14 +501,14 @@ export function AccountProfilePanel() {
           <View accessibilityRole="progressbar" accessibilityValue={{ min: 0, max: 100, now: Math.round(progress) }} style={styles.progressTrack}>
             <View style={[styles.progressFill, { backgroundColor: theme.accent, width: `${Math.max(3, progress)}%` }]} />
           </View>
-          <Text style={[styles.progressLabel, isRTL && styles.rtlText]}>{stats.nextLevel ? `${localizedNumber(stats.amountToNextLevelUsdt, 2)} USDT ${copy("to unlock the next level", "للوصول للمستوى التالي")}` : copy("Highest level unlocked", "تم فتح أعلى مستوى")}</Text>
+          <Text style={[styles.progressLabel, isRTL && styles.rtlText]}>{stats.nextLevel ? `${localizedNumber(stats.amountToNextLevelUsdt, 6)} USDT ${copy("to unlock the next level", "للوصول للمستوى التالي")}` : copy("Highest level unlocked", "تم فتح أعلى مستوى")}</Text>
         </View> : null}
 
         <View style={[styles.metricsGrid, isRTL && styles.rowReverse]}>
           {stats.kind === "seller" ? (
             <>
               <MetricCard isRTL={isRTL} label={sellerScoreDisplay(stats, isAr).label} value={sellerScoreDisplay(stats, isAr).value} />
-              <MetricCard isRTL={isRTL} label={t("lifetimeVolume")} value={`${localizedNumber(stats.lifetimeCompletedVolumeUsdt, 2)} USDT`} />
+              <MetricCard isRTL={isRTL} label={t("lifetimeVolume")} value={`${localizedNumber(stats.lifetimeCompletedVolumeUsdt, 6)} USDT`} />
               <MetricCard isRTL={isRTL} label={t("completedTrades")} value={localizedNumber(stats.completedTrades)} />
               <MetricCard isRTL={isRTL} label={t("rating")} value={sellerRatingDisplay(stats, isAr).text} />
               <MetricCard isRTL={isRTL} label={t("responseTime")} value={formatMeasuredResponseTime(stats.responseTimeMinutes, isAr, stats.responseSampleCount)} />
@@ -517,7 +517,7 @@ export function AccountProfilePanel() {
             </>
           ) : (
             <>
-              <MetricCard isRTL={isRTL} label={t("lifetimeVolume")} value={`${localizedNumber(stats.lifetimeCompletedVolumeUsdt, 2)} USDT`} />
+              <MetricCard isRTL={isRTL} label={t("lifetimeVolume")} value={`${localizedNumber(stats.lifetimeCompletedVolumeUsdt, 6)} USDT`} />
               <MetricCard isRTL={isRTL} label={t("activeTrades")} value={localizedNumber(stats.activeTrades)} />
               <MetricCard isRTL={isRTL} label={t("completedTrades")} value={localizedNumber(stats.completedTrades)} />
               <MetricCard isRTL={isRTL} label={t("reviewsGiven")} value={localizedNumber(stats.reviewsGiven)} />
@@ -544,12 +544,12 @@ export function AccountProfilePanel() {
           </View>
           {stats.kind === "seller" ? <Text style={[styles.body, isRTL && styles.rtlText]}>{copy("Your seller level and buyer rank are tracked independently.", "مستوى البائع ورتبة المشتري يُحسبان بشكل مستقل.")}</Text> : null}
           <View style={[styles.detailGrid, isRTL && styles.rowReverse]}>
-            <MetricCard isRTL={isRTL} label={copy("Purchased", "إجمالي المشتريات")} value={`${localizedNumber(buyerActivity.lifetimeCompletedVolumeUsdt, 2)} USDT`} />
+            <MetricCard isRTL={isRTL} label={copy("Purchased", "إجمالي المشتريات")} value={`${localizedNumber(buyerActivity.lifetimeCompletedVolumeUsdt, 6)} USDT`} />
             <MetricCard isRTL={isRTL} label={copy("Completed purchases", "المشتريات المكتملة")} value={localizedNumber(buyerActivity.completedTrades)} />
             <MetricCard isRTL={isRTL} label={t("reviewsGiven")} value={localizedNumber(buyerActivity.reviewsGiven)} />
           </View>
           <View style={styles.progressTrack}><View style={[styles.progressFill, { backgroundColor: LEVEL_COLORS[buyerActivity.level].accent, width: `${Math.max(3, Math.min(100, buyerActivity.progressToNextLevelPercent))}%` }]} /></View>
-          <Text style={[styles.progressLabel, isRTL && styles.rtlText]}>{buyerActivity.nextLevel ? `${localizedNumber(buyerActivity.amountToNextLevelUsdt, 2)} USDT ${copy("remaining to reach", "متبقية للوصول إلى")} ${t(levelKey(buyerActivity.nextLevel))}` : copy("You reached the highest buyer rank.", "وصلت إلى أعلى رتبة للمشترين.")}</Text>
+          <Text style={[styles.progressLabel, isRTL && styles.rtlText]}>{buyerActivity.nextLevel ? `${localizedNumber(buyerActivity.amountToNextLevelUsdt, 6)} USDT ${copy("remaining to reach", "متبقية للوصول إلى")} ${t(levelKey(buyerActivity.nextLevel))}` : copy("You reached the highest buyer rank.", "وصلت إلى أعلى رتبة للمشترين.")}</Text>
         </View>
 
         <View style={styles.achievementCard}>

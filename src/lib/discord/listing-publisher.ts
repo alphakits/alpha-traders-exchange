@@ -1,5 +1,5 @@
 import "server-only";
-import { formatMeasuredResponseTime, sellerRatingDisplay, sellerScoreDisplay, type SellerMetricEvidence } from "@alpha-traders/contracts";
+import { formatMeasuredResponseTime, formatMoneyNumber, sellerRatingDisplay, sellerScoreDisplay, type SellerMetricEvidence } from "@alpha-traders/contracts";
 
 import { createHash } from "node:crypto";
 import { isIP } from "node:net";
@@ -58,10 +58,10 @@ export interface DiscordListingPublisher {
 }
 
 function normalizeDecimal(value: string, minimumFractionDigits = 0): string {
-  const parsed = Number(String(value).replace(/[^\d.]/g, ""));
-  return Number.isFinite(parsed)
-    ? parsed.toLocaleString("en-IL", { minimumFractionDigits, maximumFractionDigits: 2 })
-    : minimumFractionDigits > 0 ? "0.00" : "0";
+  const raw = String(value).replace(/[^\d.]/g, "");
+  const [integer = "0", fraction = ""] = /^\d+(?:\.\d+)?$/.test(raw) ? raw.split(".") : ["0"];
+  const decimal = fraction.padEnd(minimumFractionDigits, "0");
+  return formatMoneyNumber(decimal ? `${integer}.${decimal}` : integer);
 }
 
 function levelLabel(level: string | null): string | null {
@@ -165,6 +165,10 @@ export function buildDiscordListingMessage(
       : null,
     snapshot.approvedSeller ? "✅ Approved Seller" : null,
   ].filter(Boolean).join(" • ");
+  const price = normalizeDecimal(snapshot.price, 2);
+  const currency = snapshot.currency.trim().toUpperCase();
+  const quotedPrice = currency === "USD" ? `$${price}` : currency === "ILS" || currency === "NIS" ? `₪${price}`
+    : /^[A-Z]{3}$/.test(currency) ? `${price} ${currency}` : price;
   const fields = [
     {
       name: sold ? "Last available amount" : "Available USDT",
@@ -175,7 +179,7 @@ export function buildDiscordListingMessage(
     },
     {
       name: "Price per USDT",
-      value: `**₪${normalizeDecimal(snapshot.price, 2)}**`,
+      value: `**${quotedPrice}**`,
       inline: true,
     },
     {

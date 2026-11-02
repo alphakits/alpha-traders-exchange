@@ -1,4 +1,5 @@
 import "server-only";
+import { formatMoneyNumber, splitAccentText } from "@alpha-traders/contracts";
 
 import { createHmac, timingSafeEqual } from "node:crypto";
 
@@ -84,10 +85,11 @@ export async function sendMarketplaceEventToDiscord(event: DiscordMarketplaceEve
   }
 
   const occurredAt = event.occurredAt ?? new Date().toISOString();
+  const displayText = (value: string) => splitAccentText(value, { groupQuantities: true })?.map(part => part.text).join("") ?? value;
   const fields = [
     event.listingId ? { name: "Listing", value: event.listingId, inline: true } : null,
     event.tradeId ? { name: "Trade", value: event.tradeId, inline: true } : null,
-    event.amountUsdt ? { name: "Amount", value: `${event.amountUsdt.toLocaleString("en-IL")} USDT`, inline: true } : null,
+    event.amountUsdt ? { name: "Amount", value: `${formatMoneyNumber(event.amountUsdt)} USDT`, inline: true } : null,
     event.currency ? { name: "Currency", value: event.currency, inline: true } : null,
     event.actorDisplay ? { name: "Actor", value: event.actorDisplay, inline: true } : null,
   ].filter(Boolean);
@@ -97,8 +99,8 @@ export async function sendMarketplaceEventToDiscord(event: DiscordMarketplaceEve
     avatar_url: process.env.DISCORD_MARKETPLACE_AVATAR_URL || undefined,
     embeds: [
       {
-        title: event.title,
-        description: event.message,
+        title: displayText(event.title),
+        description: displayText(event.message),
         color: eventColor(event),
         timestamp: occurredAt,
         url: event.href,

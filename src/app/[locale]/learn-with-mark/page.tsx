@@ -1,3 +1,4 @@
+import { currencyText } from "@/components/ui/currency-text";
 import { Link } from "@/i18n/navigation";
 import { buttonVariants } from "@/components/ui/button";
 import { ContactForm } from "@/components/sections/contact/contact-form";
@@ -114,12 +115,12 @@ export default async function LearnWithMarkPage({ params, searchParams }: {
       </section>
       <section id="curriculum" aria-labelledby="curriculum-title" className="scroll-mt-24">
         <h2 id="curriculum-title" className="text-2xl font-semibold">{t("What you will study", "ما الذي ستدرسه؟")}</h2>
-        <div className="mt-5 grid gap-4 sm:grid-cols-2">{curriculum.map(item => <div key={item.title} className="rounded-2xl border border-white/10 bg-[#0B0B0B]/90 p-5"><h3 className="font-semibold">{item.title}</h3><p className="mt-3 text-sm leading-7 text-[#D1D5DB]">{item.text}</p></div>)}</div>
+        <div className="mt-5 grid gap-4 sm:grid-cols-2">{curriculum.map(item => <div key={item.title} className="rounded-2xl border border-white/10 bg-[#0B0B0B]/90 p-5"><h3 className="font-semibold">{currencyText(item.title)}</h3><p className="mt-3 text-sm leading-7 text-[#D1D5DB]">{currencyText(item.text)}</p></div>)}</div>
       </section>
       <section id="how-you-learn" aria-labelledby="approach-title" className="scroll-mt-24">
         <h2 id="approach-title" className="text-2xl font-semibold">{t("How you learn — and get help", "كيف بتتعلّم، وإذا احتجت مساعدة؟")}</h2>
         <p className="mt-3 text-sm leading-7 text-[#D1D5DB]">{t("Follow the recorded course at your own pace, practise each concept and use the live sessions and follow-up to resolve questions. The aim is to understand the market and your own decisions, step by step.", "بتتابع الكورس المسجّل على راحتك، بتطبّق كل فكرة، وبتستفيد من اللايف والمرافقة لتوضيح أسئلتك. الهدف تفهم السوق وقراراتك خطوة خطوة.")}</p>
-        <div className="mt-5 grid gap-4 sm:grid-cols-2">{approach.map((item, index) => <div key={item.title} className="rounded-2xl border border-white/10 bg-[#0B0B0B]/90 p-5"><p className="text-xs text-[#C9A227]">0{index + 1}</p><h3 className="mt-2 font-semibold">{item.title}</h3><p className="mt-3 text-sm leading-7 text-[#D1D5DB]">{item.text}</p></div>)}</div>
+        <div className="mt-5 grid gap-4 sm:grid-cols-2">{approach.map((item, index) => <div key={item.title} className="rounded-2xl border border-white/10 bg-[#0B0B0B]/90 p-5"><p className="text-xs text-[#C9A227]">0{index + 1}</p><h3 className="mt-2 font-semibold">{currencyText(item.title)}</h3><p className="mt-3 text-sm leading-7 text-[#D1D5DB]">{currencyText(item.text)}</p></div>)}</div>
         <div className="mt-4 rounded-2xl border border-[#C9A227]/25 bg-[#C9A227]/5 p-5">
           <h3 className="font-semibold text-[#E5CA77]">{t("Stuck on something? Bring the example.", "وقفت معك شغلة؟ ارجع بمثالك واسأل.")}</h3>
           <p className="mt-3 text-sm leading-7 text-[#D1D5DB]">{t("Show the chart and explain what you saw: why you entered, where you put the stop and what happened. Mark helps you review the reasoning and mistakes. The question channel, access period and group or individual follow-up are agreed before joining.", "ورجّي الشارت واشرح شو شفت: ليش دخلت، وين حطّيت الستوب، وشو صار. مارك بيساعدك تراجع الفكرة وتفهم الخطأ. طريقة إرسال الأسئلة، مدة الوصول وصيغة المرافقة الشخصية أو الجماعية بتتوضح قبل الانضمام.")}</p>
@@ -142,17 +143,17 @@ export default async function LearnWithMarkPage({ params, searchParams }: {
         <a href="/audio/mark-ict-mentorship-original.m4a" className="mt-3 inline-block text-sm text-[#E5CA77] underline underline-offset-4">{t("Open recording in your player", "افتح التسجيل في المشغّل")}</a>
         <details className="mt-5 rounded-xl border border-white/10 p-4">
           <summary className="cursor-pointer font-medium">{t("Key points from the recording", "خلاصة الشرح")}</summary>
-          <ul className="mt-3 list-disc space-y-2 ps-5 text-sm leading-7 text-[#D1D5DB]">{summary.map(point => <li key={point}>{point}</li>)}</ul>
+          <ul className="mt-3 list-disc space-y-2 ps-5 text-sm leading-7 text-[#D1D5DB]">{summary.map(point => <li key={point}>{currencyText(point)}</li>)}</ul>
           <p className="mt-3 text-xs leading-6 text-white/50">{t("This is a summary of the clear points, not a verbatim transcript.", "هذه خلاصة للمعاني الواضحة، وليست تفريغًا حرفيًا للتسجيل.")}</p>
         </details>
-        <p id="recording-context" className="mt-4 text-xs leading-6 text-white/60">{t("Recorded 7 September 2026. Prices, counts and investing stories are historical, not current enrolment terms or promised results. The current tuition is listed in the programme section below; the remaining details are clarified before joining.", "مسجّل في 7 سبتمبر 2026. الأسعار والأعداد والقصص الاستثمارية فيه تاريخية؛ ليست شروط التسجيل الحالية ولا وعدًا بنتائج. الرسوم الحالية مذكورة بقسم البرنامج أدناه، وبقية التفاصيل تُوضح قبل الانضمام.")}</p>
-        <p className="mt-4 text-sm leading-7 text-[#E5CA77]">{t("Finish the explanation and review the key points. When you understand the course and support, open the next step below to see tuition and enquire.", "اسمع الشرح وراجع خلاصته. لما تكون فاهم الكورس والمرافقة، افتح الخطوة التالية لتشوف السعر وتستفسر عن الانضمام.")}</p>
+        <p id="recording-context" className="mt-4 text-xs leading-6 text-white/60">{currencyText(t("Recorded 7 September 2026. Prices, counts and investing stories are historical, not current enrolment terms or promised results. The current tuition is listed in the programme section below; the remaining details are clarified before joining.", "مسجّل في 7 سبتمبر 2026. الأسعار والأعداد والقصص الاستثمارية فيه تاريخية؛ ليست شروط التسجيل الحالية ولا وعدًا بنتائج. الرسوم الحالية مذكورة بقسم البرنامج أدناه، وبقية التفاصيل تُوضح قبل الانضمام."))}</p>
+        <p className="mt-4 text-sm leading-7 text-[#E5CA77]">{currencyText(t("Finish the explanation and review the key points. When you understand the course and support, open the next step below to see tuition and enquire.", "اسمع الشرح وراجع خلاصته. لما تكون فاهم الكورس والمرافقة، افتح الخطوة التالية لتشوف السعر وتستفسر عن الانضمام."))}</p>
       </section>
       <details id="tuition" className="group scroll-mt-24 rounded-3xl border border-[#C9A227]/40 bg-[#C9A227]/5">
         <summary className="cursor-pointer rounded-3xl p-5 text-start focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#C9A227] sm:p-7">
-          <span className="text-xs font-semibold text-[#E5CA77]">{t("03 · Tuition and your next step", "03 · السعر وخطوتك التالية")}</span>
-          <span className="mt-2 block text-xl font-semibold sm:text-2xl">{t("Finished the explanation? See tuition and how to join", "سمعت الشرح وفهمت البرنامج؟ شوف السعر وخطوة الانضمام")}</span>
-          <span className="mt-3 block text-sm leading-7 text-[#D1D5DB] group-open:hidden">{t("Open the details when you’re ready. Reviewing the fee does not commit you to joining or paying.", "افتح التفاصيل لما تكون جاهز. الاطّلاع على السعر ما بيلزمك بالتسجيل أو الدفع.")}</span>
+          <span className="text-xs font-semibold text-[#E5CA77]">{currencyText(t("03 · Tuition and your next step", "03 · السعر وخطوتك التالية"))}</span>
+          <span className="mt-2 block text-xl font-semibold sm:text-2xl">{currencyText(t("Finished the explanation? See tuition and how to join", "سمعت الشرح وفهمت البرنامج؟ شوف السعر وخطوة الانضمام"))}</span>
+          <span className="mt-3 block text-sm leading-7 text-[#D1D5DB] group-open:hidden">{currencyText(t("Open the details when you’re ready. Reviewing the fee does not commit you to joining or paying.", "افتح التفاصيل لما تكون جاهز. الاطّلاع على السعر ما بيلزمك بالتسجيل أو الدفع."))}</span>
         </summary>
         <div className="space-y-8 border-t border-[#C9A227]/20 p-5 sm:p-7">
           <section aria-labelledby="tuition-title">
@@ -160,12 +161,12 @@ export default async function LearnWithMarkPage({ params, searchParams }: {
             <h2 id="tuition-title" className="mt-3 text-2xl font-semibold">{t("Your starting point. A clear fee.", "بدايتك واضحة. والرسوم واضحة.")}</h2>
             <p className="mt-3 text-sm leading-7 text-[#D1D5DB]">{t("The main focus is people with around one to two years in the markets who still struggle with applying their learning and making progress. Someone ready to start from zero can also enquire.", "التركيز الأساسي على اللي إله تقريبًا سنة أو سنتين بالمجال ولسه بيواجه صعوبة بالتطبيق والتقدّم. واللي جاهز يبدأ من الصفر بيقدر يستفسر كمان.")}</p>
             <dl className="mt-5 divide-y divide-white/10 rounded-2xl border border-white/10 bg-black/20 px-4">
-              <div className="py-4"><dt className="font-semibold">{t("With prior market experience", "للي عنده خبرة سابقة بالمجال")}</dt><dd className="mt-2 text-2xl font-semibold text-[#E5CA77]"><span dir="ltr">{ICT_MENTORSHIP_OFFER.experiencedFee}</span></dd></div>
-              <div className="py-4"><dt className="font-semibold">{t("Starting from zero", "للي بيبدأ من الصفر")}</dt><dd className="mt-2 text-2xl font-semibold text-[#E5CA77]"><span dir="ltr">{ICT_MENTORSHIP_OFFER.beginnerFee}</span></dd></div>
+              <div className="py-4"><dt className="font-semibold">{t("With prior market experience", "للي عنده خبرة سابقة بالمجال")}</dt><dd className="mt-2 text-2xl font-semibold">{currencyText(ICT_MENTORSHIP_OFFER.experiencedFee)}</dd></div>
+              <div className="py-4"><dt className="font-semibold">{t("Starting from zero", "للي بيبدأ من الصفر")}</dt><dd className="mt-2 text-2xl font-semibold">{currencyText(ICT_MENTORSHIP_OFFER.beginnerFee)}</dd></div>
             </dl>
             <p className="mt-4 text-sm leading-7 text-[#D1D5DB]">{intakeOpen ? <>{t("Final enquiry window: through ", "نافذة الاستفسارات الأخيرة حتى ")}<bdi dir="ltr">{deadline}</bdi>{t(", Israel time. Share your experience so your starting point and fee can be confirmed before joining.", " بتوقيت إسرائيل. احكِ عن خبرتك لتوضيح نقطة بدايتك والرسوم قبل الانضمام.")}</> : t("The 2026 enquiry window is closed. These were the fees for that intake. The free Academy remains available.", "انتهت نافذة الاستفسارات لعام 2026. هذه كانت رسوم تلك الدفعة. الأكاديمية المجانية ما زالت متاحة.")}</p>
             {intakeOpen ? <a href="#interest" className={buttonVariants({ className: "mt-4 w-full sm:w-auto whitespace-normal text-center" })}>{t("Ask About ICT Mentorship", "استفسر عن ICT Mentorship")}</a> : null}
-            <p className="mt-3 text-sm leading-7 text-[#D1D5DB]">{t("The free Academy stays free. ICT Mentorship with Mark is a separate programme with a fee. Before joining, review the content, duration, session format, schedule, price, follow-up scope and cancellation terms. An enquiry does not reserve a place or create a payment commitment.", "الأكاديمية المجانية بتضل مجانية. المنتورشيب مع مارك برنامج منفصل برسوم. قبل الانضمام، تعرف على المحتوى والمدة وصيغة اللقاءات والمواعيد والسعر ونطاق المتابعة وشروط الإلغاء. الاستفسار لا يحجز مقعدًا ولا ينشئ التزامًا بالدفع.")}</p>
+            <p className="mt-3 text-sm leading-7 text-[#D1D5DB]">{currencyText(t("The free Academy stays free. ICT Mentorship with Mark is a separate programme with a fee. Before joining, review the content, duration, session format, schedule, price, follow-up scope and cancellation terms. An enquiry does not reserve a place or create a payment commitment.", "الأكاديمية المجانية بتضل مجانية. المنتورشيب مع مارك برنامج منفصل برسوم. قبل الانضمام، تعرف على المحتوى والمدة وصيغة اللقاءات والمواعيد والسعر ونطاق المتابعة وشروط الإلغاء. الاستفسار لا يحجز مقعدًا ولا ينشئ التزامًا بالدفع."))}</p>
             <div className="mt-4 flex flex-wrap gap-4"><Link href="/learn-trading-free" className="text-sm text-[#E5CA77] underline underline-offset-4">{t("Start with the Free Academy", "ابدأ بالأكاديمية المجانية")}</Link><Link href="/about-founder" className="text-sm text-[#E5CA77] underline underline-offset-4">{t("Meet Mark and Explore the Method", "تعرّف على مارك والمنهج")}</Link></div>
           </section>
           <section id="next-steps" aria-labelledby="next-steps-title" className="scroll-mt-24 rounded-3xl border border-white/10 p-5 sm:p-7">
@@ -183,12 +184,12 @@ export default async function LearnWithMarkPage({ params, searchParams }: {
           </div>
           <section id="faq" aria-labelledby="faq-title" className="rounded-3xl border border-white/10 bg-[#0B0B0B]/90 p-5 sm:p-7">
             <h2 id="faq-title" className="text-2xl font-semibold">{t("ICT Mentorship questions", "أسئلة عن ICT Mentorship")}</h2>
-            <div className="mt-4 space-y-3">{faqs.map(faq => <details key={faq.question} className="rounded-xl border border-white/10 p-4"><summary className="cursor-pointer font-semibold">{faq.question}</summary><p className="mt-3 text-sm leading-7 text-[#D1D5DB]">{faq.answer}</p></details>)}</div>
+            <div className="mt-4 space-y-3">{faqs.map(faq => <details key={faq.question} className="rounded-xl border border-white/10 p-4"><summary className="cursor-pointer font-semibold">{currencyText(faq.question)}</summary><p className="mt-3 text-sm leading-7 text-[#D1D5DB]">{currencyText(faq.answer)}</p></details>)}</div>
           </section>
         </div>
       </details>
       <LearningShareActions locale={language} referralReward={intakeOpen} />
-      <p className="text-sm leading-7 text-[#D1D5DB]">{t("Also interested in buying or selling USDT for Israeli shekels?", "مهتم أيضًا بشراء أو بيع USDT مقابل الشيكل؟")} <Link href="/usdt-exchange" className="text-[#E5CA77] underline underline-offset-4">{t("Explore Alpha Exchange", "تعرّف على Alpha Exchange")}</Link></p>
+      <p className="text-sm leading-7 text-[#D1D5DB]">{currencyText(t("Also interested in buying or selling USDT for Israeli shekels?", "مهتم أيضًا بشراء أو بيع USDT مقابل الشيكل؟"))} <Link href="/usdt-exchange" className="text-[#E5CA77] underline underline-offset-4">{t("Explore Alpha Exchange", "تعرّف على Alpha Exchange")}</Link></p>
     </div>
   </section>;
 }

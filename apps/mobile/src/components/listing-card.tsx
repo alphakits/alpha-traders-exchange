@@ -13,7 +13,7 @@ import {
   formatCount,
   formatCurrencyAmountAsUsd,
   formatUsd,
-  formatWholeUsdtNumber,
+  formatUsdtNumber,
 } from "../finance/financial-display";
 
 type ListingCardProps = {
@@ -164,11 +164,11 @@ export const ListingCard = memo(function ListingCard({ listing, onBuy, onOffer, 
 
         <View style={[styles.keyMetricsShell, { borderColor: tone.border, backgroundColor: tone.accentSoft }]}>
           <View style={styles.usdtCard}>
-            <Text style={[styles.metricEyebrow, isRTL && styles.rtlText]}>{copy("AVAILABLE USDT", "USDT المتاح")}</Text>
+            <Text monetary style={[styles.metricEyebrow, isRTL && styles.rtlText]}>{copy("AVAILABLE USDT", "USDT المتاح")}</Text>
             <View style={[styles.usdtAmountRow, isRTL && styles.rowReverse]}>
-              <View style={styles.usdtIcon}><Text style={styles.usdtIconText}>₮</Text></View>
-              <Text adjustsFontSizeToFit numberOfLines={1} style={[styles.usdtAmount, isRTL && styles.rtlText]}>
-                {formatWholeUsdtNumber(listing.availableAmount)}
+              <View style={styles.usdtIcon}><Text monetary style={styles.usdtIconText}>₮</Text></View>
+              <Text monetary adjustsFontSizeToFit numberOfLines={1} style={[styles.usdtAmount, isRTL && styles.rtlText]}>
+                {formatUsdtNumber(listing.availableAmount)}
               </Text>
             </View>
             <Text style={[styles.usdtUnit, isRTL && styles.rtlText]}>USDT</Text>
@@ -181,8 +181,8 @@ export const ListingCard = memo(function ListingCard({ listing, onBuy, onOffer, 
           <View style={[styles.rankSeparator, { backgroundColor: tone.border }]} />
 
           <View style={[styles.priceCard, { borderColor: tone.border }]}>
-            <Text style={[styles.priceEyebrow, isRTL && styles.rtlText]}>{copy("LISTING PRICE", "سعر العرض")}</Text>
-            <Text adjustsFontSizeToFit numberOfLines={1} style={[styles.priceValue, isRTL && styles.rtlText]}>
+            <Text monetary style={[styles.priceEyebrow, isRTL && styles.rtlText]}>{copy("LISTING PRICE", "سعر العرض")}</Text>
+            <Text monetary adjustsFontSizeToFit numberOfLines={1} style={[styles.priceValue, isRTL && styles.rtlText]}>
               {formatCurrencyAmountAsUsd(listing.price, listing.currency, usdIlsRate, 4)}
             </Text>
             <Text style={[styles.priceUnit, isRTL && styles.rtlText]}>USD / USDT</Text>
@@ -216,7 +216,7 @@ export const ListingCard = memo(function ListingCard({ listing, onBuy, onOffer, 
             </View>
           </View>
           <View style={styles.infoPanel}>
-            <Text style={[styles.infoLine, isRTL && styles.rtlText]}>{listing.paymentMethods.includes("Cardless ATM Withdrawal") ? copy("Maximum; ATM quantity follows the code", "الحد الأقصى؛ كمية ATM تُحسب من الرمز") : copy("Trade limits", "حدود الصفقة")}: <Text style={styles.infoValue}>{listing.paymentMethods.includes("Cardless ATM Withdrawal") ? "" : `${formatWholeUsdtNumber(listing.minimumTrade)} – `}{formatWholeUsdtNumber(listing.maximumTrade)} USDT</Text></Text>
+            <Text style={[styles.infoLine, isRTL && styles.rtlText]}>{listing.paymentMethods.includes("Cardless ATM Withdrawal") ? copy("Maximum; ATM quantity follows the code", "الحد الأقصى؛ كمية ATM تُحسب من الرمز") : copy("Trade limits", "حدود الصفقة")}: <Text style={styles.infoValue}>{listing.paymentMethods.includes("Cardless ATM Withdrawal") ? "" : `${formatUsdtNumber(listing.minimumTrade)} – `}{formatUsdtNumber(listing.maximumTrade)} USDT</Text></Text>
             <Text style={[styles.infoLine, isRTL && styles.rtlText]}>{copy("Trade flow", "مسار الصفقة")}: <Text style={styles.escrowValue}>{copy("Structured and recorded by Alpha Traders", "منظّم ومسجّل عبر Alpha Traders")}</Text></Text>
             <Text style={[styles.infoLine, isRTL && styles.rtlText]}>{copy("Region", "المنطقة")}: <Text style={styles.infoValue}>{listing.seller.country || copy("Israel", "إسرائيل")}</Text></Text>
           </View>

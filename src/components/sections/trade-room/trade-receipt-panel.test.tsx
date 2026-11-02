@@ -10,7 +10,9 @@ it.each(["en", "ar"] as const)("shows exact receipt figures and authenticated do
   const receipt = buildTradeReceipt(receiptRequest(), receiptCommission)!;
   render(<TradeReceiptPanel receipt={receipt} requestId="receipt-trade" locale={locale} />);
   expect(screen.getByText("123.456789 USDT")).toBeTruthy();
-  expect(screen.getByText("405.25 ILS")).toBeTruthy();
+  const payment = screen.getByText("405.25 ILS").closest("dd");
+  expect(payment?.classList.contains("currency-money")).toBe(true);
+  expect(payment?.previousElementSibling?.classList.contains("currency-money")).toBe(true);
   const link = screen.getByRole("link", { name: locale === "ar" ? "تنزيل الإيصال" : "Download receipt" });
   expect(link.getAttribute("href")).toBe(`/api/alpha-exchange/purchase-requests/receipt-trade/receipt?format=html&locale=${locale}&download=1`);
   expect(document.body.textContent).not.toContain("PRIVATE");

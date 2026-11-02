@@ -59,7 +59,7 @@ async function settle(){await act(async()=>{await vi.advanceTimersByTimeAsync(41
 describe("smart notification reminder",()=>{
  it("does nothing for guests",async()=>{state.user=null;render(<BrowserPushPrompt locale="en"/>);await settle();expect(fetcher).not.toHaveBeenCalled();});
  it("checks channels without asking for permission, and only enables email on a click",async()=>{
-  render(<BrowserPushPrompt locale="en"/>);await settle();expect(screen.getByText("Stay close to new USDT deals")).toBeTruthy();expect(state.enable).not.toHaveBeenCalled();
+  render(<BrowserPushPrompt locale="en"/>);await settle();expect(screen.getByRole("heading", { name: "Stay close to new USDT deals" })).toBeTruthy();expect(state.enable).not.toHaveBeenCalled();
   expect(fetcher.mock.calls.some(([,o])=>o?.method==="PATCH")).toBe(false);
   await act(async()=>{fireEvent.click(screen.getAllByRole("button",{name:"Enable"})[0]);});
   expect(fetcher.mock.calls.some(([,o])=>o?.body==='{"email":true}')).toBe(true);

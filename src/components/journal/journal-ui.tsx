@@ -1,4 +1,6 @@
 "use client";
+import { formatMoneyNumber } from "@/lib/accent-text";
+import { currencyText } from "@/components/ui/currency-text";
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { ChevronLeft, ChevronRight, X, Plus, BookOpen, Sparkles } from "lucide-react";
 import { dailyResults, money, shiftDate, type JournalLocale, type JournalTrade } from "@/lib/journal/model";
@@ -24,10 +26,10 @@ export function codeLabel(key: string, locale: JournalLocale) {
 }
 export function Amount({ cents, locale, className = "" }: { cents:number;locale:JournalLocale;className?:string }) {
   const formatted=money(cents,locale,true);
-  return <span dir="ltr" style={{fontSize:formatted.length>12?".67em":formatted.length>10?".8em":undefined}} className={`j-money ${cents > 0 ? "positive" : cents < 0 ? "negative" : "neutral"} ${className}`}>{formatted}</span>;
+  return <span dir="ltr" style={{fontSize:formatted.length>12?".67em":formatted.length>10?".8em":undefined}} className={`currency-money j-money ${cents > 0 ? "positive" : cents < 0 ? "negative" : "neutral"} ${className}`}>{formatted}</span>;
 }
 export function Empty({ title, body, action }: { title:string;body?:string;action?:ReactNode }) {
-  return <div className="j-empty"><div className="j-empty-art" aria-hidden="true"><BookOpen size={29}/><Sparkles size={16}/></div><h3>{title}</h3>{body && <p>{body}</p>}{action}</div>;
+  return <div className="j-empty"><div className="j-empty-art" aria-hidden="true"><BookOpen size={29}/><Sparkles size={16}/></div><h3>{currencyText(title)}</h3>{body && <p>{body}</p>}{action}</div>;
 }
 export function ProgressRing({ value, size = 100 }: { value:number|null;size?:number }) {
   return <svg className="j-progress-ring" viewBox="0 0 100 100" width={size} height={size} aria-hidden="true">
@@ -43,7 +45,7 @@ export function Dialog({ title, children, onClose, wide = false }: { title:strin
     return () => { dialog?.close(); document.body.style.overflow = original; previous?.focus(); };
   },[]);
   return <dialog ref={ref} className={`j-dialog ${wide ? "j-dialog-wide" : ""}`} aria-label={title} onCancel={e => { e.preventDefault(); onClose(); }}>
-    <div className="j-dialog-head"><h2>{title}</h2><button type="button" className="j-icon" onClick={onClose} aria-label="Close / إغلاق"><X size={20}/></button></div>
+    <div className="j-dialog-head"><h2>{currencyText(title)}</h2><button type="button" className="j-icon" onClick={onClose} aria-label="Close / إغلاق"><X size={20}/></button></div>
     <div className="j-dialog-body">{children}</div>
   </dialog>;
 }
@@ -90,7 +92,7 @@ export function EquityChart({ trades, locale }: { trades:JournalTrade[];locale:J
       <div className="j-chart-detail">{activeDay?<><span>{t("Session net","صافي الجلسة")}</span><Amount cents={activeDay.net} locale={locale}/></>:<><span>{t("Your progress, one session at a time","تقدمك، جلسة بعد جلسة")}</span><small>{t("Hover or drag below to explore","مرر المؤشر أو اسحب أدناه للاستكشاف")}</small></>}</div>
     </div>
     <div className="j-chart-plot">
-      <div className="j-chart-axis"><span>{money(max,locale)}</span><span>{money(min,locale)}</span></div>
+      <div className="j-chart-axis"><span className="currency-money">{money(max,locale)}</span><span className="currency-money">{money(min,locale)}</span></div>
       <svg viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" role="img" aria-label={t("Cumulative net profit and loss after fees","الربح والخسارة التراكمية بعد الرسوم")} onPointerMove={e=>explore(e.clientX,e.currentTarget)} onPointerDown={e=>explore(e.clientX,e.currentTarget)} onPointerLeave={e=>{if(e.pointerType==="mouse")setSelectedDate(null);}}>
         <defs><linearGradient id={`${id}-fill`} x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={color} stopOpacity=".2"/><stop offset="100%" stopColor={color} stopOpacity="0"/></linearGradient></defs>
         {[.25,.5,.75].map(v=><line key={v} x1={p} y1={h*v} x2={w-p} y2={h*v} className="j-chart-grid"/>)}
@@ -126,10 +128,10 @@ export function Calendar({ month,onMonth,trades,locale,today,onDay,reviews }: {
         const date=shiftDate(start,i), day=map.get(date),outside=!date.startsWith(month),hasReview=reviews.includes(date);
         return <button key={date} onClick={()=>onDay(date)} className={`j-day ${outside ? "outside":""} ${date===today ? "today":""} ${day ? day.net>0 ? "win-day" : day.net<0 ? "loss-day":"flat-day":""}`} aria-label={`${dateLabel(date,locale)}${day ? `, ${money(day.net,locale,true)}, ${day.count} ${t("trades","صفقات")}`:""}`}>
           <span className="j-day-number">{Number(date.slice(8))}{hasReview && <span className="j-note-dot" aria-label={t("Has review","يوجد تقييم")}/>}</span>
-          {day ? <><span className={day.net<0 ? "negative":day.net>0?"positive":"neutral"}>{day.net>0?"+":day.net<0?"−":""}{new Intl.NumberFormat("en-US",{maximumFractionDigits:Math.abs(day.net)%100 ? 2:0}).format(Math.abs(day.net)/100)}</span><small>{day.count} {t("trades","صفقات")}</small></>:<span className="j-day-empty"><Plus size={12}/></span>}
+          {day ? <><span className="currency-money">{day.net>0?"+":day.net<0?"−":""}{new Intl.NumberFormat("en-US",{maximumFractionDigits:Math.abs(day.net)%100 ? 2:0}).format(Math.abs(day.net)/100)}</span><small>{formatMoneyNumber(day.count)} {t("trades","صفقات")}</small></>:<span className="j-day-empty"><Plus size={12}/></span>}
         </button>;
       })}
     </div>
-    <div className="j-calendar-foot"><span>{t("Tap a day to review the session","اضغط على اليوم لمراجعة الجلسة")}</span><span>{t("Net P&L · USD","صافي الربح والخسارة · USD")}</span></div>
+    <div className="j-calendar-foot"><span>{t("Tap a day to review the session","اضغط على اليوم لمراجعة الجلسة")}</span><span>{currencyText(t("Net P&L · USD","صافي الربح والخسارة · USD"))}</span></div>
   </section>;
 }

@@ -1,3 +1,4 @@
+import { currencyText } from "@/components/ui/currency-text";
 import { Link } from "@/i18n/navigation";
 import { getSiteUrl } from "@/lib/site-url";
 import { buildFaqSchema, buildPageMetadata, serializeJsonLd } from "@/lib/seo";
@@ -76,26 +77,26 @@ export default async function BuyUsdtIsraelPage({ params }: { params: Promise<{ 
     <div className="mx-auto max-w-4xl space-y-8">
       <PublicDiscoveryBreadcrumbs locale={isAr ? "ar" : "en"} items={breadcrumbSchema.itemListElement} />
       <div className="space-y-4">
-        <p className="section-label">Alpha Exchange · USDT / ILS · Israel</p>
-        <h1 className="page-title">{isAr ? "شراء وبيع USDT في إسرائيل بالشيكل" : "Buy and Sell USDT in Israel with ILS"}</h1>
-        <p className="page-subtitle">{isAr ? "Alpha Exchange هو مسار P2P منظم يربط المشترين ببائعين معتمدين لصفقات USDT مقابل ILS." : "Alpha Exchange is a structured P2P marketplace workflow connecting buyers with approved sellers for USDT/ILS trades."}</p>
+        <p className="section-label">{currencyText("Alpha Exchange · USDT / ILS · Israel")}</p>
+        <h1 className="page-title">{currencyText(isAr ? "شراء وبيع USDT في إسرائيل بالشيكل" : "Buy and Sell USDT in Israel with ILS")}</h1>
+        <p className="page-subtitle">{currencyText(isAr ? "Alpha Exchange هو مسار P2P منظم يربط المشترين ببائعين معتمدين لصفقات USDT مقابل ILS." : "Alpha Exchange is a structured P2P marketplace workflow connecting buyers with approved sellers for USDT/ILS trades.")}</p>
       </div>
       <div className="rounded-3xl border border-white/10 bg-[#0B0B0B]/90 p-6">
-        <h2 className="text-2xl font-semibold">{isAr ? "USDT في إسرائيل: ما الذي يغطيه هذا الدليل؟" : "USDT in Israel: what this guide covers"}</h2>
-        <p className="mt-3 text-sm leading-7 text-[#D1D5DB]">{isAr ? "إذا كنت تبحث عن شراء USDT في إسرائيل بالشيكل أو بيع USDT مقابل ILS، تشرح هذه الصفحة مسار Alpha Exchange العام: كيفية مقارنة العروض، فهم سعر USDT/ILS، مراجعة طرق الدفع المحلية وإشارات الثقة، ثم الانتقال إلى السوق بعد تسجيل الدخول واستيفاء متطلبات الحساب." : "If you are looking to buy USDT in Israel with shekels or sell USDT for ILS, this page explains the Alpha Exchange public path: compare listings, understand the USDT/ILS price, review local payment methods and trust signals, then continue to the marketplace after sign-in and the existing account checks."}</p>
+        <h2 className="text-2xl font-semibold">{currencyText(isAr ? "USDT في إسرائيل: ما الذي يغطيه هذا الدليل؟" : "USDT in Israel: what this guide covers")}</h2>
+        <p className="mt-3 text-sm leading-7 text-[#D1D5DB]">{currencyText(isAr ? "إذا كنت تبحث عن شراء USDT في إسرائيل بالشيكل أو بيع USDT مقابل ILS، تشرح هذه الصفحة مسار Alpha Exchange العام: كيفية مقارنة العروض، فهم سعر USDT/ILS، مراجعة طرق الدفع المحلية وإشارات الثقة، ثم الانتقال إلى السوق بعد تسجيل الدخول واستيفاء متطلبات الحساب." : "If you are looking to buy USDT in Israel with shekels or sell USDT for ILS, this page explains the Alpha Exchange public path: compare listings, understand the USDT/ILS price, review local payment methods and trust signals, then continue to the marketplace after sign-in and the existing account checks.")}</p>
       </div>
       <div className="rounded-3xl border border-white/10 bg-[#0B0B0B]/90 p-6">
-        <h2 className="text-2xl font-semibold">{isAr ? "طرق دفع USDT / ILS في إسرائيل" : "USDT / ILS payment methods in Israel"}</h2>
+        <h2 className="text-2xl font-semibold">{currencyText(isAr ? "طرق دفع USDT / ILS في إسرائيل" : "USDT / ILS payment methods in Israel")}</h2>
         <div className="mt-4 grid gap-3 md:grid-cols-3">
           {(isAr
             ? [["تحويل بنكي","راجع بيانات الحساب والمبلغ قبل التحويل، وارفع إثبات الدفع عندما يطلب مسار الصفقة ذلك."],["سحب بدون بطاقة","استخدم تفاصيل السحب فقط داخل مرحلة الصفقة المخصصة، ولا تكشف رموزًا أو بيانات قبل أن يطلبها المسار."],["لقاء مباشر","اتبع مراحل التأكيد داخل غرفة التداول ولا تعتبر الاجتماع وحده دليلاً على اكتمال الصفقة."]]
             : [["Bank transfer","Review the account details and amount before transferring, and upload payment evidence when the trade flow requires it."],["Cardless cash withdrawal","Use withdrawal details only at the intended trade stage and do not reveal codes or sensitive details before the workflow requests them."],["Face-to-face","Follow the in-platform confirmation stages; meeting in person by itself does not mean the trade is complete."]]
-          ).map(([title, text]) => <div key={title} className="rounded-xl border border-white/10 bg-black/20 p-4"><h3 className="font-semibold text-white">{title}</h3><p className="mt-2 text-sm leading-6 text-[#D1D5DB]">{text}</p></div>)}
+          ).map(([title, text]) => <div key={title} className="rounded-xl border border-white/10 bg-black/20 p-4"><h3 className="font-semibold text-white">{currencyText(title)}</h3><p className="mt-2 text-sm leading-6 text-[#D1D5DB]">{currencyText(text)}</p></div>)}
         </div>
       </div>
       <div className="rounded-3xl border border-white/10 bg-[#0B0B0B]/90 p-6">
         <h2 className="text-2xl font-semibold">{isAr ? "كيف يعمل" : "How it works"}</h2>
-        <div className="mt-4 space-y-3 text-sm leading-7 text-[#D1D5DB]">{points.map((p) => <p key={p}>• {p}</p>)}</div>
+        <div className="mt-4 space-y-3 text-sm leading-7 text-[#D1D5DB]">{points.map((p) => <p key={p}>• {currencyText(p)}</p>)}</div>
       </div>
       <div className="rounded-3xl border border-white/10 bg-[#0B0B0B]/90 p-6">
         <h2 className="text-xl font-semibold">{isAr ? "الوصول إلى السوق" : "Marketplace access"}</h2>
@@ -103,20 +104,20 @@ export default async function BuyUsdtIsraelPage({ params }: { params: Promise<{ 
       </div>
       <div className="rounded-3xl border border-[#C9A227]/30 bg-[#C9A227]/5 p-6">
         <h2 className="text-xl font-semibold">{isAr ? "الرسوم والشفافية" : "Fees and transparency"}</h2>
-        <p className="mt-3 text-sm leading-7 text-[#D1D5DB]">{isAr ? "تعرض Alpha Exchange الرسوم المطبقة داخل مسار الصفقة قبل الإكمال. راجع دائمًا السعر والمبلغ وطريقة الدفع والشبكة قبل إرسال أي قيمة." : "Alpha Exchange shows applicable fees in the trade flow before completion. Always review the price, amount, payment method and blockchain network before sending value."}</p>
+        <p className="mt-3 text-sm leading-7 text-[#D1D5DB]">{currencyText(isAr ? "تعرض Alpha Exchange الرسوم المطبقة داخل مسار الصفقة قبل الإكمال. راجع دائمًا السعر والمبلغ وطريقة الدفع والشبكة قبل إرسال أي قيمة." : "Alpha Exchange shows applicable fees in the trade flow before completion. Always review the price, amount, payment method and blockchain network before sending value.")}</p>
       </div>
       <div className="rounded-3xl border border-white/10 bg-[#0B0B0B]/90 p-6">
-        <h2 className="text-xl font-semibold">{isAr ? "قبل فتح طلب USDT" : "Before opening a USDT request"}</h2>
+        <h2 className="text-xl font-semibold">{currencyText(isAr ? "قبل فتح طلب USDT" : "Before opening a USDT request")}</h2>
         <div className="mt-4 grid gap-3 md:grid-cols-2">
           {(isAr
             ? ["قارن السعر وكمية USDT المتاحة.", "راجع تقييمات البائع وإشارات الثقة.", "تأكد من طريقة الدفع والشروط قبل المتابعة.", "تحقق من شبكة المحفظة والعنوان والمبلغ قبل إرسال USDT أو تحريره."]
             : ["Compare the price and available USDT amount.", "Review seller ratings and public trust signals.", "Confirm the payment method and terms before proceeding.", "Verify the wallet network, address and amount before sending or releasing USDT."]
-          ).map((item) => <p key={item} className="rounded-xl border border-white/10 bg-black/20 p-3 text-sm leading-6 text-[#D1D5DB]">{item}</p>)}
+          ).map((item) => <p key={item} className="rounded-xl border border-white/10 bg-black/20 p-3 text-sm leading-6 text-[#D1D5DB]">{currencyText(item)}</p>)}
         </div>
       </div>
       <div id="faq" className="rounded-3xl border border-white/10 bg-[#0B0B0B]/90 p-6">
-        <h2 className="text-xl font-semibold">{isAr ? "أسئلة شائعة عن USDT / ILS" : "USDT / ILS frequently asked questions"}</h2>
-        <div className="mt-4 space-y-4">{faqs.map((faq) => <div key={faq.question}><h3 className="font-semibold text-white">{faq.question}</h3><p className="mt-1 text-sm leading-7 text-[#D1D5DB]">{faq.answer}</p></div>)}</div>
+        <h2 className="text-xl font-semibold">{currencyText(isAr ? "أسئلة شائعة عن USDT / ILS" : "USDT / ILS frequently asked questions")}</h2>
+        <div className="mt-4 space-y-4">{faqs.map((faq) => <div key={faq.question}><h3 className="font-semibold text-white">{currencyText(faq.question)}</h3><p className="mt-1 text-sm leading-7 text-[#D1D5DB]">{currencyText(faq.answer)}</p></div>)}</div>
       </div>
       <div className="flex flex-wrap gap-3">
         <Link href="/usdt-exchange" className={buttonVariants()}>{isAr ? "ابدأ عبر Alpha Exchange" : "Start with Alpha Exchange"}</Link>

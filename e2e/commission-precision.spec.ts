@@ -78,8 +78,12 @@ for (const locale of ["en", "ar"] as const) {
       expect(writes).toHaveLength(3);
       carried = true;
       await page.reload();
-      await expect(page.getByText(locale === "en" ? /Remaining for your next commission/ : /المتبقي للعمولة التالية/)).toBeVisible();
-      await expect(page.getByText("2 USDT", { exact: true })).toBeVisible();
+      const carryRow = page.getByTestId("commission-balance-summary").locator("p").filter({
+        hasText: locale === "en" ? /Remaining for your next commission/ : /المتبقي للعمولة التالية/,
+      });
+      await expect(carryRow).toBeVisible();
+      await expect(carryRow.locator("bdi.currency-money")).toHaveText("2 USDT");
+      await expect(carryRow.locator("bdi.currency-money")).toBeVisible();
       await expect(page.getByRole("checkbox")).toHaveCount(0);
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
       await page.screenshot({ path: testInfo.outputPath(`commission-carry-${device}-${locale}.png`), fullPage: true, animations: "disabled" });

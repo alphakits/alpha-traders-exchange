@@ -26,7 +26,7 @@ export function SellerRankCard({ summary, error = false, locale, owner = false }
   }
   const progress = summary.nextLevel ? Math.max(0, Math.min(100, summary.progressToNextLevelPercent)) : 100;
   const displayedProgress = summary.nextLevel && summary.amountToNextLevelUsdt > 0 ? Math.min(99, Math.round(progress)) : Math.round(progress);
-  const formatAmount = (value: number) => value.toLocaleString("en-US", { maximumFractionDigits: 0 });
+  const formatAmount = (value: number) => value.toLocaleString("en-US", { maximumFractionDigits: 6 });
   return (
     <div className="seller-rank-hero-card seller-prestige-progress mt-5" data-profile-rank={owner ? "owner" : rankVisualKey(summary.sellerLevel)}>
       <div className="flex items-center gap-3">

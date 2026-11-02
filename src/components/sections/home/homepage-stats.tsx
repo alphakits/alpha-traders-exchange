@@ -1,6 +1,7 @@
 "use client";
 
 import { GraduationCap, Globe, ShieldCheck, Sparkles } from "lucide-react";
+import { formatMoneyNumber } from "@/lib/accent-text";
 import { useLocale } from "next-intl";
 
 // ---------------------------------------------------------------------------
@@ -66,7 +67,7 @@ const STATS: StatItem[] = [
 function StatCard({ stat, isRtl }: { stat: StatItem; isRtl: boolean }) {
   const displayValue = stat.staticDisplay
     ? stat.staticDisplay
-    : `${stat.prefix ?? ""}${stat.numericValue}${stat.suffix ?? ""}`;
+    : `${stat.prefix ?? ""}${formatMoneyNumber(stat.numericValue)}${stat.suffix ?? ""}`;
 
   return (
     <div

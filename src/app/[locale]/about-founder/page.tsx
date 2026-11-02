@@ -1,4 +1,4 @@
-import { brandText } from "@/components/ui/currency-text";
+import { currencyText, brandText } from "@/components/ui/currency-text";
 import { getLocale } from "next-intl/server";
 import { buildPageMetadata } from "@/lib/seo";
 
@@ -28,9 +28,9 @@ export default async function AboutFounderPage() {
             : "Alpha Traders was built to deliver world-class free Arabic trading education without hype.")}
         </p>
         <p>
-          {isAr
+          {currencyText(isAr
             ? "المنهج مبني على الهيكل السعري، إدارة المخاطر، وعلم النفس التداولي مع تطبيقات عملية."
-            : "The methodology is built on structure, risk management, and trading psychology with practical application."}
+            : "The methodology is built on structure, risk management, and trading psychology with practical application.")}
         </p>
       </div>
     </section>

@@ -1,3 +1,4 @@
+import { MoneyInput } from "../../src/components/money-input";
 import { BrandedText as Text } from "../../src/components/branded-text";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Pressable, StyleSheet, TextInput, View } from "react-native";
@@ -278,9 +279,8 @@ export default function NewSellerListingScreen() {
       <View style={styles.form}>
         <View style={styles.field}>
           <Text style={[styles.label, isRTL && styles.rtlText]}>{isAr ? "كمية USDT المتاحة *" : "Available USDT *"}</Text>
-          <TextInput
+          <MoneyInput
             keyboardType="decimal-pad"
-            onBlur={() => setAvailableAmount(formatFinancialNumber(availableAmount, { maximumFractionDigits: 6 }))}
             onChangeText={(value) => {
               const next = cleanNumber(value);
               setAvailableAmount(next);
@@ -296,7 +296,7 @@ export default function NewSellerListingScreen() {
         </View>
         <View style={styles.field}>
           <Text style={[styles.label, isRTL && styles.rtlText]}>{isAr ? "السعر لكل USDT بالدولار *" : "Price per USDT (USD) *"}</Text>
-          <TextInput keyboardType="decimal-pad" onChangeText={(value) => { setPrice(cleanNumber(value)); setPriceEdited(true); setError(""); }} placeholder="1.05" placeholderTextColor={colors.textMuted} selectionColor={colors.gold} style={[styles.input, isRTL && styles.rtlInput]} value={price} />
+          <MoneyInput keyboardType="decimal-pad" onChangeText={(value) => { setPrice(cleanNumber(value)); setPriceEdited(true); setError(""); }} placeholder="1.05" placeholderTextColor={colors.textMuted} selectionColor={colors.gold} style={[styles.input, isRTL && styles.rtlInput]} value={price} />
           {marketReferenceAvailable ? <Text style={[styles.helper, isRTL && styles.rtlText]}>
             {isAr ? "مرجع USD/ILS" : "USD/ILS reference"}: ₪{usdIlsRate.toFixed(5)} · {isAr ? "أقصى سعر للعرض" : "Maximum listing price"}: ₪{maximumListingPrice.toFixed(2)}
           </Text> : null}
@@ -313,12 +313,12 @@ export default function NewSellerListingScreen() {
         </View>
         <View style={[styles.doubleRow, isRTL && styles.rowReverse]}>
           <View style={styles.flexField}>
-            <Text style={[styles.label, isRTL && styles.rtlText]}>{isAr ? "أدنى صفقة *" : "Minimum trade *"}</Text>
-            <TextInput keyboardType="decimal-pad" onBlur={() => setMinimumTrade(formatFinancialNumber(minimumTrade, { maximumFractionDigits: 6 }))} onChangeText={(value) => { setMinimumTrade(cleanNumber(value)); setError(""); }} placeholder="100" placeholderTextColor={colors.textMuted} selectionColor={colors.gold} style={[styles.input, isRTL && styles.rtlInput]} value={minimumTrade} />
+            <Text monetary style={[styles.label, isRTL && styles.rtlText]}>{isAr ? "أدنى صفقة *" : "Minimum trade *"}</Text>
+            <MoneyInput keyboardType="decimal-pad" onChangeText={(value) => { setMinimumTrade(cleanNumber(value)); setError(""); }} placeholder="100" placeholderTextColor={colors.textMuted} selectionColor={colors.gold} style={[styles.input, isRTL && styles.rtlInput]} value={minimumTrade} />
           </View>
           <View style={styles.flexField}>
-            <Text style={[styles.label, isRTL && styles.rtlText]}>{isAr ? "أقصى صفقة *" : "Maximum trade *"}</Text>
-            <TextInput keyboardType="decimal-pad" onBlur={() => setMaximumTrade(formatFinancialNumber(maximumTrade, { maximumFractionDigits: 6 }))} onChangeText={(value) => {
+            <Text monetary style={[styles.label, isRTL && styles.rtlText]}>{isAr ? "أقصى صفقة *" : "Maximum trade *"}</Text>
+            <MoneyInput keyboardType="decimal-pad" onChangeText={(value) => {
               const maximumTrade = cleanNumber(value);
               setMaximumTrade(maximumTrade);
               setMaximumTradeFollowsAmount(listingMaximumTracksAvailableAmount({ availableAmount, maximumTrade }));

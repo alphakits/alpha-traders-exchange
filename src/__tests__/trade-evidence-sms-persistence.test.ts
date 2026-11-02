@@ -120,19 +120,22 @@ describe("atomic seller receipt SMS persistence", () => {
     expect(fullRead).toHaveBeenCalledTimes(1);
   });
 
-  it.each(["buyer", "seller"] as const)("%s receipt upload excludes unrelated account/history payloads and preserves their stored rows", async side => {
+  it.each((["buyer", "seller"] as const).flatMap(side => (["scoped", "full", "overflow"] as const).map(mode => ({ side, mode }))))("preserves the same $side receipt transition and unrelated rows with $mode listing numbering", async ({ side, mode }) => {
     const snapshot = await repository.loadSnapshot();
     snapshot.purchaseRequests[0].displayNumber = 1;
+    snapshot.marketplaceListings[0].displayNumber = 2;
     for (const source of snapshot.users.slice()) {
       snapshot.users.push({ ...source, id: `outsider-${source.id}`, email: `outsider-${source.id}@example.test`,
         fullName: `Private outside ${source.id}`, passwordHash: "unrelated-private-password" });
     }
     snapshot.marketplaceListings.push({ ...snapshot.marketplaceListings[0], id: "outside-listing", sellerId: "outsider-seller", activeTradeRequestId: "outside-trade",
-      displayNumber: 2, photos: [], paymentMethods: ["Bank Transfer"], minimumTrade: "0", maximumTrade: "500", notes: "", sellerDescription: "",
+      displayNumber: 1, photos: [], paymentMethods: ["Bank Transfer"], minimumTrade: "0", maximumTrade: "500", notes: "", sellerDescription: "",
       expiresAt: new Date(Date.parse(snapshot.marketplaceListings[0].createdAt) + 86_400_000).toISOString() });
     snapshot.purchaseRequests.push({ ...snapshot.purchaseRequests[0], id: "outside-trade", tradeId: "TR-OUTSIDE", displayNumber: 2,
       listingId: "outside-listing", sellerId: "outsider-seller", buyerId: "outsider-buyer" });
     await repository.saveSnapshot(snapshot, { selectedTables: ["users", "listings", "purchase_requests"] });
+    if (mode === "full") await database.exec("update alpha_exchange.listings set payload=payload-'displayNumber' where id='receipt-listing'");
+    if (mode === "overflow") await database.query("update alpha_exchange.listings set payload=jsonb_set(payload,'{displayNumber}',to_jsonb($1::text)) where id='receipt-listing'", ["9".repeat(309)]);
     if (side === "buyer") await database.exec("update alpha_exchange.purchase_requests set status='accepted',payload=jsonb_set(payload,'{status}','\"accepted\"') where id='receipt-trade'");
     const outsideRows = async () => (await database.query(`
       select 'user' as kind,id,ctid::text as tuple,payload from alpha_exchange.users where id like 'outsider-%'
@@ -141,16 +144,22 @@ describe("atomic seller receipt SMS persistence", () => {
       order by kind,id`)).rows;
     const before = await outsideRows();
     const begin = repository.beginTradeLifecycleTransaction.bind(repository);
-    const scopes: Array<{ users: string[]; requests: string[] }> = [];
+    const scopes: Array<{ users: string[]; requests: string[]; listings: string[] }> = [];
     vi.spyOn(repository, "beginTradeLifecycleTransaction").mockImplementation(async (...args) => {
       const transaction = await begin(...args);
-      if (transaction) scopes.push({ users: transaction.snapshot.users.map(user => user.id), requests: transaction.snapshot.purchaseRequests.map(request => request.id) });
+      if (transaction) scopes.push({ users: transaction.snapshot.users.map(user => user.id), requests: transaction.snapshot.purchaseRequests.map(request => request.id), listings: transaction.snapshot.marketplaceListings.map(listing => listing.id) });
       return transaction;
     });
-    await expect(upload(side)).resolves.toMatchObject({ request: { status: side === "buyer" ? "payment_sent" : "usdt_sent" } });
-    expect(scopes).toEqual([{ users: ["buyer", "seller"], requests: ["receipt-trade"] }]);
+    await expect(upload(side)).resolves.toMatchObject({ request: { status: side === "buyer" ? "payment_sent" : "usdt_sent", usdtAmount: "100", fiatAmount: "320" } });
+    expect(scopes).toEqual([{ users: ["buyer", "seller"], requests: ["receipt-trade"], listings: mode === "scoped" ? ["receipt-listing"] : ["receipt-listing", "outside-listing"] }]);
     expect(await outsideRows()).toEqual(before);
-    expect((await database.query("select id from alpha_exchange.evidence")).rows).toHaveLength(1);
+    const listing = await database.query("select status,active_trade_request_id,sort_index,payload->>'displayNumber' as number from alpha_exchange.listings where id='receipt-listing'");
+    expect(listing.rows).toEqual([{ status: "in_trade", active_trade_request_id: "receipt-trade", sort_index: 0, number: "2" }]);
+    const evidence = await database.query<{content: Uint8Array}>("select content from alpha_exchange.evidence where purchase_request_id='receipt-trade' and side=$1", [side]);
+    expect(evidence.rows).toHaveLength(1);
+    expect(Buffer.from(evidence.rows[0].content)).toEqual(png);
+    expect((await database.query("select payload->>'userId' as recipient from alpha_exchange.notifications")).rows).toEqual([{ recipient: side === "buyer" ? "seller" : "buyer" }]);
+    expect((await database.query("select event_key from alpha_exchange.sms_deliveries")).rows).toEqual(side === "seller" ? [{ event_key: "trade:receipt-trade:usdt-sent:buyer:buyer" }] : []);
   });
 
   it.each(["buyer", "seller"] as const)("preserves unrelated activity and delivery tuples during a %s receipt commit", async side => {

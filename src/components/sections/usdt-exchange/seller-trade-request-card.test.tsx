@@ -47,6 +47,11 @@ function workspace(overrides: Partial<Workspace> = {}): Workspace {
 afterEach(cleanup);
 
 describe("compact seller trade requests", () => {
+  it("shows every recorded USDT decimal in the seller's request summary", () => {
+    render(<SellerTradeRequestCard request={trade({ usdtAmount: "1234.567890" })} workspace={workspace()} />);
+    expect(screen.getByText("1,234.567890 USDT").classList.contains("currency-money")).toBe(true);
+  });
+
   it.each(["en", "ar"] as const)("labels Wise trade detail prices in USD (%s)", locale => {
     const request = trade({ currency: "USD", bankTransferProvider: "wise", pricePerUsdt: "1.02", fiatAmount: "102" });
     render(<SellerTradeRequestCard request={request} workspace={workspace({ locale, isAr: locale === "ar" })} />);

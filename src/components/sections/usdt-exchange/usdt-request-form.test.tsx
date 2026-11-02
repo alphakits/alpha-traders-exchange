@@ -37,7 +37,7 @@ describe("Wise USD request currency boundaries", () => {
   it("blocks a persisted Wise form when the server capability is disabled", () => {
     render(<Harness initialTerms={{ ...initial, price: "1.00", currency: "USD", bankTransferProvider: "wise" }} />);
     expect(submitButton().disabled).toBe(true);
-    expect(screen.getByText("Wise USD transfers are unavailable.")).toBeTruthy();
+    expect(document.getElementById("request-submit-help")?.textContent).toBe("Wise USD transfers are unavailable.");
   });
   it("does not offer Wise without server capability", () => {
     render(<Harness />);
@@ -67,9 +67,11 @@ describe("buyer USDT request form", () => {
     const estimate = screen.getByRole("region", { name: "Estimated payment" });
     expect(within(estimate).getByText("≈661 USDT")).toBeTruthy();
     expect(within(estimate).getByText("₪2,201.98")).toBeTruthy();
-    expect(within(estimate).getByText("View exact USDT amount").closest("details")?.open).toBe(false);
+    const details = estimate.querySelector("details");
+    expect(details?.querySelector("summary")?.textContent).toBe("View exact USDT amount");
+    expect(details?.open).toBe(false);
     expect(within(estimate).getByText("660.6607 USDT")).toBeTruthy();
-    expect(within(estimate).getByText(/full exact USDT amount requested/)).toBeTruthy();
+    expect(estimate.textContent).toContain("full exact USDT amount requested");
     expect(JSON.parse(screen.getByTestId("terms").textContent!).amount).toBe("660.6607");
   });
   it.each([["2.74", true], ["2.75", false], ["3.45", false], ["3.46", true]])("enforces the live 3.10 band for requested price %s", (price, disabled) => {

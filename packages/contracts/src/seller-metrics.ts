@@ -1,3 +1,5 @@
+import { formatMoneyNumber } from "./display-amount";
+
 /** Counts are optional so older snapshots and native clients can still be read. */
 export interface SellerMetricEvidence {
   totalReviews?: number;
@@ -25,8 +27,8 @@ export function sellerRatingDisplay(facts: SellerMetrics | null | undefined, isA
   }
   const value = rating.toFixed(2);
   const reviews = count == null ? label : isAr
-    ? count === 1 ? "تقييم واحد" : count === 2 ? "تقييمان" : `${count} ${count > 10 ? "تقييم" : "تقييمات"}`
-    : `${count} ${count === 1 ? "review" : "reviews"}`;
+    ? count === 1 ? "تقييم واحد" : count === 2 ? "تقييمان" : `${formatMoneyNumber(count)} ${count > 10 ? "تقييم" : "تقييمات"}`
+    : `${formatMoneyNumber(count)} ${count === 1 ? "review" : "reviews"}`;
   return { value, label: reviews, text: count == null ? `${value} ★` : `${value} ★ · ${reviews}` };
 }
 

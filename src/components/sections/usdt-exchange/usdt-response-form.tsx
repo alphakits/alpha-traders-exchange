@@ -1,5 +1,6 @@
 "use client";
 
+import { currencyText } from "@/components/ui/currency-text";
 import { useId, useReducer, type FormEvent } from "react";
 import { calculateTradePaymentTotal, parseCardlessCashAmount } from "@alpha-traders/contracts";
 import { Link } from "@/i18n/navigation";
@@ -64,17 +65,17 @@ export function SellerResponseForm({ ar, current, listings, reference, listingId
   return <section className={requestPanel} dir={ar ? "rtl" : "ltr"}>
     <h2 className="text-xl font-semibold">{updating ? text("Update your response", "حدّث ردك") : text("Respond to this request", "الرد على هذا الطلب")}</h2>
     <p className="mt-2 text-sm leading-6 text-gray-300">
-      {text("Offer the full requested amount:", "قدّم كامل الكمية المطلوبة:")} <bdi dir="ltr" className="font-semibold tabular-nums text-emerald-300">{formatUsdt(current.amount)} USDT</bdi>.
-      {" "}{text("The buyer reviews your price before opening the Trade Room.", "يراجع المشتري سعرك قبل فتح غرفة الصفقة.")}
+      {currencyText(text("Offer the full requested amount:", "قدّم كامل الكمية المطلوبة:"))} <bdi dir="ltr" className="currency-money font-semibold tabular-nums text-emerald-300">{formatUsdt(current.amount)} USDT</bdi>.
+      {" "}{currencyText(text("The buyer reviews your price before opening the Trade Room.", "يراجع المشتري سعرك قبل فتح غرفة الصفقة."))}
     </p>
-    <p className="mt-2 text-xs leading-5 text-gray-400 [overflow-wrap:anywhere]">{paymentLabel(current.paymentMethod, ar, current.bankTransferProvider)} · <bdi>{current.network}</bdi>{current.city ? <> · {current.city}</> : null}</p>
+    <p className="mt-2 text-xs leading-5 text-gray-400 [overflow-wrap:anywhere]">{currencyText(paymentLabel(current.paymentMethod, ar, current.bankTransferProvider))} · <bdi>{current.network}</bdi>{current.city ? <> · {current.city}</> : null}</p>
 
     {listings.length === 0 ? <div className="mt-5 space-y-4 rounded-xl border border-blue-400/25 bg-blue-400/[0.06] p-4">
       <h3 className="font-semibold text-blue-200">{text("No eligible listing yet", "لا يوجد عرض مؤهل بعد")}</h3>
-      <p className="text-sm leading-6 text-gray-300">{text(
+      <p className="text-sm leading-6 text-gray-300">{currencyText(text(
         "Use an approved listing with enough unreserved USDT and trade limits that cover the full amount. Its network and payment method must match; an in-person trade also needs the same city. Your account must be eligible and have capacity for another trade.",
         "استخدم عرضًا معتمدًا بكمية USDT غير محجوزة كافية وحدود تداول تشمل كامل المبلغ. يجب تطابق الشبكة ووسيلة الدفع، والمدينة أيضًا عند اللقاء الشخصي. يجب أن يكون حسابك مؤهلًا ولديك سعة لصفقة أخرى.",
-      )}</p>
+      ))}</p>
       <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
         <Link href={createListingHref} className={requestPrimary}>{text("Create a listing for this request", "إنشاء عرض لهذا الطلب")}</Link>
         <Link href="/usdt-exchange#my-listings-section" className={requestSecondary}>{text("Manage listings", "إدارة العروض")}</Link>
@@ -86,22 +87,22 @@ export function SellerResponseForm({ ar, current, listings, reference, listingId
           <label htmlFor={`${id}-listing`} className="text-sm font-medium">{text("Your listing", "عرضك")}</label>
           <select id={`${id}-listing`} required value={listingId} onChange={event => onListingChange(event.target.value)} className={requestMoneyField} aria-describedby={`${id}-stock`}>
             <option value="">{text("Select a listing", "اختر عرضًا")}</option>
-            {listings.map(listing => <option key={listing.id} value={listing.id}>{formatUsdt(listing.amount)} USDT · {prefix}{formatIls(listing.price)} {text("per USDT", "لكل USDT")}</option>)}
+            {listings.map(listing => <option className="currency-money" key={listing.id} value={listing.id}>{formatUsdt(listing.amount)} USDT · {prefix}{formatIls(listing.price)} {text("per USDT", "لكل USDT")}</option>)}
           </select>
-          <p id={`${id}-stock`} className="mt-2 text-xs leading-5 text-gray-400">{text("The amount shown is available stock after active reservations.", "الكمية المعروضة هي الرصيد المتاح بعد خصم الحجوزات النشطة.")}</p>
+          <p id={`${id}-stock`} className="mt-2 text-xs leading-5 text-gray-400">{currencyText(text("The amount shown is available stock after active reservations.", "الكمية المعروضة هي الرصيد المتاح بعد خصم الحجوزات النشطة."))}</p>
         </div>
         <div>
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <label htmlFor={`${id}-price`} className="text-sm font-medium">{wise ? text("Your response price (USD)", "سعر ردك (USD)") : text("Your response price (ILS)", "سعر ردك (شيكل)")}</label>
+            <label htmlFor={`${id}-price`} className="text-sm font-medium">{currencyText(wise ? text("Your response price (USD)", "سعر ردك (USD)") : text("Your response price (ILS)", "سعر ردك (شيكل)"))}</label>
             <button type="button" onClick={() => { onPriceChange(current.price); resetPriceInput(); }} className={`${requestSecondary} min-h-11 px-3 py-2 text-xs`}>
-              {text("Match requested price", "مطابقة السعر المطلوب")} <bdi dir="ltr" className="tabular-nums text-emerald-300">{prefix}{formatIls(current.price)}</bdi>
+              {currencyText(text("Match requested price", "مطابقة السعر المطلوب"))} <bdi dir="ltr" className="currency-money tabular-nums text-emerald-300">{prefix}{formatIls(current.price)}</bdi>
             </button>
           </div>
           <GroupedDecimalInput key={`${current.id}:${current.revision}:${listingId}:${priceInputRevision}`} id={`${id}-price`} value={offerPrice} onValueChange={onPriceChange} maxFractionDigits={2} maxIntegerDigits={4}
             required autoComplete="off" className={requestMoneyField}
             aria-invalid={Boolean(offerPrice && priceIssue)} aria-describedby={`${id}-price-help ${id}-reason`} />
           <p id={`${id}-price-help`} className="mt-2 text-xs leading-5 text-gray-400">
-            {wise ? text("Your offer is in USD. The buyer reviews the exact price and total before accepting.", "عرضك بالدولار. يراجع المشتري السعر والإجمالي الدقيقين قبل الموافقة.") : reference ? <>{text("Allowed price:", "السعر المسموح:")} <bdi dir="ltr" className="font-medium tabular-nums text-emerald-300">₪{formatIls(reference.minimum)} – ₪{formatIls(reference.maximum)}</bdi></>
+            {wise ? currencyText(text("Your offer is in USD. The buyer reviews the exact price and total before accepting.", "عرضك بالدولار. يراجع المشتري السعر والإجمالي الدقيقين قبل الموافقة.")) : reference ? <>{currencyText(text("Allowed price:", "السعر المسموح:"))} <bdi dir="ltr" className="currency-money font-medium tabular-nums text-emerald-300">₪{formatIls(reference.minimum)}{currencyText(" – ₪")}{formatIls(reference.maximum)}</bdi></>
               : text("A fresh reference is required before sending.", "يلزم مرجع سعر حديث قبل الإرسال.")}
           </p>
         </div>
@@ -116,9 +117,9 @@ export function SellerResponseForm({ ar, current, listings, reference, listingId
         </button>
       </div>
     </form>}
-    <p className="mt-5 text-xs leading-5 text-gray-400">{text(
+    <p className="mt-5 text-xs leading-5 text-gray-400">{currencyText(text(
       "Normal seller fee obligations apply: collect the buyer’s 1% share and pay Alpha 2% in USDT after completion (1% from each side).",
       "تطبق التزامات رسوم البائع المعتادة: حصّل حصة المشتري 1% وادفع لألفا 2% بعملة USDT بعد الإكمال (1% من كل طرف).",
-    )}</p>
+    ))}</p>
   </section>;
 }
