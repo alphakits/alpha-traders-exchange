@@ -796,6 +796,8 @@ for (const locale of ["en", "ar"] as const) {
       const ownerPassword = process.env.E2E_OWNER_PASSWORD;
       expect(ownerEmail).toMatch(/@example\.test$/);
       expect(ownerPassword).toBeTruthy();
+      // Stop buyer session polling before replacing its cookies with the owner's.
+      await page.goto("about:blank");
       await logout(page.request);
       await login(page.request, ownerEmail!, ownerPassword!);
       await page.goto(`/${locale}/trade-room/${requestId}?view=history`);

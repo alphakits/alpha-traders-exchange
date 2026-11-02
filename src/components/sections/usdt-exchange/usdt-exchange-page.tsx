@@ -1230,7 +1230,9 @@ export const ListingCard = memo(function ListingCard({ listing, isAr, marketPric
               <span className="seller-live-market-badge">{isAr ? "مباشر" : "Live"}</span>
               <span className="compact-listing__market-price font-semibold">{marketPricePerUsdt > 0 ? moneyText(marketPricePerUsdt.toFixed(5)) : "—"}</span>
             </div> : <p className="p-2 text-xs text-[#D1D5DB]">{currencyText(isAr ? "السعر والإجمالي بالدولار USD. لا يوجد تحويل تلقائي للعملة." : "Price and total are in USD. No automatic currency conversion.")}</p>}
-            {canOffer ? <p className="text-xs text-[#9CA3AF]">{currencyText(isAr ? "±₪0.35 من سعر الإعلان" : "Offers within ±₪0.35 of listing price")}</p> : null}
+            {canOffer ? <p className="text-xs text-[#9CA3AF]">
+              {isAr ? "نطاق عرض السعر" : "Offer range"} · {currencyText(isAr ? "±₪0.35 من سعر الإعلان" : "Within ±₪0.35 of listing price")}
+            </p> : null}
           </div>
         </details>
         <div className="compact-listing__actions">
