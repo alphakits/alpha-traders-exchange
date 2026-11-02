@@ -23,18 +23,20 @@ export interface ListingCountdown {
   msRemaining: number;
   /** Compact remaining time, e.g. "3h 45m" or "40m" (empty when not visible). */
   remaining: string;
-  /** Full English label, e.g. "Only 3h 45m left" (empty when not visible). */
+  /** Full English label, e.g. "3h 45m left" (empty when not visible). */
   label: string;
   /** Full Arabic label (empty when not visible). */
   labelAr: string;
 }
 
-function formatRemaining(ms: number): string {
-  const totalMinutes = Math.max(0, Math.floor(ms / 60000));
+function formatRemaining(ms: number, isAr = false): string {
+  const totalMinutes = Math.ceil(ms / 60000);
   const hours = Math.floor(totalMinutes / 60);
   const minutes = totalMinutes % 60;
-  if (hours > 0) return `${hours}h ${minutes}m`;
-  return `${minutes}m`;
+  const parts = [];
+  if (hours) parts.push(`${hours}${isAr ? "س" : "h"}`);
+  if (minutes) parts.push(`${minutes}${isAr ? "د" : "m"}`);
+  return parts.join(" ");
 }
 
 /**
@@ -42,8 +44,8 @@ function formatRemaining(ms: number): string {
  *
  * Tiers:
  *  - hidden   more than 12h remaining (no countdown shown)
- *  - neutral  between 4h and 12h remaining
- *  - urgent   less than 4h remaining ("Only X left", premium red)
+ *  - neutral  more than 4h and up to 12h remaining
+ *  - urgent   up to and including 4h remaining
  *  - expired  already past expiry (visible=false; existing lifecycle handles it)
  */
 export function deriveListingCountdown(
@@ -64,22 +66,12 @@ export function deriveListingCountdown(
   }
 
   const remaining = formatRemaining(msRemaining);
-  if (msRemaining <= COUNTDOWN_URGENT_THRESHOLD_MS) {
-    return {
-      tier: "urgent",
-      visible: true,
-      msRemaining,
-      remaining,
-      label: `Only ${remaining} left`,
-      labelAr: `متبقٍ ${remaining} فقط`,
-    };
-  }
   return {
-    tier: "neutral",
+    tier: msRemaining <= COUNTDOWN_URGENT_THRESHOLD_MS ? "urgent" : "neutral",
     visible: true,
     msRemaining,
     remaining,
     label: `${remaining} left`,
-    labelAr: `${remaining} متبقٍ`,
+    labelAr: `متبقٍ ${formatRemaining(msRemaining, true)}`,
   };
 }

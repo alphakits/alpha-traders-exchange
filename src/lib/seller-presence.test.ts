@@ -61,14 +61,16 @@ describe("deriveListingCountdown", () => {
     const countdown = deriveListingCountdown(iso(8 * 60 * 60 * 1000), NOW);
     expect(countdown.tier).toBe("neutral");
     expect(countdown.visible).toBe(true);
-    expect(countdown.label).toBe("8h 0m left");
+    expect(countdown.label).toBe("8h left");
+    expect(countdown.labelAr).toBe("متبقٍ 8س");
   });
 
-  it("shows a premium urgent countdown under 4h", () => {
+  it("uses a compact hour and minute label in both languages under 4h", () => {
     const countdown = deriveListingCountdown(iso(3 * 60 * 60 * 1000 + 45 * 60 * 1000), NOW);
     expect(countdown.tier).toBe("urgent");
     expect(countdown.visible).toBe(true);
-    expect(countdown.label).toBe("Only 3h 45m left");
+    expect(countdown.label).toBe("3h 45m left");
+    expect(countdown.labelAr).toBe("متبقٍ 3س 45د");
   });
 
   it("treats exactly 4h as urgent", () => {
@@ -91,6 +93,12 @@ describe("deriveListingCountdown", () => {
   it("formats sub-hour remaining without an hours segment", () => {
     const countdown = deriveListingCountdown(iso(40 * 60 * 1000), NOW);
     expect(countdown.remaining).toBe("40m");
-    expect(countdown.label).toBe("Only 40m left");
+    expect(countdown.label).toBe("40m left");
+  });
+
+  it("keeps a positive label through the final second and hides it at expiry", () => {
+    expect(deriveListingCountdown(iso(1000), NOW).label).toBe("1m left");
+    expect(deriveListingCountdown(iso(1000), NOW).labelAr).toBe("متبقٍ 1د");
+    expect(deriveListingCountdown(iso(0), NOW).visible).toBe(false);
   });
 });
