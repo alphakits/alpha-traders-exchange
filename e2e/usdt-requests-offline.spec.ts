@@ -1181,7 +1181,15 @@ test("buyer can keep or cancel a request and then publish it again after the coo
   await expect(page.getByRole("button", { name: "Confirm cancellation", exact: true })).toHaveCount(0);
   await expect(page.getByRole("status").filter({ hasText: "Request cancelled." })).toHaveText("Request cancelled. Its publication still counts toward your 24-hour limit.");
   expect((await state(page.request)).usdtDemands?.find(item => item.id === demand.id)?.state).toBe("cancelled");
-  await ageDemandPastCooldown(page.request, demand.id); await page.reload();
+  await ageDemandPastCooldown(page.request, demand.id);
+  const detailUrl = new URL(`${root}/${demand.id}`, page.url()).href;
+  const [refreshed] = await Promise.all([
+    page.waitForResponse(response => response.url() === detailUrl && response.request().method() === "GET"),
+    page.getByRole("button", { name: "Refresh", exact: true }).click(),
+  ]);
+  expect(refreshed.status()).toBe(200);
+  const refreshedWorkspace: DemandWorkspace = await refreshed.json();
+  expect(refreshedWorkspace.requests).toContainEqual(expect.objectContaining({ id: demand.id, state: "cancelled", revision: 2 }));
   await page.getByRole("button", { name: "Publish again", exact: true }).click();
   const form = page.getByRole("form", { name: "Request details" });
   await expect(form.getByLabel("Amount (USDT)", { exact: true })).toHaveValue("5,000");
