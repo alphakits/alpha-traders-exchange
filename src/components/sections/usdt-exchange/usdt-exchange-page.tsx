@@ -93,7 +93,7 @@ import { purchaseBlockDestination, readPurchaseResponse } from "@/lib/purchase-r
 import { navigateAfterSuccess } from "@/lib/client-success-navigation";
 import { isPayoutBankSupported, syncListingBankSelection } from "@/lib/seller-listing-bank-selection";
 import { getPriceOfferBounds, normalizePriceOfferInput, validatePriceOffer } from "@/lib/price-offer";
-import { normalizeLocalizedDecimalInput, normalizeTradeAmountInput } from "@/lib/trade-amount";
+import { canonicalizeTradeAmount, normalizeLocalizedDecimalInput, normalizeTradeAmountInput } from "@/lib/trade-amount";
 import { ISRAEL_TIME_ZONE } from "@/lib/israel-calendar";
 import type { AlphaExchangeActivityLogEntry, AlphaExchangeNotification, AuditAction, ListingStatus, MarketplaceListing, NotificationCategory, PremiumSellerProfileData, PurchaseRequest, SellerApplication, SellerBadge, SellerLevel, SellerStatus, SupportedNetwork, TradeTimelineEntry } from "@/types/alpha-exchange";
 import type { SellerApplicationForm, SellerApplicationMethod } from "@/components/sections/usdt-exchange/seller-application-section";
@@ -1040,6 +1040,7 @@ export const ListingCard = memo(function ListingCard({ listing, isAr, marketPric
   const sellerLevel = listing.sellerReputation?.level;
   const sellerRankKey = sellerLevelToneKey(sellerLevel);
   const formattedAvailableAmount = formatListingCardUsdt(listing.availableAmount);
+  const displayedMaximum = formatListingTradeLimit(canonicalizeTradeAmount(listing.availableAmount) ? listingMaximumForAvailableAmount(listing) : "0");
   const canOffer = !requiresBuyerSetup && !isOwnListing && listing.currency.trim().toUpperCase() === "ILS";
   const presence = useLiveUserPresence(listing.sellerId, listing.sellerProfile);
   const sellerEmailVerified = listing.sellerProfile?.emailVerified === true || listing.sellerProfile?.isEmailVerified === true;
@@ -1211,8 +1212,8 @@ export const ListingCard = memo(function ListingCard({ listing, isAr, marketPric
               </div>
               <div className="seller-card-info-panel min-w-0 space-y-1.5 rounded-xl border border-white/10 bg-black/25 p-3">
                 {normalizePaymentMethodList(listing.paymentMethods, listing.paymentMethod).some(isCardlessAtmPaymentMethod)
-                  ? <p>{currencyText(isAr ? "الحد الأقصى؛ كمية ATM تُحسب من الرمز" : "Maximum; ATM quantity follows the code")}: <span className="text-white">{currencyText(`${formatListingTradeLimit(toNumber(listing.availableAmount) > 0 ? listingMaximumForAvailableAmount(listing) : 0)} USDT`)}</span></p>
-                  : <p>{isAr ? "حدود الصفقة" : "Trade limits"}: <span className="text-white">{currencyText(`${formatListingTradeLimit(listing.minimumTrade)} – ${formatListingTradeLimit(listing.maximumTrade)} USDT`)}</span></p>}
+                  ? <p>{currencyText(isAr ? "الحد الأقصى؛ كمية ATM تُحسب من الرمز" : "Maximum; ATM quantity follows the code")}: <span className="text-white">{currencyText(`${displayedMaximum} USDT`)}</span></p>
+                  : <p>{isAr ? "حدود الصفقة" : "Trade limits"}: <span className="text-white">{currencyText(`${formatListingTradeLimit(listing.minimumTrade)} – ${displayedMaximum} USDT`)}</span></p>}
                 <p>
                   {isAr ? "مسار الصفقة" : "Trade flow"}:{" "}
                   <span className="seller-escrow-emphasis">

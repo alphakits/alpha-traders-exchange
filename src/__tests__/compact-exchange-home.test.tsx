@@ -255,7 +255,7 @@ describe("compact Exchange home", () => {
     requests = [];
     user = { ...buyer, emailVerified: true };
     const listing = { id: "direct-link-listing", sellerId: "direct-link-seller", sellerDisplayName: "AT-Direct", photos: [],
-      originalAmount: "1000", availableAmount: "1000", price: "3.20", currency: "ILS", network: "TRC20", paymentMethod: "Bank Transfer", paymentMethods: ["Bank Transfer"],
+      originalAmount: "1000", availableAmount: "127.053412", price: "3.20", currency: "ILS", network: "TRC20", paymentMethod: "Bank Transfer", paymentMethods: ["Bank Transfer"],
       minimumTrade: "100", maximumTrade: "1000", sellerDescription: "", responseTime: "5 minutes", status: "active", approvalStatus: "approved",
       createdAt: "2026-09-22T10:00:00.000Z", updatedAt: "2026-09-22T10:00:00.000Z" };
     const fallback = vi.mocked(fetch).getMockImplementation()!;
@@ -269,6 +269,7 @@ describe("compact Exchange home", () => {
     fireEvent.keyDown(window, { key: "Escape" });
     expect(document.getElementById("buyer-usdt-amount")).toBeNull();
     expect(new URLSearchParams(window.location.search).has("listing")).toBe(false);
+    expect(document.querySelector("#listing-direct-link-listing details")?.textContent).toContain("100 – 127.053412 USDT");
     fireEvent.click(await screen.findByRole("button", { name: locale === "ar" ? /تقديم عرض سعر إلى/ : /Make a price offer to/ }));
     await waitFor(() => expect(document.getElementById("buyer-offered-price")).toBeTruthy());
     expect((document.getElementById("buyer-offered-price") as HTMLInputElement).value).toBe("3.19");
