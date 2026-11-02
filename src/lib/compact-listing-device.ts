@@ -5,6 +5,9 @@ import { userAgentFromString } from "next/server";
 export async function isCompactListingDevice(): Promise<boolean> {
   const requestHeaders = await headers();
   if (requestHeaders.get("sec-ch-ua-mobile") === "?1") return true;
-  const { browser, device } = userAgentFromString(requestHeaders.get("user-agent") ?? "");
+  const ua = requestHeaders.get("user-agent") ?? "";
+  // iPad browsers can request a Macintosh site while keeping their iOS browser token.
+  if (/\b(?:CriOS|FxiOS|EdgiOS|OPiOS)\//i.test(ua)) return true;
+  const { browser, device } = userAgentFromString(ua);
   return device.type === "mobile" || device.type === "tablet" || browser.name === "Safari" || browser.name === "Mobile Safari";
 }

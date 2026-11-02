@@ -38,6 +38,7 @@ import { ExchangeWorkspaceNavigation, type ExchangeWorkspaceAction } from "@/com
 import { requestPrimary, requestSecondary } from "@/components/sections/usdt-exchange/usdt-request-details";
 import { buyRequestsDestination } from "@/lib/usdt-demand-navigation";
 import { useWorkspaceViewport } from "@/components/sections/usdt-exchange/use-desktop-workspace";
+import { useDesktopListingLayout } from "./use-desktop-listing-layout";
 import { BuyerRankCard } from "@/components/ui/buyer-rank-card";
 import { SellerRankCard } from "@/components/ui/seller-rank-card";
 import { useSellerRankSummary } from "@/components/sections/usdt-exchange/use-seller-rank-summary";
@@ -1374,6 +1375,7 @@ export function UsdtExchangePage({
   const isDashboardWorkspace = workspaceMode !== undefined;
   const isSellerDashboardWorkspace = workspaceMode === "seller";
   const workspaceViewport = useWorkspaceViewport();
+  const desktopListingLayout = useDesktopListingLayout(compactListingDevice, workspaceViewport);
   const isDesktopWorkspace = workspaceViewport === true;
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -5478,7 +5480,7 @@ export function UsdtExchangePage({
               ))
             : visibleListings.map((listing) => (
                 <ListingCard
-                  desktopLayout={!compactListingDevice && workspaceViewport !== false}
+                  desktopLayout={desktopListingLayout}
                   key={listing.id}
                   listing={listing}
                   isAr={isAr}

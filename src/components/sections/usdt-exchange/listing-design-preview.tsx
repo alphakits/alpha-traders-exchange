@@ -5,6 +5,7 @@ import { publicAccountId } from "@/lib/public-account-identity";
 import { formatUsdtExact } from "@/lib/usdt-demand-format";
 import type { MarketplaceListing, SellerLevel } from "@/types/alpha-exchange";
 import { useWorkspaceViewport } from "./use-desktop-workspace";
+import { useDesktopListingLayout } from "./use-desktop-listing-layout";
 import { ListingCard } from "./usdt-exchange-page";
 
 type SampleSeller = {
@@ -63,7 +64,7 @@ const samples = [
 
 /** The preview route is local or staging only. All sellers and quantities are fixtures. */
 export function ListingDesignPreview({ locale, previewStartedAt, compactListingDevice }: { locale: "en" | "ar"; previewStartedAt: number; compactListingDevice: boolean }) {
-  const workspaceViewport = useWorkspaceViewport();
+  const desktopListingLayout = useDesktopListingLayout(compactListingDevice, useWorkspaceViewport());
   const isAr = locale === "ar";
   const [cardWidth, setCardWidth] = useState(560);
   const [largeAmount, setLargeAmount] = useState(false);
@@ -97,7 +98,7 @@ export function ListingDesignPreview({ locale, previewStartedAt, compactListingD
               event.stopPropagation();
               select(listing, isAr ? "ملف البائع" : "Seller Profile");
             }}>
-              <ListingCard desktopLayout={!compactListingDevice && workspaceViewport !== false} listing={listing} isAr={isAr} marketPricePerUsdt={3.13265}
+              <ListingCard desktopLayout={desktopListingLayout} listing={listing} isAr={isAr} marketPricePerUsdt={3.13265}
                 isOwnerListing={false} canViewPrivateIdentity isOwnListing={false} isBuying={false}
                 onOpen={(chosen, mode) => select(chosen, mode === "buyer_offer"
                   ? (isAr ? "تقديم عرض سعر" : "Make an Offer")
