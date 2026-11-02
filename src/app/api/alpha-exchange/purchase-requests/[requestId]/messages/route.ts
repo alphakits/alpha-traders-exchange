@@ -141,7 +141,8 @@ export async function POST(request: NextRequest, context: RouteContext) {
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to send message.";
-    const status = message === "Trade not found."
+    const chatLocked = error instanceof Error && "code" in error && error.code === "trade-chat-pending";
+    const status = chatLocked ? 409 : message === "Trade not found."
       ? 404
       : message.includes("not allowed")
         ? 403
@@ -149,7 +150,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
     return NextResponse.json(
       {
         error: message,
-        code: message === DIRECT_CONTACT_CONTENT_ERROR ? "DIRECT_CONTACT_BLOCKED" : undefined,
+        code: chatLocked ? "TRADE_CHAT_PENDING" : message === DIRECT_CONTACT_CONTENT_ERROR ? "DIRECT_CONTACT_BLOCKED" : undefined,
       },
       { status },
     );

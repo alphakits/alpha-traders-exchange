@@ -425,7 +425,7 @@ describe("USDT request workspace", () => {
   it("requires a new seller selection when the buyer changes the request revision", async () => {
     vi.spyOn(document, "hidden", "get").mockReturnValue(false);
     mocks.session = { user: { id: "seller" } };
-    let latest: DemandView = { ...demand(), isMine: false, paymentMethod: "Bank Transfer", amount: "1000" };
+    let latest: DemandView = { ...demand(), isMine: false, paymentMethod: "Bank Transfer", amount: "1000", price: "3.15" };
     const fetcher = vi.fn(async (_url: string, options?: RequestInit) => options?.method === "POST" ? Response.json({ id: "offer-new" })
       : Response.json({ ...base, actorId: "seller", canRespond: true, requests: [latest], listings: [{ id: "listing-one", price: "3.30", amount: "10000" }] }));
     vi.stubGlobal("fetch", fetcher);

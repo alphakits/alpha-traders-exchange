@@ -750,6 +750,14 @@ for (const locale of ["en", "ar"] as const) {
       await login(page.request, buyerEmail, buyerPassword);
       const requestId = await createTradeRequest(page.request);
       await page.goto(`/${locale}/trade-room/${requestId}`);
+      await expect(page.locator("#chat form")).toHaveCount(0);
+      const sellerApi = await pwRequest.newContext({ baseURL: E2E_BASE_URL });
+      try {
+        await login(sellerApi, sellerEmail, sellerPassword);
+        const accepted = await sellerApi.patch(`/api/alpha-exchange/purchase-requests/${requestId}`, { data: { status: "accepted", safetyAcknowledged: true } });
+        expect(accepted.ok(), await accepted.text()).toBe(true);
+      } finally { await sellerApi.dispose(); }
+      await page.reload();
       const notice = page.locator('[data-testid="inclusive-payment-total"] .commission-notice');
       await expect(notice).toHaveCSS("color", "rgb(248, 226, 124)");
       await expect(page.locator('[data-testid="inclusive-payment-total"] .currency-money').first()).toHaveCSS("color", "rgb(52, 211, 153)");

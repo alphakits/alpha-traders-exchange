@@ -66,7 +66,7 @@ export async function seedOfflineFixture(baseURL, options = {}) {
     const account = accounts[role];
     return {
     id: `listing-${OFFLINE_ACCOUNTS[role].id}`, sellerId: account.id, sellerDisplayName: account.name, photos: [],
-    originalAmount: "10000", availableAmount: "10000", price: "3.30", currency: "ILS", network: "TRC20",
+    originalAmount: "10000", availableAmount: "10000", price: "3.65", currency: "ILS", network: "TRC20",
     paymentMethod: "Bank Transfer", paymentMethods: ["Bank Transfer", "Cardless ATM Withdrawal", "Face-to-Face (Meet in Person)"], bankAccountId: `bank-${account.id}`,
     bankName: "Bank Hapoalim", minimumTrade: "100", maximumTrade: "10000",
     expiresAt: new Date(Date.now() + 48 * 3600_000).toISOString(), sellerDescription: "Synthetic offline listing",

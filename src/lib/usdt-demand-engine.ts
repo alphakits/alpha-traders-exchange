@@ -7,7 +7,7 @@ import { formatIls, formatUsdt } from "@/lib/usdt-demand-format";
 import { demandIdentityProjector } from "@/lib/usdt-demand-identity";
 import { isWisePaymentsEnabled, getWisePaymentsMode } from "@/lib/wise-payments-capability";
 import { demandAcceptedMatch, demandExpiresAtMs } from "./usdt-demand-policy";
-import { assertDemandActor, assertDemandListing, assertDemandTerms, canRespond, DEMAND_COOLDOWN_MS, DEMAND_TTL_MS, DEMAND_PUBLICATION_WINDOW_MS, DEMAND_PUBLICATION_LIMIT, demandChangeSchema, demandCreateSchema, DemandError, demandListingAvailableAmount, demandOfferSchema, demandReference, demandState } from "./usdt-demand-policy";
+import { assertDemandActor, assertDemandListing, assertDemandResponsePrice, assertDemandTerms, canRespond, DEMAND_COOLDOWN_MS, DEMAND_TTL_MS, DEMAND_PUBLICATION_WINDOW_MS, DEMAND_PUBLICATION_LIMIT, demandChangeSchema, demandCreateSchema, DemandError, demandListingAvailableAmount, demandOfferSchema, demandReference, demandState } from "./usdt-demand-policy";
 
 function actor(db: AlphaExchangeDb, id: string) {
   const user = db.users.find(u => u.id === id); assertDemandActor(user); return user;
@@ -211,6 +211,10 @@ export function respondToDemand(db: AlphaExchangeDb, userId: string, id: string,
   assertDemandTerms({ ...demand, price: input.price }, market);
   const listing = db.marketplaceListings.find(l => l.id === input.listingId && l.sellerId === userId);
   assertDemandListing(db, demand, listing);
+  assertDemandResponsePrice(demand, listing, input.price);
+  if (demand.offers.some(o => o.sellerId === userId && o.revision === demand.revision && Number(o.price) === Number(input.price))) {
+    throw new DemandError("DUPLICATE_RESPONSE_PRICE", "You already sent this price for this request.");
+  }
   if (demand.offers.some(o => o.sellerId === userId && Date.now() - Date.parse(o.createdAt) < 60_000)) throw new DemandError("RESPONSE_COOLDOWN", "Wait one minute before updating your response.", 429);
   if (demand.offers.length >= 100) throw new DemandError("RESPONSE_LIMIT", "This request has reached its response limit.");
   for (const offer of demand.offers) if (offer.sellerId === userId && offer.state === "open") offer.state = "superseded";
@@ -257,7 +261,7 @@ export function readDemandWorkspace(db: AlphaExchangeDb, userId: string, market:
       try {
         assertDemandTerms({ ...d, price: o.price }, market);
         const listing = db.marketplaceListings.find(l => l.id === o.listingId);
-        assertDemandListing(db, d, listing); available &&= listing.updatedAt === o.listingUpdatedAt && listing.sellerId === o.sellerId;
+        assertDemandListing(db, d, listing); assertDemandResponsePrice(d, listing, o.price); available &&= listing.updatedAt === o.listingUpdatedAt && listing.sellerId === o.sellerId;
       } catch { available = false; }
       return { id: o.id, listingId: o.listingId, price: o.price, revision: o.revision, state: o.state, createdAt: o.createdAt,
         sellerName: identity(o.sellerId).displayName, seller: identity(o.sellerId), isMine: o.sellerId === userId, available };

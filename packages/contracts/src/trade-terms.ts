@@ -1,6 +1,7 @@
-import { calculateCardlessUsdtAmount } from "./cardless-withdrawal";
+import { calculateCardlessUsdtAmount, parseCardlessCashAmount } from "./cardless-withdrawal";
 import { calculateTradePaymentTotal, calculateUsdtForPaymentTotal, MARKETPLACE_FEE_POLICY } from "./marketplace-fees";
 import { canonicalizeTradeAmount } from "./trade-amount";
+import { isSellerCounterPrice, normalizeListingPrice } from "./price-offer";
 
 export type TradeTermsCalculationAction = "counter_offer" | "propose_amount" | "propose_ils_amount";
 
@@ -20,7 +21,7 @@ export function calculateTradeTermsQuote(trade: {
   if (cardless && trade.currency !== "ILS") return null;
   let usdtAmount: string | null;
   if (action === "counter_offer") {
-    usdtAmount = cardless ? calculateCardlessUsdtAmount(trade.fiatAmount, pricePerUsdt, includesBuyerFee) : canonicalizeTradeAmount(trade.usdtAmount);
+    usdtAmount = canonicalizeTradeAmount(trade.usdtAmount);
   } else if (action === "propose_ils_amount") {
     usdtAmount = cardless ? calculateCardlessUsdtAmount(raw, pricePerUsdt, includesBuyerFee) : calculateUsdtForPaymentTotal(raw, pricePerUsdt, includesBuyerFee);
   } else {
@@ -32,8 +33,41 @@ export function calculateTradeTermsQuote(trade: {
   }
   if (!usdtAmount) return null;
   const fiatAmount = calculateTradePaymentTotal(usdtAmount, pricePerUsdt, includesBuyerFee);
-  if (!fiatAmount || fiatAmount === "0.00") return null;
+  if (!fiatAmount || fiatAmount === "0.00" || (cardless && !parseCardlessCashAmount(fiatAmount))) return null;
   return { usdtAmount, fiatAmount, pricePerUsdt };
+}
+
+/** Ordinary full-price purchases retain their separate pre-payment correction workflow. */
+export function isNegotiatingQuantityFixed(trade: { status: string; priceMode?: string; usdtDemandId?: string; quantityFixed?: boolean }) {
+  return trade.status === "pending" && (trade.priceMode === "buyer_offer" || Boolean(trade.usdtDemandId) || trade.quantityFixed === true);
+}
+
+/** Include the last persisted proposal for requests created by older clients. */
+export function submittedCounterPrices(trade: {
+  counterPrices?: readonly string[];
+  termsProposal?: { kind: string; pricePerUsdt: string };
+}) {
+  const prices = new Set(trade.counterPrices ?? []);
+  if (trade.termsProposal?.kind === "counter_offer") prices.add(trade.termsProposal.pricePerUsdt);
+  return [...prices];
+}
+
+export function tradeCounterPriceIssue(trade: {
+  pricePerUsdt?: string; listingPriceAtRequest?: string; counterPrices?: readonly string[];
+  termsProposal?: { kind: string; pricePerUsdt: string };
+}, value: string, liveListingPrice?: string, locale = "en") {
+  const ceiling = normalizeListingPrice(liveListingPrice ?? trade.listingPriceAtRequest) ?? "";
+  const quotedCeiling = normalizeListingPrice(trade.listingPriceAtRequest ?? ceiling) ?? "";
+  const max = Number(ceiling) < Number(quotedCeiling) ? ceiling : quotedCeiling;
+  const raw = canonicalizeTradeAmount(value) || "";
+  if (!isSellerCounterPrice(trade.pricePerUsdt, quotedCeiling, raw, ceiling)) {
+    return locale === "ar" ? `السعر لازم يكون أعلى من ₪${trade.pricePerUsdt} ولحدّ ₪${max}. كمية USDT ثابتة.`
+      : `Enter a rate above ₪${trade.pricePerUsdt} and up to ₪${max}. The USDT quantity is fixed.`;
+  }
+  if (submittedCounterPrices(trade).some(previous => Number(previous) === Number(raw))) {
+    return locale === "ar" ? "سبق وأرسلت هذا السعر." : "You already proposed this rate.";
+  }
+  return null;
 }
 
 export const MAX_TRADE_AMOUNT_ADJUSTMENTS = 2;

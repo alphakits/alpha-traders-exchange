@@ -7,7 +7,7 @@ import { materializeCommissionShortfalls } from "./commission-shortfall-ledger";
 import type { BankTransferProvider, WiseUsdAccount, WiseUsdAccountSnapshot } from "@/types/wise";
 import { parseWiseUsdAccountDetails, maskWiseUsdAccount, createWiseUsdAccountSnapshot, getWiseUsdAccountFingerprint } from "@/lib/wise-bank-transfer";
 import { assertWisePaymentsRuntime, assertWiseListingShape, getReviewedWiseAccount, wiseAccountHasActiveUsage, assertWiseTradeSnapshotCurrent } from "@/lib/wise-store-policy";
-import { calculateTradeTermsQuote, TRADE_CHAT_MESSAGE_MAX_LENGTH, OWNER_TRADE_CHAT_MESSAGE_MAX_LENGTH } from "@alpha-traders/contracts";
+import { calculateTradeTermsQuote, isSellerCounterPrice, submittedCounterPrices, isNegotiatingQuantityFixed, isTradeChatOpen, isTradeWalletMessage, tradeWalletShareError, TRADE_CHAT_MESSAGE_MAX_LENGTH, OWNER_TRADE_CHAT_MESSAGE_MAX_LENGTH } from "@alpha-traders/contracts";
 import { requireManualCommissionOperationId } from "@/lib/manual-commission-operation";
 import { priceAlertSchema, priceAlertMatchesListing, readMarketplacePriceAlert, type MarketplacePriceAlert } from "@/lib/marketplace-price-alert";
 import { accountSessionId, presentAccountSession } from "@/lib/account-session-presentation";
@@ -1044,6 +1044,7 @@ function sanitizeTradeRoomMessageForCounterparty(
   message: TradeChatMessage,
   canViewPrivateContent: boolean,
   canViewConfidentialCredential = true,
+  network?: SupportedNetwork,
 ) {
   const imageMimeType = TRADE_ROOM_CHAT_IMAGE_MIME_TYPES.has(String(message.imageMimeType ?? "").toLowerCase())
     ? String(message.imageMimeType).toLowerCase()
@@ -1058,7 +1059,7 @@ function sanitizeTradeRoomMessageForCounterparty(
             const payload = decryptCardlessCredential(message.message, message.purchaseRequestId, message.id);
             return formatCardlessWithdrawalPayload(payload);
           })()
-      : canViewPrivateContent || message.senderRole === "owner" ? message.message : redactExchangeUserContent(message.message),
+      : canViewPrivateContent || message.senderRole === "owner" || (network && isTradeWalletMessage(message.message, network)) ? message.message : redactExchangeUserContent(message.message),
     payloadHash: undefined,
     imageUrl: hasSafeImage ? message.imageUrl : undefined,
     imageMimeType: hasSafeImage ? imageMimeType : undefined,
@@ -6075,7 +6076,7 @@ function enrichRequestWithEvidence(db: AlphaExchangeDb, request: PurchaseRequest
     buyerEvidence: db.tradeEvidenceFiles.find(item => item.purchaseRequestId === request.id && item.side === "buyer"),
     sellerEvidence: db.tradeEvidenceFiles.find(item => item.purchaseRequestId === request.id && item.side === "seller"),
     timeline: (request.timeline ?? []).map(entry => ({ ...entry, message: visibleText(entry.message) })),
-    messages: (request.messages ?? []).map(message => ({ ...message, message: message.credentialKind || (message.senderRole === "owner" && isPublicOwnerIdentity(db.users.find(user => user.id === message.senderUserId))) ? message.message : authoredText(message.message) })),
+    messages: (request.messages ?? []).map(message => ({ ...message, message: message.credentialKind || isTradeWalletMessage(message.message, request.network) || (message.senderRole === "owner" && isPublicOwnerIdentity(db.users.find(user => user.id === message.senderUserId))) ? message.message : authoredText(message.message) })),
     closeReason: visibleText(request.closeReason),
     closeExplanation: authoredText(request.closeExplanation),
     buyerReview: request.buyerReview ? { ...request.buyerReview, comment: authoredText(request.buyerReview.comment), hiddenReason: authoredText(request.buyerReview.hiddenReason) } : undefined,
@@ -10929,6 +10930,22 @@ export async function getWorkspaceBootstrapData(input: {
   };
 }
 
+/** Recheck the stored proposal against the current listing and fee policy at acceptance. */
+function acceptedCounterQuote(request: PurchaseRequest, listing?: MarketplaceListing) {
+  const proposed = request.termsProposal;
+  const method = normalizeMarketplacePaymentMethod(request.paymentMethod) || request.paymentMethod;
+  const quote = proposed && calculateTradeTermsQuote({ ...request, paymentMethod: method }, "counter_offer", proposed.pricePerUsdt);
+  if (!listing || proposed?.kind !== "counter_offer" || !quote
+    || !isSellerCounterPrice(request.pricePerUsdt, request.listingPriceAtRequest || listing.price, proposed.pricePerUsdt, listing.price)
+    || canonicalizeTradeAmount(proposed.usdtAmount) !== quote.usdtAmount
+    || canonicalizeTradeAmount(proposed.fiatAmount) !== canonicalizeTradeAmount(quote.fiatAmount)
+    || Number(quote.usdtAmount) < getPurchaseMinimumTrade(listing.minimumTrade, isCardlessAtmPaymentMethod(method))
+    || Number(quote.usdtAmount) > Number(listing.maximumTrade || listing.availableAmount)) {
+    throw new TradeBlockedError("stale-counter-offer", "This price or quantity no longer matches the request. Withdraw or decline the counter-offer.", request.id);
+  }
+  return quote;
+}
+
 /** Seller proposals never silently change the buyer's agreed financial terms. */
 export async function updateTradeTerms(input: {
   requestId: string; actorUserId: string;
@@ -10963,7 +10980,7 @@ export async function updateTradeTerms(input: {
       if (getTradeAmountAdjustmentCount(request) >= MAX_TRADE_AMOUNT_ADJUSTMENTS) throw new TradeBlockedError("trade-terms-invalid", "The two-adjustment limit has been reached. No further amount or price proposals are allowed for this trade.", input.requestId);
       if (proposal?.status === "pending") throw new TradeBlockedError("trade-terms-invalid", "Wait for the buyer or withdraw the current proposal first.", input.requestId);
       const counter = input.action === "counter_offer";
-      if (counter ? request.status !== "pending" || request.priceMode !== "buyer_offer" : !["pending", "accepted"].includes(request.status)) throw new TradeBlockedError("trade-terms-invalid", "Trade terms cannot be changed at this stage.", input.requestId);
+      if (counter ? request.status !== "pending" || request.priceMode !== "buyer_offer" : isNegotiatingQuantityFixed(request) || !["pending", "accepted"].includes(request.status)) throw new TradeBlockedError("trade-terms-invalid", "Trade terms cannot be changed at this stage.", input.requestId);
 
       if (!counter && request.status !== "pending" && !isDemandReservedTrade(request)) throw new TradeBlockedError("trade-terms-invalid", "This trade no longer owns the listing.", input.requestId);
       if (counter && isFaceToFacePaymentMethod(request.paymentMethod) && !request.sellerSafetyAcknowledged && input.safetyAcknowledged !== true) throw new TradeBlockedError("trade-terms-invalid", "Read and accept the Face-to-Face safety guidelines first.", input.requestId);
@@ -10971,8 +10988,12 @@ export async function updateTradeTerms(input: {
       if (!(counter ? /^\d{1,7}(?:\.\d{1,2})?$/ : /^\d{1,9}(?:\.\d{1,6})?$/).test(raw) || Number(raw) <= 0) throw new TradeBlockedError("trade-terms-invalid", "Enter a valid positive amount.", input.requestId);
       const lockedPrice = normalizeListingPrice(request.pricePerUsdt || request.listingPriceAtRequest || listing.price) || "";
       if (counter) {
-        const bounds = getPriceOfferBounds(request.listingPriceAtRequest || listing.price);
-        if (request.currency !== "ILS" || !bounds || Number(raw) < Number(bounds.minimumPrice) || Number(raw) > Number(bounds.maximumPrice)) throw new TradeBlockedError("trade-terms-invalid", "Counter-offer must be within the listing's allowed price range.", input.requestId);
+        if (request.currency !== "ILS" || !isSellerCounterPrice(lockedPrice, request.listingPriceAtRequest || listing.price, raw, listing.price)) {
+          throw new TradeBlockedError("trade-terms-invalid", "Counter price range is above the buyer's offer and up to the listing price.", request.id);
+        }
+        if (submittedCounterPrices(request).some(previous => Number(previous) === Number(raw))) {
+          throw new TradeBlockedError("trade-terms-invalid", "This counter price has already been proposed.", request.id);
+        }
       } else if (input.action === "propose_ils_amount" && request.currency !== "ILS") {
         throw new TradeBlockedError("trade-terms-invalid", "ILS correction requires an ILS trade.", input.requestId);
       }
@@ -10985,6 +11006,7 @@ export async function updateTradeTerms(input: {
       const { usdtAmount: amount, fiatAmount: fiat, pricePerUsdt: price } = quote;
       if (request.commissionCalculationVersion === COMMISSION_CALCULATION_VERSION) assertPayableTradeCommission(amount);
       if (!Number.isFinite(Number(fiat)) || Number(fiat) <= 0 || Number(amount) > Number(listingUnreservedAmount(snapshot, listing, request.id)) || Number(amount) < getPurchaseMinimumTrade(listing.minimumTrade, isCardlessAtmPaymentMethod(request.paymentMethod)) || Number(amount) > Number(listing.maximumTrade || listing.availableAmount)) throw new TradeBlockedError("trade-terms-invalid", "Amount exceeds the available balance or trade limits.", input.requestId);
+      if (counter) request.counterPrices = [...submittedCounterPrices(request), price];
       request.amountAdjustmentCount = getTradeAmountAdjustmentCount(request) + 1;
       request.firstSellerResponseAt ??= request.termsProposal?.createdAt ?? now;
       request.termsProposal = { id: randomUUID(), kind: counter ? "counter_offer" : "amount_correction", status: "pending", pricePerUsdt: price, usdtAmount: amount, fiatAmount: fiat, createdAt: now };
@@ -10996,6 +11018,7 @@ export async function updateTradeTerms(input: {
       if (proposal.kind === "counter_offer" ? request.status !== "pending" : !["pending", "accepted"].includes(request.status)) throw new TradeBlockedError("trade-terms-invalid", "Trade terms can no longer be changed.", input.requestId);
       if (input.action === "accept_amount") {
         if (request.commissionCalculationVersion === COMMISSION_CALCULATION_VERSION) assertPayableTradeCommission(proposal.usdtAmount);
+        if (isNegotiatingQuantityFixed(request)) throw new TradeBlockedError("trade-terms-invalid", "The buyer’s quantity is fixed during price negotiation.", request.id);
         if (proposal.kind !== "amount_correction") throw new TradeBlockedError("trade-terms-invalid", "Use the counter-offer acceptance action.", input.requestId);
         if ((request.status !== "pending" && !isDemandReservedTrade(request)) || Number(proposal.usdtAmount) > Number(listingUnreservedAmount(snapshot, listing, request.id)) || Number(proposal.usdtAmount) < getPurchaseMinimumTrade(listing.minimumTrade, isCardlessAtmPaymentMethod(request.paymentMethod)) || Number(proposal.usdtAmount) > Number(listing.maximumTrade || listing.availableAmount)) throw new TradeBlockedError("trade-terms-invalid", "The proposed amount is no longer available.", input.requestId);
         if (isCardlessAtmPaymentMethod(request.paymentMethod) && Number(request.fiatAmount) !== Number(proposal.fiatAmount)) {
@@ -11737,7 +11760,7 @@ export function sanitizePurchaseRequestForActor(request: PurchaseRequest, actorU
     buyerWiseAccountSnapshot: undefined,
     buyerName: canViewPrivateContent || request.buyerIsOwner ? request.buyerName : publicAccountName({ id: request.buyerId }),
     timeline: (request.timeline ?? []).map((entry) => sanitizeTradeTimelineForCounterparty(entry, canViewPrivateContent)),
-    messages: (request.messages ?? []).map((message) => sanitizeTradeRoomMessageForCounterparty(message, canViewPrivateContent, canViewConfidentialCredential)),
+    messages: (request.messages ?? []).map((message) => sanitizeTradeRoomMessageForCounterparty(message, canViewPrivateContent, canViewConfidentialCredential, request.network)),
     buyerEvidence: canViewPrivateContent ? request.buyerEvidence : sanitizeTradeEvidenceForCounterparty(request.buyerEvidence),
     sellerEvidence: canViewPrivateContent ? request.sellerEvidence : sanitizeTradeEvidenceForCounterparty(request.sellerEvidence),
     closeReason: canViewPrivateContent ? request.closeReason : redactExchangeUserContent(request.closeReason),
@@ -12317,9 +12340,10 @@ export async function getTradeRoomData(input: {
     ...(identityActors ? { ownerIdentityLabels: Object.fromEntries(db.users.filter(user => identityActors.has(user.id))
       .map(user => [user.id, accountNameForViewer(user, viewer)])) } : {}),
     messages: messages.map((message) => sanitizeTradeRoomMessageForCounterparty(
-      { ...message, message: message.credentialKind || (message.senderRole === "owner" && isPublicOwnerIdentity(db.users.find(user => user.id === message.senderUserId))) ? message.message : visibleMessageText(message.message) },
+      { ...message, message: message.credentialKind || isTradeWalletMessage(message.message, request.network) || (message.senderRole === "owner" && isPublicOwnerIdentity(db.users.find(user => user.id === message.senderUserId))) ? message.message : visibleMessageText(message.message) },
       canViewPrivateContent,
       request.status === "payment_sent" && (request.buyerId === input.actorUserId || request.sellerId === input.actorUserId),
+      request.network,
     )),
     poke: getTradeRoomPokeAvailability(request, input.actorUserId),
     deadlineAt,
@@ -12755,13 +12779,15 @@ export async function postTradeRoomMessage(input: {
   const message = input.message.trim();
   // Apply the privilege to canonical server accounts only, and recheck it under
   // the transaction lock below so a concurrent owner revocation cannot bypass it.
-  const validateMessagePolicy = (snapshot: AlphaExchangeDb) => {
+  const validateMessagePolicy = (snapshot: AlphaExchangeDb, trade: PurchaseRequest) => {
     const owner = isPublicOwnerIdentity(snapshot.users.find(user => user.id === input.actorUserId));
     if (message.length > (owner ? OWNER_TRADE_CHAT_MESSAGE_MAX_LENGTH : TRADE_CHAT_MESSAGE_MAX_LENGTH)) throw new Error("Message is too long.");
-    if (!owner) assertNoExchangeDirectContact(message, input.imageUrl);
+    const walletError = tradeWalletShareError(message, trade.network);
+    if (walletError && !owner) throw new Error(walletError);
+    if (!owner) assertNoExchangeDirectContact(isTradeWalletMessage(message, trade.network) ? undefined : message, input.imageUrl);
     return owner;
   };
-  validateMessagePolicy(db);
+  validateMessagePolicy(db, request);
   const image = parseTradeRoomImageDataUrl(input.imageUrl, input.imageMimeType);
   if (!message && !image) throw new Error("Message or image is required.");
   const suppliedClientMessageId = String(input.clientMessageId ?? "").trim().toLowerCase();
@@ -12796,7 +12822,7 @@ export async function postTradeRoomMessage(input: {
     if (canonicalRequestIndex === -1) throw new Error("Trade not found.");
     const canonicalRequest = snapshot.purchaseRequests[canonicalRequestIndex];
     const canonicalParticipantSide = messageSide(snapshot, canonicalRequest);
-    const canonicalOwner = validateMessagePolicy(snapshot);
+    const canonicalOwner = validateMessagePolicy(snapshot, canonicalRequest);
     const canonicalRecipientUserId = canonicalParticipantSide === "buyer" ? canonicalRequest.sellerId : canonicalRequest.buyerId;
     const existingMessage = canonicalRequest.messages?.find((candidate) => candidate.id === messageId);
     if (existingMessage) {
@@ -12823,25 +12849,18 @@ export async function postTradeRoomMessage(input: {
         guard: "terminal-trade-chat",
       });
     }
+    if (!isTradeChatOpen(canonicalRequest)) {
+      throw new TradeBlockedError("trade-chat-pending", "Chat opens in the Trade Room after the offer is accepted.", canonicalRequest.id);
+    }
     if (isCashTradePaymentMethod(canonicalRequest.paymentMethod) && image) {
       throw new TradeBlockedError("cash-trade-chat-image-blocked", "Cash trades do not accept chat photos or payment evidence.", canonicalRequest.id, {
         guard: "cash-trade-no-photos",
       });
     }
     if (
-      canonicalParticipantSide === "buyer"
-      && !canonicalOwner
-      && canonicalRequest.status === "accepted"
-      && isCardlessAtmPaymentMethod(canonicalRequest.paymentMethod)
-    ) {
-      throw new TradeBlockedError("cardless-code-action-required", "Use the protected withdrawal-code action instead of ordinary chat.", canonicalRequest.id, {
-        guard: "atomic-cardless-code",
-      });
-    }
-    if (
       isCardlessAtmPaymentMethod(canonicalRequest.paymentMethod)
-      && ((canonicalOwner ? containsOwnerCardlessCredential(message, canonicalRequest)
-        : containsCardlessCredentialLikeContent(message)) || Boolean(image))
+      && ((!isTradeWalletMessage(message, canonicalRequest.network) && (canonicalOwner ? containsOwnerCardlessCredential(message, canonicalRequest)
+        : containsCardlessCredentialLikeContent(message))) || Boolean(image))
     ) {
       throw new TradeBlockedError("cardless-code-chat-blocked", "Withdrawal codes and code images must use the protected withdrawal-code action.", canonicalRequest.id, {
         guard: "cardless-code-never-generic-chat",
@@ -14766,9 +14785,13 @@ async function updatePurchaseRequestStatusAttempt(
   if (input.nextStatus === "accepted") {
     if (acceptingCounter && (areTradeAmountsLocked(request) || hasIrreversibleTradeProgress(db, request))) throw new TradeBlockedError("trade-terms-invalid", "Trade amounts and price are locked at this stage.", request.id);
     if (acceptingCounter && request.termsProposal) {
-      next.usdtAmount = request.termsProposal.usdtAmount;
-      next.fiatAmount = request.termsProposal.fiatAmount;
-      next.pricePerUsdt = request.termsProposal.pricePerUsdt;
+      const quote = acceptedCounterQuote(request, listing);
+      next.fiatAmount = quote.fiatAmount;
+      next.pricePerUsdt = quote.pricePerUsdt;
+      if (isAtmTrade && Number(next.fiatAmount) !== Number(request.fiatAmount)) {
+        next.messages = next.messages?.filter(entry => entry.credentialKind !== "cardless_code");
+        db.tradeMessages = db.tradeMessages?.filter(entry => entry.purchaseRequestId !== request.id || entry.credentialKind !== "cardless_code");
+      }
       next.priceOfferDiscount = (Number(next.listingPriceAtRequest) - Number(next.pricePerUsdt)).toFixed(2);
       next.termsProposal = { ...request.termsProposal, status: "accepted", resolvedAt: now };
     }
@@ -15691,6 +15714,7 @@ async function updatePurchaseRequestStatusAttempt(
 
         if (input.nextStatus === "accepted") {
           assertWiseTradeSnapshotCurrent(canonicalSnapshot, canonicalListing, canonicalRequest);
+          if (acceptingCounter) acceptedCounterQuote(canonicalRequest, canonicalListing);
           if (canonicalListing) assertSellerTradeCapacity(canonicalSnapshot, canonicalListing, next.usdtAmount, canonicalRequest.id);
           const canonicalPendingCommissionCount = getSellerPendingCommissionCount(canonicalSnapshot, request.sellerId);
           const canonicalPendingSiblingIds = canonicalSnapshot.purchaseRequests

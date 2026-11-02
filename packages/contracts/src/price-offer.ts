@@ -58,6 +58,17 @@ export function getPriceOfferBounds(listingPrice: string | number) {
   };
 }
 
+/** New seller prices use whole agorot and cannot exceed either listing quote. */
+export function isSellerCounterPrice(buyerPrice: string | undefined, listingPrice: string | undefined,
+  counterPrice: string, liveListingPrice = listingPrice) {
+  const buyer = parseListingPriceCents(buyerPrice);
+  const listed = parseListingPriceCents(listingPrice);
+  const live = parseListingPriceCents(liveListingPrice);
+  const counter = parsePriceCents(counterPrice);
+  return buyer !== null && listed !== null && live !== null && counter !== null
+    && buyer > 0 && counter > buyer && counter <= Math.min(listed, live);
+}
+
 export type PriceOfferValidationResult =
   | {
       ok: true;

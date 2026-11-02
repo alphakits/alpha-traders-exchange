@@ -3,7 +3,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { TradeTermsPanel } from "./trade-terms-panel";
 import type { PurchaseRequest } from "@/types/alpha-exchange";
 
-const base = { id: "request-1", buyerId: "buyer", sellerId: "seller", status: "pending", priceMode: "buyer_offer", pricePerUsdt: "3.00", usdtAmount: "250", fiatAmount: "750.00", currency: "ILS", paymentMethod: "Bank Transfer", updatedAt: "2026-09-21T00:00:00Z" } as PurchaseRequest;
+const base = { id: "request-1", buyerId: "buyer", sellerId: "seller", status: "pending", priceMode: "buyer_offer", pricePerUsdt: "3.00", listingPriceAtRequest: "3.35", usdtAmount: "250", fiatAmount: "750.00", currency: "ILS", paymentMethod: "Bank Transfer", updatedAt: "2026-09-21T00:00:00Z" } as PurchaseRequest;
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); });
 
 describe("trade proposal controls", () => {
@@ -72,7 +72,7 @@ it.each(["Bank Transfer", "Cardless ATM Withdrawal", "Face-to-Face (Meet in Pers
 it("does not submit a correction while another trade mutation owns the lock", () => {
   const fetch = vi.fn();
   vi.stubGlobal("fetch", fetch);
-  render(<TradeTermsPanel request={{ ...base, status: "pending" }} actorId="seller" isAr={false} onUpdated={vi.fn()} onBusyChange={() => false} />);
+  render(<TradeTermsPanel request={{ ...base, status: "pending", priceMode: "listing_price" }} actorId="seller" isAr={false} onUpdated={vi.fn()} onBusyChange={() => false} />);
   fireEvent.click(screen.getByRole("button", { name: "Adjust Amount" }));
   fireEvent.change(screen.getByLabelText("Correct USDT amount"), { target: { value: "300" } });
   fireEvent.click(screen.getByRole("button", { name: "Propose corrected amount" }));
@@ -98,7 +98,7 @@ it("submits an ILS total correction for buyer approval", async () => {
 });
 
 it("keeps an amount draft after acceptance and closes it once payment is sent", () => {
-  const { rerender } = render(<TradeTermsPanel request={base} actorId="seller" isAr={false} onUpdated={vi.fn()} />);
+  const { rerender } = render(<TradeTermsPanel request={{ ...base, priceMode: "listing_price" }} actorId="seller" isAr={false} onUpdated={vi.fn()} />);
   fireEvent.click(screen.getByRole("button", {name:"Adjust Amount"}));
   fireEvent.change(screen.getByLabelText("Correct USDT amount"), {target:{value:"150"}});
   rerender(<TradeTermsPanel request={{...base,status:"accepted"}} actorId="seller" isAr={false} onUpdated={vi.fn()} />);
@@ -122,30 +122,30 @@ it("prevents the buyer accepting a proposal after payment has been sent", () => 
   expect(screen.getByRole("status").textContent).toContain("amount is locked");
 });
 
-it.each([false, true])("disables both proposal buttons after two adjustments, Arabic=%s", isAr => {
+it.each([false, true])("disables further counteroffers and hides quantity editing during negotiation, Arabic=%s", isAr => {
   const fetch = vi.fn(); vi.stubGlobal("fetch", fetch);
   render(<TradeTermsPanel request={{...base, amountAdjustmentCount: 2}} actorId="seller" isAr={isAr} onUpdated={vi.fn()} />);
-  const adjust = screen.getByRole("button", {name:isAr ? "تعديل المبلغ" : "Adjust Amount"});
+  const adjust = screen.queryByRole("button", {name:isAr ? "تعديل المبلغ" : "Adjust Amount"});
   const counter = screen.getByRole("button", {name:isAr ? "تقديم عرض مقابل" : "Make a counter-offer"});
-  expect((adjust as HTMLButtonElement).disabled).toBe(true);
+  expect(adjust).toBeNull();
   expect((counter as HTMLButtonElement).disabled).toBe(true);
-  fireEvent.click(adjust); fireEvent.click(counter);
+  fireEvent.click(counter);
   expect(document.getElementById("trade-amount-editor")).toBeNull();
   expect(screen.getByTestId("trade-adjustment-count").textContent).toContain("2/2");
   expect(fetch).not.toHaveBeenCalled();
 });
 
 it("closes an open editor if the other seller tab uses the second adjustment", () => {
-  const {rerender} = render(<TradeTermsPanel request={{...base, amountAdjustmentCount: 1}} actorId="seller" isAr={false} onUpdated={vi.fn()} />);
+  const {rerender} = render(<TradeTermsPanel request={{...base, priceMode: "listing_price", amountAdjustmentCount: 1}} actorId="seller" isAr={false} onUpdated={vi.fn()} />);
   fireEvent.click(screen.getByRole("button", {name:"Adjust Amount"}));
   expect(screen.getByLabelText("Correct USDT amount")).toBeTruthy();
-  rerender(<TradeTermsPanel request={{...base, amountAdjustmentCount: 2}} actorId="seller" isAr={false} onUpdated={vi.fn()} />);
+  rerender(<TradeTermsPanel request={{...base, priceMode: "listing_price", amountAdjustmentCount: 2}} actorId="seller" isAr={false} onUpdated={vi.fn()} />);
   expect(screen.queryByLabelText("Correct USDT amount")).toBeNull();
   expect(screen.getByRole("button", {name:"Adjust Amount"}).getAttribute("aria-expanded")).toBe("false");
 });
 
 it.each(["pending", "accepted"] as const)("still lets the buyer approve the second proposal at %s before payment", async status => {
-  const request = {...base, status, amountAdjustmentCount: 2, termsProposal:{id:"second",kind:"amount_correction" as const,status:"pending" as const,usdtAmount:"150",fiatAmount:"450",pricePerUsdt:"3",createdAt:base.updatedAt}};
+  const request = {...base, status, priceMode: "listing_price" as const, amountAdjustmentCount: 2, termsProposal:{id:"second",kind:"amount_correction" as const,status:"pending" as const,usdtAmount:"150",fiatAmount:"450",pricePerUsdt:"3",createdAt:base.updatedAt}};
   const fetch = vi.fn().mockResolvedValue(Response.json({request})); vi.stubGlobal("fetch", fetch);
   render(<TradeTermsPanel request={request} actorId="buyer" isAr={false} onUpdated={vi.fn()} />);
   const accept=screen.getByRole("button", {name:"Accept these terms"});
@@ -190,9 +190,14 @@ it.each(["Bank Transfer", "Face-to-Face (Meet in Person)", "Cardless ATM Withdra
   render(<TradeTermsPanel request={{ ...base, paymentMethod, feePolicyVersion: "buyer_seller_1pct_v1", pricePerUsdt: "3.09", usdtAmount: cardless ? "416.546509" : "420", fiatAmount: cardless ? "1300.00" : "1310.78" }} actorId="seller" isAr={false} onUpdated={vi.fn()} />);
   fireEvent.click(screen.getByRole("button", { name: "Make a counter-offer" }));
   fireEvent.change(screen.getByLabelText("Counter price in ILS per USDT"), { target: { value: "3.10" } });
+  if (cardless) {
+    expect(screen.queryByTestId("trade-adjustment-preview")).toBeNull();
+    expect(screen.getByRole("status").textContent).toContain("fixed quantity");
+    return;
+  }
   const preview = screen.getByTestId("trade-adjustment-preview");
-  expect(preview.textContent).toContain(cardless ? "415.202811 USDT" : "420 USDT");
-  expect(preview.textContent).toContain(cardless ? "1,300.00" : "1,315.02");
+  expect(preview.textContent).toContain("420 USDT");
+  expect(preview.textContent).toContain("1,315.02");
   expect(preview.textContent).toContain("1% fee");
   fireEvent.change(screen.getByLabelText("Counter price in ILS per USDT"), { target: { value: "3.101" } });
   expect(screen.queryByTestId("trade-adjustment-preview")).toBeNull();

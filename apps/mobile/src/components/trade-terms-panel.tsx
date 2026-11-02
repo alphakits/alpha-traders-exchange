@@ -3,7 +3,7 @@ import { BrandedText as Text } from "./branded-text";
 import { useRef, useState } from "react";
 import { View, Switch } from "react-native";
 import type { MobileTradeDetail } from "@alpha-traders/contracts";
-import { calculateTradeTermsQuote, getTradeAmountAdjustmentCount, MAX_TRADE_AMOUNT_ADJUSTMENTS } from "@alpha-traders/contracts";
+import { calculateTradeTermsQuote, tradeCounterPriceIssue, isNegotiatingQuantityFixed, getTradeAmountAdjustmentCount, MAX_TRADE_AMOUNT_ADJUSTMENTS } from "@alpha-traders/contracts";
 import { GoldButton } from "./gold-button";
 
 export function TradeTermsPanel({ trade, isAr, disabled, onAction }: {
@@ -12,18 +12,19 @@ export function TradeTermsPanel({ trade, isAr, disabled, onAction }: {
 }) {
   const [value, setValue] = useState("");
   const [safety, setSafety] = useState(false);
-  const [editorKind, setEditorKind] = useState<"amount" | "counter">("amount");
+  const [editorKind, setEditorKind] = useState<"amount" | "counter">(trade.status === "pending" && trade.priceMode === "buyer_offer" ? "counter" : "amount");
   const [amountUnit, setAmountUnit] = useState<"USDT" | "ILS">("USDT");
   const inFlight = useRef(false);
   const seller = trade.side === "seller";
   const canCounter = trade.status === "pending" && trade.priceMode === "buyer_offer";
-  const counter = canCounter && editorKind === "counter";
+  const counter = canCounter;
+  const quantityFixed = isNegotiatingQuantityFixed(trade);
   const proposal = trade.termsProposal;
   const pending = proposal?.status === "pending";
   // Amount changes have a different cutoff from cancellation. Use the server's
   // irreversible-progress decision; older payloads without it stay locked.
   const paymentLocked = !["pending", "accepted"].includes(trade.status) || trade.actions.canAdjustAmounts !== true;
-  const counterProposalLocked = proposal?.kind === "counter_offer" && !canCounter;
+  const counterProposalLocked = proposal?.kind === "counter_offer" ? !canCounter : pending && quantityFixed;
   const adjustmentCount = getTradeAmountAdjustmentCount(trade);
   const limitReached = adjustmentCount >= MAX_TRADE_AMOUNT_ADJUSTMENTS;
   const face = trade.paymentMethod === "Face-to-Face (Meet in Person)";
@@ -32,10 +33,11 @@ export function TradeTermsPanel({ trade, isAr, disabled, onAction }: {
   const calculationAction = counter ? "counter_offer" : unit === "ILS" ? "propose_ils_amount" : "propose_amount";
   // A price typed into the pending-only counter editor is never an amount.
   const editingValue = editorKind === "counter" && !canCounter ? "" : value;
-  const quote = calculateTradeTermsQuote(trade, calculationAction, editingValue);
+  const counterIssue = counter ? tradeCounterPriceIssue(trade, editingValue, trade.liveListingPrice, isAr ? "ar" : "en") : null;
+  const quote = counterIssue ? null : calculateTradeTermsQuote(trade, calculationAction, editingValue);
   const includesBuyerFee = trade.feePolicyVersion === "buyer_seller_1pct_v1";
   if (!["pending", "accepted", "payment_sent", "funds_received", "usdt_release_pending", "usdt_sent"].includes(trade.status)) return null;
-  if (!seller && !pending) return null;
+  if (!pending && (!seller || (quantityFixed && !canCounter))) return null;
   if (paymentLocked && !pending) return <View style={{ padding: 16, gap: 12 }}>
     <GoldButton disabled variant="outline">{isAr ? "تعديل المبلغ" : "Adjust Amount"}</GoldButton>
     <Text style={{ color: "#D1D5DB" }}>{isAr
@@ -64,9 +66,8 @@ export function TradeTermsPanel({ trade, isAr, disabled, onAction }: {
         <GoldButton disabled={disabled} variant="outline" onPress={() => void submit("decline_terms")}>{isAr ? "رفض الاقتراح" : "Decline proposal"}</GoldButton>
       </>}
     </> : <>
-      <Text style={{ color: "#D1D5DB" }}>{isAr ? "يمكن تعديل المبلغ قبل إرسال الدفعة أو مشاركة رمز السحب أو تأكيد النقد. موافقة المشتري مطلوبة." : "Adjust the amount before payment is sent, a withdrawal code is shared, or cash is confirmed. Buyer approval is required."}</Text>
+      {!quantityFixed && <Text style={{ color: "#D1D5DB" }}>{isAr ? "يمكن تعديل المبلغ قبل إرسال الدفعة أو مشاركة رمز السحب أو تأكيد النقد. موافقة المشتري مطلوبة." : "Adjust the amount before payment is sent, a withdrawal code is shared, or cash is confirmed. Buyer approval is required."}</Text>}
       {canCounter ? <View style={{ gap: 8 }}>
-        <GoldButton disabled={disabled || limitReached} variant={counter ? "outline" : "gold"} onPress={() => { setEditorKind("amount"); setValue(""); }}>{isAr ? "تعديل المبلغ" : "Adjust amount"}</GoldButton>
         <GoldButton disabled={disabled || limitReached} variant={counter ? "gold" : "outline"} onPress={() => { setEditorKind("counter"); setValue(""); }}>{isAr ? "تقديم عرض مقابل" : "Make a counter-offer"}</GoldButton>
       </View> : null}
       {!counter && !cardless && trade.currency === "ILS" ? <View style={{ gap: 8 }}>
@@ -75,9 +76,11 @@ export function TradeTermsPanel({ trade, isAr, disabled, onAction }: {
       </View> : null}
       <Text style={{ color: "white" }}>{counter ? (isAr ? "السعر بالشيكل لكل USDT" : "Price in ILS per USDT") : cardless ? (isAr ? "مبلغ السحب الجديد بالشيكل" : "New withdrawal amount (ILS)") : unit === "ILS" ? (isAr ? "إجمالي الدفع بالشيكل شامل عمولة المشتري إن وجدت" : "Total ILS payment including buyer fee if applicable") : (isAr ? "كمية USDT الصحيحة" : "Correct USDT amount")}</Text>
       <MoneyInput accessibilityLabel={counter ? "Counter price ILS" : cardless ? "New withdrawal amount (ILS)" : unit === "ILS" ? "Total ILS payment" : "Correct USDT amount"} keyboardType="decimal-pad" value={editingValue} onChangeText={next => { if (!canCounter) setEditorKind("amount"); setValue(next); }} editable={!disabled && !limitReached} placeholder={counter ? trade.pricePerUsdt : unit === "ILS" ? trade.fiatAmount : trade.usdtAmount} placeholderTextColor="#999" style={{ color: "white", borderColor: "#777", borderWidth: 1, borderRadius: 8, padding: 12, textAlign: "left" }} />
+      {counter && counterIssue ? <Text style={{ color: "#FDE68A" }}>{counterIssue}</Text> : null}
+      {counter && cardless && value && !counterIssue && !quote ? <Text style={{ color: "#FDE68A" }}>{isAr ? "يجب أن يطابق إجمالي الدفع مضاعفات 100 شيكل." : "The fixed quantity must produce a supported ₪100 ATM withdrawal."}</Text> : null}
       {!counter && cardless ? <Text style={{ color: "white" }}>{isAr ? "من 100 إلى 10,000 شيكل بمضاعفات 100. تُحسب كمية USDT مع احتساب عمولة المشتري إن وجدت. بعد الموافقة يجب إرسال رمز يطابق الإجمالي الجديد." : "100–10,000 ILS in steps of 100. USDT is calculated with the buyer fee included when applicable. After approval, send a code matching the new total."}</Text> : null}
       {quote ? <View accessibilityLiveRegion="polite" style={{ gap: 6 }}>
-        <Text monetary style={{ writingDirection: "ltr" }}>{trade.usdtAmount} → {quote.usdtAmount} USDT</Text>
+        <Text monetary style={{ writingDirection: "ltr" }}>{counter ? `${quote.usdtAmount} USDT · ₪${quote.pricePerUsdt} / USDT` : `${trade.usdtAmount} → ${quote.usdtAmount} USDT`}</Text>
         <Text monetary style={{ writingDirection: "ltr" }}>{trade.currency} {quote.fiatAmount}</Text>
         {includesBuyerFee ? <Text style={{ color: "#FDE68A" }}>{isAr ? "الإجمالي يشمل عمولة المشتري 1%. لا تُضف العمولة مرة أخرى." : "Total includes the buyer’s 1% fee. Do not add it again."}</Text> : null}
         <Text style={{ color: "#D1D5DB" }}>{isAr ? `العمولة والخصم من العرض على ${quote.usdtAmount} USDT عند الإكمال.` : `Commission and listing deduction use ${quote.usdtAmount} USDT on completion.`}</Text>

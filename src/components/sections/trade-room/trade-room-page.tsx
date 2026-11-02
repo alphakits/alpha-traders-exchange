@@ -1,6 +1,6 @@
 "use client";
 import { formatMoneyNumber } from "@/lib/accent-text";
-import { sellerFeeResponsibilityNotice, tradePaymentReceiptConfirmation, TRADE_CHAT_MESSAGE_MAX_LENGTH, OWNER_TRADE_CHAT_MESSAGE_MAX_LENGTH } from "@alpha-traders/contracts";
+import { sellerFeeResponsibilityNotice, tradePaymentReceiptConfirmation, isTradeChatOpen, tradeWalletShareError, TRADE_CHAT_MESSAGE_MAX_LENGTH, OWNER_TRADE_CHAT_MESSAGE_MAX_LENGTH } from "@alpha-traders/contracts";
 
 import { AttentionSiren } from "@/components/ui/attention-siren";
 import { publicAccountName } from "@/lib/public-account-identity";
@@ -2343,8 +2343,10 @@ function TradeRoomPageSession({
     event.preventDefault();
     if (chatMessageInFlightRef.current) return;
     const currentRoom = roomRef.current ?? room;
-    if (!currentRoom) return;
+    if (!currentRoom || !isTradeChatOpen(currentRoom.request)) return;
     const message = chatDraft.trim();
+    const walletError = tradeWalletShareError(message, currentRoom.request.network, isAr ? "ar" : "en");
+    if (walletError && !currentRoom.canViewPrivateIdentity) { setChatErrorMessage(walletError); return; }
     if (!message && !chatImage) return;
     if (chatImage && isCashTradePaymentMethod(currentRoom.request.paymentMethod)) {
       setChatErrorMessage(isAr ? "لا تقبل صفقات النقد صور المحادثة أو إثباتات الدفع." : "Cash trades do not accept chat photos or payment evidence.");
@@ -3060,7 +3062,7 @@ function TradeRoomPageSession({
 
   const hasPendingTradeTerms = request.termsProposal?.status === "pending";
   const tradeTerms = (
-    <TradeTermsPanel key={request.id} request={request} actorId={actor.id} isAr={isAr} disabled={actionBusy || cancelBusy || Boolean(evidenceBusy) || room.hasOpenDispute}
+    <TradeTermsPanel key={request.id} request={request} liveListingPrice={room.listing?.price} actorId={actor.id} isAr={isAr} disabled={actionBusy || cancelBusy || Boolean(evidenceBusy) || room.hasOpenDispute}
                   onBusyChange={(busy) => {
                     const mutationKey = `${request.id}:trade-terms`;
                     if (busy && !acquireTradeRoomMutation(actionInFlightRef, mutationKey)) return false;
@@ -3979,8 +3981,19 @@ function TradeRoomPageSession({
                   <div className="rounded-xl border border-[#C9A227]/35 bg-[#C9A227]/10 p-3 text-sm text-[#FDE68A]">
                     {isAr ? "عبّئ رمز السحب ورقم الهوية أو تاريخ الميلاد في قسم بيانات السحب أعلاه، ثم اضغط إرسال البيانات وتأكيدها." : "Enter the withdrawal code and ID number or date of birth in the withdrawal section above, then send and confirm both details."}
                   </div>
-                ) : (
+                ) : null}
+                {!isTradeChatOpen(request) ? <p role="status" className="rounded-xl border border-white/10 p-3 text-sm text-gray-300">{request.status === "pending"
+                  ? (isAr ? "بتفتح المحادثة بعد قبول العرض." : "Chat opens when the offer is accepted.")
+                  : (isAr ? "محادثة هذه الصفقة مغلقة." : "This trade chat is closed.")}</p> : (
                 <form className="relative z-10 space-y-2 rounded-2xl border border-white/10 bg-[#101010]/95 p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] shadow-xl backdrop-blur-md" onSubmit={handleSendMessage}>
+                  <div className="flex flex-wrap gap-2">
+                    <Button type="button" size="sm" variant="secondary" disabled={chatBusy || Boolean(chatDraft.trim())} onClick={() => setChatDraft(request.network)}>{isAr ? "إضافة الشبكة" : "Add network"} · {request.network}</Button>
+                    <Button type="button" size="sm" variant="secondary" disabled={chatBusy || Boolean(chatDraft.trim())} onClick={event => {
+                      setChatDraft(request.network + ": ");
+                      event.currentTarget.form?.querySelector("textarea")?.focus();
+                    }}>{isAr ? "إضافة عنوان محفظة" : "Add wallet address"}</Button>
+                  </div>
+                  {chatDraft.startsWith(request.network + ":") ? <p className="text-xs text-gray-300">{isAr ? "ألصق عنوان المحفظة بعد اسم الشبكة، ثم أرسل الرسالة." : "Paste the wallet address after the network, then send your message."}</p> : null}
                   <Textarea
                     value={chatDraft}
                     dir="auto"

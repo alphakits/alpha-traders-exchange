@@ -910,6 +910,7 @@ export interface PurchaseRequest {
   commissionCalculationVersion?: "usdt_6dp_v2";
   /** Server-owned count of submitted financial proposals; never refunded. */
   amountAdjustmentCount?: number;
+  counterPrices?: string[];
   /** Durable, server-owned follow-up committed with a terminal trade transition. */
   trustReconciliation?: { requestedAt: string; requestedByUserId: string; reconciledAt?: string };
   /** First recorded seller terms proposal for measuring time to respond. */

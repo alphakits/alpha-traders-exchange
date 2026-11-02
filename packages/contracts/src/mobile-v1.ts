@@ -57,6 +57,7 @@ export type MobileApiErrorCode =
   | "PENDING_BUYER_FEEDBACK"
   | "AWAITING_BUYER_CONFIRMATION"
   | "COMMISSION_DUE"
+  | "TRADE_CHAT_PENDING"
   | "MESSAGE_INVALID"
   | "DIRECT_CONTACT_BLOCKED"
   | "EVIDENCE_INVALID"
@@ -964,6 +965,7 @@ export interface TradeTermsProposal {
 export interface MobileTradeSummary {
   feePolicyVersion?: "buyer_seller_1pct_v1";
   amountAdjustmentCount?: number;
+  counterPrices?: string[];
   termsProposal?: TradeTermsProposal;
   bankName?: string;
   id: string;
@@ -1004,6 +1006,9 @@ export interface MobileTradeReview {
 }
 
 export interface MobileTradeDetail extends MobileTradeSummary {
+  chatOpen?: boolean;
+  quantityFixed?: boolean;
+  liveListingPrice?: string;
   completionReceipt?: import("./trade-receipt").TradeCompletionReceipt;
   sellerCommissionDue?: { count: number; amount: number };
   counterpartyDisplayName: string;
