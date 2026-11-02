@@ -34,3 +34,20 @@ it.each(["en", "ar"] as const)("shows one programme and the confirmed %s startin
   expect(Array.from(rendered.querySelectorAll("dd .currency-money[dir=ltr]"), (price) => price.textContent)).toEqual(["₪6,700", "₪7,500"]);
   expect(html).not.toMatch(/₪6,?500/);
 });
+
+it.each(["en", "ar"] as const)("keeps the %s tuition, FAQ and enquiry reply in sync across the November deadline", async locale => {
+  const now = vi.spyOn(Date, "now");
+  now.mockReturnValue(Date.parse("2026-11-30T21:59:59.999Z"));
+  const page = () => MentorshipPage({ params: Promise.resolve({ locale }) }).then(renderToStaticMarkup);
+  const november = new DOMParser().parseFromString(await page(), "text/html");
+  expect(Array.from(november.querySelectorAll("dd .currency-money"), el => el.textContent)).toEqual(["₪6,030", "₪6,750"]);
+  expect(november.querySelector("#faq")?.textContent).toContain("₪6,030");
+  expect(learningInformationReply(locale)).toContain("₪6,750");
+  now.mockReturnValue(Date.parse("2026-11-30T22:00:00.000Z"));
+  const december = await page();
+  const increase = locale === "ar" ? "بنسبة 10% على الأقل" : "at least 10%";
+  expect(december).toContain(increase);
+  expect(december).toContain('name="experience"');
+  expect(december).not.toMatch(/6,030|6,750|6,700|7,500/);
+  expect(learningInformationReply(locale)).toContain(increase);
+});

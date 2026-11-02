@@ -35,6 +35,36 @@ html {
   scroll-padding-top: calc(5rem + var(--safe-area-top));
 }
 
+/* Auth pages have a separate brand row. Keep the offer visible after it scrolls away. */
+header + [data-mentorship-announcement] {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  flex-shrink: 0;
+}
+
+/* On short, wide sign-in screens the brand and the offer share one row. */
+@media (min-width: 40rem) and (max-height: 34rem) {
+  .alpha-auth-shell:has(> [data-mentorship-announcement]) {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-rows: auto 1fr;
+  }
+  .alpha-auth-shell > [data-mentorship-announcement] { align-self: center; }
+  .alpha-auth-shell:has(> [data-mentorship-announcement]) > header > a > span > span:last-child { display: none; }
+  .alpha-auth-shell > main { grid-column: 1 / -1; }
+}
+
+/* Keep anchors and keyboard focus below the additional sticky row. */
+html:has(.alpha-site-header [data-mentorship-announcement]) {
+  scroll-padding-top: calc(8.5rem + var(--safe-area-top));
+}
+@media (min-width: 80rem) {
+  html:has(.alpha-site-header [data-mentorship-announcement]) {
+    scroll-padding-top: calc(11rem + var(--safe-area-top));
+  }
+}
+
 /* Native keyboard focus must clear the sticky header and phone navigation. */
 .usdt-requests-workspace :is(a, button, input, select, textarea, summary, [tabindex]) {
   scroll-margin-block: calc(8rem + var(--safe-area-top)) calc(7rem + var(--safe-area-bottom));

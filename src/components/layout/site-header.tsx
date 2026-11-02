@@ -16,6 +16,8 @@ import { SellerActiveTradeNotices } from "./seller-active-trade-notices";
 import { usesSellerActiveTradeHeader } from "@/lib/seller-active-trades";
 import { journalEnabled } from "@/lib/journal/feature";
 import { demandEnabled } from "@/lib/usdt-demand-policy";
+import { MentorshipAnnouncement } from "./mentorship-announcement";
+import { mentorshipPhase } from "@/lib/ict-mentorship-offer";
 
 async function getNonBlockingTradeHeaderState(sessionUser: AlphaExchangeUser | null) {
   if (!sessionUser) {
@@ -129,6 +131,7 @@ export async function SiteHeader({
       <Suspense fallback={null}>
         <TradeHeaderStatus locale={locale} sessionUser={sessionUser} />
       </Suspense>
+      <MentorshipAnnouncement locale={locale} initialPhase={mentorshipPhase()} />
     </header>
   );
 }

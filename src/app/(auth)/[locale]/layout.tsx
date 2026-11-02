@@ -7,6 +7,8 @@ import { Inter, IBM_Plex_Sans_Arabic } from "next/font/google";
 import { routing, localeDirection, type AppLocale } from "@/i18n/routing";
 import { Link } from "@/i18n/navigation";
 import { BRAND_DESCRIPTOR, BRAND_DESCRIPTOR_AR, BRAND_NAME } from "@/lib/brand";
+import { MentorshipAnnouncement } from "@/components/layout/mentorship-announcement";
+import { mentorshipPhase } from "@/lib/ict-mentorship-offer";
 import { LocaleSwitcher } from "@/components/layout/locale-switcher";
 import { HtmlAttributesSetter } from "@/components/layout/html-attributes-setter";
 import appLoginStyles from "@/components/auth/app-login-network.module.css";
@@ -50,7 +52,7 @@ export default async function AuthLocaleLayout({
       <HtmlAttributesSetter lang={appLocale} dir={localeDirection[appLocale]} />
       <div
         dir={localeDirection[appLocale]}
-        className={`${loginStyles.authShell} ${appLoginStyles.authShell} ${inter.variable} ${plexArabic.variable} alpha-interface flex min-h-screen flex-col bg-[#050505] text-white ${
+        className={`${loginStyles.authShell} ${appLoginStyles.authShell} ${inter.variable} ${plexArabic.variable} alpha-interface alpha-auth-shell flex min-h-screen flex-col bg-[#050505] text-white ${
           appLocale === "ar" ? "alpha-interface--ar" : ""
         }`}
       >
@@ -71,6 +73,7 @@ export default async function AuthLocaleLayout({
           </Link>
           <LocaleSwitcher />
         </header>
+        <MentorshipAnnouncement locale={appLocale} initialPhase={mentorshipPhase()} />
         <main className="flex flex-1 items-center justify-center px-4 py-7 sm:px-6 sm:py-9 lg:px-8">{children}</main>
       </div>
     </NextIntlClientProvider>
