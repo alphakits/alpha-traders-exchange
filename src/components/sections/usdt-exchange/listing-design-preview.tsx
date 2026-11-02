@@ -61,7 +61,7 @@ const samples = [
 ];
 
 /** The preview route is local or staging only. All sellers and quantities are fixtures. */
-export function ListingDesignPreview({ locale }: { locale: "en" | "ar" }) {
+export function ListingDesignPreview({ locale, previewStartedAt }: { locale: "en" | "ar"; previewStartedAt: number }) {
   const isAr = locale === "ar";
   const [cardWidth, setCardWidth] = useState(560);
   const [largeAmount, setLargeAmount] = useState(false);
@@ -80,9 +80,12 @@ export function ListingDesignPreview({ locale }: { locale: "en" | "ar" }) {
       </header>
       <div className="grid gap-2">
         {samples.map((sample, index) => {
-          const listing = index === 0 && largeAmount
-            ? { ...sample, availableAmount: "999999999999.99", originalAmount: "999999999999.99", maximumTrade: "999999999999.99" }
-            : sample;
+          const minutesLeft = index === 0 ? 8 * 60 : 3 * 60 + 45;
+          const listing = {
+            ...sample,
+            expiresAt: new Date(previewStartedAt + minutesLeft * 60_000).toISOString(),
+            ...(index === 0 && largeAmount && { availableAmount: "999999999999.99", originalAmount: "999999999999.99", maximumTrade: "999999999999.99" }),
+          };
           return (
             <div key={listing.id} onClickCapture={event => {
               // The profile link points to a synthetic identity on this preview.

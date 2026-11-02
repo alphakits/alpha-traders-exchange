@@ -1143,34 +1143,22 @@ input[placeholder*="usdt" i]::placeholder { color: #34d399; }
   box-shadow: none;
 }
 
-/* Eligibility countdown badge (neutral 12h–4h, premium red <4h). No looping animation. */
-.seller-listing-countdown {
+/* Keep expiry secondary to availability and the trade actions. */
+.compact-listing .seller-listing-countdown {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  border-radius: 9999px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  padding: 2px 8px;
-  font-size: 11px;
-  font-weight: 600;
+  font-size: .6875rem;
+  line-height: 1.4;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
-  transition: transform 180ms ease, box-shadow 180ms ease;
 }
-.seller-listing-countdown--neutral {
-  color: #fcd34d;
-  background: rgba(234, 179, 8, 0.12);
-  border-color: rgba(234, 179, 8, 0.4);
+.compact-listing .seller-listing-countdown--neutral {
+  color: #b4bac3;
 }
-.seller-listing-countdown--urgent {
-  color: #fff;
-  background: linear-gradient(135deg, rgba(220, 38, 38, 0.9), rgba(190, 18, 60, 0.85));
-  border-color: rgba(248, 113, 113, 0.75);
-  padding: 4px 11px;
-  font-size: 12px;
-  font-weight: 800;
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
-  box-shadow: 0 0 0 1px rgba(248, 113, 113, 0.35), 0 0 20px rgba(220, 38, 38, 0.55);
+.compact-listing .seller-listing-countdown--urgent {
+  color: #dfc59e;
 }
 
 .seller-asset-usdt-card {
@@ -2676,7 +2664,6 @@ input[placeholder*="usdt" i]::placeholder { color: #34d399; }
 .compact-listing .seller-listing-seller-name { min-width: 0; font-size: 1rem; overflow-wrap: anywhere; }
 .compact-listing .seller-listing-seller-subtitle { letter-spacing: .04em; line-height: 1.5; }
 .compact-listing .compact-listing__availability { max-width: 6.5rem; text-align: end; }
-.compact-listing .seller-listing-countdown { flex-wrap: wrap; justify-content: center; white-space: normal; }
 .compact-listing .compact-listing__metrics { padding: .25rem; }
 .compact-listing__metrics-grid { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: .5rem; }
 .compact-listing .seller-card-keymetric { min-height: 0; padding: .5rem .625rem; justify-content: flex-start; gap: .125rem; }

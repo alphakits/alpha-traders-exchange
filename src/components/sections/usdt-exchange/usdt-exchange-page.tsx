@@ -79,6 +79,7 @@ import { getWalletAddressValidationError, normalizeWalletAddress } from "@/lib/w
 import { useLiveUserPresence, useLivePresenceMap } from "@/lib/user-presence-client";
 import { compareSellerResponseTimes, formatMeasuredResponseTime, measuredSellerResponseMinutes, sellerRatingDisplay, sellerScoreDisplay } from "@alpha-traders/contracts";
 import { deriveListingCountdown, deriveSellerPresence } from "@/lib/seller-presence";
+import { ListingCountdownBadge } from "./listing-countdown-badge";
 import { LISTING_CHANGE_REASONS, listingEditRequiresReason, validateListingChangeReason } from "@/lib/listing-change-reasons";
 import { publicAccountName } from "@/lib/public-account-identity";
 import { sortNotificationsNewestFirst } from "@/lib/notification-sort";
@@ -1304,32 +1305,6 @@ export const ListingCard = memo(function ListingCard({ listing, isAr, marketPric
         </div>
       </CardContent>
     </Card>
-  );
-});
-
-// Isolated eligibility countdown. Only mounts a timer while the countdown is
-// actually visible (<=12h remaining), so hidden listings never tick and a
-// single listing's countdown never re-renders the whole marketplace.
-const ListingCountdownBadge = memo(function ListingCountdownBadge({ expiresAt, isAr }: { expiresAt?: string; isAr: boolean }) {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const current = deriveListingCountdown(expiresAt, Date.now());
-    if (!current.visible) return;
-    const id = window.setInterval(() => setNow(Date.now()), 30000);
-    return () => window.clearInterval(id);
-  }, [expiresAt]);
-  const countdown = deriveListingCountdown(expiresAt, now);
-  if (!countdown.visible) return null;
-  const urgent = countdown.tier === "urgent";
-  return (
-    <span
-      className={cn("seller-listing-countdown", `seller-listing-countdown--${countdown.tier}`)}
-      role="timer"
-      aria-label={isAr ? `صلاحية العرض: ${countdown.labelAr}` : `Listing eligibility: ${countdown.label}`}
-    >
-      {urgent ? <AlertTriangle className="h-3.5 w-3.5" aria-hidden="true" /> : <Clock3 className="h-3.5 w-3.5" aria-hidden="true" />}
-      {currencyText(isAr ? countdown.labelAr : countdown.label)}
-    </span>
   );
 });
 
