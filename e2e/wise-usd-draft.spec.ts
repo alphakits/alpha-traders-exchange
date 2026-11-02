@@ -165,6 +165,16 @@ test("personal Wise USD accounts and Buy Request complete locally with private p
     const premature = await seller.patch(path, { data: { status: "usdt_release_pending" } });
     expect(premature.ok()).toBe(false);
     await ok(await seller.patch(path, { data: { status: "accepted", safetyAcknowledged: true } }));
+    // A URL alone does not establish that the buyer has bootstrapped the
+    // authenticated room. Prove the other participant's acceptance arrives
+    // in the existing view, then verify the same private state after a real
+    // reload. Keep the error audit active for both documents.
+    phase = "buyer observes acceptance before reload";
+    const reveal = page.getByRole("button", { name: "Reveal Bank Details", exact: true });
+    await expect(reveal).toBeVisible();
+    await expect(reveal).toBeEnabled();
+    await expect(page.getByText("00002002002", { exact: true })).toHaveCount(0);
+    await expect(page.getByText("00001001001", { exact: true })).toHaveCount(0);
     phase = "reload accepted Trade Room";
     // The departing document can cancel its account-safety read in WebKit.
     // Preserve that exact native diagnostic only if the new main document
@@ -172,7 +182,9 @@ test("personal Wise USD accounts and Buy Request complete locally with private p
     await browserErrorAudit.navigate(page, () => page.reload(), unblockedAccountDestinationFeed(
       new URL(`/api/alpha-exchange/user-blocks/${OFFLINE_ACCOUNTS.seller.id}`, baseURL).href,
     ));
-    await expect(page.getByRole("button", { name: "Reveal Bank Details", exact: true })).toBeVisible();
+    await expect(reveal).toBeVisible();
+    await expect(page.getByText("00002002002", { exact: true })).toHaveCount(0);
+    await expect(page.getByText("00001001001", { exact: true })).toHaveCount(0);
     phase = "reveal payment instructions";
     await clickConfirmedTradeAction(page, page.getByRole("button", { name: "Reveal Bank Details", exact: true }));
     await expect(page.getByText("00002002002", { exact: true })).toBeVisible();

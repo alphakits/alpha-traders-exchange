@@ -1,10 +1,29 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import Link from "next/link";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { MobileNavigationMenu } from "@/components/layout/mobile-navigation-menu";
 
 afterEach(cleanup);
 
 describe("MobileNavigationMenu", () => {
+  it("reveals a clipped active link inside the menu on open without moving focus", () => {
+    render(<MobileNavigationMenu label="Open menu"><Link href="/en/usdt-exchange/requests" aria-current="page">Buy Requests</Link></MobileNavigationMenu>);
+    const link = screen.getByText("Buy Requests");
+    const panel = link.parentElement!;
+    const details = link.closest("details")!;
+    vi.spyOn(panel, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 58, 288, 128));
+    vi.spyOn(link, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 168, 260, 44));
+    const trigger = screen.getByLabelText("Open menu");
+    trigger.focus();
+    details.open = true;
+    fireEvent(details, new Event("toggle"));
+    expect(panel.scrollTop).toBe(68);
+    expect(document.activeElement).toBe(trigger);
+    details.open = false;
+    fireEvent(details, new Event("toggle"));
+    expect(panel.scrollTop).toBe(68);
+  });
+
   it("closes immediately after a navigation item is selected", () => {
     render(
       <MobileNavigationMenu label="Open menu">
