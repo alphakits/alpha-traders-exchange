@@ -1,13 +1,17 @@
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
-const state=vi.hoisted(()=>({user:{id:"user"} as {id:string}|null, device:"off", enable:vi.fn()}));
+const state=vi.hoisted(()=>({user:{id:"user"} as {id:string}|null, device:"off", enable:vi.fn(), check:vi.fn()}));
 vi.mock("@/components/auth/canonical-session-provider",()=>({useCanonicalSession:()=>({user:state.user,isResolving:false})}));
-vi.mock("@/lib/browser-push-client",()=>({checkBrowserPush:async()=>state.device,enableBrowserPush:state.enable}));
+vi.mock("@/lib/browser-push-client",async (original)=>({
+ ...await original<typeof import("@/lib/browser-push-client")>(), checkBrowserPush:state.check,enableBrowserPush:state.enable,
+}));
+import { BrowserPushSessionExpired } from "@/lib/browser-push-client";
 import { BrowserPushPrompt } from "./browser-push-prompt";
 const base={preferences:{inApp:true,email:false,browserPush:false},emailVerified:true,browserPush:{available:true,publicKey:"public"}};
 let value:typeof base;let show:boolean;let fetcher:Mock<(url:string, options?:RequestInit)=>Promise<Response>>;
 beforeEach(()=>{
  vi.useFakeTimers();state.user={id:"user"};state.device="off";state.enable.mockReset();state.enable.mockResolvedValue("on");show=true;value=structuredClone(base);
+ state.check.mockReset().mockImplementation(async () => state.device);
  fetcher=vi.fn(async(url:string,options?:RequestInit)=>{
   if(options?.method==="PATCH") return new Response("{}",{status:200});
   if(options?.method==="POST") return new Response(JSON.stringify({show}),{status:200});
@@ -56,6 +60,76 @@ it("does not refresh a push subscription using a response for a different accoun
 });
 afterEach(()=>{cleanup();vi.useRealTimers();vi.unstubAllGlobals();delete window.ReactNativeWebView;});
 async function settle(){await act(async()=>{await vi.advanceTimersByTimeAsync(4100);});}
+
+describe("Home Screen enrollment recovery", () => {
+ it.each(["en", "ar"] as const)("guides a blocked iPhone through system settings and explicit Enable in %s", async locale => {
+  const ua = vi.spyOn(navigator, "userAgent", "get").mockReturnValue("Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)");
+  try {
+   state.device = "blocked"; value.preferences.email = true;
+   render(<BrowserPushPrompt locale={locale} />); await settle();
+   const isAr = locale === "ar";
+   fireEvent.click(screen.getByRole("button", { name: isAr ? "الإعدادات" : "Settings" }));
+   const instructions = screen.getByRole("status").textContent;
+   expect(instructions).toContain(isAr ? "الشاشة الرئيسية" : "Home Screen");
+   expect(instructions).toContain(isAr ? "السماح بالإشعارات" : "Allow Notifications");
+   expect(instructions).toContain(isAr ? "إعادة الفحص" : "Check again");
+   expect(instructions).toContain(isAr ? "تفعيل" : "Enable");
+   expect(instructions).not.toMatch(/address bar|بجانب العنوان/);
+   state.device = "off";
+   await act(async () => { fireEvent.click(screen.getByRole("button", { name: isAr ? "إعادة الفحص" : "Check again" })); });
+   expect(state.enable).not.toHaveBeenCalled();
+   await act(async () => { fireEvent.click(screen.getByRole("button", { name: isAr ? "تفعيل" : "Enable" })); });
+   expect(state.enable).toHaveBeenCalledOnce();
+  } finally { ua.mockRestore(); }
+ });
+});
+
+describe("expired device setup session", () => {
+ function expectRecovery(locale: "en" | "ar") {
+  const isAr = locale === "ar";
+  const href = screen.getByRole("link", { name: isAr ? "تسجيل الدخول" : "Sign in" }).getAttribute("href")!;
+  const url = new URL(href, "https://www.alphatraders.co.il");
+  expect(url.pathname).toBe("/" + locale + "/login");
+  expect(url.searchParams.get("redirectTo")).toBe("/" + locale + "/profile#notification-preferences");
+  expect(screen.queryByRole("button", { name: isAr ? "إرسال تنبيه تجريبي" : "Send test alert" })).toBeNull();
+ }
+ it.each(["en", "ar"] as const)("replaces cached readiness on a 401 recheck and returns to localized Alerts in %s", async locale => {
+  state.device = "on";
+  render(<BrowserPushPrompt locale={locale} />); await settle();
+  const isAr = locale === "ar";
+  expect(screen.getByRole("button", { name: isAr ? "إرسال تنبيه تجريبي" : "Send test alert" })).toBeTruthy();
+  fetcher.mockResolvedValueOnce(new Response(null, { status: 401 }));
+  await act(async () => { fireEvent.click(screen.getByRole("button", { name: isAr ? "إعادة الفحص" : "Check again" })); });
+  expectRecovery(locale);
+ });
+ it("shows sign-in for a manual open queued during an automatic lookup that expires", async () => {
+  let resolve!: (response: Response) => void;
+  fetcher.mockImplementationOnce(() => new Promise<Response>(done => { resolve = done; }));
+  render(<BrowserPushPrompt locale="en" />); await settle();
+  await act(async () => { window.dispatchEvent(new Event("alpha-notification-settings")); });
+  expect(screen.queryByRole("link")).toBeNull();
+  await act(async () => { resolve(new Response(null, { status: 401 })); });
+  expectRecovery("en");
+ });
+ it("keeps an unsolicited 401 quiet until the user opens device settings", async () => {
+  fetcher.mockResolvedValueOnce(new Response(null, { status: 401 }));
+  render(<BrowserPushPrompt locale="en" />); await settle();
+  expect(screen.queryByRole("region")).toBeNull();
+  await act(async () => { window.dispatchEvent(new Event("alpha-notification-settings")); });
+  expectRecovery("en");
+ });
+ it.each(["refresh", "enable", "test"])("recovers if the session expires during %s after a successful settings read", async stage => {
+  state.device = stage === "enable" ? "off" : "on";
+  value.preferences.email = stage === "enable";
+  render(<BrowserPushPrompt locale="en" />); await settle();
+  if (stage === "refresh") state.check.mockRejectedValueOnce(new BrowserPushSessionExpired());
+  if (stage === "enable") state.enable.mockRejectedValueOnce(new BrowserPushSessionExpired());
+  if (stage === "test") fetcher.mockResolvedValueOnce(new Response(null, { status: 401 }));
+  const name = stage === "refresh" ? "Check again" : stage === "enable" ? "Enable" : "Send test alert";
+  await act(async () => { fireEvent.click(screen.getByRole("button", { name })); });
+  expectRecovery("en");
+ });
+});
 describe("smart notification reminder",()=>{
  it("does nothing for guests",async()=>{state.user=null;render(<BrowserPushPrompt locale="en"/>);await settle();expect(fetcher).not.toHaveBeenCalled();});
  it("checks channels without asking for permission, and only enables email on a click",async()=>{

@@ -6,8 +6,9 @@ import { BellRing, Check, Mail, Smartphone, X } from "lucide-react";
 import { NATIVE_WEB_BRIDGE_VERSION } from "@alpha-traders/contracts";
 import type { AppLocale } from "@/i18n/routing";
 import { useCanonicalSession } from "@/components/auth/canonical-session-provider";
-import { checkBrowserPush, enableBrowserPush, type DevicePushState } from "@/lib/browser-push-client";
+import { BrowserPushSessionExpired, checkBrowserPush, enableBrowserPush, isAppleMobileDevice, type DevicePushState } from "@/lib/browser-push-client";
 import { postToNativeApp } from "@/lib/native-app-bridge";
+import { getSignedOutPageDestination } from "@/lib/protected-page";
 
 type Status = {
   userId?: string;
@@ -23,6 +24,7 @@ export function BrowserPushPrompt({ locale }: { locale: AppLocale }) {
   const [status, setStatus] = useState<Status | null>(null);
   const [device, setDevice] = useState<DevicePushState>("unavailable");
   const [visible, setVisible] = useState(false);
+  const [needsSignIn, setNeedsSignIn] = useState(false);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const nativeStatus = useRef<DevicePushState>("unavailable");
@@ -32,8 +34,18 @@ export function BrowserPushPrompt({ locale }: { locale: AppLocale }) {
   const scopeRef = useRef<AbortController | null>(null);
   const testInFlight = useRef<AbortController | null>(null);
 
+  const showSessionExpired = useCallback((scope: AbortController, manual: boolean) => {
+    if (scope.signal.aborted || scopeRef.current !== scope || currentUser.current !== userId) return;
+    // An earlier Enable or test response must not restore readiness after a 401.
+    scope.abort();
+    setStatus(null); setDevice("unavailable"); setNotice(null); setBusy(false);
+    setNeedsSignIn(true);
+    if (manual) setVisible(true);
+  }, [userId]);
+
   useEffect(() => {
     setVisible(false); setStatus(null); setDevice("unavailable"); setBusy(false); setNotice(null);
+    setNeedsSignIn(false);
     testInFlight.current = null;
     nativeStatus.current = "unavailable";
     refreshRef.current = async () => undefined;
@@ -53,6 +65,7 @@ export function BrowserPushPrompt({ locale }: { locale: AppLocale }) {
       lastCheck = Date.now();
       try {
         const response = await fetch("/api/alpha-exchange/notification-engagement", { cache: "no-store", signal: controller.signal });
+        if (response.status === 401) { showSessionExpired(controller, manual || queuedManual); return; }
         if (!response.ok) return;
         const value = await response.json() as Status;
         if (!value.preferences || !value.browserPush || (value.userId && value.userId !== userId)) return;
@@ -60,7 +73,10 @@ export function BrowserPushPrompt({ locale }: { locale: AppLocale }) {
         let push: DevicePushState = native ? nativeStatus.current : "unavailable";
         if (!native && value.browserPush.available) {
           try { push = await checkBrowserPush(locale, value.preferences.browserPush, { signal: controller.signal, userId, publicKey: value.browserPush.publicKey ?? undefined }); }
-          catch { push = "off"; }
+          catch (error) {
+            if (error instanceof BrowserPushSessionExpired) { showSessionExpired(controller, manual || queuedManual); return; }
+            push = "off";
+          }
         }
         if (controller.signal.aborted) return;
         setStatus(value); setDevice(push);
@@ -74,6 +90,7 @@ export function BrowserPushPrompt({ locale }: { locale: AppLocale }) {
           method: "POST", headers: { "Content-Type": "application/json" }, signal: controller.signal,
           body: JSON.stringify({ action: "claim", needsPush, expectedUserId: userId }),
         });
+        if (claim.status === 401) { showSessionExpired(controller, manual || queuedManual); return; }
         if (claim.ok && (await claim.json()).show && !controller.signal.aborted && !document.hidden) {
           claimed = true; setVisible(true);
         }
@@ -90,14 +107,19 @@ export function BrowserPushPrompt({ locale }: { locale: AppLocale }) {
     refreshRef.current = refresh;
     const onFocus = () => { void refresh(); };
     const onChanged = () => { lastCheck = 0; void refresh(); };
-    const onManage = () => { void refresh(true); };
+    const onManage = () => {
+      if (scopeRef.current !== controller) return;
+      if (controller.signal.aborted) setVisible(true);
+      else void refresh(true);
+    };
     const onNative = (event: Event) => {
       const detail = (event as CustomEvent<{ userId: string; state: DevicePushState }>).detail;
       if (!detail || detail.userId !== userId || !["on", "off", "blocked", "unavailable"].includes(detail.state)) return;
       nativeStatus.current = detail.state; onChanged();
     };
     const onSignedOut = () => {
-      controller.abort(); setVisible(false); setStatus(null); setDevice("unavailable");
+      scopeRef.current = null;
+      controller.abort(); setVisible(false); setStatus(null); setDevice("unavailable"); setNeedsSignIn(false);
     };
     window.addEventListener("focus", onFocus);
     document.addEventListener("visibilitychange", onFocus);
@@ -109,6 +131,7 @@ export function BrowserPushPrompt({ locale }: { locale: AppLocale }) {
     const first = setTimeout(onFocus, 4000);
     const interval = setInterval(() => { claimed = false; void refresh(); }, 5 * 60_000);
     return () => {
+      if (scopeRef.current === controller) scopeRef.current = null;
       controller.abort(); clearTimeout(first); clearInterval(interval);
       window.removeEventListener("focus", onFocus);
       document.removeEventListener("visibilitychange", onFocus);
@@ -117,7 +140,7 @@ export function BrowserPushPrompt({ locale }: { locale: AppLocale }) {
       window.removeEventListener("alpha-notification-push-state", onNative);
       window.removeEventListener("alpha-auth-signed-out", onSignedOut);
     };
-  }, [userId, isResolving, locale]);
+  }, [userId, isResolving, locale, showSessionExpired]);
 
   const enableChannel = useCallback(async (channel: "inApp" | "email") => {
     if (busy || !userId) return;
@@ -128,13 +151,14 @@ export function BrowserPushPrompt({ locale }: { locale: AppLocale }) {
       const response = await fetch("/api/alpha-exchange/notification-preferences", {
         method: "PATCH", headers: { "Content-Type": "application/json", "x-alpha-expected-user-id": userId }, signal: scope.signal, body: JSON.stringify({ [channel]: true }),
       });
+      if (response.status === 401) { showSessionExpired(scope, true); return; }
       if (!response.ok) throw new Error("save");
       if (scope.signal.aborted || currentUser.current !== userId) return;
       setStatus(value => value && ({ ...value, preferences: { ...value.preferences, [channel]: true } }));
       window.dispatchEvent(new Event("alpha-notification-preferences-changed"));
     } catch { if (!scope.signal.aborted && currentUser.current === userId) setNotice(isAr ? "تعذر التفعيل. حاول مرة أخرى." : "Could not enable alerts. Please try again."); }
     finally { if (!scope.signal.aborted && currentUser.current === userId) setBusy(false); }
-  }, [busy, isAr, userId]);
+  }, [busy, isAr, userId, showSessionExpired]);
 
   async function enablePush() {
     if (busy || !userId) return;
@@ -150,7 +174,13 @@ export function BrowserPushPrompt({ locale }: { locale: AppLocale }) {
       return;
     }
     if (device === "blocked") {
-      setNotice(isAr ? "اضغط أيقونة إعدادات الموقع بجانب العنوان، ثم الإشعارات ← سماح. عُد إلى Alpha واضغط إعادة الفحص." : "Open site settings beside the address bar, set Notifications to Allow, then return to Alpha and tap Check again.");
+      if (isAppleMobileDevice()) {
+        setNotice(isAr
+          ? "افتح الإعدادات على جهازك، ثم الإشعارات، واختر تطبيق Alpha الذي أضفته إلى الشاشة الرئيسية وفعّل «السماح بالإشعارات». عُد إلى Alpha واضغط «إعادة الفحص»، ثم «تفعيل» بجانب «هذا الجهاز» إذا ظهر الزر."
+          : "Open your device’s Settings → Notifications, choose the Alpha app you added to your Home Screen, and turn on Allow Notifications. Return to Alpha, tap Check again, then tap Enable under This device if it appears.");
+      } else {
+        setNotice(isAr ? "اضغط أيقونة إعدادات الموقع بجانب العنوان، ثم الإشعارات ← سماح. عُد إلى Alpha واضغط إعادة الفحص." : "Open site settings beside the address bar, set Notifications to Allow, then return to Alpha and tap Check again.");
+      }
       return;
     }
     if (!status?.browserPush.publicKey) return;
@@ -163,7 +193,10 @@ export function BrowserPushPrompt({ locale }: { locale: AppLocale }) {
         setStatus(value => value && ({ ...value, preferences: { ...value.preferences, browserPush: true, inApp: true } }));
         window.dispatchEvent(new Event("alpha-notification-preferences-changed"));
       }
-    } catch { if (!scope.signal.aborted && currentUser.current === userId) setNotice(isAr ? "لم يكتمل تفعيل إشعارات هذا الجهاز. حاول مرة أخرى." : "Device alerts were not connected. Please try again."); }
+    } catch (error) {
+      if (error instanceof BrowserPushSessionExpired) showSessionExpired(scope, true);
+      else if (!scope.signal.aborted && currentUser.current === userId) setNotice(isAr ? "لم يكتمل تفعيل إشعارات هذا الجهاز. حاول مرة أخرى." : "Device alerts were not connected. Please try again.");
+    }
     finally { if (!scope.signal.aborted && currentUser.current === userId) setBusy(false); }
   }
 
@@ -178,6 +211,7 @@ export function BrowserPushPrompt({ locale }: { locale: AppLocale }) {
         body: JSON.stringify({ expectedUserId: userId, locale }),
       });
       if (scope.signal.aborted || currentUser.current !== userId) return;
+      if (response.status === 401) { showSessionExpired(scope, true); return; }
       if (response.status === 429) {
         setNotice(isAr ? "انتظر خمس دقائق قبل إرسال تنبيه تجريبي آخر." : "Wait five minutes before sending another test alert.");
         return;
@@ -208,13 +242,21 @@ export function BrowserPushPrompt({ locale }: { locale: AppLocale }) {
       const response = await fetch("/api/alpha-exchange/notification-engagement", {
         method: "POST", headers: { "Content-Type": "application/json" }, signal: scope.signal, body: JSON.stringify({ action: "snooze", expectedUserId: userId }),
       });
+      if (response.status === 401) { showSessionExpired(scope, true); return; }
       if (!response.ok) throw new Error("snooze");
       if (!scope.signal.aborted && currentUser.current === userId) setVisible(false);
     } catch { if (!scope.signal.aborted && currentUser.current === userId) setNotice(isAr ? "تعذر حفظ التذكير. حاول مرة أخرى." : "Could not save your reminder choice. Please retry."); }
     finally { if (!scope.signal.aborted && currentUser.current === userId) setBusy(false); }
   }
 
-  if (!userId || isResolving || !visible || !status) return null;
+  if (!userId || isResolving || !visible) return null;
+  if (needsSignIn) return (
+    <section id="notification-setup" aria-label={isAr ? "تفعيل الإشعارات" : "Notification setup"} dir={isAr ? "rtl" : "ltr"} className="mx-auto my-4 max-w-5xl rounded-2xl border border-[#C9A227]/35 bg-[#11100D] p-4 text-white">
+      <p role="status">{isAr ? "انتهت جلستك. سجّل الدخول على هذا الجهاز للعودة إلى تفضيلات الإشعارات." : "Your session has ended. Sign in on this device to return to your notification preferences."}</p>
+      <a className="mt-2 inline-flex min-h-11 items-center font-semibold text-[#F5D878] underline" href={getSignedOutPageDestination(`/${locale}/profile#notification-preferences`)}>{isAr ? "تسجيل الدخول" : "Sign in"}</a>
+    </section>
+  );
+  if (!status) return null;
   const allOn = status.preferences.inApp && status.preferences.email && status.emailVerified && device === "on";
   const actionClass = "min-h-11 rounded-lg border border-[#C9A227]/40 px-3 py-2 text-xs font-semibold text-[#F5D878] hover:bg-[#C9A227]/10 disabled:opacity-50";
   return (
