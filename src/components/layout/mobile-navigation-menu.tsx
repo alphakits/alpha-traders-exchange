@@ -11,20 +11,29 @@ type MobileNavigationMenuProps = {
 export function MobileNavigationMenu({ children, label }: MobileNavigationMenuProps) {
   const detailsRef = useRef<HTMLDetailsElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
+  const revealedLink = useRef<HTMLAnchorElement | null>(null);
 
   // Keep the active destination usable on short screens. Scroll only the
   // dropdown; scrollIntoView would also move the page behind the sticky header.
   const revealActiveLink = () => {
     const panel = panelRef.current;
-    if (!detailsRef.current?.open || !panel) return;
+    if (!detailsRef.current?.open || !panel) {
+      revealedLink.current = null;
+      return;
+    }
     const link = panel.querySelector<HTMLAnchorElement>('a[aria-current="page"]');
-    if (!link) return;
+    if (!link || link === revealedLink.current) return;
     const bounds = panel.getBoundingClientRect();
     const item = link.getBoundingClientRect();
-    if (bounds.height > 0 && item.height > 0 && (item.top < bounds.top || item.bottom > bounds.bottom)) {
+    if (!bounds.height || !item.height) return;
+    if (item.top < bounds.top || item.bottom > bounds.bottom) {
       panel.scrollTop += (item.top + item.bottom - bounds.top - bounds.bottom) / 2;
     }
+    revealedLink.current = link;
   };
+
+  // A native details menu can open before the session-specific links hydrate.
+  useEffect(revealActiveLink, [children]);
 
   useEffect(() => {
     const closeOnEscape = (event: KeyboardEvent) => {
