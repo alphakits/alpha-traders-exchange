@@ -1,3 +1,5 @@
+import { canonicalizeNonNegativeTradeAmount } from "./trade-amount";
+
 // Presentation only. Never pass formatted output to payment or identity APIs.
 const digit = "[0-9٠-٩۰-۹]";
 const integer = digit + "+(?:[,٬]" + digit + "{3})*";
@@ -31,6 +33,17 @@ const tokens = new RegExp(
 );
 const emphasisHint = /alpha|[أاآ]لفا|usdt?|ils|nis|[$₪]|دولار|شي[كق]ل|شاقل|amount|price|مبلغ|مبالغ|سعر|[أا]سعار|كمية|كميات|مقدار/i;
 const displayNumber = /[0-9٠-٩۰-۹]+(?:[,٬][0-9٠-٩۰-۹]{3})*(?:[.٫][0-9٠-٩۰-۹]+)?/g;
+
+const listingCardNumber = new Intl.NumberFormat("en-US", {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
+
+/** Two-decimal presentation for USDT quantities on listing cards. */
+export function formatListingCardUsdt(value: string | number | null | undefined): string {
+  const amount = canonicalizeNonNegativeTradeAmount(value);
+  return amount === null ? "—" : listingCardNumber.format(amount as `${number}`);
+}
 
 /** Group the integer part of a monetary display without rounding or numeric conversion. */
 export function formatMoneyNumber(value: string | number): string {

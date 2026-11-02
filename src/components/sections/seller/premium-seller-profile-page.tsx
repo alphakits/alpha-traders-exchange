@@ -20,7 +20,7 @@ import { MarketplaceEnforcementOwnerPanel } from "@/components/sections/seller/m
 import { resolveSellerListingPaymentMethods } from "@/lib/alpha-exchange-seller-profile";
 import { getVisibleSellerReviews } from "@/lib/reviews";
 import { UserPresence } from "@/components/ui/user-presence";
-import { formatMeasuredResponseTime, sellerRatingDisplay, sellerScoreDisplay, type SellerMetricEvidence } from "@alpha-traders/contracts";
+import { formatListingCardUsdt, formatMeasuredResponseTime, sellerRatingDisplay, sellerScoreDisplay, type SellerMetricEvidence } from "@alpha-traders/contracts";
 import { normalizeMarketplacePaymentMethod } from "@/lib/marketplace-payment-methods";
 import { cn } from "@/lib/utils";
 import type { PremiumSellerProfileData, SellerBadge, SellerLevel } from "@/types/alpha-exchange";
@@ -618,7 +618,7 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, vi
                   <div className={`flex items-center justify-between ${isAr ? "flex-row-reverse" : ""}`}>
                     <div>
                       <p className="text-lg font-semibold text-white"><bdi dir="ltr">{currencyText(`${listing.price} ILS / USDT`)}</bdi></p>
-                      <p className="inline-flex items-center gap-1.5 text-sm text-[#9CA3AF]"><UsdtIcon />{isAr ? "المتاح" : "Available"}: <bdi dir="ltr">{currencyText(`${listing.availableAmount} USDT`)}</bdi></p>
+                      <p className="inline-flex items-center gap-1.5 text-sm text-[#9CA3AF]"><UsdtIcon />{isAr ? "المتاح" : "Available"}: <bdi dir="ltr">{currencyText(`${formatListingCardUsdt(listing.availableAmount)} USDT`)}</bdi></p>
                     </div>
                     <span className="rounded-full border border-[#C9A227]/20 bg-[#C9A227]/10 px-3 py-1 text-xs text-[#FDE68A]"><bdi dir="ltr">{currencyText(listing.network)}</bdi></span>
                   </div>

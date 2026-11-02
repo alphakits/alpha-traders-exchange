@@ -1,6 +1,7 @@
 "use client";
 
 import { formatMoneyNumber } from "@/lib/accent-text";
+import { listingMaximumForAvailableAmount } from "@/lib/listing-trade-limits";
 import { buildTradeRoomDestination } from "@/lib/trade-room-destination";
 import { useWiseAccounts } from "./wise-account-select";
 import type { ListingCreateForm } from "./seller-workspace-section";
@@ -13,7 +14,7 @@ import { workspaceTradeNextStep } from "@/lib/workspace-next-step";
 import { isListingCommissionRequiredMessage, listingCommissionRequiredMessage } from "@/lib/listing-commission-policy";
 import { MarketplacePriceAlertPanel } from "@/components/sections/usdt-exchange/marketplace-price-alert-panel";
 import { MarketplaceToolPanel } from "@/components/sections/usdt-exchange/marketplace-tool-panel";
-import { getInterfaceAccess, marketplaceFeeTerms, sellerFeeResponsibilityNotice, formatCommissionAmount } from "@alpha-traders/contracts";
+import { getInterfaceAccess, marketplaceFeeTerms, sellerFeeResponsibilityNotice, formatCommissionAmount, formatListingCardUsdt } from "@alpha-traders/contracts";
 import { calculateFiatAmount, calculateTradeBuyerFiatFee, calculateTradePaymentTotal } from "@alpha-traders/contracts";
 
 
@@ -21,7 +22,7 @@ import { brandText, currencyText, moneyText } from "@/components/ui/currency-tex
 import { ActionFeedback, useActionFeedbackState } from "@/components/ui/action-feedback";
 import { useActionDialog } from "@/components/ui/use-action-dialog";
 import { isCardlessWithdrawalBank, parseCardlessWithdrawalDetails, validateCardlessIlsAmount, calculateCardlessUsdtAmount, getPurchaseMinimumTrade, cardlessPaymentAmountNotice, type CardlessVerificationKind } from "@alpha-traders/contracts";
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent } from "react";
 import { createPortal } from "react-dom";
 import dynamic from "next/dynamic";
 import { useSearchParams } from "next/navigation";
@@ -271,14 +272,6 @@ export type SellerBankAccount = {
 export function toNumber(value: string | number | null | undefined) {
   const normalized = String(value ?? "");
   return Number(normalized.replace(/[^\d.]/g, "")) || 0;
-}
-
-function availableAmountScaleClass(value: string | number | null | undefined) {
-  const digits = Math.max(1, Math.trunc(Math.abs(toNumber(value))).toString().length);
-  if (digits >= 7) return "seller-asset-usdt-value--compact";
-  if (digits >= 6) return "seller-asset-usdt-value--tight";
-  if (digits >= 4) return "seller-asset-usdt-value--balanced";
-  return "seller-asset-usdt-value--hero";
 }
 
 export function safeText(value: unknown, fallback = "—") {
@@ -1046,8 +1039,7 @@ export const ListingCard = memo(function ListingCard({ listing, isAr, marketPric
   const requestBlockReason = listing.newRequestBlockReason === "commission_due" ? undefined : listing.newRequestBlockReason;
   const sellerLevel = listing.sellerReputation?.level;
   const sellerRankKey = sellerLevelToneKey(sellerLevel);
-  const formattedAvailableAmount = formatMoneyNumber(listing.availableAmount);
-  const availableAmountClassName = availableAmountScaleClass(listing.availableAmount);
+  const formattedAvailableAmount = formatListingCardUsdt(listing.availableAmount);
   const presence = useLiveUserPresence(listing.sellerId, listing.sellerProfile);
   const sellerEmailVerified = listing.sellerProfile?.emailVerified === true || listing.sellerProfile?.isEmailVerified === true;
   const sellerRankBorderColor: Record<string, string> = {
@@ -1152,7 +1144,10 @@ export const ListingCard = memo(function ListingCard({ listing, isAr, marketPric
               <div className="seller-asset-usdt-amount-row">
                 <div className="seller-asset-usdt-amount-content">
 
-                  <p className={cn("seller-asset-usdt-value text-[#D6FFE7]", availableAmountClassName)}>
+                  <p
+                    className="seller-asset-usdt-value text-[#D6FFE7]"
+                    style={{ "--amount-characters": formattedAvailableAmount.length } as CSSProperties}
+                  >
                     {moneyText(formattedAvailableAmount)}
                   </p>
                   <span className="currency-money compact-listing__amount-unit currency-usdt">USDT</span>
@@ -1221,8 +1216,8 @@ export const ListingCard = memo(function ListingCard({ listing, isAr, marketPric
           </div>
           <div className="seller-card-info-panel min-w-0 space-y-1.5 rounded-xl border border-white/10 bg-black/25 p-3">
             {normalizePaymentMethodList(listing.paymentMethods, listing.paymentMethod).some(isCardlessAtmPaymentMethod)
-              ? <p>{currencyText(isAr ? "الحد الأقصى؛ كمية ATM تُحسب من الرمز" : "Maximum; ATM quantity follows the code")}: <span className="text-white">{currencyText(`${Math.min(toNumber(listing.maximumTrade) || toNumber(listing.availableAmount), toNumber(listing.availableAmount)).toLocaleString("en-US", { maximumFractionDigits: 6 })} USDT`)}</span></p>
-              : <p>{isAr ? "حدود الصفقة" : "Trade limits"}: <span className="text-white">{currencyText(`${formatMoneyNumber(listing.minimumTrade)} – ${formatMoneyNumber(listing.maximumTrade)} USDT`)}</span></p>}
+              ? <p>{currencyText(isAr ? "الحد الأقصى؛ كمية ATM تُحسب من الرمز" : "Maximum; ATM quantity follows the code")}: <span className="text-white">{currencyText(`${formatListingCardUsdt(toNumber(listing.availableAmount) > 0 ? listingMaximumForAvailableAmount(listing) : 0)} USDT`)}</span></p>
+              : <p>{isAr ? "حدود الصفقة" : "Trade limits"}: <span className="text-white">{currencyText(`${formatListingCardUsdt(listing.minimumTrade)} – ${formatListingCardUsdt(listing.maximumTrade)} USDT`)}</span></p>}
             <p>
               {isAr ? "مسار الصفقة" : "Trade flow"}:{" "}
               <span className="seller-escrow-emphasis">
