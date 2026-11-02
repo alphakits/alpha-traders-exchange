@@ -1,3 +1,5 @@
+import { formatMoneyNumber } from "./display-amount";
+
 export type LocalizedDecimalInputOptions = {
   maximumFractionDigits: number;
   maximumWholeDigits?: number;
@@ -138,6 +140,12 @@ export function canonicalizeTradeAmount(value: string | number | null | undefine
 
 export function canonicalizeNonNegativeTradeAmount(value: string | number | null | undefined) {
   return canonicalizeAmount(value, true);
+}
+
+/** Keep the precise executable limits visible when inventory is displayed in whole USDT. */
+export function formatListingTradeLimit(value: string | number | null | undefined): string {
+  const amount = canonicalizeNonNegativeTradeAmount(value);
+  return amount === null ? "—" : formatMoneyNumber(amount);
 }
 
 const listingCardNumber = new Intl.NumberFormat("en-US");

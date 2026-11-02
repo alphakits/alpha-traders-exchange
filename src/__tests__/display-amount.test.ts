@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatListingCardUsdt, formatMoneyNumber, splitAccentText } from "@alpha-traders/contracts";
+import { formatListingCardUsdt, formatListingTradeLimit, formatMoneyNumber, splitAccentText } from "@alpha-traders/contracts";
 
 const parts = (s: string) => splitAccentText(s, { groupQuantities: true });
 const visible = (s: string) => parts(s)?.map(p => p.text).join("") ?? s;
@@ -16,6 +16,10 @@ describe("financial presentation in English and Arabic", () => {
       .toEqual(["15,000", "15,000", "15,000", "13,762", "999,999,999,999", "0", "0"]);
     expect([null, "", "15,00.22"].map(formatListingCardUsdt)).toEqual(["—", "—", "—"]);
     expect(formatMoneyNumber("13762.376237")).toBe("13,762.376237");
+  });
+  it("shows the exact executable listing limits, including fractions smaller than one whole USDT", () => {
+    expect(["100.99", "١٥٬٠٠٠٫٢٢", "999999999999.999999", "0.000001", 0, null, "bad"].map(formatListingTradeLimit))
+      .toEqual(["100.99", "15,000.22", "999,999,999,999.999999", "0.000001", "0", "—", "—"]);
   });
   it("accents currency symbols, precise prices, ranges, labels and translated amounts", () => {
     expect(green("Price / AMOUNT: $15000.50 • 1000–12000 USDT | ₪ | $")).toEqual(["Price", "AMOUNT: $15,000.50", "1,000–12,000 USDT", "₪", "$"]);

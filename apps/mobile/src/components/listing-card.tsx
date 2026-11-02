@@ -1,4 +1,4 @@
-import { deriveUserPresence, formatListingCardUsdt, formatMeasuredResponseTime, sellerRatingDisplay, sellerScoreDisplay, MAX_PRICE_OFFER_VARIANCE_ILS } from "@alpha-traders/contracts";
+import { deriveUserPresence, formatListingCardUsdt, formatListingTradeLimit, formatMeasuredResponseTime, sellerRatingDisplay, sellerScoreDisplay, MAX_PRICE_OFFER_VARIANCE_ILS } from "@alpha-traders/contracts";
 import { BrandedText as Text } from "./branded-text";
 import { memo, useEffect, useMemo, useState } from "react";
 import { Image, Pressable, StyleSheet, View } from "react-native";
@@ -215,7 +215,7 @@ export const ListingCard = memo(function ListingCard({ listing, onBuy, onOffer, 
             </View>
           </View>
           <View style={styles.infoPanel}>
-            <Text style={[styles.infoLine, isRTL && styles.rtlText]}>{listing.paymentMethods.includes("Cardless ATM Withdrawal") ? copy("Maximum; ATM quantity follows the code", "الحد الأقصى؛ كمية ATM تُحسب من الرمز") : copy("Trade limits", "حدود الصفقة")}: <Text style={styles.infoValue}>{listing.paymentMethods.includes("Cardless ATM Withdrawal") ? "" : `${formatListingCardUsdt(listing.minimumTrade)} – `}{formatListingCardUsdt(listing.maximumTrade)} USDT</Text></Text>
+            <Text style={[styles.infoLine, isRTL && styles.rtlText]}>{listing.paymentMethods.includes("Cardless ATM Withdrawal") ? copy("Maximum; ATM quantity follows the code", "الحد الأقصى؛ كمية ATM تُحسب من الرمز") : copy("Trade limits", "حدود الصفقة")}: <Text style={styles.infoValue}>{listing.paymentMethods.includes("Cardless ATM Withdrawal") ? "" : `${formatListingTradeLimit(listing.minimumTrade)} – `}{formatListingTradeLimit(listing.maximumTrade)} USDT</Text></Text>
             <Text style={[styles.infoLine, isRTL && styles.rtlText]}>{copy("Trade flow", "مسار الصفقة")}: <Text style={styles.escrowValue}>{copy("Structured and recorded by Alpha Traders", "منظّم ومسجّل عبر Alpha Traders")}</Text></Text>
             <Text style={[styles.infoLine, isRTL && styles.rtlText]}>{copy("Region", "المنطقة")}: <Text style={styles.infoValue}>{listing.seller.country || copy("Israel", "إسرائيل")}</Text></Text>
           </View>

@@ -14,7 +14,7 @@ import { workspaceTradeNextStep } from "@/lib/workspace-next-step";
 import { isListingCommissionRequiredMessage, listingCommissionRequiredMessage } from "@/lib/listing-commission-policy";
 import { MarketplacePriceAlertPanel } from "@/components/sections/usdt-exchange/marketplace-price-alert-panel";
 import { MarketplaceToolPanel } from "@/components/sections/usdt-exchange/marketplace-tool-panel";
-import { getInterfaceAccess, marketplaceFeeTerms, sellerFeeResponsibilityNotice, formatCommissionAmount, formatListingCardUsdt } from "@alpha-traders/contracts";
+import { getInterfaceAccess, marketplaceFeeTerms, sellerFeeResponsibilityNotice, formatCommissionAmount, formatListingCardUsdt, formatListingTradeLimit } from "@alpha-traders/contracts";
 import { calculateFiatAmount, calculateTradeBuyerFiatFee, calculateTradePaymentTotal } from "@alpha-traders/contracts";
 
 
@@ -1211,8 +1211,8 @@ export const ListingCard = memo(function ListingCard({ listing, isAr, marketPric
               </div>
               <div className="seller-card-info-panel min-w-0 space-y-1.5 rounded-xl border border-white/10 bg-black/25 p-3">
                 {normalizePaymentMethodList(listing.paymentMethods, listing.paymentMethod).some(isCardlessAtmPaymentMethod)
-                  ? <p>{currencyText(isAr ? "الحد الأقصى؛ كمية ATM تُحسب من الرمز" : "Maximum; ATM quantity follows the code")}: <span className="text-white">{currencyText(`${formatListingCardUsdt(toNumber(listing.availableAmount) > 0 ? listingMaximumForAvailableAmount(listing) : 0)} USDT`)}</span></p>
-                  : <p>{isAr ? "حدود الصفقة" : "Trade limits"}: <span className="text-white">{currencyText(`${formatListingCardUsdt(listing.minimumTrade)} – ${formatListingCardUsdt(listing.maximumTrade)} USDT`)}</span></p>}
+                  ? <p>{currencyText(isAr ? "الحد الأقصى؛ كمية ATM تُحسب من الرمز" : "Maximum; ATM quantity follows the code")}: <span className="text-white">{currencyText(`${formatListingTradeLimit(toNumber(listing.availableAmount) > 0 ? listingMaximumForAvailableAmount(listing) : 0)} USDT`)}</span></p>
+                  : <p>{isAr ? "حدود الصفقة" : "Trade limits"}: <span className="text-white">{currencyText(`${formatListingTradeLimit(listing.minimumTrade)} – ${formatListingTradeLimit(listing.maximumTrade)} USDT`)}</span></p>}
                 <p>
                   {isAr ? "مسار الصفقة" : "Trade flow"}:{" "}
                   <span className="seller-escrow-emphasis">
