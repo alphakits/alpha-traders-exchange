@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { devices, expect, test, type Page } from "@playwright/test";
 import { createECDH } from "node:crypto";
 
 // UI-only push evidence: login, profile rendering, service-worker registration,
@@ -191,4 +191,71 @@ test("actual local configuration endpoint rejects signed-out access", async ({ p
   const response = await page.request.get("/api/alpha-exchange/notification-engagement");
   expect(response.status()).toBe(401);
   expect(JSON.stringify(await response.json())).not.toMatch(/publicKey|privateKey/);
+});
+
+test.describe("iPhone Home Screen push setup", () => {
+  const { userAgent, viewport, deviceScaleFactor, isMobile, hasTouch } = devices["iPhone 13"];
+  test.use({ userAgent, viewport, deviceScaleFactor, isMobile, hasTouch });
+
+  test.beforeEach(async ({ page, baseURL }) => {
+    expect(["localhost", "127.0.0.1", "[::1]"]).toContain(new URL(baseURL!).hostname);
+    await page.context().route(/^https?:\/\//, route => new URL(route.request().url()).origin === new URL(baseURL!).origin
+      ? route.fallback() : route.abort("blockedbyclient"));
+    // The Playwright engine remains real. Only the iOS installation signal
+    // and provider-facing push APIs are simulated in the loopback fixture.
+    await page.addInitScript(() => Object.defineProperty(navigator, "standalone", { configurable: true, value: true }));
+    await page.route("**/api/alpha-exchange/notification-push-test", route => route.abort());
+  });
+
+  test("blocked permission explains iPhone settings and Check again recovers Enable", async ({ page }) => {
+    const config = await login(page, "BUYER");
+    const registrations = await mockPushUi(page, config, "blocked");
+    const setup = await openSetup(page, "en");
+    await setup.getByRole("button", { name: "Settings", exact: true }).click();
+    const instructions = setup.getByRole("status");
+    await expect(instructions).toContainText(/Home Screen/i);
+    await expect(instructions).toContainText(/Settings/i);
+    await expect(instructions).toContainText(/Notifications/i);
+    await expect(instructions).not.toContainText(/address bar/i);
+
+    // Model returning from iOS Settings after allowing notifications.
+    await page.evaluate(() => Object.defineProperty(Notification, "permission", { configurable: true, value: "granted" }));
+    await setup.getByRole("button", { name: "Check again", exact: true }).click();
+    await expect(setup.getByRole("button", { name: "Enable", exact: true })).toBeVisible();
+    await expect(setup.getByRole("button", { name: "Settings", exact: true })).toHaveCount(0);
+    expect(registrations).toHaveLength(0);
+    await setup.getByRole("button", { name: "Enable", exact: true }).click();
+    await expect(setup).toBeHidden();
+    await page.getByRole("button", { name: "Set up device alerts", exact: true }).click();
+    await expect(setup.getByRole("button", { name: "Send test alert", exact: true })).toBeVisible();
+    expect(registrations.filter(request => request.action === "subscribe")).toHaveLength(1);
+    expect(await page.evaluate(() => (window as Window & { __pushUiPermissionCalls?: number }).__pushUiPermissionCalls)).toBe(0);
+  });
+
+  test("expired session clears ready state and offers sign-in back to Arabic Alerts", async ({ page, baseURL }) => {
+    const config = await login(page, "SELLER");
+    const registrations = await mockPushUi(page, config, "prompt");
+    const setup = await openSetup(page, "ar");
+    await setup.getByRole("button", { name: "تفعيل", exact: true }).click();
+    await expect(setup).toBeHidden();
+    await page.getByRole("button", { name: "إعداد إشعارات هذا الجهاز", exact: true }).click();
+    const sendTest = setup.getByRole("button", { name: "إرسال تنبيه تجريبي", exact: true });
+    await expect(sendTest).toBeVisible();
+    const beforeExpiry = registrations.length;
+
+    await page.route("**/api/alpha-exchange/notification-engagement", route => route.request().method() === "GET"
+      ? route.fulfill({ status: 401, json: { error: "Unauthorized" } }) : route.fallback());
+    await Promise.all([
+      page.waitForResponse(response => response.url().endsWith("/api/alpha-exchange/notification-engagement") && response.status() === 401),
+      setup.getByRole("button", { name: "إعادة الفحص", exact: true }).click(),
+    ]);
+    await expect(sendTest).toHaveCount(0);
+    await expect(setup.getByRole("heading", { name: "إشعاراتك مفعّلة" })).toHaveCount(0);
+    const signIn = setup.getByRole("link", { name: /تسجيل الدخول/ });
+    await expect(signIn).toBeVisible();
+    const destination = new URL((await signIn.getAttribute("href"))!, baseURL);
+    expect(destination.pathname).toBe("/ar/login");
+    expect(destination.searchParams.get("redirectTo")).toBe("/ar/profile#notification-preferences");
+    expect(registrations).toHaveLength(beforeExpiry);
+  });
 });
