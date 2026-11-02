@@ -57,9 +57,13 @@ export function compareSellerResponseTimes(left?: SellerMetrics | null, right?: 
   return a - b;
 }
 
-export function formatMeasuredResponseTime(minutes: number | undefined | null, isAr = false, sampleCount?: number) {
+export function formatMeasuredResponseTime(minutes: number | undefined | null, isAr = false, sampleCount?: number, width: "long" | "short" = "long") {
   const measured = measuredSellerResponseMinutes({ responseTimeMinutes: minutes, responseSampleCount: sampleCount });
   if (measured === null) return isAr ? "جديد" : "New";
+  if (isAr && width === "short") {
+    const value = measured < 1 ? "<1" : measured > 10 ? "10+" : Math.round(measured);
+    return `${value} د`;
+  }
   if (measured < 1) return isAr ? "أقل من دقيقة" : "<1 min";
   if (measured > 10) return isAr ? "أكثر من 10 دقائق" : "10+ min";
   const rounded = Math.round(measured);

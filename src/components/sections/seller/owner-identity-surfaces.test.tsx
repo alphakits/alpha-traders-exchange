@@ -38,6 +38,10 @@ describe("actual owner identity surfaces", () => {
       const card = render(<ListingCard listing={listing} isAr={isAr} marketPricePerUsdt={3.2} isOwnerListing={false} isOwnListing={false}
         isBuying={false} onOpen={vi.fn()} onManageListing={vi.fn()} />);
       const stats = card.container.querySelector(".compact-listing__stats")!.textContent;
+      expect(card.container.querySelectorAll(".listing-stat-value")).toHaveLength(4);
+      expect(card.container.querySelector(".listing-rating-star--reviewed") !== null).toBe(!starter);
+      expect(card.container.querySelector(".listing-rating-star__shine") !== null).toBe(!starter);
+      if (isAr && !starter) expect(stats).toContain("10+ د");
       expect(stats).toContain(response);
       expect(stats).toContain(starter ? "4.0" : "2.00");
       expect(stats).toContain(starter ? (isAr ? "تقييم مبدئي" : "Starter rating") : (isAr ? "تقييم واحد" : "1 review"));
