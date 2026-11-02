@@ -139,3 +139,14 @@ export function canonicalizeTradeAmount(value: string | number | null | undefine
 export function canonicalizeNonNegativeTradeAmount(value: string | number | null | undefined) {
   return canonicalizeAmount(value, true);
 }
+
+const listingCardNumber = new Intl.NumberFormat("en-US", {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
+
+/** Two-decimal presentation for USDT quantities on listing cards. */
+export function formatListingCardUsdt(value: string | number | null | undefined): string {
+  const amount = canonicalizeNonNegativeTradeAmount(value);
+  return amount === null ? "—" : listingCardNumber.format(amount as `${number}`);
+}
