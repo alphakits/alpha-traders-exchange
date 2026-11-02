@@ -338,14 +338,20 @@ test.describe("Seller cards", () => {
   test("Verified Email badge only when verified", async ({ page }) => {
     await login(page.request, buyer!.email, buyer!.password);
     await gotoMarketplace(page);
-    await expect(cardFor(page, ids.lUrgent).getByText("Verified Email")).toBeVisible();
-    await expect(cardFor(page, ids.lUnverif).getByText("Verified Email")).toHaveCount(0);
+    const verified = cardFor(page, ids.lUrgent);
+    const unverified = cardFor(page, ids.lUnverif);
+    await verified.getByText("Trade details", { exact: true }).click();
+    await expect(verified.getByText("Verified Email")).toBeVisible();
+    await unverified.getByText("Trade details", { exact: true }).click();
+    await expect(unverified.getByText("Verified Email")).toHaveCount(0);
   });
 
-  test("Approved Seller badge present on visible listings", async ({ page }) => {
+  test("Approved Seller badge present in listing trade details", async ({ page }) => {
     await login(page.request, buyer!.email, buyer!.password);
     await gotoMarketplace(page);
-    await expect(cardFor(page, ids.lUrgent).getByText(/Approved Seller/i).first()).toBeVisible();
+    const card = cardFor(page, ids.lUrgent);
+    await card.getByText("Trade details", { exact: true }).click();
+    await expect(card.getByText(/Approved Seller/i).first()).toBeVisible();
   });
 });
 

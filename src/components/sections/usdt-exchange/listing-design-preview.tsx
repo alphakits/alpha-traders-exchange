@@ -1,45 +1,129 @@
 "use client";
 
-import { currencyText } from "@/components/ui/currency-text";
-import { useState } from "react";
-import { ListingCard } from "./usdt-exchange-page";
-import { PublicAccountId } from "@/components/ui/public-account-id";
-import { RoleBadge } from "@/components/ui/role-badge";
+import { useRef, useState } from "react";
+import { publicAccountId } from "@/lib/public-account-identity";
+import { formatUsdtExact } from "@/lib/usdt-demand-format";
 import type { MarketplaceListing, SellerLevel } from "@/types/alpha-exchange";
+import { ListingCard } from "./usdt-exchange-page";
 
-/** The existing preview route blocks this synthetic review surface in production. */
+type SampleSeller = {
+  name: string;
+  level: SellerLevel;
+  displayNumber: number;
+  amount: string;
+  price: string;
+  trades: number;
+  reviews: number;
+  responseMinutes: number;
+  alphaScore: number;
+  phoneVerified: boolean;
+  paymentMethods: string[];
+};
+
+function sampleListing({ name, level, displayNumber, amount, price, trades, reviews, responseMinutes, alphaScore, phoneVerified, paymentMethods }: SampleSeller): MarketplaceListing {
+  const sellerId = `sample-seller-${name.toLowerCase()}`;
+  const createdAt = "2026-11-02T09:00:00Z";
+  return {
+    id: `sample-${displayNumber}`, sellerId, displayNumber, photos: [],
+    sellerDisplayName: `${publicAccountId({ id: sellerId })} (${name})`,
+    originalAmount: amount, availableAmount: amount, price, currency: "ILS", network: "TRC20",
+    paymentMethod: paymentMethods[0], paymentMethods,
+    minimumTrade: "100", maximumTrade: amount, sellerDescription: "", responseTime: `${responseMinutes} minutes`,
+    status: "active", approvalStatus: "approved", createdAt, updatedAt: createdAt,
+    sellerProfile: {
+      sellerId, sellerName: name, username: sellerId, profilePhotoUrl: "", memberSince: createdAt,
+      languages: ["Arabic", "English"], preferredNetworks: ["TRC20"], bio: "",
+      isEmailVerified: true, isPhoneVerified: phoneVerified, onlineStatus: "offline", availabilityStatus: "available",
+    },
+    sellerReputation: {
+      sellerId, level, rating: 5, totalReviews: reviews, completedTrades: trades, tradeRequests: trades,
+      responseTimeMinutes: responseMinutes, responseSampleCount: trades, alphaScore: { value: alphaScore, starter: false },
+      trustScore: alphaScore, successRate: 99, reliabilityScore: 99, responseScore: 98,
+      activityScore: 90, marketplacePosition: 1, reputationSummary: "", acceptanceRate: 99, cancellationRate: 0,
+      completionRate: 99, recentActivityScore: 90, accountAgeDays: 365, profileCompletion: 100,
+      verificationScore: 100, disputesLost: 0, marketplaceViolations: 0, listingQualityScore: 100,
+      badges: [], repeatBuyers: 3,
+    },
+  };
+}
+
+const samples = [
+  sampleListing({
+    name: "Kasem", level: "silver", displayNumber: 145, amount: "15000.22", price: "3.36",
+    trades: 6, reviews: 3, responseMinutes: 11, alphaScore: 47.6, phoneVerified: true,
+    paymentMethods: ["Cardless ATM Withdrawal", "Bank Transfer", "Face-to-Face (Meet in Person)"],
+  }),
+  sampleListing({
+    name: "maria", level: "bronze", displayNumber: 148, amount: "50000.99", price: "3.45",
+    trades: 5, reviews: 5, responseMinutes: 3, alphaScore: 86.1, phoneVerified: false,
+    paymentMethods: ["Face-to-Face (Meet in Person)", "Bank Transfer", "Cardless ATM Withdrawal"],
+  }),
+];
+
+/** The preview route is local or staging only. All sellers and quantities are fixtures. */
 export function ListingDesignPreview({ locale }: { locale: "en" | "ar" }) {
-  const [feedback, setFeedback] = useState("");
-  const [cardWidth, setCardWidth] = useState(358);
+  const isAr = locale === "ar";
+  const [cardWidth, setCardWidth] = useState(560);
   const [largeAmount, setLargeAmount] = useState(false);
-  const sample = (width: number, rank: SellerLevel, amount: string): MarketplaceListing => ({
-    id: `sample-${width}`, sellerId: `sample-seller-${width}`, sellerDisplayName: "AT-100001", displayNumber: 1247, photos: [],
-    originalAmount: amount, availableAmount: amount, price: "3.12", currency: "ILS", network: "TRC20",
-    paymentMethod: "Bank Transfer", paymentMethods: ["Bank Transfer", "Face-to-Face (Meet in Person)", "Cardless ATM Withdrawal"],
-    minimumTrade: "100", maximumTrade: amount, sellerDescription: "Sample listing", responseTime: "4 minutes", status: "active",
-    createdAt: "2026-09-24T12:00:00Z", updatedAt: "2026-09-24T12:00:00Z",
-    sellerReputation: { sellerId: `sample-seller-${width}`, level: rank, rating: 4.98, completedTrades: 1248,
-      responseTimeMinutes: 4, trustScore: 98, successRate: 99, reliabilityScore: 99, responseScore: 98, activityScore: 90, marketplacePosition: 1, reputationSummary: "Sample reputation",
-      acceptanceRate: 99, cancellationRate: 0, completionRate: 99, recentActivityScore: 90, accountAgeDays: 365,
-      profileCompletion: 100, verificationScore: 100, disputesLost: 0, marketplaceViolations: 0, listingQualityScore: 100,
-      badges: [], tradeRequests: 1248, repeatBuyers: 12 },
-  });
-  return <main className="min-h-screen bg-[#050505] p-4 text-white" dir={locale === "ar" ? "rtl" : "ltr"}>
-    <h1 className="text-xl font-semibold">Listing layout review · sample data</h1>
-    <div className="my-4 flex flex-wrap items-center gap-3"><PublicAccountId value="AT-084321" /><RoleBadge variant="buyer" locale={locale} /><PublicAccountId value="AT-027419" audience="seller" rank="gold" /><RoleBadge variant="approved_seller" locale={locale} /></div>
-    <p role="status" className="mb-4 text-sm">{feedback || "Preview buttons show feedback only."}</p>
-    <div className="mb-5 flex flex-wrap items-center gap-4">
-      <label>Card width <select className="rounded border bg-slate-900 p-2" value={cardWidth} onChange={e => setCardWidth(Number(e.target.value))}>{[248, 288, 328, 343, 358, 380, 398, 448, 560, 740, 1120].map(width => <option key={width} value={width}>{width}px</option>)}</select></label>
-      <label><input type="checkbox" checked={largeAmount} onChange={e => setLargeAmount(e.target.checked)} />{currencyText(" Very long amount")}</label>
-    </div>
-    <div className="flex flex-wrap items-start gap-6">
-      {([{ width: cardWidth, rank: "diamond", amount: largeAmount ? "999999999999" : "15000" }] as const).map(({width, rank, amount}) => <section key={width} style={{ width, maxWidth: "100%" }}>
-        <h2 className="mb-3 text-sm">Card width: {width}px</h2>
-        <ListingCard listing={sample(width, rank, amount)} isAr={locale === "ar"} marketPricePerUsdt={3.01}
-          isOwnerListing={false} isOwnListing={false} isBuying={false}
-          onOpen={(_, mode) => setFeedback(mode === "buyer_offer" ? "Offer action selected" : "Buy action selected")}
-          onManageListing={() => setFeedback("Manage action selected")} />
-      </section>)}
-    </div>
-  </main>;
+  const [selection, setSelection] = useState<{ listing: MarketplaceListing; action: string } | null>(null);
+  const dialog = useRef<HTMLDialogElement>(null);
+  const select = (listing: MarketplaceListing, action: string) => {
+    setSelection({ listing, action });
+    dialog.current?.showModal();
+  };
+
+  return (
+    <section dir={isAr ? "rtl" : "ltr"} className="mx-auto w-full px-3 pb-24 pt-2 text-white" style={{ maxWidth: cardWidth + 24 }}>
+      <header className="mb-2 flex items-baseline justify-between gap-2">
+        <h1 className="text-lg font-semibold">{isAr ? "عروض USDT" : "USDT listings"}</h1>
+        <span className="text-xs text-neutral-400">{isAr ? "بيانات تجريبية" : "Sample listings"}</span>
+      </header>
+      <div className="grid gap-2">
+        {samples.map((sample, index) => {
+          const listing = index === 0 && largeAmount
+            ? { ...sample, availableAmount: "999999999999.99", originalAmount: "999999999999.99", maximumTrade: "999999999999.99" }
+            : sample;
+          return (
+            <div key={listing.id} onClickCapture={event => {
+              // The profile link points to a synthetic identity on this preview.
+              const link = event.target instanceof Element ? event.target.closest("a") : null;
+              if (!link?.pathname.endsWith(`/exchange/seller/${listing.sellerProfile?.username}`)) return;
+              event.preventDefault();
+              event.stopPropagation();
+              select(listing, isAr ? "ملف البائع" : "Seller Profile");
+            }}>
+              <ListingCard listing={listing} isAr={isAr} marketPricePerUsdt={3.13265}
+                isOwnerListing={false} canViewPrivateIdentity isOwnListing={false} isBuying={false}
+                onOpen={(chosen, mode) => select(chosen, mode === "buyer_offer"
+                  ? (isAr ? "تقديم عرض سعر" : "Make an Offer")
+                  : (isAr ? "شراء الآن" : "Buy Now"))}
+                onManageListing={chosen => select(chosen, isAr ? "إدارة العرض" : "Manage Listing")} />
+            </div>
+          );
+        })}
+      </div>
+      <details className="mt-3 text-xs text-neutral-400">
+        <summary className="cursor-pointer">{isAr ? "إعدادات المعاينة" : "Preview settings"}</summary>
+        <div className="mt-2 flex flex-wrap items-center gap-4">
+          <label>{isAr ? "عرض البطاقة " : "Card width "}<select className="rounded border border-neutral-700 bg-neutral-900 p-1" value={cardWidth}
+            onChange={event => setCardWidth(Number(event.target.value))}>
+            {[248, 288, 328, 343, 358, 380, 398, 448, 560, 740, 1120].map(width => <option key={width} value={width}>{width}px</option>)}
+          </select></label>
+          <label><input type="checkbox" checked={largeAmount} onChange={event => setLargeAmount(event.target.checked)} /> {isAr ? "كمية كبيرة" : "Very long amount"}</label>
+        </div>
+      </details>
+      <dialog ref={dialog} aria-labelledby="sample-action" onClose={() => setSelection(null)}
+        className="fixed inset-0 m-auto w-[calc(100%_-_2rem)] max-w-[22rem] rounded-2xl border border-neutral-700 bg-neutral-950 p-5 text-white shadow-xl backdrop:bg-black/70">
+        {selection && <>
+          <p className="text-xs text-neutral-400">{isAr ? "معاينة محلية" : "Local preview"}</p>
+          <h2 id="sample-action" className="mt-1 text-lg font-semibold">{selection.action} · <bdi>{selection.listing.sellerProfile?.sellerName}</bdi></h2>
+          <dl className="my-4 grid grid-cols-[1fr_auto] gap-x-3 gap-y-1 text-sm">
+            <dt>{isAr ? "الكمية المتاحة" : "Available amount"}</dt><dd dir="ltr">{formatUsdtExact(selection.listing.availableAmount)} USDT</dd>
+            <dt>{isAr ? "سعر الوحدة" : "Unit price"}</dt><dd dir="ltr">₪{selection.listing.price}</dd>
+          </dl>
+          <form method="dialog"><button className="rounded-lg bg-neutral-200 px-4 py-2 text-sm font-semibold text-black">{isAr ? "إغلاق" : "Close"}</button></form>
+        </>}
+      </dialog>
+    </section>
+  );
 }

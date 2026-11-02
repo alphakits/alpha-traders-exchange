@@ -19,6 +19,7 @@ import {
 } from "@tanstack/react-query";
 import {
   formatListingCardUsdt,
+  formatListingTradeLimit,
   type MobileSellerAvailabilityStatus,
   type MobileSellerListing,
   type MobileSellerListingApprovalStatus,
@@ -243,7 +244,7 @@ export function SellerWorkspaceScreen() {
                 {item.network} · {item.paymentMethods.join(" · ")}
               </Text>
               <Text monetary style={[styles.detail, isRTL && styles.rtlText]}>
-                {t("minimum")}: {formatListingCardUsdt(item.minimumTrade)} · {t("maximum")}: {formatListingCardUsdt(item.maximumTrade)} USDT
+                {t("minimum")}: {formatListingTradeLimit(item.minimumTrade)} · {t("maximum")}: {formatListingTradeLimit(item.maximumTrade)} USDT
               </Text>
               {item.approvalStatus ? (
                 <Text style={[styles.detail, isRTL && styles.rtlText]}>

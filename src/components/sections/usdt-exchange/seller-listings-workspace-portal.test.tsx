@@ -65,7 +65,7 @@ describe("seller listing controls", () => {
     fireEvent.click(screen.getByRole("button", { name: "Manage Listings" }));
     expect(props.setSellerListingsExpanded).toHaveBeenCalledWith(true);
     expect(props.setSellerExpandedListingId).toHaveBeenCalledWith(listing.id);
-    expect(screen.getByText("2,011.29 USDT")).toBeTruthy();
+    expect(screen.getByText("2,011 USDT")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Edit" }));
     expect(props.setListingEditForm).toHaveBeenCalledWith(expect.objectContaining({
       availableAmount: "2011.285267", maximumTrade: "2011.285267",
