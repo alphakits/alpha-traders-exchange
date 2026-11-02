@@ -16,7 +16,7 @@ const submitButton = () => screen.getByRole("button", { name: /^(Send|Update) re
 describe("Wise USD seller response", () => {
   it("uses an explicit USD offer and USD fees without requiring the ILS reference", () => {
     const input = { ...props(), current: { ...current(), currency: "USD" as const, bankTransferProvider: "wise" as const, price: "1.00" },
-      reference: null, offerPrice: "1.02", listings: [{ id: "listing-one", amount: "10000", price: "1.00" }] };
+      reference: null, offerPrice: "1.02", listings: [{ id: "listing-one", amount: "10000", price: "1.02" }] };
     render(<SellerResponseForm {...input} />);
     expect(screen.getByLabelText("Your response price (USD)")).toBeTruthy();
     expect(screen.getByRole("region", { name: "Buyer payment preview" }).textContent).toContain("USD 5,151.00");
@@ -30,7 +30,7 @@ afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
 describe("seller response form", () => {
   it.each([["2.74", true], ["2.75", false], ["3.45", false], ["3.46", true]])("enforces the live 3.10 band for response price %s", (offerPrice, disabled) => {
-    const input = { ...props(), offerPrice: String(offerPrice), reference: { price: "3.10", minimum: "2.75", maximum: "3.45" } };
+    const input = { ...props(), current: { ...current(), price: "2.75" }, listings: [{ id: "listing-one", amount: "10000", price: "3.45" }], offerPrice: String(offerPrice), reference: { price: "3.10", minimum: "2.75", maximum: "3.45" } };
     render(<SellerResponseForm {...input} />);
     expect(submitButton().disabled).toBe(disabled);
     fireEvent.submit(screen.getByRole("form", { name: "Seller response" }));
@@ -90,7 +90,8 @@ describe("seller response form", () => {
   it("requires a compatible inclusive ATM total and lets the seller match the requested price", () => {
     const input = props();
     input.current = { ...input.current, paymentMethod: "Cardless ATM Withdrawal", amount: calculateCardlessUsdtAmount("5000", "3.20", true)! };
-    const view = render(<SellerResponseForm {...input} offerPrice="3.10" />);
+    input.listings[0].price = "3.35";
+    const view = render(<SellerResponseForm {...input} offerPrice="3.25" />);
     expect(submitButton().disabled).toBe(true);
     expect(view.container.querySelector('p[id$="-reason"]')?.textContent).toContain("At this price, the total including the buyer fee must be ₪100–₪10,000");
     fireEvent.click(screen.getByRole("button", { name: /Match requested price/ }));
@@ -102,6 +103,8 @@ describe("seller response form", () => {
 
   it("counts withdrawn responses toward the same 60-second cooldown", () => {
     const input = props();
+    input.listings[0].price = "3.35";
+    input.offerPrice = "3.25";
     input.current.offers = [
       { id: "open", listingId: "listing-one", sellerName: "AT-200", price: "3.20", revision: 1, state: "open", isMine: true, available: true, createdAt: new Date(now - 120_000).toISOString() },
       { id: "withdrawn", listingId: "listing-one", sellerName: "AT-200", price: "3.20", revision: 1, state: "withdrawn", isMine: true, available: false, createdAt: new Date(now - 45_000).toISOString() },

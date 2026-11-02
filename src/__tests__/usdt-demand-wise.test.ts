@@ -76,7 +76,7 @@ beforeEach(() => {
   const seller = db.users.find(user => user.id === "seller")!;
   seller.wiseUsdAccounts = [reviewedAccount(seller.id)];
   Object.assign(db.marketplaceListings[0], {
-    currency: "USD", price: "1.01", bankTransferProvider: "wise", wiseAccountId: `wise-${seller.id}`,
+    currency: "USD", price: "1.02", bankTransferProvider: "wise", wiseAccountId: `wise-${seller.id}`,
   });
   delete db.marketplaceListings[0].bankAccountId;
   delete db.marketplaceListings[0].bankName;
@@ -137,7 +137,7 @@ describe("USD Wise buy-request terms", () => {
     changeDemand(db, "buyer", demand.id, { action: "edit", revision: 1, terms: demandTestTerms() }, demandTestMarket());
     expect(demand).not.toHaveProperty("currency");
     expect(demand).not.toHaveProperty("bankTransferProvider");
-    expect(demand).toMatchObject({ price: "3.20", revision: 2, expiresAt });
+    expect(demand).toMatchObject({ price: demandTestTerms().price, revision: 2, expiresAt });
     expect(response.state).toBe("superseded");
     expect(demand.createTerms).toMatchObject({ currency: "USD", bankTransferProvider: "wise" });
   });

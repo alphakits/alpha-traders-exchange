@@ -2,7 +2,7 @@
 
 import { currencyText } from "@/components/ui/currency-text";
 import { useId, useReducer, type FormEvent } from "react";
-import { calculateTradePaymentTotal, parseCardlessCashAmount } from "@alpha-traders/contracts";
+import { isSellerCounterPrice, calculateTradePaymentTotal, parseCardlessCashAmount } from "@alpha-traders/contracts";
 import { Link } from "@/i18n/navigation";
 import { formatIls, formatUsdt } from "@/lib/usdt-demand-format";
 import type { DemandView, DemandWorkspace } from "@/types/usdt-demand";
@@ -45,6 +45,9 @@ export function SellerResponseForm({ ar, current, listings, reference, listingId
   const priceIssue = !priceSyntaxValid
     ? text("Enter a positive price with up to two decimal places.", "أدخل سعرًا موجبًا بمنزلتين عشريتين كحد أقصى.")
     : priceOutsideBand ? text(`Choose a price between ₪${formatIls(reference?.minimum)} and ₪${formatIls(reference?.maximum)}.`, `اختر سعرًا بين ₪${formatIls(reference?.minimum)} و₪${formatIls(reference?.maximum)}.`) : null;
+  const duplicate = ownOffers.some(o => o.revision === current.revision && Number(o.price) === Number(offerPrice));
+  const differentRate = Number(offerPrice) !== Number(current.price);
+  const counterOutsideListing = selectedListing && differentRate && !isSellerCounterPrice(current.price, selectedListing.price, offerPrice);
   const paymentTotal = priceSyntaxValid ? calculateTradePaymentTotal(current.amount, offerPrice, true) : null;
   const atmInvalid = current.paymentMethod === "Cardless ATM Withdrawal" && priceSyntaxValid && !parseCardlessCashAmount(paymentTotal);
   const requestClosed = current.state !== "open" || Date.parse(current.expiresAt) <= now;
@@ -52,7 +55,9 @@ export function SellerResponseForm({ ar, current, listings, reference, listingId
     : requestClosed ? text("This request is no longer open. Review its current status before responding.", "هذا الطلب لم يعد مفتوحًا. راجع حالته الحالية قبل الرد.")
     : !wise && !reference ? text("Waiting for a fresh price reference. You can respond when it is available.", "بانتظار مرجع سعر حديث. يمكنك الرد عند توفره.")
     : !selectedListing || !ready ? text("Select an eligible listing for the current request to continue.", "اختر عرضًا مؤهلًا للطلب الحالي للمتابعة.")
-    : priceIssue ?? (atmInvalid ? text("At this price, the total including the buyer fee must be ₪100–₪10,000 in ₪100 steps. Match the requested price or choose another compatible price.", "بهذا السعر، يجب أن يكون الإجمالي شاملًا رسوم المشتري بين ₪100 و₪10,000 وبمضاعفات ₪100. طابق السعر المطلوب أو اختر سعرًا آخر مناسبًا.")
+    : priceIssue ?? (counterOutsideListing ? text("Match the buyer’s rate or counter above it, up to your listing price.", "طابق سعر المشتري أو قدّم سعرًا أعلى لحدّ سعر إعلانك.")
+      : duplicate ? text("You already sent this rate for this request.", "سبق وأرسلت هذا السعر لنفس الطلب.")
+      : atmInvalid ? text("At this price, the total including the buyer fee must be ₪100–₪10,000 in ₪100 steps. Match the requested price or choose another compatible price.", "بهذا السعر، يجب أن يكون الإجمالي شاملًا رسوم المشتري بين ₪100 و₪10,000 وبمضاعفات ₪100. طابق السعر المطلوب أو اختر سعرًا آخر مناسبًا.")
       : cooldownSeconds > 0 ? text(`You can send another response in ${cooldownSeconds} seconds.`, `يمكنك إرسال رد آخر بعد ${cooldownSeconds} ثانية.`) : null);
   const createListingHref = `/usdt-exchange?demand=${encodeURIComponent(current.id)}#create-listing`;
 
@@ -100,14 +105,17 @@ export function SellerResponseForm({ ar, current, listings, reference, listingId
           </div>
           <GroupedDecimalInput key={`${current.id}:${current.revision}:${listingId}:${priceInputRevision}`} id={`${id}-price`} value={offerPrice} onValueChange={onPriceChange} maxFractionDigits={2} maxIntegerDigits={4}
             required autoComplete="off" className={requestMoneyField}
-            aria-invalid={Boolean(offerPrice && priceIssue)} aria-describedby={`${id}-price-help ${id}-reason`} />
+            aria-invalid={Boolean(offerPrice && (priceIssue || counterOutsideListing || duplicate))} aria-describedby={`${id}-price-help ${id}-reason`} />
+          {selectedListing ? <p className="mt-2 text-sm text-gray-300">{currencyText(text(
+            `Quantity stays fixed. Match ${prefix}${formatIls(current.price)} or counter above it, up to your listing at ${prefix}${formatIls(selectedListing.price)}.`,
+            `الكمية ثابتة. طابق ${prefix}${formatIls(current.price)} أو اقترح سعرًا أعلى لحدّ سعر إعلانك ${prefix}${formatIls(selectedListing.price)}.`))}</p> : null}
           <p id={`${id}-price-help`} className="mt-2 text-xs leading-5 text-gray-400">
-            {wise ? currencyText(text("Your offer is in USD. The buyer reviews the exact price and total before accepting.", "عرضك بالدولار. يراجع المشتري السعر والإجمالي الدقيقين قبل الموافقة.")) : reference ? <>{currencyText(text("Allowed price:", "السعر المسموح:"))} <bdi dir="ltr" className="currency-money font-medium tabular-nums text-emerald-300">₪{formatIls(reference.minimum)}{currencyText(" – ₪")}{formatIls(reference.maximum)}</bdi></>
+            {wise ? currencyText(text("Your offer is in USD. The buyer reviews the exact price and total before accepting.", "عرضك بالدولار. يراجع المشتري السعر والإجمالي الدقيقين قبل الموافقة.")) : reference ? <>{currencyText(text("Market reference range", "نطاق السعر المرجعي"))} <bdi dir="ltr" className="currency-money font-medium tabular-nums text-emerald-300">₪{formatIls(reference.minimum)}{currencyText(" – ₪")}{formatIls(reference.maximum)}</bdi></>
               : text("A fresh reference is required before sending.", "يلزم مرجع سعر حديث قبل الإرسال.")}
           </p>
         </div>
       </fieldset>
-      {priceSyntaxValid ? <FeeBreakdown amount={current.amount} price={offerPrice} currency={wise ? "USD" : "ILS"} ar={ar} seller title={text("Buyer payment preview", "معاينة دفعة المشتري")} /> : null}
+      {priceSyntaxValid && !counterOutsideListing ? <FeeBreakdown amount={current.amount} price={offerPrice} currency={wise ? "USD" : "ILS"} ar={ar} seller title={text("Buyer payment preview", "معاينة دفعة المشتري")} /> : null}
       <div className="space-y-3">
         <p id={`${id}-reason`} className={"text-sm leading-6 " + (disabledReason ? "text-amber-200" : "text-gray-400")}>
           <RequestMoneyText>{disabledReason ?? text("Ready to send. Your response replaces any earlier open response from you.", "جاهز للإرسال. سيحل ردك محل أي رد مفتوح سابق منك.")}</RequestMoneyText>

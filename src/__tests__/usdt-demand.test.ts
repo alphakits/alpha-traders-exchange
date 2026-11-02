@@ -61,7 +61,7 @@ describe("request rules", () => {
     seller.blockedUserIds = []; seller.sellerStatus = "suspended"; expect(canRespond(db, seller, "buyer")).toBe(false);
     seller.sellerStatus = "approved_seller"; seller.availabilityStatus = "vacation"; publish(); expect(db.notifications).toHaveLength(1);
   });
-  it("pauses changing prices without rewriting terms", () => { const d = publish(); expect(demandState(db, d, demandTestMarket(4))).toBe("paused"); expect(d.price).toBe("3.20"); });
+  it("pauses changing prices without rewriting terms", () => { const d = publish(); expect(demandState(db, d, demandTestMarket(4))).toBe("paused"); expect(d.price).toBe(demandTestTerms().price); });
   it("expires after 12h and requires manual renewal", () => {
     const d = publish(); vi.useFakeTimers(); vi.setSystemTime(Date.now() + DEMAND_TTL_MS);
     expect(demandState(db, d, demandTestMarket())).toBe("expired");

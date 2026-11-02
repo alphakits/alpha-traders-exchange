@@ -710,10 +710,18 @@ async function expectChatScrollIsolation(page: Page, messagePanel: Locator, loca
 
   // Hover outside the list; the ordinary document must remain scrollable.
   await outsideList.hover();
-  const beforeOutside = await page.evaluate(() => window.scrollY);
-  expect(beforeOutside).toBeGreaterThan(30);
-  await page.mouse.wheel(0, -120);
-  await expect.poll(() => page.evaluate(() => window.scrollY), { timeout: 5_000 }).toBeLessThan(beforeOutside - 10);
+  // Hover may bring the heading to the very top of the document in WebKit.
+  // Wheel toward the side with actual scroll room and verify real document movement.
+  const { top, below } = await page.evaluate(() => ({
+    top: window.scrollY,
+    below: document.documentElement.scrollHeight - window.innerHeight - window.scrollY,
+  }));
+  expect(Math.max(top, below)).toBeGreaterThan(30);
+  const direction = below > top ? 1 : -1;
+  await page.mouse.wheel(0, direction * 120);
+  await expect.poll(async () => direction * (await page.evaluate(() => window.scrollY) - top), {
+    timeout: 5_000,
+  }).toBeGreaterThan(10);
 }
 
 async function expectParticipantManagementControls(page: Page, side: "buyer" | "seller", paymentLocked = false) {
@@ -750,6 +758,14 @@ for (const locale of ["en", "ar"] as const) {
       await login(page.request, buyerEmail, buyerPassword);
       const requestId = await createTradeRequest(page.request);
       await page.goto(`/${locale}/trade-room/${requestId}`);
+      await expect(page.locator("#chat form")).toHaveCount(0);
+      const sellerApi = await pwRequest.newContext({ baseURL: E2E_BASE_URL });
+      try {
+        await login(sellerApi, sellerEmail, sellerPassword);
+        const accepted = await sellerApi.patch(`/api/alpha-exchange/purchase-requests/${requestId}`, { data: { status: "accepted", safetyAcknowledged: true } });
+        expect(accepted.ok(), await accepted.text()).toBe(true);
+      } finally { await sellerApi.dispose(); }
+      await page.reload();
       const notice = page.locator('[data-testid="inclusive-payment-total"] .commission-notice');
       await expect(notice).toHaveCSS("color", "rgb(248, 226, 124)");
       await expect(page.locator('[data-testid="inclusive-payment-total"] .currency-money').first()).toHaveCSS("color", "rgb(52, 211, 153)");

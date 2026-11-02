@@ -235,6 +235,67 @@ async function createDemand(api: APIRequestContext, amount = "1000") {
   expect(detail.ok(), await detail.text()).toBe(true);
   return (await detail.json() as DemandWorkspace).requests.find(request => request.id === id)!;
 }
+test("a seller counters the ILS rate, the buyer keeps 1,000 USDT, and both can share wallet details only after acceptance", async ({ browser, baseURL }) => {
+  const buyer = await browser.newContext({ baseURL, viewport: { width: 390, height: 844 } });
+  const seller = await browser.newContext({ baseURL, viewport: { width: 390, height: 844 } });
+  try {
+    await Promise.all([blockExternalBrowserRequests(buyer), blockExternalBrowserRequests(seller)]);
+    const setup = await state(buyer.request);
+    setup.marketplaceListings.find(l => l.id === "listing-offline-seller")!.price = "3.35";
+    const saved = await buyer.request.put("/api/testing/alpha-exchange-state", { headers: OFFLINE_HEADERS, data: setup });
+    expect(saved.ok()).toBe(true);
+    await Promise.all([login(buyer.request, "buyer"), login(seller.request, "seller")]);
+    const created = await buyer.request.post("/api/alpha-exchange/purchase-requests", { data: {
+      listingId: "listing-offline-seller", usdtAmount: "1000", receivingNetwork: "TRC20", buyerReceivingWalletAddress: wallet,
+      feePolicyVersion: "buyer_seller_1pct_v1", paymentMethod: "Bank Transfer", priceMode: "buyer_offer", offeredPrice: "3.15",
+    } });
+    expect(created.ok(), await created.text()).toBe(true);
+    const { purchase } = await created.json();
+    const path = `/en/trade-room/${purchase.id}`;
+    const api = `/api/alpha-exchange/purchase-requests/${purchase.id}`;
+    const [buyerPage, sellerPage] = await Promise.all([buyer.newPage(), seller.newPage()]);
+    await Promise.all([buyerPage.goto(path), sellerPage.goto(path)]);
+    for (const side of [buyerPage, sellerPage]) {
+      await expect(side.locator("#chat")).toContainText("Chat opens when the offer is accepted.");
+      await expect(side.locator("#chat textarea")).toHaveCount(0);
+      const blocked = await side.request.post(api + "/messages", { data: { message: wallet, clientMessageId: randomUUID() } });
+      expect(blocked.status()).toBe(409);
+    }
+    await sellerPage.getByRole("button", { name: "Make a counter-offer" }).click();
+    const rate = sellerPage.getByLabel("Counter price in ILS per USDT");
+    const send = sellerPage.getByRole("button", { name: "Send counter-offer" });
+    for (const invalid of ["3.15", "3.36"]) {
+      await rate.fill(invalid);
+      await expect(send).toBeDisabled();
+    }
+    await rate.fill("3.20");
+    await expect(sellerPage.getByTestId("trade-adjustment-preview")).toContainText("3,232.00");
+    const proposed = sellerPage.waitForResponse(r => new URL(r.url()).pathname === api && r.request().method() === "PATCH");
+    await send.click();
+    expect((await proposed).ok()).toBe(true);
+    await buyerPage.reload();
+    await expect(buyerPage.locator("#chat textarea")).toHaveCount(0);
+    const accepted = buyerPage.waitForResponse(r => new URL(r.url()).pathname === api && r.request().method() === "PATCH");
+    await buyerPage.getByRole("button", { name: "Accept these terms" }).click();
+    const response = await accepted;
+    expect(response.ok(), await response.text()).toBe(true);
+    expect((await response.json()).request).toMatchObject({ status: "accepted", usdtAmount: "1000", pricePerUsdt: "3.20", fiatAmount: "3232.00" });
+    await sellerPage.reload();
+    for (const [side, shareWallet] of [[buyerPage, true], [sellerPage, false]] as const) {
+      const form = side.locator("#chat form");
+      await form.getByRole("button", { name: shareWallet ? "Add wallet address" : /Add network/ }).click();
+      const draft = form.locator("textarea");
+      await expect(draft).toHaveValue(shareWallet ? "TRC20: " : "TRC20");
+      if (shareWallet) await draft.fill("TRC20: " + wallet);
+      const posted = side.waitForResponse(r => new URL(r.url()).pathname === api + "/messages" && r.request().method() === "POST");
+      await form.getByRole("button", { name: "Send Message" }).click();
+      expect((await posted).status()).toBe(201);
+    }
+    await sellerPage.reload();
+    await expect(sellerPage.getByTestId("trade-chat-messages")).toContainText(wallet);
+  } finally { await Promise.all([buyer.close(), seller.close()]); }
+});
+
 async function ageDemandPastCooldown(api: APIRequestContext, id: string) {
   // Only the owned test server is seeded by beforeEach. Age its synthetic
   // record instead of waiting minutes or weakening the real rate limits.
@@ -357,16 +418,16 @@ test("buyer publishes, seller responds, buyer reviews and the canonical Trade Ro
 
     await sellerPage.goto(`/en/usdt-exchange/requests/${demandId}`);
     await sellerPage.getByLabel("Your listing", { exact: false }).selectOption("listing-offline-seller");
-    await sellerPage.getByLabel("Your response price (ILS)", { exact: true }).fill("3.25");
+    await sellerPage.getByLabel("Your response price (ILS)", { exact: true }).fill("3.35");
     await expectGreenText(sellerPage.getByLabel("Your response price (ILS)", { exact: true }));
     await expectGreenText(sellerPage.getByLabel("Your listing", { exact: false }));
     await expectGreenMoney(sellerPage.getByRole("form", { name: "Seller response" }));
-    await expectFees(sellerPage.getByRole("form", { name: "Seller response" }), "16,250.00", "162.50", "16,412.50", true);
+    await expectFees(sellerPage.getByRole("form", { name: "Seller response" }), "16,750.00", "167.50", "16,917.50", true);
     await expectBlueAction(sellerPage.getByRole("button", { name: "Send response", exact: true }));
     await sellerPage.evaluate(() => window.scrollTo({ top: 0, behavior: "instant" }));
     await sellerPage.screenshot({ path: testInfo.outputPath("polished-seller-form.png"), fullPage: true });
     await sellerPage.getByRole("button", { name: "Send response", exact: true }).click();
-    await expect(sellerPage.getByTestId("offer-card")).toContainText("3.25");
+    await expect(sellerPage.getByTestId("offer-card")).toContainText("3.35");
     await expectGreenMoney(sellerPage.getByTestId("offer-card"));
     await expect(sellerPage.getByTestId("next-step-panel")).toBeVisible();
     await sellerPage.evaluate(() => window.scrollTo(0, 0));
@@ -392,7 +453,7 @@ test("buyer publishes, seller responds, buyer reviews and the canonical Trade Ro
         const request = next?.requests?.[0];
         return next?.actorId === beforeReload.actorId && next?.requests?.length === 1
           && request?.id === demandId && request.revision === 1 && request.isMine
-          && request.offers.some(offer => offer.id === expectedOfferId && offer.price === "3.25" && offer.state === "open");
+          && request.offers.some(offer => offer.id === expectedOfferId && offer.price === "3.35" && offer.state === "open");
       },
     });
     const sellerIdentity = buyerPage.getByTestId("offer-card").getByTestId("request-counterparty-identity");
@@ -411,7 +472,7 @@ test("buyer publishes, seller responds, buyer reviews and the canonical Trade Ro
     await expectBlueAction(buyerPage.getByRole("button", { name: "Review response", exact: true }));
     await buyerPage.getByRole("button", { name: "Review response", exact: true }).click();
     const review = buyerPage.getByRole("form", { name: "Trade review" });
-    await expectFees(review, "16,250.00", "162.50", "16,412.50");
+    await expectFees(review, "16,750.00", "167.50", "16,917.50");
     const receivingWallet = review.getByLabel("Your receiving wallet", { exact: false });
     await receivingWallet.fill("invalid-wallet");
     await expect(receivingWallet).toHaveAttribute("aria-invalid", "true");
@@ -428,7 +489,7 @@ test("buyer publishes, seller responds, buyer reviews and the canonical Trade Ro
     await expect(buyerPage.getByTestId("trade-room-summary")).toBeVisible();
     const stored = await state(buyer.request);
     expect(stored.purchaseRequests).toHaveLength(1);
-    expect(stored.purchaseRequests[0]).toMatchObject({ id: tradeId, usdtAmount: "5000", pricePerUsdt: "3.25", fiatAmount: "16412.50", usdtDemandId: demandId, status: "pending" });
+    expect(stored.purchaseRequests[0]).toMatchObject({ id: tradeId, usdtAmount: "5000", pricePerUsdt: "3.35", fiatAmount: "16917.50", usdtDemandId: demandId, status: "pending" });
     expect(stored.usdtDemands?.[0]).toMatchObject({ state: "matched", purchaseRequestId: tradeId });
     await buyerPage.reload(); await expect(buyerPage.getByTestId("trade-room-summary")).toBeVisible();
     await buyerPage.evaluate(() => window.scrollTo(0, 0));
@@ -703,13 +764,13 @@ for (const locale of ["en", "ar"] as const) {
       await expect(sellerPage.getByRole("form", { name: ar ? "رد البائع" : "Seller response", exact: true })).toBeVisible();
       await sellerPage.getByLabel(ar ? "عرضك" : "Your listing", { exact: true }).selectOption("listing-offline-seller");
       const sellerPrice = sellerPage.getByLabel(ar ? "سعر ردك (شيكل)" : "Your response price (ILS)", { exact: true });
-      await sellerPrice.fill("3.25");
+      await sellerPrice.fill("3.35");
       // Native keyboard navigation scrolls the field into view, unlike a
       // programmatic fill that may focus an offscreen input without scrolling.
       await sellerPrice.press("Shift+Tab"); await sellerPage.keyboard.press("Tab");
       await audit(sellerPage, "seller-response");
       await expectReadableSelectPaint(sellerPage.getByLabel(ar ? "عرضك" : "Your listing", { exact: true }), info, `${locale}-listing-select-paint`);
-      const response = await seller.request.post(`${root}/${demand.id}/offers`, { data: { revision: 1, listingId: "listing-offline-seller", price: "3.25", operationId: randomUUID() } });
+      const response = await seller.request.post(`${root}/${demand.id}/offers`, { data: { revision: 1, listingId: "listing-offline-seller", price: "3.35", operationId: randomUUID() } });
       expect(response.ok(), await response.text()).toBe(true);
       // The retained WebKit trace reports a native market-fetch refusal 18ms
       // into this hard navigation, before the new document commits. Preserve
@@ -787,7 +848,7 @@ test("seller can update a response, reload its waiting state and confirm withdra
     await login(buyer, "buyer");
     const demand = await createDemand(buyer, "5000");
     const offered = await page.request.post(`${root}/${demand.id}/offers`, {
-      data: { revision: demand.revision, listingId: "listing-offline-seller", price: "3.25", operationId: randomUUID() },
+      data: { revision: demand.revision, listingId: "listing-offline-seller", price: "3.35", operationId: randomUUID() },
     });
     expect(offered.ok(), await offered.text()).toBe(true);
     await ageDemandPastCooldown(buyer, demand.id);
@@ -795,10 +856,10 @@ test("seller can update a response, reload its waiting state and confirm withdra
     await expect(page.getByTestId("next-step-panel")).toContainText(/buyer|waiting/i);
     const responseForm = page.getByRole("form", { name: "Seller response" });
     await responseForm.getByLabel("Your listing", { exact: false }).selectOption("listing-offline-seller");
-    await responseForm.getByLabel("Your response price (ILS)", { exact: true }).fill("3.20");
-    await expectFees(responseForm, "16,000.00", "160.00", "16,160.00", true);
+    await responseForm.getByLabel("Your response price (ILS)", { exact: true }).fill("3.40");
+    await expectFees(responseForm, "17,000.00", "170.00", "17,170.00", true);
     await responseForm.getByRole("button", { name: "Update response", exact: true }).click();
-    const updated = page.getByTestId("offer-card").filter({ hasText: "3.20" });
+    const updated = page.getByTestId("offer-card").filter({ hasText: "3.40" });
     await expect(updated).toBeVisible();
     let snapshot = await state(buyer);
     expect(snapshot.usdtDemands?.[0].offers.map(offer => offer.state)).toEqual(["superseded", "open"]);
@@ -860,7 +921,7 @@ test("refreshing a changed request clears the seller's stale selection before se
     const responseForm = page.getByRole("form", { name: "Seller response" });
     const listing = responseForm.getByLabel("Your listing", { exact: false });
     await listing.selectOption("listing-offline-seller");
-    await responseForm.getByLabel("Your response price (ILS)", { exact: true }).fill("3.25");
+    await responseForm.getByLabel("Your response price (ILS)", { exact: true }).fill("3.35");
     await ageDemandPastCooldown(buyer, demand.id);
     const renewed = await buyer.patch(`${root}/${demand.id}`, { data: { action: "renew", revision: demand.revision, terms: { ...terms, amount: "5000" } } });
     expect(renewed.ok(), await renewed.text()).toBe(true);
@@ -870,11 +931,11 @@ test("refreshing a changed request clears the seller's stale selection before se
     await expect(responseForm.getByRole("button", { name: "Send response", exact: true })).toBeDisabled();
     expect((await state(buyer)).usdtDemands?.[0].offers).toHaveLength(0);
     await listing.selectOption("listing-offline-seller");
-    await responseForm.getByLabel("Your response price (ILS)", { exact: true }).fill("3.25");
+    await responseForm.getByLabel("Your response price (ILS)", { exact: true }).fill("3.35");
     const sent = page.waitForRequest(request => request.method() === "POST" && new URL(request.url()).pathname === `${root}/${demand.id}/offers`);
     await responseForm.getByRole("button", { name: "Send response", exact: true }).click();
     expect((await sent).postDataJSON().revision).toBe(2);
-    await expect(page.getByTestId("offer-card")).toContainText("3.25");
+    await expect(page.getByTestId("offer-card")).toContainText("3.35");
     expect((await state(buyer)).usdtDemands?.[0].offers[0].revision).toBe(2);
   } finally { await buyer.dispose(); }
 });
@@ -902,12 +963,12 @@ test("a 3.10 server reference enforces 2.75–3.45 on publishing, renewal, respo
     }
     const renewed = await buyer.patch(`${root}/${demand.id}`, { data: { action: "renew", revision: 1, terms: { ...terms, price: "3.45" } } });
     expect(renewed.ok(), await renewed.text()).toBe(true);
-    const offered = await seller.post(`${root}/${demand.id}/offers`, { data: { revision: 2, listingId: "listing-offline-seller", price: "2.75", operationId: randomUUID() } });
+    const offered = await seller.post(`${root}/${demand.id}/offers`, { data: { revision: 2, listingId: "listing-offline-seller", price: "3.45", operationId: randomUUID() } });
     expect(offered.ok(), await offered.text()).toBe(true);
     const offer = await offered.json();
     const matched = await matchDemand(buyer, demand.id, offer.id, 2);
     expect(matched.status(), await matched.text()).toBe(201);
-    expect((await matched.json()).purchase).toMatchObject({ pricePerUsdt: "2.75", fiatAmount: "2777.50" });
+    expect((await matched.json()).purchase).toMatchObject({ pricePerUsdt: "3.45", fiatAmount: "3484.50" });
     expect((await state(buyer)).purchaseRequests).toHaveLength(1);
   } finally { await buyer.dispose(); await seller.dispose(); }
 });
@@ -944,7 +1005,8 @@ test("buyer and seller forms clearly show the 3.10 quote and its inclusive price
       await expectGreenText(offerPrice); await expectGreenMoney(responseForm);
       await expectGreenMoney(responseForm.locator('p[id$="-reason"]'), ["₪2.75", "₪3.45"]);
     }
-    for (const boundary of ["2.75", "3.45"]) { await offerPrice.fill(boundary); await expect(send).toBeEnabled(); }
+    await offerPrice.fill("2.75"); await expect(send).toBeDisabled();
+    for (const boundary of ["3.10", "3.45"]) { await offerPrice.fill(boundary); await expect(send).toBeEnabled(); }
     await expect(responseForm).toContainText("2.75"); await expect(responseForm).toContainText("3.45");
     await expectFees(responseForm, "17,250.00", "172.50", "17,422.50", true);
     expect(await sellerPage.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);

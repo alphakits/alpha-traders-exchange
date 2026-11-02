@@ -27,6 +27,8 @@ const messages: Record<string, readonly [string, string]> = {
   USD_PRICE_INVALID: ["Enter a positive USD price with up to two decimal places.", "أدخل سعرًا موجبًا بالدولار بمنزلتين عشريتين كحد أقصى."],
   WISE_UNAVAILABLE: ["Wise USD transfers are unavailable.", "تحويلات Wise بالدولار غير متاحة."],
   ATM_AMOUNT_INVALID: ["The total including the buyer fee must be a supported ATM cash amount in ₪100 steps.", "يجب أن يكون الإجمالي شاملًا رسوم المشتري مبلغ سحب مدعومًا بمضاعفات ₪100."],
+  COUNTER_PRICE_RANGE: ["Match the buyer’s rate or enter a higher rate up to your listing price.", "طابق سعر المشتري أو أدخل سعرًا أعلى لحدّ سعر إعلانك."],
+  DUPLICATE_RESPONSE_PRICE: ["You already sent this rate for this request.", "سبق وأرسلت هذا السعر لنفس الطلب."],
   RESPONSE_COOLDOWN: ["Wait one minute before sending another response.", "انتظر دقيقة واحدة قبل إرسال رد آخر."],
   RESPONSE_LIMIT: ["This request has reached its response limit. Browse other open requests.", "وصل هذا الطلب إلى الحد الأقصى للردود. تصفح الطلبات المفتوحة الأخرى."],
   CURSOR_INVALID: ["This page of requests changed. Refresh the list.", "تغيّرت صفحة الطلبات هذه. حدّث القائمة."],

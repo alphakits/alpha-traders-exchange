@@ -68,7 +68,7 @@ describe("Buy Request commission through canonical completion", () => {
   ])("settles $amount USDT via $method at response price $responsePrice exactly once (feature-off rollback=$rollback)", async ({ method, amount, responsePrice, fiat, fee, due, remaining, rollback }) => {
     const cashAtm = method === "Cardless ATM Withdrawal";
     const db = globalThis.__alphaExchangeMemorySnapshot!;
-    db.marketplaceListings = [demandTestListing("seller", method)];
+    db.marketplaceListings = [{ ...demandTestListing("seller", method), price: "3.35" }];
     const terms: DemandTerms = { ...demandTestTerms(), amount, price: "3.10", paymentMethod: method as DemandTerms["paymentMethod"], city: cashAtm ? "" : "Haifa" };
     if (cashAtm) expect(calculateCardlessUsdtAmount("1300", "3.10", true)).toBe(amount);
     const demand = await publishDemand("buyer", { terms, operationId: randomUUID() });

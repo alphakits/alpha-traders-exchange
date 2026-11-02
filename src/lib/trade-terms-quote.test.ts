@@ -13,9 +13,10 @@ describe("shared trade adjustment calculations", () => {
     expect(calculateTradeTermsQuote({ ...trade, feePolicyVersion: undefined }, "propose_amount", "500")).toEqual({ usdtAmount: "500", fiatAmount: "1550.00", pricePerUsdt: "3.10" });
   });
 
-  it("derives ATM USDT from cash and preserves that cash when the price changes", () => {
+  it("keeps ATM USDT fixed for counters and rejects unsupported cash denominations", () => {
     const trade = { ...base, paymentMethod: "Cardless ATM Withdrawal", usdtAmount: "416.546509", fiatAmount: "1300.00", pricePerUsdt: "3.09" };
-    expect(calculateTradeTermsQuote(trade, "counter_offer", "3.10")).toEqual({ usdtAmount: "415.202811", fiatAmount: "1300.00", pricePerUsdt: "3.10" });
+    expect(calculateTradeTermsQuote(trade, "counter_offer", "3.10")).toBeNull();
+    expect(calculateTradeTermsQuote({ ...trade, usdtAmount: "353.606789" }, "counter_offer", "3.08")).toEqual({ usdtAmount: "353.606789", fiatAmount: "1100.00", pricePerUsdt: "3.08" });
     expect(calculateTradeTermsQuote({ ...trade, pricePerUsdt: "3.10" }, "propose_ils_amount", "١٣٠٠")).toEqual({ usdtAmount: "415.202811", fiatAmount: "1300.00", pricePerUsdt: "3.10" });
     expect(calculateTradeTermsQuote(trade, "propose_amount", "420")).toBeNull();
     for (const cash of ["1315", "1315.02", "0", "99", "10001"]) expect(calculateTradeTermsQuote(trade, "propose_ils_amount", cash)).toBeNull();
