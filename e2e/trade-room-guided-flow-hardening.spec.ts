@@ -710,10 +710,18 @@ async function expectChatScrollIsolation(page: Page, messagePanel: Locator, loca
 
   // Hover outside the list; the ordinary document must remain scrollable.
   await outsideList.hover();
-  const beforeOutside = await page.evaluate(() => window.scrollY);
-  expect(beforeOutside).toBeGreaterThan(30);
-  await page.mouse.wheel(0, -120);
-  await expect.poll(() => page.evaluate(() => window.scrollY), { timeout: 5_000 }).toBeLessThan(beforeOutside - 10);
+  // Hover may bring the heading to the very top of the document in WebKit.
+  // Wheel toward the side with actual scroll room and verify real document movement.
+  const { top, below } = await page.evaluate(() => ({
+    top: window.scrollY,
+    below: document.documentElement.scrollHeight - window.innerHeight - window.scrollY,
+  }));
+  expect(Math.max(top, below)).toBeGreaterThan(30);
+  const direction = below > top ? 1 : -1;
+  await page.mouse.wheel(0, direction * 120);
+  await expect.poll(async () => direction * (await page.evaluate(() => window.scrollY) - top), {
+    timeout: 5_000,
+  }).toBeGreaterThan(10);
 }
 
 async function expectParticipantManagementControls(page: Page, side: "buyer" | "seller", paymentLocked = false) {
