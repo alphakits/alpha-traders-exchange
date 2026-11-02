@@ -816,7 +816,9 @@ test("seller can update a response, reload its waiting state and confirm withdra
     snapshot = await state(buyer);
     expect(snapshot.usdtDemands?.[0].offers.at(-1)?.state).toBe("withdrawn");
     expect(snapshot.purchaseRequests).toHaveLength(0);
-    await page.reload();
+    // WebKit may cancel the old document's market fetch on reload. Require the
+    // new document to load and validate its own market feed before proceeding.
+    await browserErrorAudit.navigate(page, () => page.reload(), marketDestinationFeed(baseURL!));
     await page.locator("summary").filter({ hasText: "Response history" }).click();
     await expect(updated).toBeVisible();
     await expect(updated).toContainText(/withdrawn/i);

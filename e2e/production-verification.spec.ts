@@ -341,6 +341,14 @@ test.describe("Seller cards", () => {
     await gotoMarketplace(page);
     const verified = cardFor(page, ids.lUrgent);
     const unverified = cardFor(page, ids.lUnverif);
+    // Phone listings are paginated; reveal both fixture cards via the public control.
+    const more = page.getByRole("button", { name: "Load More Listings", exact: true });
+    while ((await verified.count() === 0 || await unverified.count() === 0) && await more.isVisible()) {
+      const cards = page.locator("#buyer-marketplace-listings .seller-listing-shell");
+      const before = await cards.count();
+      await more.click();
+      await expect.poll(() => cards.count()).toBeGreaterThan(before);
+    }
     await verified.getByText("Trade details", { exact: true }).click();
     await expect(verified.getByText("Verified Email")).toBeVisible();
     await unverified.getByText("Trade details", { exact: true }).click();
