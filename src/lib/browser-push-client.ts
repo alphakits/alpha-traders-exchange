@@ -7,11 +7,16 @@ export function canUseBrowserPush() {
     && "Notification" in window && "PushManager" in window && "serviceWorker" in navigator;
 }
 
-export function needsHomeScreenInstall() {
+export class BrowserPushSessionExpired extends Error {}
+
+export function isAppleMobileDevice() {
   if (typeof navigator === "undefined") return false;
-  const ios = /iPhone|iPad|iPod/.test(navigator.userAgent)
+  return /iPhone|iPad|iPod/.test(navigator.userAgent)
     || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
-  return ios && !(navigator as Navigator & { standalone?: boolean }).standalone
+}
+
+export function needsHomeScreenInstall() {
+  return isAppleMobileDevice() && !(navigator as Navigator & { standalone?: boolean }).standalone
     && !window.matchMedia?.("(display-mode: standalone)").matches;
 }
 
@@ -33,6 +38,7 @@ async function persist(subscription: PushSubscription, locale: "ar" | "en", acti
     body: JSON.stringify({ action, subscription: subscription.toJSON(), locale, expectedUserId: scope.userId }),
   });
   scope.signal?.throwIfAborted();
+  if (response.status === 401) throw new BrowserPushSessionExpired("Your session has ended.");
   if (response.status === 409) {
     const body = await response.json().catch(() => null) as { code?: string } | null;
     scope.signal?.throwIfAborted();

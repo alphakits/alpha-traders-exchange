@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { checkBrowserPush, enableBrowserPush } from "./browser-push-client";
+import { BrowserPushSessionExpired, checkBrowserPush, enableBrowserPush, isAppleMobileDevice, needsHomeScreenInstall } from "./browser-push-client";
 const registration={pushManager:{getSubscription:vi.fn(),subscribe:vi.fn()}};
 const subscription={toJSON:()=>({endpoint:"https://fcm.googleapis.com/fcm/send/test",keys:{p256dh:"key",auth:"auth"}}),options:{applicationServerKey: new Uint8Array([0]).buffer},unsubscribe:vi.fn()};
 beforeEach(()=>{
@@ -23,6 +23,24 @@ it("requires explicit re-enabling after the server application key rotates", asy
 it("refreshes only a subscription using the current application key", async () => {
   expect(await checkBrowserPush("en", true, { publicKey: "AA" })).toBe("on");
   expect(fetch).toHaveBeenCalledTimes(1);
+});
+
+it("detects an installed iPad using a desktop user agent without requesting installation", () => {
+ vi.stubGlobal("navigator", { userAgent: "Mozilla/5.0 (Macintosh)", platform: "MacIntel", maxTouchPoints: 5, standalone: true });
+ expect(isAppleMobileDevice()).toBe(true);
+ expect(needsHomeScreenInstall()).toBe(false);
+});
+
+it.each(["refresh", "subscribe"])("distinguishes a session 401 from provider failures during %s", async action => {
+ const run = () => action === "refresh"
+   ? checkBrowserPush("en", true, { publicKey: "AA", userId: "buyer" })
+   : enableBrowserPush("en", "AA", { userId: "buyer" });
+ const fetcher = vi.mocked(fetch);
+ fetcher.mockResolvedValueOnce(new Response(null, { status: 401 }));
+ await expect(run()).rejects.toBeInstanceOf(BrowserPushSessionExpired);
+ fetcher.mockResolvedValueOnce(new Response(null, { status: 503 }));
+ await expect(run()).rejects.toThrow("Push registration failed");
+ expect(subscription.unsubscribe).not.toHaveBeenCalled();
 });
 it("reports provider-retired subscriptions off without automatically replacing them", async () => {
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ code: "subscription_inactive" }), { status: 409 })));
