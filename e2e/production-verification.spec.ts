@@ -335,22 +335,39 @@ test.describe("Seller cards", () => {
     await expect(cardFor(page, ids.lOffline).locator(".seller-listing-countdown")).toHaveCount(0);
   });
 
-  test("Verified Email badge only when verified", async ({ page }) => {
+  test("compact cards disclose the email badge only for verified sellers", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
     await login(page.request, buyer!.email, buyer!.password);
     await gotoMarketplace(page);
     const verified = cardFor(page, ids.lUrgent);
     const unverified = cardFor(page, ids.lUnverif);
+    // Phone listings are paginated; reveal both fixture cards via the public control.
+    const more = page.getByRole("button", { name: "Load More Listings", exact: true });
+    while ((await verified.count() === 0 || await unverified.count() === 0) && await more.isVisible()) {
+      const cards = page.locator("#buyer-marketplace-listings .seller-listing-shell");
+      const before = await cards.count();
+      await more.click();
+      await expect.poll(() => cards.count()).toBeGreaterThan(before);
+    }
     await verified.getByText("Trade details", { exact: true }).click();
     await expect(verified.getByText("Verified Email")).toBeVisible();
     await unverified.getByText("Trade details", { exact: true }).click();
     await expect(unverified.getByText("Verified Email")).toHaveCount(0);
   });
 
-  test("Approved Seller badge present in listing trade details", async ({ page }) => {
+  test("wide marketplace shows the desktop badges or Safari disclosure", async ({ page, browserName }) => {
+    await page.setViewportSize({ width: 1440, height: 1000 });
     await login(page.request, buyer!.email, buyer!.password);
     await gotoMarketplace(page);
     const card = cardFor(page, ids.lUrgent);
-    await card.getByText("Trade details", { exact: true }).click();
+    const details = card.locator("details.compact-listing__disclosure");
+    if (browserName === "webkit") {
+      await expect(details).toBeVisible();
+      await details.locator("summary").click();
+    } else {
+      await expect(details).toHaveCount(0);
+      await expect(card.locator(".compact-listing__header .compact-listing__badges")).toBeVisible();
+    }
     await expect(card.getByText(/Approved Seller/i).first()).toBeVisible();
   });
 });

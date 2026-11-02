@@ -1143,22 +1143,50 @@ input[placeholder*="usdt" i]::placeholder { color: #34d399; }
   box-shadow: none;
 }
 
-/* Keep expiry secondary to availability and the trade actions. */
 .compact-listing .seller-listing-countdown {
   display: inline-flex;
   align-items: center;
   gap: 4px;
+}
+.listing-card--compact .seller-listing-countdown {
   font-size: .6875rem;
   line-height: 1.4;
   font-weight: 500;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
-.compact-listing .seller-listing-countdown--neutral {
+.listing-card--compact .seller-listing-countdown--neutral {
   color: #b4bac3;
 }
-.compact-listing .seller-listing-countdown--urgent {
+.listing-card--compact .seller-listing-countdown--urgent {
   color: #dfc59e;
+}
+.listing-card--desktop .seller-listing-countdown {
+  flex-wrap: wrap;
+  justify-content: center;
+  white-space: normal;
+  border-radius: 9999px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  transition: transform 180ms ease, box-shadow 180ms ease;
+}
+.listing-card--desktop .seller-listing-countdown--neutral {
+  color: #fcd34d;
+  background: rgba(234, 179, 8, 0.12);
+  border-color: rgba(234, 179, 8, 0.4);
+}
+.listing-card--desktop .seller-listing-countdown--urgent {
+  color: #fff;
+  background: linear-gradient(135deg, rgba(220, 38, 38, 0.9), rgba(190, 18, 60, 0.85));
+  border-color: rgba(248, 113, 113, 0.75);
+  padding: 4px 11px;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  box-shadow: 0 0 0 1px rgba(248, 113, 113, 0.35), 0 0 20px rgba(220, 38, 38, 0.55);
 }
 
 .seller-asset-usdt-card {
@@ -2686,7 +2714,8 @@ input[placeholder*="usdt" i]::placeholder { color: #34d399; }
 .compact-listing .compact-listing__market { display: flex; flex-wrap: wrap; align-items: center; gap: .25rem .5rem; margin-top: .5rem; padding: .4rem .5rem; }
 .compact-listing__market-price { margin-inline-start: auto; font-size: .875rem; overflow-wrap: anywhere; }
 .compact-listing .compact-listing__stats > div { min-width: 0; padding: .35rem .125rem; }
-.compact-listing .compact-listing__stats p { margin: 0; overflow-wrap: anywhere; line-height: 1.4; }
+.compact-listing .compact-listing__stats p { overflow-wrap: anywhere; line-height: 1.4; }
+.listing-card--compact .compact-listing__stats p { margin: 0; }
 .compact-listing .seller-card-info-panel { min-height: 0; padding: .625rem; line-height: 1.5; overflow-wrap: anywhere; }
 .compact-listing__disclosure > summary {
   display: flex;
@@ -2703,7 +2732,7 @@ input[placeholder*="usdt" i]::placeholder { color: #34d399; }
 .compact-listing__disclosure > summary:focus-visible { outline: 2px solid #c9a227; outline-offset: 2px; }
 .compact-listing__disclosure[open] > summary { margin-bottom: .5rem; }
 .compact-listing__disclosure[open] > summary svg { transform: rotate(180deg); }
-.compact-listing__actions {
+.listing-card--compact .compact-listing__actions {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: .375rem;
@@ -2725,14 +2754,14 @@ input[placeholder*="usdt" i]::placeholder { color: #34d399; }
 .compact-listing .seller-marketplace-action--offer { flex-direction: row; align-items: center; }
 .compact-listing__details { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 @container (max-width: 410px) {
-  .compact-listing__stats svg,
-  .compact-listing__actions .seller-marketplace-action svg { display: none; }
+  .listing-card--compact .compact-listing__stats svg,
+  .listing-card--compact .compact-listing__actions .seller-marketplace-action svg { display: none; }
 }
 @container (min-width: 305px) {
-  .compact-listing__actions:has(.seller-marketplace-action--offer) { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .listing-card--compact .compact-listing__actions:has(.seller-marketplace-action--offer) { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 @container (width < 305px) {
-  .compact-listing .seller-marketplace-action--offer { grid-column: 1 / -1; }
+  .listing-card--compact .seller-marketplace-action--offer { grid-column: 1 / -1; }
 }
 @container (max-width: 260px) {
   .compact-listing__details { grid-template-columns: minmax(0, 1fr); }
@@ -2749,6 +2778,20 @@ input[placeholder*="usdt" i]::placeholder { color: #34d399; }
 .compact-listing .role-badge { max-width: 100%; }
 .compact-listing .role-badge__content { min-width: 0; }
 .compact-listing .role-badge__content > span { overflow-wrap: anywhere; }
+
+/* Desktop cards keep the original spacing and two-column actions even in a narrow marketplace column. */
+.listing-card--desktop .compact-listing__header { padding: .875rem .875rem .625rem; }
+.listing-card--desktop .compact-listing__content { gap: .625rem; padding: 0 .875rem .875rem; }
+.listing-card--desktop .compact-listing__badges { margin-top: .5rem; }
+.listing-card--desktop .compact-listing__metrics { padding: .5rem; }
+.listing-card--desktop .seller-card-keymetric { padding: .625rem; gap: .25rem; }
+.listing-card--desktop .seller-asset-usdt-value { font-size: min(2.1rem, calc(160cqi / var(--amount-characters))); }
+.listing-card--desktop .seller-asset-usdt-card > span { padding: .2rem .35rem; line-height: 1.4; }
+.listing-card--desktop .compact-listing__stats > div { padding: .4rem .125rem; }
+.listing-card--desktop .seller-marketplace-action { padding: .5rem .625rem; }
+.listing-card--desktop .seller-marketplace-action > span { justify-content: space-between; gap: .35rem; }
+.listing-card--desktop .seller-marketplace-action--offer,
+.listing-card--desktop .seller-marketplace-action--offer > span { flex-wrap: wrap; }
 
 /* WebKit exposes its disclosure marker even on custom list-none summaries. */
 summary.list-none::-webkit-details-marker {

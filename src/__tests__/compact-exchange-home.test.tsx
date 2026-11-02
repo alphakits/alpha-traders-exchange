@@ -251,7 +251,8 @@ describe("compact Exchange home", () => {
     expect((document.getElementById("buyer-usdt-amount") as HTMLInputElement).value).toBe("200");
   });
 
-  it.each(["en", "ar"] as const)("restores a direct listing link and preserves a new offer after closing it (%s)", async (locale) => {
+  it.each([[390, "en"], [390, "ar"], [1440, "en"], [1440, "ar"]] as const)("restores a direct listing link and preserves a new offer after closing it (%dpx, %s)", async (width, locale) => {
+    viewportWidth = width;
     requests = [];
     user = { ...buyer, emailVerified: true };
     const listing = { id: "direct-link-listing", sellerId: "direct-link-seller", sellerDisplayName: "AT-Direct", photos: [],
@@ -269,7 +270,9 @@ describe("compact Exchange home", () => {
     fireEvent.keyDown(window, { key: "Escape" });
     expect(document.getElementById("buyer-usdt-amount")).toBeNull();
     expect(new URLSearchParams(window.location.search).has("listing")).toBe(false);
-    expect(document.querySelector("#listing-direct-link-listing details")?.textContent).toContain("100 – 127.053412 USDT");
+    const card = document.getElementById("listing-direct-link-listing")!;
+    expect(Boolean(card.querySelector("details"))).toBe(width < 1024);
+    expect(card.querySelector(".compact-listing__details")?.textContent).toContain("100 – 127.053412 USDT");
     fireEvent.click(await screen.findByRole("button", { name: locale === "ar" ? /تقديم عرض سعر إلى/ : /Make a price offer to/ }));
     await waitFor(() => expect(document.getElementById("buyer-offered-price")).toBeTruthy());
     expect((document.getElementById("buyer-offered-price") as HTMLInputElement).value).toBe("3.19");

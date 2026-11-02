@@ -38,6 +38,7 @@ import { ExchangeWorkspaceNavigation, type ExchangeWorkspaceAction } from "@/com
 import { requestPrimary, requestSecondary } from "@/components/sections/usdt-exchange/usdt-request-details";
 import { buyRequestsDestination } from "@/lib/usdt-demand-navigation";
 import { useWorkspaceViewport } from "@/components/sections/usdt-exchange/use-desktop-workspace";
+import { useDesktopListingLayout } from "./use-desktop-listing-layout";
 import { BuyerRankCard } from "@/components/ui/buyer-rank-card";
 import { SellerRankCard } from "@/components/ui/seller-rank-card";
 import { useSellerRankSummary } from "@/components/sections/usdt-exchange/use-seller-rank-summary";
@@ -1024,6 +1025,7 @@ type ListingCardProps = {
   listing: MarketplaceListing;
   isAr: boolean;
   marketPricePerUsdt: number;
+  desktopLayout?: boolean;
   isOwnerListing: boolean;
   canViewPrivateIdentity?: boolean;
   requiresBuyerSetup?: boolean;
@@ -1033,7 +1035,7 @@ type ListingCardProps = {
   onManageListing: (listing: MarketplaceListing) => void;
 };
 
-export const ListingCard = memo(function ListingCard({ listing, isAr, marketPricePerUsdt, isOwnerListing, canViewPrivateIdentity = false, requiresBuyerSetup = false, isOwnListing, isBuying, onOpen, onManageListing }: ListingCardProps) {
+export const ListingCard = memo(function ListingCard({ listing, isAr, marketPricePerUsdt, desktopLayout = false, isOwnerListing, canViewPrivateIdentity = false, requiresBuyerSetup = false, isOwnListing, isBuying, onOpen, onManageListing }: ListingCardProps) {
   const rating = sellerRatingDisplay(listing.sellerReputation, isAr);
   const score = sellerScoreDisplay(listing.sellerReputation, isAr);
   // Older cached responses may still carry the retired commission request lock.
@@ -1053,11 +1055,78 @@ export const ListingCard = memo(function ListingCard({ listing, isAr, marketPric
     diamond: "rgba(var(--rank-diamond-rgb),0.74)",
     legendary: "rgba(212,175,55,0.78)",
   };
+  const unitPrice = moneyText(toNumber(listing.price).toLocaleString("en-IL", { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+  const offerHint = currencyText(isAr ? "±₪0.35 من سعر الإعلان" : "Within ±₪0.35 of listing price");
+  const sellerBadges = (
+    <div className="compact-listing__badges flex flex-wrap items-center gap-1.5">
+      <RoleBadge variant="approved_seller" locale={isAr ? "ar" : "en"} className={cn("seller-rank-badge", `seller-rank-badge--${sellerRankKey}`)} />
+      <RankBadge rank={sellerLevel} locale={isAr ? "ar" : "en"} audience="seller" />
+      <AccountVerificationBadges emailVerified={sellerEmailVerified} phoneVerified={listing.sellerProfile?.isPhoneVerified} isAr={isAr} />
+      {isOwnerListing ? <span className="rounded-full border border-amber-500/35 bg-amber-500/10 px-2 py-0.5 text-[11px] font-semibold text-amber-300">✓ {isAr ? "حساب المنصة الرسمي" : "Official Platform Account"}</span> : null}
+    </div>
+  );
+  const tradeDetails = (
+    <div className="compact-listing__details grid gap-2 text-xs text-[#9CA3AF]">
+      <div className="seller-card-info-panel min-w-0 space-y-1.5 rounded-xl border border-white/10 bg-black/25 p-3">
+        <p>{isAr ? "آخر نشاط" : "Last active"}: <span className={cn("text-white", presence.tone === "online" && "text-emerald-300")}>{currencyText(isAr ? presence.labelAr : presence.label)}</span></p>
+        <p>{isAr ? "الشبكة" : "Network"}: <span className="text-white">{currencyText(safeText(listing.network))}</span></p>
+        <div>
+          <p>{isAr ? "الدفع" : "Payment"}:</p>
+          <div className="mt-1 flex flex-wrap gap-1.5">
+            {normalizePaymentMethodList(listing.paymentMethods, listing.paymentMethod).map((method) => (
+              <span key={`${listing.id}-${method}`} className="max-w-full break-words rounded-full border border-white/15 bg-white/[0.03] px-2 py-0.5 text-[11px] text-[#D1D5DB]">
+                {currencyText(paymentMethodLabel(method, isAr))}{currencyText(listing.bankTransferProvider === "wise" && method === "Bank Transfer" ? " · Wise · USD" : "")}
+              </span>
+            ))}
+          </div>
+        </div>
+      </div>
+      <div className="seller-card-info-panel min-w-0 space-y-1.5 rounded-xl border border-white/10 bg-black/25 p-3">
+        {normalizePaymentMethodList(listing.paymentMethods, listing.paymentMethod).some(isCardlessAtmPaymentMethod)
+          ? <p>{currencyText(isAr ? "الحد الأقصى؛ كمية ATM تُحسب من الرمز" : "Maximum; ATM quantity follows the code")}: <span className="text-white">{currencyText(`${displayedMaximum} USDT`)}</span></p>
+          : <p>{isAr ? "حدود الصفقة" : "Trade limits"}: <span className="text-white">{currencyText(`${formatListingTradeLimit(listing.minimumTrade)} – ${displayedMaximum} USDT`)}</span></p>}
+        <p>
+          {isAr ? "مسار الصفقة" : "Trade flow"}:{" "}
+          <span className="seller-escrow-emphasis">
+            {isAr ? "منظّم ومسجّل عبر " : "Structured and recorded by "}
+            <span className="seller-escrow-brand">{brandText("Alpha Traders")}</span>
+          </span>
+        </p>
+        <p>{isAr ? "المنطقة" : "Region"}: <span className="text-white">{currencyText(safeText(listing.sellerProfile?.country, isAr ? "إسرائيل" : "Israel"))}</span></p>
+      </div>
+    </div>
+  );
+  const marketQuote = listing.currency === "ILS" ? (
+    <div className="seller-live-market-panel compact-listing__market rounded-lg border text-[11px] text-[#CFCFCF]">
+      <span className="text-[#9CA3AF]">{isAr ? "السوق الحالي" : "Current Market"}</span>
+      <span>{currencyText("USDT / ILS")}</span>
+      <span className="seller-live-market-badge">{isAr ? "مباشر" : "Live"}</span>
+      <span className="compact-listing__market-price font-semibold">{marketPricePerUsdt > 0 ? moneyText(marketPricePerUsdt.toFixed(5)) : "—"}</span>
+    </div>
+  ) : <p className="p-2 text-xs text-[#D1D5DB]">{currencyText(isAr ? "السعر والإجمالي بالدولار USD. لا يوجد تحويل تلقائي للعملة." : "Price and total are in USD. No automatic currency conversion.")}</p>;
+  const sellerProfileLink = (
+    <Link
+      href={listing.sellerProfile?.username ? `/exchange/seller/${listing.sellerProfile.username}` : `/usdt-exchange?seller=${encodeURIComponent(listing.sellerId)}`}
+      className={cn(
+        "seller-marketplace-action seller-marketplace-action--profile focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C9A227] focus-visible:ring-offset-2 focus-visible:ring-offset-[#050505]",
+        isOwnerListing
+          ? "owner-cta-premium"
+          : `seller-rank-cta seller-rank-cta--${sellerRankKey}`,
+      )}
+    >
+      <span className="inline-flex items-center gap-2">
+        <Users className="h-4 w-4" />
+        {isAr ? "ملف البائع" : "Seller Profile"}
+      </span>
+      {desktopLayout && <ArrowRight className="h-4 w-4" />}
+    </Link>
+  );
   return (
     <Card
       id={`listing-${listing.id}`}
       className={cn(
         "group seller-listing-shell compact-listing border-white/10 bg-[#0B0B0B]/90 transition duration-300",
+        desktopLayout ? "listing-card--desktop" : "listing-card--compact",
         !isOwnerListing && `seller-rank-surface seller-rank-surface--${sellerRankKey} seller-rank-card seller-rank-card--${sellerRankKey}`,
         isOwnerListing && "owner-legendary-surface",
         isOwnerListing
@@ -1113,13 +1182,15 @@ export const ListingCard = memo(function ListingCard({ listing, isAr, marketPric
                   {currencyText(isAr ? presence.labelAr : presence.label)}
                 </span>
               </p>
+              {desktopLayout && <p className="mt-1 text-[11px] uppercase tracking-[0.12em] text-[#93C5FD]">{isAr ? "العرض" : "Listing"} {currencyText(shortListingRef(listing))}</p>}
             </div>
           </div>
           <span className="compact-listing__availability flex shrink-0 flex-col items-end gap-1.5">
             <span className={cn("seller-listing-availability", `seller-listing-availability--${isOwnerListing ? "legendary" : sellerRankKey}`)}>{isAr ? "متاح" : "Available"}</span>
-            <ListingCountdownBadge expiresAt={listing.expiresAt} isAr={isAr} />
+            <ListingCountdownBadge expiresAt={listing.expiresAt} isAr={isAr} desktopLayout={desktopLayout} />
           </span>
         </div>
+        {desktopLayout && sellerBadges}
       </CardHeader>
       <CardContent className="compact-listing__content">
         <div className={cn(
@@ -1147,19 +1218,31 @@ export const ListingCard = memo(function ListingCard({ listing, isAr, marketPric
                   <span className="currency-money compact-listing__amount-unit currency-usdt">USDT</span>
                 </div>
               </div>
+              {desktopLayout && <span className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-emerald-400/45 bg-emerald-500/15 px-2.5 py-1 text-[11px] font-semibold text-emerald-200">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-300" />
+                {isAr ? "جاهز للتداول" : "Ready to trade"}
+              </span>}
             </div>
             <div className={cn("rounded-xl border p-3 seller-rank-price seller-card-keymetric min-w-0", `seller-rank-price--${isOwnerListing ? "legendary" : sellerRankKey}`)}>
               <p className="text-[11px] uppercase tracking-[0.16em] text-[#D4AF37]">
                 {currencyText(isAr ? "سعر العرض" : "Listing Price")}
               </p>
-              <div className="flex flex-wrap items-baseline gap-x-1.5">
-                <span className="seller-price-value font-semibold text-[#6EE7B7]">
-                  {moneyText(toNumber(listing.price).toLocaleString("en-IL", { minimumFractionDigits: 2, maximumFractionDigits: 2 }))}
-                </span>
-                <span className="text-[11px] text-[#B8BEC7]">{currencyText(`${listing.currency} / USDT`)}</span>
-              </div>
+              {desktopLayout ? <>
+                <p className="seller-price-value mt-2 text-4xl font-semibold leading-none text-[#6EE7B7] md:text-5xl">
+                  {unitPrice}
+                </p>
+                <p className="mt-1 text-[11px] uppercase tracking-[0.12em] text-[#E5E7EB]">{currencyText(`${listing.currency} / USDT`)}</p>
+              </> : (
+                <div className="flex flex-wrap items-baseline gap-x-1.5">
+                  <span className="seller-price-value font-semibold text-[#6EE7B7]">
+                    {unitPrice}
+                  </span>
+                  <span className="text-[11px] text-[#B8BEC7]">{currencyText(`${listing.currency} / USDT`)}</span>
+                </div>
+              )}
             </div>
           </div>
+          {desktopLayout && marketQuote}
         </div>
         <div className="compact-listing__stats grid grid-cols-4 gap-1.5 text-center text-xs">
           <div className={cn("rounded-xl border border-white/10 bg-black/25 p-3 text-[#D1D5DB] transition duration-300 hover:bg-black/35", `seller-rank-microcard seller-rank-microcard--${isOwnerListing ? "legendary" : sellerRankKey}`)}>
@@ -1175,7 +1258,7 @@ export const ListingCard = memo(function ListingCard({ listing, isAr, marketPric
           <div className={cn("rounded-xl border border-white/10 bg-black/25 p-3 text-[#D1D5DB] transition duration-300 hover:bg-black/35", `seller-rank-microcard seller-rank-microcard--${isOwnerListing ? "legendary" : sellerRankKey}`)}>
             <Zap className="h-4 w-4 mx-auto text-[#F4D87A]" />
             <p className="mt-1 break-words font-semibold leading-snug text-white">{currencyText(formatMeasuredResponseTime(listing.sellerReputation?.responseTimeMinutes, isAr, listing.sellerReputation?.responseSampleCount))}</p>
-            <p className="text-[11px] text-[#9CA3AF]">{isAr ? "الاستجابة" : "Response"}</p>
+            <p className="text-[11px] text-[#9CA3AF]">{isAr ? "الاستجابة" : desktopLayout ? "Response Time" : "Response"}</p>
           </div>
           <div className={cn("rounded-xl border border-white/10 bg-black/25 p-3 text-[#D1D5DB] transition duration-300 hover:bg-black/35", `seller-rank-microcard seller-rank-microcard--${isOwnerListing ? "legendary" : sellerRankKey}`)}>
             <ShieldCheck className="h-4 w-4 mx-auto text-[#93C5FD]" />
@@ -1183,62 +1266,27 @@ export const ListingCard = memo(function ListingCard({ listing, isAr, marketPric
             <p className="text-[11px] text-[#9CA3AF]">{score.label}</p>
           </div>
         </div>
-        <details className="compact-listing__disclosure">
-          <summary className="list-none">
-            <span>{isAr ? "تفاصيل الصفقة" : "Trade details"}</span>
-            <bdi dir="ltr" className="ms-auto text-[11px] font-medium text-[#A1ADBE]">{shortListingRef(listing)}</bdi>
-            <ChevronDown className="h-4 w-4" aria-hidden="true" />
-          </summary>
-          <div className="grid gap-2 pb-2">
-            <div className="compact-listing__badges flex flex-wrap items-center gap-1.5">
-              <RoleBadge variant="approved_seller" locale={isAr ? "ar" : "en"} className={cn("seller-rank-badge", `seller-rank-badge--${sellerRankKey}`)} />
-              <RankBadge rank={sellerLevel} locale={isAr ? "ar" : "en"} audience="seller" />
-              <AccountVerificationBadges emailVerified={sellerEmailVerified} phoneVerified={listing.sellerProfile?.isPhoneVerified} isAr={isAr} />
-              {isOwnerListing ? <span className="rounded-full border border-amber-500/35 bg-amber-500/10 px-2 py-0.5 text-[11px] font-semibold text-amber-300">✓ {isAr ? "حساب المنصة الرسمي" : "Official Platform Account"}</span> : null}
+        {desktopLayout ? tradeDetails : (
+          <details className="compact-listing__disclosure">
+            <summary className="list-none">
+              <span>{isAr ? "تفاصيل الصفقة" : "Trade details"}</span>
+              <bdi dir="ltr" className="ms-auto text-[11px] font-medium text-[#A1ADBE]">{shortListingRef(listing)}</bdi>
+              <ChevronDown className="h-4 w-4" aria-hidden="true" />
+            </summary>
+            <div className="grid gap-2 pb-2">
+              {sellerBadges}
+              {tradeDetails}
+              {marketQuote}
+              {canOffer ? <p className="text-xs text-[#9CA3AF]">
+                {isAr ? "نطاق عرض السعر" : "Offer range"} · {offerHint}
+              </p> : null}
             </div>
-            <div className="compact-listing__details grid gap-2 text-xs text-[#9CA3AF]">
-              <div className="seller-card-info-panel min-w-0 space-y-1.5 rounded-xl border border-white/10 bg-black/25 p-3">
-                <p>{isAr ? "آخر نشاط" : "Last active"}: <span className={cn("text-white", presence.tone === "online" && "text-emerald-300")}>{currencyText(isAr ? presence.labelAr : presence.label)}</span></p>
-                <p>{isAr ? "الشبكة" : "Network"}: <span className="text-white">{currencyText(safeText(listing.network))}</span></p>
-                <div>
-                  <p>{isAr ? "الدفع" : "Payment"}:</p>
-                  <div className="mt-1 flex flex-wrap gap-1.5">
-                    {normalizePaymentMethodList(listing.paymentMethods, listing.paymentMethod).map((method) => (
-                      <span key={`${listing.id}-${method}`} className="max-w-full break-words rounded-full border border-white/15 bg-white/[0.03] px-2 py-0.5 text-[11px] text-[#D1D5DB]">
-                        {currencyText(paymentMethodLabel(method, isAr))}{currencyText(listing.bankTransferProvider === "wise" && method === "Bank Transfer" ? " · Wise · USD" : "")}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              </div>
-              <div className="seller-card-info-panel min-w-0 space-y-1.5 rounded-xl border border-white/10 bg-black/25 p-3">
-                {normalizePaymentMethodList(listing.paymentMethods, listing.paymentMethod).some(isCardlessAtmPaymentMethod)
-                  ? <p>{currencyText(isAr ? "الحد الأقصى؛ كمية ATM تُحسب من الرمز" : "Maximum; ATM quantity follows the code")}: <span className="text-white">{currencyText(`${displayedMaximum} USDT`)}</span></p>
-                  : <p>{isAr ? "حدود الصفقة" : "Trade limits"}: <span className="text-white">{currencyText(`${formatListingTradeLimit(listing.minimumTrade)} – ${displayedMaximum} USDT`)}</span></p>}
-                <p>
-                  {isAr ? "مسار الصفقة" : "Trade flow"}:{" "}
-                  <span className="seller-escrow-emphasis">
-                    {isAr ? "منظّم ومسجّل عبر " : "Structured and recorded by "}
-                    <span className="seller-escrow-brand">{brandText("Alpha Traders")}</span>
-                  </span>
-                </p>
-                <p>{isAr ? "المنطقة" : "Region"}: <span className="text-white">{currencyText(safeText(listing.sellerProfile?.country, isAr ? "إسرائيل" : "Israel"))}</span></p>
-              </div>
-            </div>
-            {listing.currency === "ILS" ? <div className="seller-live-market-panel compact-listing__market rounded-lg border text-[11px] text-[#CFCFCF]">
-              <span className="text-[#9CA3AF]">{isAr ? "السوق الحالي" : "Current Market"}</span>
-              <span>{currencyText("USDT / ILS")}</span>
-              <span className="seller-live-market-badge">{isAr ? "مباشر" : "Live"}</span>
-              <span className="compact-listing__market-price font-semibold">{marketPricePerUsdt > 0 ? moneyText(marketPricePerUsdt.toFixed(5)) : "—"}</span>
-            </div> : <p className="p-2 text-xs text-[#D1D5DB]">{currencyText(isAr ? "السعر والإجمالي بالدولار USD. لا يوجد تحويل تلقائي للعملة." : "Price and total are in USD. No automatic currency conversion.")}</p>}
-            {canOffer ? <p className="text-xs text-[#9CA3AF]">
-              {isAr ? "نطاق عرض السعر" : "Offer range"} · {currencyText(isAr ? "±₪0.35 من سعر الإعلان" : "Within ±₪0.35 of listing price")}
-            </p> : null}
-          </div>
-        </details>
-        <div className="compact-listing__actions">
+          </details>
+        )}
+        <div className={cn("compact-listing__actions", desktopLayout && "grid grid-cols-2 gap-2")}>
           {(listing.sellerActiveTradeCount ?? 0) > 0 ? <p className="col-span-full text-sm text-amber-200">{isAr ? `البائع في ${listing.sellerActiveTradeCount} من 3 صفقات نشطة` : `Seller in ${listing.sellerActiveTradeCount} of 3 active trades`}</p> : null}
           {requestBlockReason ? <p role="status" className="col-span-full rounded-xl border border-amber-500/30 p-3 text-sm text-amber-200">{requestBlockReason === "trade_limit" ? (isAr ? "البائع في 3 صفقات نشطة. انتظر انتهاء صفقة." : "Seller has 3 active trades. Wait for a trade to finish.") : (isAr ? "الرصيد محجوز للصفقات الحالية." : "Balance reserved for current trades.")}</p> : null}
+          {desktopLayout && sellerProfileLink}
           {isOwnListing ? (
             <Button
               className={cn(
@@ -1254,6 +1302,7 @@ export const ListingCard = memo(function ListingCard({ listing, isAr, marketPric
                 <Edit3 className="h-4 w-4" />
                 {isAr ? "إدارة العرض" : "Manage Listing"}
               </span>
+              {desktopLayout && <ArrowRight className="h-4 w-4" />}
             </Button>
           ) : (
             <Button
@@ -1271,27 +1320,15 @@ export const ListingCard = memo(function ListingCard({ listing, isAr, marketPric
                 {isBuying ? <Loader2 className="h-4 w-4 animate-spin" /> : <LockKeyhole className="h-4 w-4" />}
                 {requiresBuyerSetup ? (isAr ? "إعداد حساب المشتري" : "Set Up Buyer Access") : isBuying ? (isAr ? "جارٍ بدء الصفقة..." : "Starting trade...") : (isAr ? "اشترِ الآن" : "Buy Now")}
               </span>
+              {desktopLayout && <ArrowRight className="h-4 w-4" />}
             </Button>
           )}
-          <Link
-            href={listing.sellerProfile?.username ? `/exchange/seller/${listing.sellerProfile.username}` : `/usdt-exchange?seller=${encodeURIComponent(listing.sellerId)}`}
-            className={cn(
-              "seller-marketplace-action seller-marketplace-action--profile focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C9A227] focus-visible:ring-offset-2 focus-visible:ring-offset-[#050505]",
-              isOwnerListing
-                ? "owner-cta-premium"
-                : `seller-rank-cta seller-rank-cta--${sellerRankKey}`,
-            )}
-          >
-            <span className="inline-flex items-center gap-2">
-              <Users className="h-4 w-4" />
-              {isAr ? "ملف البائع" : "Seller Profile"}
-            </span>
-          </Link>
+          {!desktopLayout && sellerProfileLink}
           {canOffer ? (
             <Button
               type="button"
               variant="secondary"
-              className="seller-marketplace-action seller-marketplace-action--offer w-full justify-between rounded-2xl border-[#C9A227]/45 bg-[#C9A227]/10 px-5 text-sm font-semibold text-[#F4D87A] transition duration-300 hover:border-[#F4D87A]/70 hover:bg-[#C9A227]/15"
+              className={cn("seller-marketplace-action seller-marketplace-action--offer w-full justify-between rounded-2xl border-[#C9A227]/45 bg-[#C9A227]/10 px-5 text-sm font-semibold text-[#F4D87A] transition duration-300 hover:border-[#F4D87A]/70 hover:bg-[#C9A227]/15", desktopLayout && "col-span-2")}
               disabled={isBuying || Boolean(requestBlockReason)}
               onClick={() => onOpen(listing, "buyer_offer")}
               aria-label={isAr ? `تقديم عرض سعر إلى ${safeText(listing.sellerDisplayName, "البائع")}` : `Make a price offer to ${safeText(listing.sellerDisplayName, "seller")}`}
@@ -1300,6 +1337,7 @@ export const ListingCard = memo(function ListingCard({ listing, isAr, marketPric
                 <BadgePercent className="h-4 w-4" />
                 {currencyText(isAr ? "قدّم عرض سعر" : "Make an Offer")}
               </span>
+              {desktopLayout && <span className="text-[11px] font-medium text-[#D1D5DB]">{offerHint}</span>}
             </Button>
           ) : null}
         </div>
@@ -1325,16 +1363,19 @@ export function UsdtExchangePage({
   initialSessionUser,
   workspaceMode,
   usdtRequestsEnabled = false,
+  compactListingDevice = false,
 }: {
   locale: Locale;
   initialSessionUser?: SessionUser | null;
   workspaceMode?: WorkspaceMode;
   usdtRequestsEnabled?: boolean;
+  compactListingDevice?: boolean;
 }) {
   const isAr = locale === "ar";
   const isDashboardWorkspace = workspaceMode !== undefined;
   const isSellerDashboardWorkspace = workspaceMode === "seller";
   const workspaceViewport = useWorkspaceViewport();
+  const desktopListingLayout = useDesktopListingLayout(compactListingDevice, workspaceViewport);
   const isDesktopWorkspace = workspaceViewport === true;
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -5439,6 +5480,7 @@ export function UsdtExchangePage({
               ))
             : visibleListings.map((listing) => (
                 <ListingCard
+                  desktopLayout={desktopListingLayout}
                   key={listing.id}
                   listing={listing}
                   isAr={isAr}
