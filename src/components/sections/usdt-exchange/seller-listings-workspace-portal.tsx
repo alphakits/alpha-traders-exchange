@@ -1,6 +1,7 @@
 "use client";
 
 
+import { formatListingCardUsdt } from "@alpha-traders/contracts";
 import { brandText, currencyText, moneyText } from "@/components/ui/currency-text";
 import { WiseAccountSelect, type WiseAccountSummary } from "./wise-account-select";
 import { ActionFeedback } from "@/components/ui/action-feedback";
@@ -291,7 +292,7 @@ export function SellerListingsWorkspacePortal(props: SellerListingsWorkspacePort
                         <p className="truncate text-sm font-semibold text-white">{isAr ? "العرض" : "Listing"} {currencyText(shortListingRef(listing))}</p>
                         <p className="mt-0.5 text-xs text-[#9CA3AF]">{currencyText(listingAttention)}</p>
                       </div>
-                      <p className="text-xs text-[#D1D5DB]"><span className="text-[#9CA3AF]">{currencyText(isAr ? "الكمية " : "Amount ")}</span>{currencyText(`${toNumber(listing.availableAmount).toLocaleString("en-US", { maximumFractionDigits: 6 })} USDT`)}</p>
+                      <p className="text-xs text-[#D1D5DB]"><span className="text-[#9CA3AF]">{currencyText(isAr ? "الكمية " : "Amount ")}</span>{currencyText(`${formatListingCardUsdt(listing.availableAmount)} USDT`)}</p>
                         <p className="text-xs text-[#D1D5DB]"><span className="text-[#9CA3AF]">{currencyText(isAr ? "السعر " : "Price ")}</span>{currencyText(listing.currency === "USD" ? `${toNumber(listing.price).toFixed(2)} USD` : formatIls(toNumber(listing.price)))}</p>
                       <p className="min-w-0 truncate text-xs text-[#D1D5DB]" title={listingPaymentMethods}><span className="text-[#9CA3AF]">{isAr ? "الدفع " : "Payment "}</span>{currencyText(listingPaymentMethods)}</p>
                       <p className={cn("text-xs font-medium", isAwaitingApproval || isLockedForActiveTrade ? "text-amber-200" : "text-[#BFDBFE]")}>{brandText(listingRequiredAction)}</p>

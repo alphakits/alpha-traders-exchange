@@ -1,4 +1,4 @@
-import { deriveUserPresence, formatMeasuredResponseTime, sellerRatingDisplay, sellerScoreDisplay, MAX_PRICE_OFFER_VARIANCE_ILS } from "@alpha-traders/contracts";
+import { deriveUserPresence, formatListingCardUsdt, formatMeasuredResponseTime, sellerRatingDisplay, sellerScoreDisplay, MAX_PRICE_OFFER_VARIANCE_ILS } from "@alpha-traders/contracts";
 import { BrandedText as Text } from "./branded-text";
 import { memo, useEffect, useMemo, useState } from "react";
 import { Image, Pressable, StyleSheet, View } from "react-native";
@@ -13,7 +13,6 @@ import {
   formatCount,
   formatCurrencyAmountAsUsd,
   formatUsd,
-  formatUsdtNumber,
 } from "../finance/financial-display";
 
 type ListingCardProps = {
@@ -168,7 +167,7 @@ export const ListingCard = memo(function ListingCard({ listing, onBuy, onOffer, 
             <View style={[styles.usdtAmountRow, isRTL && styles.rowReverse]}>
               <View style={styles.usdtIcon}><Text monetary style={styles.usdtIconText}>₮</Text></View>
               <Text monetary adjustsFontSizeToFit numberOfLines={1} style={[styles.usdtAmount, isRTL && styles.rtlText]}>
-                {formatUsdtNumber(listing.availableAmount)}
+                {formatListingCardUsdt(listing.availableAmount)}
               </Text>
             </View>
             <Text style={[styles.usdtUnit, isRTL && styles.rtlText]}>USDT</Text>
@@ -216,7 +215,7 @@ export const ListingCard = memo(function ListingCard({ listing, onBuy, onOffer, 
             </View>
           </View>
           <View style={styles.infoPanel}>
-            <Text style={[styles.infoLine, isRTL && styles.rtlText]}>{listing.paymentMethods.includes("Cardless ATM Withdrawal") ? copy("Maximum; ATM quantity follows the code", "الحد الأقصى؛ كمية ATM تُحسب من الرمز") : copy("Trade limits", "حدود الصفقة")}: <Text style={styles.infoValue}>{listing.paymentMethods.includes("Cardless ATM Withdrawal") ? "" : `${formatUsdtNumber(listing.minimumTrade)} – `}{formatUsdtNumber(listing.maximumTrade)} USDT</Text></Text>
+            <Text style={[styles.infoLine, isRTL && styles.rtlText]}>{listing.paymentMethods.includes("Cardless ATM Withdrawal") ? copy("Maximum; ATM quantity follows the code", "الحد الأقصى؛ كمية ATM تُحسب من الرمز") : copy("Trade limits", "حدود الصفقة")}: <Text style={styles.infoValue}>{listing.paymentMethods.includes("Cardless ATM Withdrawal") ? "" : `${formatListingCardUsdt(listing.minimumTrade)} – `}{formatListingCardUsdt(listing.maximumTrade)} USDT</Text></Text>
             <Text style={[styles.infoLine, isRTL && styles.rtlText]}>{copy("Trade flow", "مسار الصفقة")}: <Text style={styles.escrowValue}>{copy("Structured and recorded by Alpha Traders", "منظّم ومسجّل عبر Alpha Traders")}</Text></Text>
             <Text style={[styles.infoLine, isRTL && styles.rtlText]}>{copy("Region", "المنطقة")}: <Text style={styles.infoValue}>{listing.seller.country || copy("Israel", "إسرائيل")}</Text></Text>
           </View>

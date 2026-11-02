@@ -17,12 +17,13 @@ import {
   useQueryClient,
   type InfiniteData,
 } from "@tanstack/react-query";
-import type {
-  MobileSellerAvailabilityStatus,
-  MobileSellerListing,
-  MobileSellerListingApprovalStatus,
-  MobileSellerListingsResponse,
-  MobileSellerListingStatus,
+import {
+  formatListingCardUsdt,
+  type MobileSellerAvailabilityStatus,
+  type MobileSellerListing,
+  type MobileSellerListingApprovalStatus,
+  type MobileSellerListingsResponse,
+  type MobileSellerListingStatus,
 } from "@alpha-traders/contracts";
 import { colors, radius, spacing, typography } from "@alpha-traders/design-tokens";
 import {
@@ -39,7 +40,6 @@ import { mergeUniquePages, nextPageOffset } from "../query/paged-data";
 import {
   formatCount,
   formatCurrencyAmountAsUsd,
-  formatUsdtNumber,
 } from "../finance/financial-display";
 import { useUsdDisplayRate } from "../finance/use-usd-display-rate";
 
@@ -232,7 +232,7 @@ export function SellerWorkspaceScreen() {
               <View style={styles.metricsRow}>
                 <View style={styles.metric}>
                   <Text monetary style={styles.metricLabel}>{t("available")}</Text>
-                  <Text monetary style={styles.metricValue}>{formatUsdtNumber(item.availableAmount)} USDT</Text>
+                  <Text monetary style={styles.metricValue}>{formatListingCardUsdt(item.availableAmount)} USDT</Text>
                 </View>
                 <View style={styles.metric}>
                   <Text monetary style={styles.metricLabel}>{t("price")}</Text>
@@ -243,7 +243,7 @@ export function SellerWorkspaceScreen() {
                 {item.network} · {item.paymentMethods.join(" · ")}
               </Text>
               <Text monetary style={[styles.detail, isRTL && styles.rtlText]}>
-                {t("minimum")}: {formatUsdtNumber(item.minimumTrade)} · {t("maximum")}: {formatUsdtNumber(item.maximumTrade)} USDT
+                {t("minimum")}: {formatListingCardUsdt(item.minimumTrade)} · {t("maximum")}: {formatListingCardUsdt(item.maximumTrade)} USDT
               </Text>
               {item.approvalStatus ? (
                 <Text style={[styles.detail, isRTL && styles.rtlText]}>
