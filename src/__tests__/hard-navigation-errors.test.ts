@@ -12,12 +12,23 @@ const refusal = (url = marketUrl) => Object.assign(new Error(`/localhost:3000/ap
 function fakePage(pageUrl = `${E2E_BASE_URL}/en/trade-room/synthetic`) {
   const events = new EventEmitter();
   const frame = {} as Frame;
-  let acceptResponse!: (response: Response) => void;
+  const responseWaiters = new Set<{
+    predicate: (response: Response) => boolean;
+    resolve: (response: Response) => void;
+    reject: (error: Error) => void;
+  }>();
+  const acceptResponse = (response: Response) => {
+    for (const waiter of responseWaiters) {
+      if (!waiter.predicate(response)) continue;
+      responseWaiters.delete(waiter);
+      waiter.resolve(response);
+    }
+  };
   const page = Object.assign(events, {
     mainFrame: () => frame,
     url: () => pageUrl,
-    waitForResponse: (predicate: (response: Response) => boolean) => new Promise<Response>((resolve) => {
-      acceptResponse = (response) => { if (predicate(response)) resolve(response); };
+    waitForResponse: (predicate: (response: Response) => boolean) => new Promise<Response>((resolve, reject) => {
+      responseWaiters.add({ predicate, resolve, reject });
     }),
   }) as unknown as Page;
   const startRequest = (method = "GET", requestFrame = frame) => {
@@ -34,6 +45,11 @@ function fakePage(pageUrl = `${E2E_BASE_URL}/en/trade-room/synthetic`) {
     page, error: (error: Error) => events.emit("pageerror", error),
     frame, commit: (committedFrame = frame) => events.emit("framenavigated", committedFrame),
     startRequest,
+    pendingResponseCount: () => responseWaiters.size,
+    failResponses: (error = new Error("Destination response timed out")) => {
+      for (const waiter of responseWaiters) waiter.reject(error);
+      responseWaiters.clear();
+    },
     respond: (status = 200, valid = true, request = startRequest()) => acceptResponse(response(status, valid, request)),
     respondJson: (body: unknown, options: { url?: string; status?: number; request?: Request; frame?: Frame } = {}) => {
       const status = options.status ?? 200;
@@ -121,6 +137,7 @@ describe("hard-navigation browser error audit", () => {
       fixture.commit(); fixture.respond(200, true, oldRequest);
     }).then(() => { settled = true; });
     await Promise.resolve(); await Promise.resolve();
+    expect(fixture.pendingResponseCount()).toBe(1);
     expect(settled).toBe(false);
     fixture.respond(); await pending;
     expect(audit.report().navigationCancellations).toHaveLength(1);
@@ -170,6 +187,16 @@ describe("hard-navigation browser error audit", () => {
     });
     expect(audit.errors).toEqual([]);
     expect(audit.report().navigationCancellations[0]).toMatchObject({ marketStatus: 202, feedStatus: 202, feedUrl: marketUrl });
+  });
+
+  it("preserves the legacy exact-message matcher only for the implicit market default", async () => {
+    const audit = createHardNavigationErrorAudit("webkit"), fixture = fakePage();
+    const legacyError = new Error(`Fetch API cannot load ${marketUrl} due to access control checks.`);
+    await audit.navigate(fixture.page, async () => {
+      fixture.error(legacyError); fixture.commit(); fixture.respond();
+    });
+    expect(audit.errors).toEqual([]);
+    expect(audit.report().navigationCancellations).toEqual([expect.objectContaining({ stack: legacyError.stack, marketStatus: 200 })]);
   });
 });
 
@@ -277,6 +304,7 @@ describe("explicit authenticated destination feed audit", () => {
       });
     }, demandFeed).then(() => { settled = true; });
     await Promise.resolve(); await Promise.resolve();
+    expect(fixture.pendingResponseCount()).toBe(1);
     expect(settled).toBe(false); expect(audit.report().navigationCancellations).toEqual([]);
     fixture.respondJson(validDemandBody()); await pending;
     expect(audit.errors).toEqual([]); expect(audit.report().navigationCancellations).toHaveLength(1);
@@ -288,5 +316,140 @@ describe("explicit authenticated destination feed audit", () => {
       fixture.error(refusal(demandUrl)); fixture.commit(); fixture.respondJson(validDemandBody());
     }, demandFeed);
     expect(audit.errors).toHaveLength(1); expect(audit.report().navigationCancellations).toEqual([]);
+  });
+});
+
+describe("multiple explicit destination feed audit", () => {
+  const accountUrl = `${E2E_BASE_URL}/api/alpha-exchange/user-blocks/seller-synthetic`;
+  const accountFeed = unblockedAccountDestinationFeed(accountUrl);
+  const feeds = [demandFeed, accountFeed];
+
+  it("requires every fresh feed and retains each native diagnostic's exact feed identity", async () => {
+    const audit = createHardNavigationErrorAudit("webkit"), fixture = fakePage();
+    const demandError = refusal(demandUrl), accountError = refusal(accountUrl);
+    let settled = false;
+    const pending = audit.navigate(fixture.page, async () => {
+      fixture.error(demandError); fixture.error(accountError);
+      fixture.commit(); fixture.respondJson({ blocked: false }, { url: accountUrl });
+    }, feeds).then(() => { settled = true; });
+    await Promise.resolve(); await Promise.resolve();
+    expect(fixture.pendingResponseCount()).toBe(1);
+    expect(settled).toBe(false);
+    expect(audit.report().navigationCancellations).toEqual([]);
+    fixture.respondJson(validDemandBody()); await pending;
+    expect(audit.errors).toEqual([]);
+    expect(audit.report().navigationCancellations).toEqual([
+      expect.objectContaining({ stack: demandError.stack, feedUrl: demandUrl, feedStatus: 200 }),
+      expect.objectContaining({ stack: accountError.stack, feedUrl: accountUrl, feedStatus: 200 }),
+    ]);
+  });
+
+  it.each([
+    ["the cancelled feed is healthy but its companion is missing", demandUrl],
+    ["only another feed is healthy", accountUrl],
+  ])("retains the error if %s", async (_label, errorUrl) => {
+    const audit = createHardNavigationErrorAudit("webkit"), fixture = fakePage();
+    const nativeError = refusal(errorUrl);
+    let settled = false;
+    const pending = audit.navigate(fixture.page, async () => {
+      fixture.error(nativeError); fixture.commit(); fixture.respondJson(validDemandBody());
+    }, feeds).finally(() => { settled = true; });
+    const rejected = expect(pending).rejects.toThrow("Destination response timed out");
+    await Promise.resolve(); await Promise.resolve();
+    expect(fixture.pendingResponseCount()).toBe(1);
+    expect(settled).toBe(false);
+    expect(audit.report().navigationCancellations).toEqual([]);
+    fixture.failResponses(); await rejected;
+    expect(audit.errors).toEqual([nativeError.message]);
+    expect(audit.report().navigationCancellations).toEqual([]);
+  });
+
+  it.each([
+    { label: "wrong actor", demandBody: { ...validDemandBody(), actorId: "another-buyer" }, accountBody: { blocked: false }, status: 200 },
+    { label: "invalid companion body", demandBody: validDemandBody(), accountBody: { blocked: true }, status: 200 },
+    { label: "missing companion body", demandBody: validDemandBody(), accountBody: null, status: 200 },
+    { label: "non-200 success", demandBody: validDemandBody(), accountBody: { blocked: false }, status: 202 },
+    { label: "failed companion response", demandBody: validDemandBody(), accountBody: { blocked: false }, status: 503 },
+  ])("retains all candidates when any contract fails: $label", async ({ demandBody, accountBody, status }) => {
+    const audit = createHardNavigationErrorAudit("webkit"), fixture = fakePage();
+    const nativeErrors = [refusal(demandUrl), refusal(accountUrl)];
+    await expect(audit.navigate(fixture.page, async () => {
+      nativeErrors.forEach(fixture.error); fixture.commit();
+      fixture.respondJson(demandBody);
+      fixture.respondJson(accountBody, { url: accountUrl, status });
+    }, feeds)).rejects.toThrow(/Destination /);
+    expect(audit.errors).toEqual(nativeErrors.map(error => error.message));
+    expect(audit.report().navigationCancellations).toEqual([]);
+  });
+
+  it.each(["departing document", "child request frame", "child response frame", "POST", "other endpoint", "other origin"])(
+    "does not use a %s response to complete the companion proof", async kind => {
+      const audit = createHardNavigationErrorAudit("webkit"), fixture = fakePage();
+      const nativeError = refusal(accountUrl);
+      let settled = false;
+      const pending = audit.navigate(fixture.page, async () => {
+        fixture.error(nativeError);
+        const oldRequest = fixture.startRequest();
+        fixture.commit(); fixture.respondJson(validDemandBody());
+        const childFrame = {} as Frame;
+        const request = kind === "departing document" ? oldRequest
+          : fixture.startRequest(kind === "POST" ? "POST" : "GET", kind === "child request frame" ? childFrame : fixture.frame);
+        fixture.respondJson({ blocked: false }, {
+          request, frame: kind === "child response frame" ? childFrame : fixture.frame,
+          url: kind === "other endpoint" ? `${accountUrl}-other` : kind === "other origin" ? "https://external.invalid/feed" : accountUrl,
+        });
+      }, feeds).then(() => { settled = true; });
+      await Promise.resolve(); await Promise.resolve();
+      expect(fixture.pendingResponseCount()).toBe(1);
+      expect(settled).toBe(false);
+      expect(audit.report().navigationCancellations).toEqual([]);
+      fixture.respondJson({ blocked: false }, { url: accountUrl }); await pending;
+      expect(audit.errors).toEqual([]);
+      expect(audit.report().navigationCancellations).toEqual([expect.objectContaining({ feedUrl: accountUrl })]);
+    },
+  );
+
+  it.each([
+    { label: "an empty list", contracts: [], message: "at least one destination feed" },
+    { label: "a duplicate object", contracts: [demandFeed, demandFeed], message: "distinct destination feed URLs" },
+    { label: "duplicate URLs in different objects", contracts: [demandFeed, { ...demandFeed, label: "another contract" }], message: "distinct destination feed URLs" },
+    { label: "a cross-origin companion", contracts: [demandFeed, { ...accountFeed, url: "https://external.invalid/feed" }], message: "exact same-origin feed" },
+  ])("rejects $label before calling the action", async ({ contracts, message }) => {
+    const audit = createHardNavigationErrorAudit("webkit"), fixture = fakePage();
+    let actionCalled = false;
+    await expect(audit.navigate(fixture.page, async () => { actionCalled = true; }, contracts)).rejects.toThrow(message);
+    expect(actionCalled).toBe(false);
+    expect(audit.report().navigationCancellations).toEqual([]);
+  });
+
+  it.each([
+    { label: "a JavaScript Error", makeError: () => new Error(expectedNativeText), afterCommit: false },
+    { label: "a JavaScript TypeError", makeError: () => new TypeError(expectedNativeText), afterCommit: false },
+    { label: "a missing native stack", makeError: () => Object.assign(new Error(expectedNativeText), { stack: undefined }), afterCommit: false },
+    { label: "an unrelated endpoint", makeError: () => refusal(`${E2E_BASE_URL}/api/auth/profile`), afterCommit: false },
+    { label: "another origin", makeError: () => refusal("https://external.invalid/feed"), afterCommit: false },
+    { label: "a post-commit native refusal", makeError: () => refusal(accountUrl), afterCommit: true },
+  ])("keeps $label as an error even when all feeds recover", async ({ makeError, afterCommit }) => {
+    const audit = createHardNavigationErrorAudit("webkit"), fixture = fakePage();
+    const error = makeError();
+    await audit.navigate(fixture.page, async () => {
+      if (!afterCommit) fixture.error(error);
+      fixture.commit();
+      if (afterCommit) fixture.error(error);
+      fixture.respondJson(validDemandBody()); fixture.respondJson({ blocked: false }, { url: accountUrl });
+    }, feeds);
+    expect(audit.errors).toEqual([error.message]);
+    expect(audit.report().navigationCancellations).toEqual([]);
+  });
+
+  it.each(["chromium", "firefox"])("keeps explicit native-looking errors in %s", async browser => {
+    const audit = createHardNavigationErrorAudit(browser), fixture = fakePage();
+    const error = refusal(accountUrl);
+    await audit.navigate(fixture.page, async () => {
+      fixture.error(error); fixture.commit();
+      fixture.respondJson(validDemandBody()); fixture.respondJson({ blocked: false }, { url: accountUrl });
+    }, feeds);
+    expect(audit.errors).toEqual([error.message]);
+    expect(audit.report().navigationCancellations).toEqual([]);
   });
 });

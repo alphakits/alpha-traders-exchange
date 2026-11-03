@@ -235,6 +235,44 @@ async function createDemand(api: APIRequestContext, amount = "1000") {
   expect(detail.ok(), await detail.text()).toBe(true);
   return (await detail.json() as DemandWorkspace).requests.find(request => request.id === id)!;
 }
+
+function sellerNavigationFeeds(baseURL: string, actorId: string, expectedTrades: Array<{
+  id: string; status: string; perspective: "seller"; usdtAmount: string; fiatAmount: string;
+}>) {
+  return [
+    marketDestinationFeed(baseURL),
+    {
+      url: new URL("/api/alpha-exchange/seller/active-trades", baseURL).href,
+      label: "same seller and current active trades",
+      validateBody: (body: unknown) => {
+        const value = body as { actorId?: unknown; trades?: Array<Record<string, unknown>>; error?: unknown } | null;
+        return value?.actorId === actorId && value.error === undefined && Array.isArray(value.trades)
+          && value.trades.length === expectedTrades.length
+          && expectedTrades.every(expected => value.trades!.some(trade => trade !== null && typeof trade === "object"
+            && trade.id === expected.id && trade.status === expected.status && trade.perspective === expected.perspective
+            && trade.usdtAmount === expected.usdtAmount && trade.fiatAmount === expected.fiatAmount));
+      },
+    },
+    {
+      url: new URL("/api/alpha-exchange/notification-engagement", baseURL).href,
+      label: "same seller and unchanged notification preferences",
+      validateBody: (body: unknown) => {
+        const value = body as { userId?: unknown; emailVerified?: unknown; error?: unknown;
+          preferences?: { inApp?: unknown; email?: unknown; browserPush?: unknown };
+          browserPush?: { available?: unknown; publicKey?: unknown } } | null;
+        // The isolated fixture explicitly sets these preferences. A reminder
+        // claim or document reload must not change them or switch the account.
+        return value?.userId === actorId && value.error === undefined && value.emailVerified === true
+          && value.preferences?.inApp === true && value.preferences.email === false && value.preferences.browserPush === false
+          && typeof value.browserPush?.available === "boolean"
+          && (value.browserPush.available
+            ? typeof value.browserPush.publicKey === "string" && value.browserPush.publicKey.length > 0
+            : value.browserPush.publicKey === null);
+      },
+    },
+  ];
+}
+
 test("a seller counters the ILS rate, the buyer keeps 1,000 USDT, and both can share wallet details only after acceptance", async ({ browser, baseURL }) => {
   const buyer = await browser.newContext({ baseURL, viewport: { width: 390, height: 844 } });
   const seller = await browser.newContext({ baseURL, viewport: { width: 390, height: 844 } });
@@ -291,7 +329,13 @@ test("a seller counters the ILS rate, the buyer keeps 1,000 USDT, and both can s
       await form.getByRole("button", { name: "Send Message" }).click();
       expect((await posted).status()).toBe(201);
     }
-    await sellerPage.reload();
+    await sellerPage.bringToFront();
+    // Keep native old-document diagnostics, and require fresh browser reads
+    // from this seller's new document for every affected endpoint.
+    await browserErrorAudit.navigate(sellerPage, () => sellerPage.reload(), sellerNavigationFeeds(baseURL!,
+      setup.users.find(user => user.email === OFFLINE_ACCOUNTS.seller.email)!.id,
+      [{ id: purchase.id, status: "accepted", perspective: "seller", usdtAmount: "1000", fiatAmount: "3232.00" }],
+    ));
     await expect(sellerPage.getByTestId("trade-chat-messages")).toContainText(wallet);
   } finally { await Promise.all([buyer.close(), seller.close()]); }
 });
@@ -494,7 +538,11 @@ test("buyer publishes, seller responds, buyer reviews and the canonical Trade Ro
     await buyerPage.reload(); await expect(buyerPage.getByTestId("trade-room-summary")).toBeVisible();
     await buyerPage.evaluate(() => window.scrollTo(0, 0));
     await buyerPage.screenshot({ path: testInfo.outputPath("trade-room-desktop.png"), fullPage: true });
-    await browserErrorAudit.navigate(sellerPage, () => sellerPage.goto(`/en/trade-room/${tradeId}`), marketDestinationFeed(baseURL!));
+    await sellerPage.bringToFront();
+    // Pending seller-side purchases are intentionally absent from the active
+    // header until acceptance. Prove that exact state for the same seller.
+    await browserErrorAudit.navigate(sellerPage, () => sellerPage.goto(`/en/trade-room/${tradeId}`),
+      sellerNavigationFeeds(baseURL!, stored.purchaseRequests[0].sellerId, []));
     await expect(sellerPage.getByTestId("trade-room-summary")).toBeVisible();
     const accepted = await seller.request.patch(`/api/alpha-exchange/purchase-requests/${tradeId}`, { data: { status: "accepted", safetyAcknowledged: true } });
     expect(accepted.ok(), await accepted.text()).toBe(true);
