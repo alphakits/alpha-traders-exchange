@@ -145,6 +145,21 @@ describe("one-time campaign consent and immutable delivery",()=>{
     expect(await isMarketingEmailClaimEligible({requestId:job.id,leaseToken:job.leaseToken})).toBe(false);
   });
 
+  it.each(["request","queued","claimed"] as const)("honors the Arabic account-deletion form at the %s stage",async(stage)=>{
+    if(stage!=="request") await request();
+    const job=stage==="claimed" ? (await claimMarketingEmail())! : null;
+    // Exact Arabic defaults from app/[locale]/account-deletion/page.tsx, stored by /api/contact.
+    await db.query("insert into public.contact_submissions values($1,$2,$3,$4)",[
+      "arabic-delete","buyer@example.com","طلب حذف حساب Alpha Traders",
+      "أطلب حذف حساب Alpha Traders المرتبط بالبريد الإلكتروني المذكور أعلاه والبيانات المرتبطة به.",
+    ]);
+    expect(await getMarketingEmailStatus(identity())).toMatchObject({status:"held",canRequest:false,holdCodes:["deletion_or_optout_requested"]});
+    expect(await request()).toMatchObject({status:"held",canRequest:false});
+    if(stage==="request") expect((await rows()).rows).toHaveLength(0);
+    else if(stage==="queued") expect(await claimMarketingEmail()).toBeNull();
+    else expect(await isMarketingEmailClaimEligible({requestId:job!.id,leaseToken:job!.leaseToken})).toBe(false);
+  });
+
   it("withdraws by opaque token without exposing identity and blocks other campaigns",async()=>{
     await request();
     const token=(await rows()).rows[0].unsubscribe_token;

@@ -107,7 +107,7 @@ async function dispatchClaim(claim: ClaimedMarketingEmail, api: ReturnType<typeo
 
 /** A bounded production-only sweep; no registration list can enter this queue. */
 export async function deliverMentorshipEmailQueue(options: Dependencies = {}) {
-  const summary = { attempted: 0, sent: 0, held: 0, retrying: 0, reconciled: 0, configurationError: false, disabled: false };
+  const summary = { attempted: 0, sent: 0, held: 0, retrying: 0, reconciled: 0, reconciliationUnavailable: 0, configurationError: false, disabled: false };
   if (process.env.VERCEL_ENV !== "production" || !isMentorshipEmailRequestEnabled()) return { ...summary, disabled: true };
   const key = process.env.RESEND_API_KEY?.trim();
   if (!key) return { ...summary, configurationError: true };
@@ -132,6 +132,14 @@ export async function deliverMentorshipEmailQueue(options: Dependencies = {}) {
       let result: ApiResult;
       try { result = await api(`/emails/${encodeURIComponent(record.providerEmailId)}`); }
       catch { break; }
+      if (result.status === 404) {
+        // A missing/expired receipt is specific to this message. Rotate it out
+        // of the oldest-first batch without inventing a delivery outcome, so
+        // it cannot permanently starve everyone else's reconciliation.
+        await markMarketingEmailReconciled({ requestId: record.id, providerEmailId: record.providerEmailId });
+        summary.reconciliationUnavailable++;
+        continue;
+      }
       if (result.status !== 200 || result.data?.id !== record.providerEmailId) {
         if ([401, 403].includes(result.status)) summary.configurationError = true;
         break;

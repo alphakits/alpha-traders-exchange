@@ -104,7 +104,7 @@ async function globallyWithdrawn(client: Pool | PoolClient, email: string) {
 // Only a recorded action is an opt-out. The account's default email=false is not.
 const CURRENT_RESTRICTION_SQL = `
   not exists(select 1 from public.contact_submissions c where lower(btrim(c.email))=r.email
-    and (c.subject='Alpha Traders account deletion request' or c.subject ~* '(unsubscrib|opt.?out|إلغاء|الغاء)'
+    and (c.subject in ('Alpha Traders account deletion request','طلب حذف حساب Alpha Traders') or c.subject ~* '(unsubscrib|opt.?out|إلغاء|الغاء)'
       or c.message ~* '(unsubscrib|opt.?out|remove me|إلغاء الاشتراك|الغاء الاشتراك)'))
   and coalesce((select a.payload->>'details' from alpha_exchange.activity_logs a
     where a.user_id=r.user_id and a.category='account' and a.payload->>'title'='Notification preferences updated'
@@ -112,7 +112,7 @@ const CURRENT_RESTRICTION_SQL = `
 async function currentRestrictionCodes(client: Pool | PoolClient, input: Identity): Promise<string[]> {
   const result = await client.query<{ deletion_or_optout: boolean; explicit_email_off: boolean }>(`select
     exists(select 1 from public.contact_submissions c where lower(btrim(c.email))=$2
-      and (c.subject='Alpha Traders account deletion request' or c.subject ~* '(unsubscrib|opt.?out|إلغاء|الغاء)'
+      and (c.subject in ('Alpha Traders account deletion request','طلب حذف حساب Alpha Traders') or c.subject ~* '(unsubscrib|opt.?out|إلغاء|الغاء)'
         or c.message ~* '(unsubscrib|opt.?out|remove me|إلغاء الاشتراك|الغاء الاشتراك)')) as deletion_or_optout,
     coalesce((select a.payload->>'details' from alpha_exchange.activity_logs a where a.user_id=$1
       and a.category='account' and a.payload->>'title'='Notification preferences updated'

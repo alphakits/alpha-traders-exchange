@@ -118,6 +118,20 @@ describe("requested mentorship delivery", () => {
     expect((await deliverMentorshipEmailQueue(options(fetcher))).held).toBe(1);
     expect(fetcher).not.toHaveBeenCalled();
   });
+  it("continues delivery reconciliation after a missing provider receipt", async () => {
+    ledger.getPendingMarketingEmailReconciliations.mockResolvedValue([
+      { id: "missing-request", providerEmailId: "missing-receipt" },
+      { id: "later-request", providerEmailId: "later-receipt" },
+    ]);
+    const fetcher = vi.fn().mockResolvedValueOnce(response(404))
+      .mockResolvedValueOnce(response(200, { id: "later-receipt", last_event: "delivered" }));
+    const result = await deliverMentorshipEmailQueue(options(fetcher));
+    expect(result.reconciliationUnavailable).toBe(1);
+    expect(result.reconciled).toBe(1);
+    expect(ledger.markMarketingEmailReconciled).toHaveBeenCalledWith({ requestId: "missing-request", providerEmailId: "missing-receipt" });
+    expect(ledger.recordMarketingProviderEvent).toHaveBeenCalledTimes(1);
+    expect(ledger.recordMarketingProviderEvent).toHaveBeenCalledWith(expect.objectContaining({ providerEmailId: "later-receipt", type: "delivered" }));
+  });
 });
 
 describe("campaign content and boundaries", () => {
