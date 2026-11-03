@@ -5,7 +5,6 @@ import { useEffect, useRef, useSyncExternalStore } from "react";
 import type { AppLocale } from "@/i18n/routing";
 import { usePathname, useRouter } from "@/i18n/navigation";
 import { MentorshipLink } from "@/components/academy/mentorship-link";
-import { MentorshipEmailRequest } from "@/components/marketing/mentorship-email-request";
 import { mentorshipBoundaries, mentorshipPhase, type MentorshipPhase } from "@/lib/ict-mentorship-offer";
 import styles from "./mentorship-announcement.module.css";
 
@@ -68,7 +67,6 @@ export function MentorshipAnnouncement({ locale, initialPhase }: { locale: AppLo
         </span>
         <span className={styles.action}><span>{isAr ? "تفاصيل العرض" : "View offer"}</span><ArrowRight size={14} strokeWidth={1.8} aria-hidden="true" /></span>
       </MentorshipLink>
-      {november && !onOffer ? <MentorshipEmailRequest locale={locale} compact /> : null}
     </aside>
   );
 }
