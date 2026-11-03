@@ -16,6 +16,9 @@ for (const locale of ["ar", "en"]) {
     await expect(page).toHaveURL(new RegExp(`/${locale}/learn-with-mark#mark-explains$`));
     await page.locator("header .alpha-brand-link").click();
     await expect(page).toHaveURL(new RegExp(`/${locale}/?$`));
+    // Exercise Back after the destination has rendered, not while its route
+    // is still streaming: the URL can change before the home content commits.
+    await expect(page.locator("main .alpha-home-hero h1")).toBeVisible();
     await page.goBack();
     await expect(page).toHaveURL(new RegExp(`/${locale}/learn-with-mark#mark-explains$`));
     await expect(page.locator("#course-overview")).toBeVisible();
