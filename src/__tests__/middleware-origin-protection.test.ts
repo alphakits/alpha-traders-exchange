@@ -4,8 +4,14 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 vi.mock("next-intl/middleware", () => ({
   default: () => () => NextResponse.next(),
 }));
+const unsubscribe = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/marketing-email-ledger", () => ({
+  unsubscribeMarketingEmail: unsubscribe,
+  getMarketingUnsubscribeStatus: vi.fn(),
+}));
 
 import middleware from "@/middleware";
+import { POST as unsubscribePost } from "@/app/api/marketing/unsubscribe/route";
 
 function apiRequest(
   pathname: string,
@@ -143,6 +149,25 @@ describe("API mutation origin protection", () => {
 
     expect(response.status).toBe(200);
     expect(response.headers.get("x-middleware-next")).toBe("1");
+  });
+
+  it("passes originless one-click unsubscribe to its token guard without exempting invitation requests", async () => {
+    unsubscribe.mockReset().mockResolvedValue(true);
+    const token = "a".repeat(43);
+    const oneClick = new NextRequest(`https://www.alphatraders.co.il/api/marketing/unsubscribe?token=${token}`, {
+      method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: "List-Unsubscribe=One-Click",
+    });
+    expect((await middleware(oneClick)).headers.get("x-middleware-next")).toBe("1");
+    expect((await unsubscribePost(oneClick)).status).toBe(200);
+    expect(unsubscribe).toHaveBeenCalledExactlyOnceWith(token);
+
+    const missingToken = apiRequest("/api/marketing/unsubscribe", "POST");
+    expect((await middleware(missingToken)).headers.get("x-middleware-next")).toBe("1");
+    expect((await unsubscribePost(missingToken)).status).toBe(404);
+    expect(unsubscribe).toHaveBeenCalledOnce();
+    expect((await middleware(apiRequest("/api/marketing/mentorship-invitation", "POST"))).status).toBe(403);
+    expect((await middleware(apiRequest("/api/marketing/unsubscribe/extra", "POST"))).status).toBe(403);
   });
 
   it("allows an email-verified seller into the workspace without a phone cookie in email-only mode", async () => {

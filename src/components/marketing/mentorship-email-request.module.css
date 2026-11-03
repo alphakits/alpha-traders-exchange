@@ -1,0 +1,28 @@
+.compact { max-inline-size: 65rem; margin-inline: auto; padding: 0 1rem .5rem; text-align: center; }
+.card { margin-block: 1.5rem; border: 1px solid #b69b5a55; border-radius: 1rem; background: #15140f; color: #f4e9cf; }
+.trigger, .primary, .secondary { display: inline-flex; align-items: center; justify-content: center; gap: .45rem; min-block-size: 2.75rem; max-inline-size: 100%; border-radius: .7rem; padding: .6rem .9rem; font: inherit; font-size: .84rem; line-height: 1.4; cursor: pointer; }
+.trigger { border: 1px solid #b69b5a55; background: #292419; color: #f1d694; }
+.trigger:hover, .secondary:hover { background: #373020; }
+.panel { padding: 1.15rem; text-align: start; }
+.compact .panel { margin-block-start: .6rem; border: 1px solid #b69b5a55; border-radius: .9rem; background: #15140f; }
+.title { margin: 0; color: #fff6e4; font-size: 1rem; font-weight: 650; line-height: 1.5; }
+.description, .recipient, .message, .error { margin-block: .65rem 0; font-size: .86rem; line-height: 1.65; overflow-wrap: anywhere; }
+.description, .recipient { color: #cec9ba; }
+.message { color: #e9dbb8; }
+.error { color: #fecaca; }
+.form { margin-block-start: 1rem; }
+.consent { display: flex; align-items: flex-start; gap: .7rem; min-block-size: 2.75rem; color: #ede8db; font-size: .88rem; line-height: 1.6; cursor: pointer; }
+.consent input { flex: none; inline-size: 1.1rem; block-size: 1.1rem; margin-block-start: .2rem; accent-color: #d4af37; }
+.actions { display: flex; flex-wrap: wrap; gap: .6rem; margin-block-start: .9rem; }
+.primary { border: 1px solid #e4c16b; background: #e4c16b; color: #151108; font-weight: 650; }
+.primary:hover { background: #f1d58f; }
+.secondary { border: 1px solid #b69b5a55; background: transparent; color: #e1d6bc; }
+.panel > .secondary { margin-block-start: .8rem; }
+.link { display: inline-flex; align-items: center; min-block-size: 2.75rem; color: #f1d694; text-decoration: underline; text-underline-offset: .2rem; }
+.trigger:focus-visible, .primary:focus-visible, .secondary:focus-visible, .link:focus-visible, .consent input:focus-visible { outline: 2px solid #f7d78b; outline-offset: 3px; }
+.primary:disabled, .secondary:disabled { cursor: default; opacity: .55; }
+@media (max-width: 32rem) {
+  .compact { padding-inline: .75rem; }
+  .panel { padding: .9rem; }
+  .actions > button { flex: 1 1 12rem; }
+}

@@ -48,7 +48,7 @@ function observeIpregistryCapacity(response: Response, configuration: string) {
 }
 
 // These are machine endpoints, never interactive account/trade routes. Their
-// own secret/signature checks remain authoritative; no header creates a bypass.
+// own secret/signature/capability checks remain authoritative; no header creates a bypass.
 const MACHINE_METHODS: Record<string, readonly string[]> = {
   "/api/health": ["GET", "HEAD"],
   "/api/cron/economic-news": ["GET"],
@@ -57,6 +57,7 @@ const MACHINE_METHODS: Record<string, readonly string[]> = {
   "/api/cron/commission-checkout": ["GET"],
   "/api/cron/whatsapp-delivery": ["GET"],
   "/api/cron/marketplace-email-delivery": ["GET"],
+  "/api/cron/mentorship-email-delivery": ["GET"],
   "/api/cron/browser-push": ["GET"],
   "/api/cron/mobile-push-delivery": ["GET"],
   "/api/cron/buy-request-notifications": ["GET"],
@@ -69,6 +70,9 @@ const MACHINE_METHODS: Record<string, readonly string[]> = {
   // block or provider outage so users can still invalidate their sessions.
   "/api/auth/logout": ["POST"],
   "/api/mobile/v1/auth/session": ["DELETE"],
+  // Email revocation must remain usable by recipients and one-click providers
+  // during network restrictions. This token route cannot request or send mail.
+  "/api/marketing/unsubscribe": ["GET", "POST"],
 };
 
 export const networkAccessMessages = {

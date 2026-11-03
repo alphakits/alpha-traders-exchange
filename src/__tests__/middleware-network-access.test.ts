@@ -67,7 +67,7 @@ describe("VPN checks cannot be skipped through application entry points", () => 
     expect(dashboard.headers.get("location")).toBe("https://www.alphatraders.co.il/en/login?redirectTo=%2Fen%2Fdashboard");
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
-  it.each(["/api/twilio/status", "/api/twilio/whatsapp/webhook", "/api/discord/marketplace-events", "/api/meta/whatsapp/webhook"])("lets the signed callback handler authenticate %s", async (path) => {
+  it.each(["/api/twilio/status", "/api/twilio/whatsapp/webhook", "/api/discord/marketplace-events", "/api/meta/whatsapp/webhook", "/api/marketing/unsubscribe"])("lets the callback or token handler authenticate %s", async (path) => {
     const response = await middleware(request(path, "POST"));
     expect(response.headers.get("x-middleware-next")).toBe("1");
     expect(fetchMock).not.toHaveBeenCalled();
@@ -77,6 +77,7 @@ describe("VPN checks cannot be skipped through application entry points", () => 
     ["/api/cron/mobile-push-delivery", "outage"], ["/api/cron/mobile-push-delivery", "vpn classification"],
     ["/api/cron/buy-request-notifications", "outage"], ["/api/cron/buy-request-notifications", "vpn classification"],
     ["/api/cron/journal-cleanup", "outage"], ["/api/cron/journal-cleanup", "vpn classification"],
+    ["/api/cron/mentorship-email-delivery", "outage"], ["/api/cron/mentorship-email-delivery", "vpn classification"],
   ])("lets %s reach its secret guard despite a network provider %s", async (path, scenario) => {
     vi.stubEnv("ALPHA_NETWORK_ACCESS_MODE", "vpn-tor");
     vi.stubEnv("ALPHA_NETWORK_ACCESS_PROVIDER", "ipregistry");
@@ -91,5 +92,14 @@ describe("VPN checks cannot be skipped through application entry points", () => 
     expect(response.headers.get("x-middleware-next")).toBe("1");
     expect(response.headers.get("set-cookie")).toBeNull();
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps unsubscribe confirmation available without exempting request or adjacent paths", async () => {
+    const confirmation = await middleware(request("/api/marketing/unsubscribe?token=synthetic"));
+    expect(confirmation.headers.get("x-middleware-next")).toBe("1");
+    expect(fetchMock).not.toHaveBeenCalled();
+    for (const path of ["/api/marketing/mentorship-invitation", "/api/marketing/unsubscribe/extra"]) {
+      expect((await middleware(request(path))).status).toBe(403);
+    }
   });
 });

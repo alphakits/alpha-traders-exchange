@@ -2,6 +2,7 @@ import Image from "next/image";
 import { ArrowRight, AudioLines, BookOpen, Radio } from "lucide-react";
 import { redirect } from "next/navigation";
 import { MentorshipLink } from "@/components/academy/mentorship-link";
+import { MentorshipEmailRequest } from "@/components/marketing/mentorship-email-request";
 import { currencyText } from "@/components/ui/currency-text";
 import { mentorshipFees, mentorshipPhase } from "@/lib/ict-mentorship-offer";
 import { buildPageMetadata } from "@/lib/seo";
@@ -62,6 +63,7 @@ export default async function MentorshipOfferPage({ params }: PageProps) {
           <p><AudioLines size={17} aria-hidden="true" /><span>{t("Hear Mark’s ", "اسمع شرح مارك بصوته · ")}<bdi dir="ltr">7:44</bdi>{t(" introduction, explore the curriculum and ask about joining.", "، شوف المنهج وابعت استفسارك عن التسجيل.")}</span></p>
         </div>
       </section>
+      {phase === "november" ? <div id="email-invitation"><MentorshipEmailRequest locale={locale} /></div> : null}
     </article>
   );
 }
