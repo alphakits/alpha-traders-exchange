@@ -3575,7 +3575,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                     </div>
                   ) : null}
 
-                  {activeSection === "announcements" ? <AdminAnnouncementsPanel /> : null}
+                  {activeSection === "announcements" ? <AdminAnnouncementsPanel isOwner={isOwner} /> : null}
 
                   {activeSection === "private-beta" ? (
                     <div className="space-y-6">

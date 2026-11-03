@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import type { AdminAnnouncementAudience, AdminAnnouncementStatus } from "@/types/alpha-exchange";
 import { BRAND_NAME } from "@/lib/brand";
 import { composeAdminAnnouncementEmailContent } from "@/lib/admin-announcement-email";
+import { MentorshipEmailAudit } from "@/components/admin/mentorship-email-audit";
 
 const DEFAULT_SUBJECT_AR = "🚀 أصبح Alpha Exchange متاحًا رسميًا – تجربة تداول أسرع وأكثر ذكاءً";
 const DEFAULT_TITLE_AR = "أصبح Alpha Exchange v1.0.1 متاحًا رسميًا";
@@ -98,7 +99,7 @@ function wait(ms: number) {
   return new Promise<void>((resolve) => setTimeout(resolve, ms));
 }
 
-export function AdminAnnouncementsPanel() {
+export function AdminAnnouncementsPanel({ isOwner = false }: { isOwner?: boolean }) {
   const locale = useLocale();
   const isArabic = locale === "ar";
   const t = useCallback((en: string, ar: string) => (isArabic ? ar : en), [isArabic]);
@@ -269,6 +270,7 @@ export function AdminAnnouncementsPanel() {
 
   return (
     <div className="space-y-5">
+      {isOwner ? <MentorshipEmailAudit /> : null}
       <Card className="border-[#C9A227]/25 bg-[#0B0B0B]/90">
         <CardHeader>
           <div className="flex flex-wrap items-start justify-between gap-3">

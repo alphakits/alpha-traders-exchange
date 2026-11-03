@@ -15,6 +15,9 @@ const EXTERNAL_CALLBACK_PATHS = new Set([
   "/api/twilio/status",
   "/api/twilio/whatsapp/webhook",
   "/api/meta/whatsapp/webhook",
+  // RFC 8058 providers send no browser Origin; the handler requires its
+  // unguessable recipient capability token and never grants account access.
+  "/api/marketing/unsubscribe",
 ]);
 
 function isExternalCallbackPath(pathname: string) {
