@@ -1,0 +1,100 @@
+name: Alpha Wallet Simulation-Only Development
+
+"on":
+  push:
+    branches:
+      - feature/alpha-wallet-dev-20261104
+    paths-ignore:
+      - docs/alpha-wallet/*.md
+      - docs/alpha-wallet/*results*.json
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: alpha-wallet-simulation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  wallet-simulation:
+    name: Synthetic wallet and disposable PostgreSQL verification
+    if: ${{ github.ref == 'refs/heads/feature/alpha-wallet-dev-20261104' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+    env:
+      NODE_ENV: test
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: alpha_wallet_dev_races
+          POSTGRES_USER: wallet_fixture
+          POSTGRES_PASSWORD: simulation-only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U wallet_fixture -d alpha_wallet_dev_races"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Check out the development commit
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Use the repository Node version
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install locked dependencies and local dependency patches
+        run: npm ci
+
+      - name: Prepare simulation evidence directory
+        run: mkdir -p test-results/alpha-wallet
+
+      - name: Run the wallet unit and local persistence suite
+        run: |
+          set -euo pipefail
+          node ./node_modules/vitest/vitest.mjs run src/lib/alpha-wallet \
+            --reporter=default --reporter=json \
+            --outputFile.json=test-results/alpha-wallet/unit-results.json \
+            2>&1 | tee test-results/alpha-wallet/unit-tests.log
+
+      - name: Check TypeScript across the project
+        run: |
+          set -euo pipefail
+          node ./node_modules/typescript/bin/tsc --noEmit --incremental false --pretty false \
+            2>&1 | tee test-results/alpha-wallet/typecheck.log
+
+      - name: Run the existing offline wallet simulation
+        run: |
+          set -euo pipefail
+          node --import tsx scripts/alpha-wallet/demo.ts \
+            2>test-results/alpha-wallet/simulation-demo.stderr.log \
+            | tee test-results/alpha-wallet/simulation-demo.json
+
+      - name: Verify independent processes against disposable PostgreSQL
+        run: |
+          set -euo pipefail
+          node --import tsx scripts/alpha-wallet/postgres-concurrency.ts \
+            --fresh-simulation-database \
+            --connection-string 'postgresql://wallet_fixture:simulation-only@127.0.0.1:5432/alpha_wallet_dev_races' \
+            2>test-results/alpha-wallet/postgres-concurrency.stderr.log \
+            | tee test-results/alpha-wallet/postgres-concurrency.json
+
+      - name: Preserve simulation verification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: alpha-wallet-simulation-evidence-${{ github.sha }}
+          path: test-results/alpha-wallet/
+          if-no-files-found: warn
+          retention-days: 14
