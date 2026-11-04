@@ -85,6 +85,10 @@ import {
   validateAdminAnnouncementContent,
   type AdminAnnouncementEmailContent,
 } from "@/lib/admin-announcement-email";
+import {
+  isAnnouncementAttachmentRecipientEmailAllowed,
+  validateAdminAnnouncementAttachment,
+} from "@/lib/admin-announcement-attachment";
 import { getSiteUrl } from "@/lib/site-url";
 import { formatCommissionId } from "@/lib/format-id";
 import { normalizePublicProfileUsername } from "@/lib/public-profile-username";
@@ -3360,7 +3364,7 @@ function normalizeDb(db: AlphaExchangeDb): AlphaExchangeDb {
           ...recipient,
           batchIndex: Number.isInteger(recipient.batchIndex)
             ? recipient.batchIndex
-            : Math.floor(index / ANNOUNCEMENT_BATCH_SIZE),
+            : run.attachment ? index : Math.floor(index / ANNOUNCEMENT_BATCH_SIZE),
         }))
         : [],
       recipientCount: Math.max(0, Number(run.recipientCount ?? 0)),
@@ -17806,12 +17810,27 @@ function requireAnnouncementAdmin(db: AlphaExchangeDb, userId: string) {
   return user;
 }
 
+function requireAnnouncementAttachmentOwner(db: AlphaExchangeDb, userId: string, audience: AdminAnnouncementAudience) {
+  const user = db.users.find((candidate) => candidate.id === userId);
+  if (!user || user.disabled === true || !hasRole(user, "owner")) {
+    throw new Error("Owner access required for announcement attachments.");
+  }
+  if (audience !== "approved_sellers") {
+    throw new Error("Announcement attachments can only be sent to approved sellers.");
+  }
+}
+
 export function selectAdminAnnouncementRecipients(
   users: AlphaExchangeUser[],
   audience: AdminAnnouncementAudience,
+  options?: { attachment?: boolean },
 ) {
+  if (options?.attachment && audience !== "approved_sellers") {
+    throw new Error("Announcement attachments can only be sent to approved sellers.");
+  }
   const matching = users.filter((user) => {
     if (user.emailVerified !== true || user.disabled === true || !user.email.trim()) return false;
+    if (options?.attachment && !isAnnouncementAttachmentRecipientEmailAllowed(user.email)) return false;
     if (audience === "all_verified_users") return true;
     if (audience === "approved_sellers") return hasRole(user, "approved_seller");
     if (audience === "administrators") return hasRole(user, "admin") || hasRole(user, "owner");
@@ -17833,10 +17852,10 @@ export function selectAdminAnnouncementRecipients(
   }));
 }
 
-export async function getAdminAnnouncementOverview(audience: AdminAnnouncementAudience) {
+export async function getAdminAnnouncementOverview(audience: AdminAnnouncementAudience, options?: { attachment?: boolean }) {
   const db = await readDb();
   return {
-    recipientCount: selectAdminAnnouncementRecipients(db.users, audience).length,
+    recipientCount: selectAdminAnnouncementRecipients(db.users, audience, options).length,
     runs: [...db.adminAnnouncementRuns]
       .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime())
       .slice(0, 20),
@@ -17849,17 +17868,42 @@ export async function createAdminAnnouncementRun(input: {
   audience: AdminAnnouncementAudience;
   expectedRecipientCount: number;
   content: AdminAnnouncementEmailContent;
+  attachment?: unknown;
 }) {
   const db = await readDb({ bypassCache: true });
   requireAnnouncementAdmin(db, input.adminUserId);
+  const attachment = validateAdminAnnouncementAttachment(input.attachment);
+  if (attachment) requireAnnouncementAttachmentOwner(db, input.adminUserId, input.audience);
   const requestKey = input.requestKey.trim();
   if (!/^[a-f0-9-]{36}$/i.test(requestKey)) throw new Error("A valid announcement request key is required.");
+  const runId = `admin-announcement-${requestKey}`;
+  const conflictingOwner = db.adminAnnouncementRuns.some((run) => (
+    (run.id === runId || run.requestKey === requestKey) && run.createdByUserId !== input.adminUserId
+  ));
+  if (conflictingOwner) {
+    throw new Error("This announcement request key is already in use by another administrator.");
+  }
   const existing = db.adminAnnouncementRuns.find((run) => (
     run.createdByUserId === input.adminUserId && run.requestKey === requestKey
   ));
-  if (existing) return existing;
+  if (existing) {
+    if (existing.attachment) requireAnnouncementAttachmentOwner(db, input.adminUserId, existing.audience);
+    if (existing.attachment || attachment) {
+      const content = validateAdminAnnouncementContent(input.content);
+      const fields = ["subject", "title", "content", "ctaText", "ctaUrl"] as const;
+      if (existing.audience !== input.audience
+        || fields.some((field) => existing[field] !== content[field])
+        || existing.attachment?.sha256 !== attachment?.sha256
+        || existing.attachment?.filename !== attachment?.filename
+        || existing.attachment?.sizeBytes !== attachment?.sizeBytes
+        || existing.attachment?.contentType !== attachment?.contentType) {
+        throw new Error("This announcement request key belongs to a different attachment or message. Start a new announcement.");
+      }
+    }
+    return existing;
+  }
   const content = validateAdminAnnouncementContent(input.content);
-  const recipients = selectAdminAnnouncementRecipients(db.users, input.audience);
+  const recipients = selectAdminAnnouncementRecipients(db.users, input.audience, { attachment: Boolean(attachment) });
   if (recipients.length === 0) throw new Error("No verified recipients match this audience.");
   if (recipients.length !== input.expectedRecipientCount) {
     throw new Error(`Recipient count changed from ${input.expectedRecipientCount} to ${recipients.length}. Review the audience before sending.`);
@@ -17867,10 +17911,11 @@ export async function createAdminAnnouncementRun(input: {
 
   const timestamp = nowIso();
   const run: AdminAnnouncementRun = {
-    id: `admin-announcement-${requestKey}`,
+    id: runId,
     requestKey,
     audience: input.audience,
     ...content,
+    ...(attachment ? { attachment } : {}),
     status: "queued",
     recipientCount: recipients.length,
     successCount: 0,
@@ -17879,7 +17924,7 @@ export async function createAdminAnnouncementRun(input: {
     recipients: recipients.map((recipient, index) => ({
       ...recipient,
       status: "pending",
-      batchIndex: Math.floor(index / ANNOUNCEMENT_BATCH_SIZE),
+      batchIndex: attachment ? index : Math.floor(index / ANNOUNCEMENT_BATCH_SIZE),
     })),
     createdByUserId: input.adminUserId,
     startedAt: timestamp,
@@ -17896,6 +17941,7 @@ export async function createAdminAnnouncementRun(input: {
       audience: run.audience,
       recipientCount: run.recipientCount,
       startedAt: run.startedAt,
+      ...(attachment ? { attachment: { filename: attachment.filename, sizeBytes: attachment.sizeBytes, sha256: attachment.sha256 } } : {}),
     },
   });
   await writeDb(db, { selectedTables: ADMIN_ANNOUNCEMENT_TABLES });
@@ -17928,6 +17974,8 @@ export async function deliverAdminAnnouncementBatch(input: {
   let runIndex = db.adminAnnouncementRuns.findIndex((candidate) => candidate.id === input.announcementId);
   if (runIndex === -1) throw new Error("Announcement delivery run not found.");
   const current = db.adminAnnouncementRuns[runIndex];
+  const attachment = validateAdminAnnouncementAttachment(current.attachment);
+  if (attachment) requireAnnouncementAttachmentOwner(db, input.adminUserId, current.audience);
   if (current.finishedAt) return current;
   if (current.nextRetryAt) {
     const retryDelayMs = new Date(current.nextRetryAt).getTime() - Date.now();
@@ -17942,6 +17990,9 @@ export async function deliverAdminAnnouncementBatch(input: {
   const batch = selectPendingAdminAnnouncementBatch(current.recipients);
   const firstPendingRecipient = batch[0];
   if (batch.length === 0) throw new Error("Announcement has no pending recipients.");
+  if (attachment && batch.length !== 1) {
+    throw new Error("Announcement PDF delivery requires a separate durable batch for each recipient.");
+  }
   const batchLockId = randomUUID();
   current.status = "sending";
   current.batchLockedAt = nowIso();
@@ -17957,7 +18008,21 @@ export async function deliverAdminAnnouncementBatch(input: {
   dbCache = null;
 
   const providerBatchKey = getAdminAnnouncementProviderBatchKey(current.id, firstPendingRecipient?.batchIndex ?? 0);
-  const batchResult = await sendAdminAnnouncementBatch({
+  // Recheck the frozen address and current seller eligibility after acquiring
+  // the lock. Never substitute a changed address into an existing campaign.
+  const eligibleRecipients = attachment
+    ? selectAdminAnnouncementRecipients((await readDb({ bypassCache: true })).users, "approved_sellers", { attachment: true })
+    : undefined;
+  const attachmentRecipientIneligible = eligibleRecipients && batch.some((recipient) => !eligibleRecipients.some((eligible) => (
+    eligible.userId === recipient.userId && eligible.email === recipient.email
+  )));
+  const batchResult = attachmentRecipientIneligible ? {
+    ok: false as const,
+    reason: "announcement_attachment_recipient_ineligible" as const,
+    attempts: 0,
+    retryCount: 0,
+    lastAttemptAt: nowIso(),
+  } : await sendAdminAnnouncementBatch({
     recipients: batch.map((recipient) => ({ userId: recipient.userId, email: recipient.email })),
     subject: current.subject,
     title: current.title,
@@ -17965,6 +18030,7 @@ export async function deliverAdminAnnouncementBatch(input: {
     ctaText: current.ctaText,
     ctaUrl: current.ctaUrl,
     idempotencyKey: providerBatchKey,
+    ...(attachment ? { attachment } : {}),
   });
 
   db = await readDb({ bypassCache: true });
@@ -18038,9 +18104,11 @@ export async function deliverAdminAnnouncementBatch(input: {
   run.successCount = run.recipients.filter((recipient) => recipient.status === "sent").length;
   run.failureCount = run.recipients.filter((recipient) => recipient.status === "failed").length;
   run.retryCount = run.recipients.reduce((total, recipient) => total + (recipient.retryCount ?? 0), 0);
-  run.lastProviderRequestAt = "lastAttemptAt" in batchResult
-    ? batchResult.lastAttemptAt
-    : attemptedAt;
+  if (providerAttempts > 0) {
+    run.lastProviderRequestAt = "lastAttemptAt" in batchResult
+      ? batchResult.lastAttemptAt
+      : attemptedAt;
+  }
   run.batchLockedAt = undefined;
   run.batchLockId = undefined;
   run.updatedAt = attemptedAt;
@@ -18089,9 +18157,12 @@ export async function sendAdminAnnouncementTest(input: {
   adminUserId: string;
   recipientEmail: string;
   content: AdminAnnouncementEmailContent;
+  attachment?: unknown;
 }) {
   const db = await readDb({ bypassCache: true });
   requireAnnouncementAdmin(db, input.adminUserId);
+  const attachment = validateAdminAnnouncementAttachment(input.attachment);
+  if (attachment) requireAnnouncementAttachmentOwner(db, input.adminUserId, "approved_sellers");
   const email = input.recipientEmail.trim().toLowerCase();
   const recipient = db.users.find((user) => (
     user.email.trim().toLowerCase() === email
@@ -18099,11 +18170,15 @@ export async function sendAdminAnnouncementTest(input: {
     && user.disabled !== true
   ));
   if (!recipient) throw new Error("Test recipient must be an active, verified registered user.");
+  if (attachment && (!hasRole(recipient, "approved_seller") || !isAnnouncementAttachmentRecipientEmailAllowed(recipient.email))) {
+    throw new Error("An attachment test recipient must be an active, verified approved seller with a public email domain.");
+  }
   const content = validateAdminAnnouncementContent(input.content);
   return sendAdminAnnouncementEmail({
     ...content,
     to: recipient.email,
     idempotencyKey: `admin-announcement-test-${input.adminUserId}-${randomUUID()}`,
+    ...(attachment ? { attachment } : {}),
   });
 }
 

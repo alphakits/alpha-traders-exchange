@@ -1,5 +1,6 @@
 import type { SellerMetricEvidence } from "@alpha-traders/contracts";
 import type { BankTransferProvider, WiseUsdAccount, WiseUsdAccountSnapshot } from "@/types/wise";
+import type { AdminAnnouncementAttachment } from "@/lib/admin-announcement-attachment";
 
 export type UserRole =
   | "guest"
@@ -877,6 +878,8 @@ export interface AdminAnnouncementRun {
   content: string;
   ctaText: string;
   ctaUrl: string;
+  /** Private email attachment; never include its contents in public run summaries. */
+  attachment?: AdminAnnouncementAttachment;
   status: AdminAnnouncementStatus;
   recipientCount: number;
   successCount: number;
