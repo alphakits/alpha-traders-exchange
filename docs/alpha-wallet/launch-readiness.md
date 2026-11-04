@@ -6,19 +6,27 @@ Date: 5 November 2026 (Asia/Jerusalem). Decision: **not ready to accept live fun
 
 The user authorized continued development, isolated testing and saving the wallet development branch. Live launch remains withheld. A passing development suite does not change that instruction.
 
-Latest verified source: `08fb7fa`, with **879 passing tests across the wallet and targeted platform authentication/marketplace suites**, full-project TypeScript, four successful native PostgreSQL drills and the Chromium rehearsal. [Exact evidence and limits](ledger-v2-verification-2026-11-05.md) are retained separately from this readiness decision.
+**Previous verified baseline: `08fb7fa`**, with **879 passing tests across the wallet and targeted platform authentication/marketplace suites**, full-project TypeScript, four successful native PostgreSQL drills and the Chromium rehearsal. [Exact evidence and limits](ledger-v2-verification-2026-11-05.md) apply to that source. The new [private canonical coordinator](marketplace-coordinator-design.md) is implemented in the current development work; its final exact-source CI result and verification report are pending. The previous counts do not verify the subsequent integration.
 
 ## Accepted behavior
 
 - Full listing principal is required: a 500 USDT listing needs 500 USDT. Commission short-payment tolerance never reduces principal funding or delivery.
 - Owner approval remains separate from funding. A deposit cannot bypass listing review.
-- Partial reservations conserve inventory, with at most three active trades for a seller.
+- Partial reservations conserve inventory, with at most three active trades for a seller. The new private coordinator's one-active-trade cohort is a development activation restriction; it does not change that general policy.
 - The buyer receives the full principal. The 1% buyer fee in fiat and the seller's combined 2% USDT commission remain separate.
 - A buyer's paid claim is not release authority. Trusted independent payment evidence and seller authorization are both required.
 - A payout timeout keeps funds reserved and preserves the original provider identity. A missing lookup does not permit a replacement send.
-- Backup restoration starts paused because external transfers may have continued after the backup was taken.
+- Standalone wallet backup restoration starts paused because external transfers may have continued after the backup was taken. An activated canonical marketplace cohort requires a future combined recovery format; wallet-only exports are blocked for that cohort.
 
-These rules are executable in the isolated development model. Existing marketplace behavior is still separate and must be integrated without losing its consent, eligibility and completion rules.
+These rules are executable in the isolated development model. The private coordinator now integrates actual canonical SQL and stored web authentication for one existing amount-correction proposal on an already reserved trade. Production marketplace behavior, initial acceptance, the remaining lifecycle and mobile coordination still require integration without losing consent, eligibility, reviews or completion rules.
+
+## Current private cohort
+
+An owner can explicitly enroll, inspect and pause one already accepted canonical request with a clean existing wallet reservation and a valid pending `amount_correction` proposal. The initial cohort supports current ILS fee policies, Bank Transfer and Face-to-Face. It requires the only active canonical reservation on its listing, the only nonterminal wallet trade globally and no unfinished payout.
+
+Buyer acceptance resolves the actual web session/account rows inside the same `SERIALIZABLE` transaction as canonical reads, wallet replay and writes. Fresh ownership/eligibility checks precede historical receipt lookup, and authority/expiry are rechecked after persistence. Canonical terms, the principal adjustment, immutable receipt, deterministic system message/notification/audit and safe publication intent commit together. SQL guards fence unsupported enrolled-listing writers and standalone wallet access after activation.
+
+This cohort has no public route, mobile bridge, notification/realtime delivery, provider or signer. It cannot create a new proposal, perform initial trade acceptance, cancel, handle payment/dispute/release/settlement transitions or resume after pause. Owner `inspect` and `pause` remain its supported recovery controls. Preserve the complete isolated source; the existing wallet-only backup formats cannot recover it. The [coordinator design](marketplace-coordinator-design.md) and [recovery runbook](recovery-runbook.md) define these boundaries.
 
 ## Engineering gates
 
@@ -26,14 +34,14 @@ These rules are executable in the isolated development model. Existing marketpla
 | --- | --- | --- |
 | Accounting and reservations | Exact raw units, balanced journals, conservation, full-principal allocation, partial trades and separate fee accounting | Production permissions, migrations, realistic load/checkpoint design and full platform consistency |
 | Durable commands | Strict v1/v2 replay, explicit atomic development continuation, immutable SQL projections, deduplicated commands and payouts, original historical retries and old-wallet-writer fencing | Reviewed production roles/migrations, checkpointing and ongoing integrity monitoring |
-| Recovery | Lost-response lookup, separate provider state, pure-v1 and mixed-v2 backup validation, atomic migration/restore/pause, inherited payout recovery and explicit v1 backup CLI; both native restore drills passed | Fenced production writers, provider/chain reconciliation, signed-off recovery exercise and controlled resume/adjudication |
-| Access control | Development web/mobile adapters use actual stored session metadata and strict canonical reads; gateway enforces participant privacy, canonical seller status and exact withdrawal-proof terms | Production wallet routes/configuration, real step-up issuer, atomic revocation/rate-limit contract and review of privileged identities |
+| Recovery | Standalone lost-response lookup, provider evidence, pure-v1/mixed-v2 backup validation and atomic restore/pause; prior native restore drills passed at `08fb7fa`. Activated canonical cohorts expose owner inspection/pause and reject standalone wallet-only export | Combined canonical marketplace/wallet export, restore and quarantine first; production writer fencing, provider/chain reconciliation, signed-off recovery exercise and controlled resume/adjudication |
+| Access control | Existing development web/mobile session-source adapters; new private web coordinator reads/locks actual session/account rows in its financial transaction, checks canonical ownership and rechecks eligibility/expiry | Coordinated mobile authentication, production routes/configuration, real step-up issuer, rate limits and reviewed production identities/roles; final coordinator CI evidence pending |
 | Chain evidence | Strict pure BSC/TRON receipt validation against explicit fixture context and supplied canonical ancestry | Exact real/test asset registry, owned deposit addresses, authenticated independent RPC/finality sources, durable scan coverage and reorg handling |
 | Custody and signing | Immutable payout contract and fake-provider acceptance/lookup/finality tests | Owner-selected custody/signing model, isolated provider test environment, tested keys/policies/recovery and account-specific asset availability |
 | Seller/buyer interface | Persistent English/Arabic local rehearsal; actual Chromium desktop/mobile funding, approval, partial trades, fee and response-loss flows passed | Integration into actual website/mobile account, trade and receipt screens; user-facing accessibility and product acceptance |
-| Marketplace integration | Pure accepted-amount planner; frozen 41-command v1 compatibility evidence; focused shared-transaction SQL participant; separate v2 ledger with synthetic enrollment, delta-only resize and durable receipts | Actual canonical marketplace enrollment/coordinator, initial acceptance, lifecycle participants and all enrolled-writer guards; current buyer eligibility/reviews; benefits/ranks/receipts/notifications exactly once |
+| Marketplace integration | Pure planner and frozen v1 history; actual focused SQL plus private owner enrollment and authenticated buyer acceptance; atomic canonical/wallet receipts and publication intent; enrolled-listing writer guards | Initial acceptance, subsequent proposals and full payment/cancellation/dispute/release/settlement lifecycle; web/mobile product integration; buyer reviews, benefits/ranks and external publication exactly once |
 | Payment verification | Fixture evidence distinct from buyer claim and seller release | Owner-approved bank/cash evidence authority, audit trail and exception/dispute handling |
-| Operations | Pause and conservative recovery behavior; draft runbooks and verified isolation | Monitoring/alerts, on-call ownership, asset/gas reconciliation, limits, incident and refund process, independent security review |
+| Operations | Conservative standalone recovery and private coordinator owner inspection/pause; runbooks distinguish activated cohorts from ledger-only backups | Combined cohort recovery, monitoring/alerts, on-call ownership, asset/gas reconciliation, limits, incident and refund process, independent security review |
 | Deployment | Exact wallet branch auto-deployment disabled; no main merge or production migration | Final review of a concrete release, explicit launch authorization and a separately reviewed rollout |
 
 The current ledger rebuilds all historical commands and serializes the whole wallet. That is useful correctness evidence, but it is not a production throughput or availability design. The pure chain decoder validates supplied fixture consistency; it does not authenticate consensus or a blockchain node. The local role switcher is a rehearsal tool; it is not account login. These distinctions must remain visible in reviews and release notes.
@@ -42,10 +50,11 @@ The current ledger rebuilds all historical commands and serializes the whole wal
 
 1. **Choose the custody/signing direction and test environment.** The reviewable options and acceptance requirements are in [custody-decision.md](custody-decision.md). Account eligibility, commercial cost, key control and recovery ownership cannot be inferred from public API documentation.
 2. **Approve a concrete fiat verification policy.** Bank and cash payments need a defined trusted authority and evidence. Neither the buyer's paid button nor a manual marketplace completion flag provides that evidence.
-3. **Complete the private integrated transaction boundary.** The focused SQL participant, pure planner and separate [versioned ledger continuation](ledger-v2-continuation-design.md) are development components. Connect canonical enrollment and real buyer consent, initial acceptance, lifecycle participants and all enrolled-writer guards under one transaction/outbox design. The ledger's synthetic bindings/acceptance receipts do not authenticate marketplace consent. Preserve existing two-proposal consent, payment-method constraints, buyer eligibility/reviews, ranks, benefits and fee behavior.
-4. **Complete actual provider/testnet drills.** Confirm deposit attribution, wrong-token rejection, finality, duplicate webhooks, gas resources, payout policy, uncertain submission, worker restart, stale backup and signer recovery using the selected environment.
-5. **Finish operations and independent review.** Review real permissions and signing policy, recovery and limits, user-facing acceptance and deployment plan. Record unresolved findings explicitly; this development review is not an independent security audit.
-6. **Present the exact release for launch authorization.** No automatic threshold, green test result or broad development approval authorizes mainnet funding, signing, production migration, deployment or real transfers.
+3. **Verify the private coordinator and implement combined recovery.** Record the new exact-source PGlite, native PostgreSQL and retained regression results. Then define a combined canonical marketplace/wallet export, fresh-target restore, quarantine and reconciliation protocol. Existing wallet-only backups omit the new canonical records and cannot be used to restore the activated cohort.
+4. **Extend the integrated lifecycle and product boundary.** Build on the [private coordinator](marketplace-coordinator-design.md) and [versioned ledger](ledger-v2-continuation-design.md) to add initial acceptance, subsequent proposals, cancellation/dispute/payment/release/settlement participants and coordinated mobile authentication. Preserve the general three-trade policy, two-proposal consent, payment-method constraints, eligibility/reviews, ranks, benefits and fee behavior. Connect durable publication intents to separately reviewed, deduplicated delivery and actual account/trade interfaces.
+5. **Complete actual provider/testnet drills.** Confirm deposit attribution, wrong-token rejection, finality, duplicate webhooks, gas resources, payout policy, uncertain submission, worker restart, stale backup and signer recovery using the selected environment.
+6. **Finish operations and independent review.** Review real permissions and signing policy, recovery and limits, user-facing acceptance and deployment plan. Record unresolved findings explicitly; this development review is not an independent security audit.
+7. **Present the exact release for launch authorization.** No automatic threshold, green test result or broad development approval authorizes mainnet funding, signing, production migration, deployment or real transfers.
 
 ## Evidence locations
 
@@ -58,6 +67,7 @@ The current ledger rebuilds all historical commands and serializes the whole wal
 - [Access/platform integration contract](access-and-integration.md)
 - [Atomic marketplace terms integration design](transaction-integration-design.md)
 - [Versioned ledger continuation contract](ledger-v2-continuation-design.md)
+- [Private canonical marketplace coordinator](marketplace-coordinator-design.md)
 - [Recovery runbook](recovery-runbook.md)
 - [Chain adapter contract](chain-adapter-contract.md)
 - [Rehearsal guide](rehearsal.md)

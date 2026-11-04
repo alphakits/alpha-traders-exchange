@@ -64,7 +64,7 @@ jobs:
       - name: Run the wallet unit and local persistence suite
         run: |
           set -euo pipefail
-          node ./node_modules/vitest/vitest.mjs run src/lib/alpha-wallet --maxWorkers=4 \
+          node ./node_modules/vitest/vitest.mjs run src/lib/alpha-wallet --maxWorkers=2 \
             --reporter=default --reporter=json \
             --outputFile.json=test-results/alpha-wallet/unit-results.json \
             2>&1 | tee test-results/alpha-wallet/unit-tests.log
@@ -128,6 +128,9 @@ jobs:
             await connection.query('CREATE DATABASE alpha_wallet_dev_marketplace');
             await connection.query('CREATE DATABASE alpha_wallet_dev_v2_source');
             await connection.query('CREATE DATABASE alpha_wallet_dev_v2_restore');
+            await connection.query('CREATE DATABASE alpha_wallet_dev_coordination_atomic');
+            await connection.query('CREATE DATABASE alpha_wallet_dev_coordination_races');
+            await connection.query('CREATE DATABASE alpha_wallet_dev_coordination_auth');
           } finally { await connection.end(); }
           NODE
 
@@ -159,6 +162,17 @@ jobs:
             --target-connection-string 'postgresql://wallet_fixture:simulation-only@127.0.0.1:5432/alpha_wallet_dev_v2_restore' \
             2>test-results/alpha-wallet/postgres-versioned-ledger.stderr.log \
             | tee test-results/alpha-wallet/postgres-versioned-ledger.json
+
+      - name: Verify canonical marketplace coordination, writer fences and web authentication races
+        run: |
+          set -euo pipefail
+          node --conditions=react-server --import tsx scripts/alpha-wallet/postgres-marketplace-coordinator.ts \
+            --fresh-simulation-databases \
+            --atomic-connection-string 'postgresql://wallet_fixture:simulation-only@127.0.0.1:5432/alpha_wallet_dev_coordination_atomic' \
+            --race-connection-string 'postgresql://wallet_fixture:simulation-only@127.0.0.1:5432/alpha_wallet_dev_coordination_races' \
+            --auth-connection-string 'postgresql://wallet_fixture:simulation-only@127.0.0.1:5432/alpha_wallet_dev_coordination_auth' \
+            2>test-results/alpha-wallet/postgres-marketplace-coordinator.stderr.log \
+            | tee test-results/alpha-wallet/postgres-marketplace-coordinator.json
 
       - name: Install the locked Playwright Chromium browser
         run: node ./node_modules/playwright/cli.js install --with-deps chromium

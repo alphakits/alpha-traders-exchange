@@ -1176,6 +1176,7 @@ export type AuditAction =
   | "listing_closed"
   | "listing_removed"
   | "purchase_request_submitted"
+  | "trade_amount_correction_accepted"
   | "purchase_completed"
   | "commission_recorded"
   | "commission_paid"

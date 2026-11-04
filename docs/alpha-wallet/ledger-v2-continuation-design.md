@@ -2,6 +2,8 @@
 
 Status: **implemented for the isolated development ledger; production marketplace integration remains unfinished**. This extends the [shared-transaction groundwork](transaction-integration-design.md). It does not activate a marketplace cohort, register an application migration, connect a public route or authorize deployment.
 
+The separate [private canonical coordinator](marketplace-coordinator-design.md) now connects a bounded Bank Transfer/Face-to-Face development cohort without changing these v1/v2 engine files. Once that cohort is explicitly enrolled, standalone wallet operations and wallet-only export are fenced; use its typed owner inspection/pause and preserve both domains together. Broader lifecycle, mobile, delivery and combined recovery integration remain unfinished.
+
 The original design was reviewed against development commit `44ac6c4` and the frozen v1 fixtures. The implementation adds separate v2 files; it leaves the original v1 engine, command parser, durable repository, schema, backup and frozen history unchanged. [Exact-source verification at `08fb7fa`](ledger-v2-verification-2026-11-05.md) passed 879 tests, full-project TypeScript, four native PostgreSQL drills and the retained browser rehearsal. The new native v2 drill passed all nine checks; focused local tests alone are not the basis for that result.
 
 ## Explicit version boundary
@@ -18,7 +20,7 @@ The durable command identity remains the version-independent tuple `[actor.kind,
 
 Each accepted proposal also has an immutable business identity derived from `(platformRequestId, proposalId)`, independent of transport request ID. Its receipt binds the buyer and complete accepted input evidence. Different transport IDs carrying that same original evidence return the first receipt without another command, journal or revision. Reusing the proposal with changed actor or evidence fails. The lookup occurs before current eligibility checks so an earlier accepted correction remains recoverable after another proposal, payment progress or a pause.
 
-This API requires the original input evidence for an exact business retry. A future user-facing coordinator must authenticate the caller, verify current ownership and resolve the historical receipt before rebuilding a plan from newer marketplace state. A client-supplied buyer ID or source digest is not authentication.
+This ledger API requires the original input evidence for an exact business retry. The separate private coordinator authenticates the stored web session, verifies current ownership and resolves its immutable historical receipt before rebuilding a plan from newer marketplace state. A future public/mobile boundary must preserve that contract. A client-supplied buyer ID or source digest is not authentication.
 
 ## Supported development correction
 
@@ -53,9 +55,11 @@ The reviewed development migration extends the format-1 head contract without re
 
 Every load verifies reconstructed projections against SQL, including the continuation registry, historical terms events and receipts. A matching terminal hash alone is insufficient.
 
-**Marketplace writer fencing remains separate work.** Before activating any real enrollment, database-backed guards must reject unsupported financial, lifecycle, listing and generic snapshot writes affecting enrolled records. The current ledger tables do not install those marketplace guards, and a shared advisory lock is not a substitute.
+**Marketplace writer fencing is installed separately for the bounded private cohort.** Its explicit development initializer adds database-backed guards against unsupported financial, lifecycle, listing and generic snapshot writes for the whole enrolled listing, plus registered-context wallet guards. The v2 ledger tables alone do not install or confer those protections. A real production cutover still needs its own reviewed migration/permissions and complete lifecycle mapping; a shared advisory lock alone is insufficient.
 
 ## Mixed histories and inherited recovery
+
+The backup/worker behavior in this section applies to a wallet with no canonical marketplace activation. The private coordinator's receipts, canonical rows and publication intents are absent from these formats. Its head guard rejects standalone export/worker access after enrollment; a combined recovery protocol is required before restoring an activated cohort.
 
 [versioned-backup.ts](../../src/lib/alpha-wallet/versioned-backup.ts) delegates pure v1 files to the unchanged v1 inspector/exporter/restorer. A v1 restore remains v1. Format-2 files explicitly name the terminal v2 engine and continuation metadata; inspection verifies the checksum, semantic replay, exact boundary and terminal checkpoint before accessing a target. Existing 1,000-command and 16 MiB limits still apply.
 

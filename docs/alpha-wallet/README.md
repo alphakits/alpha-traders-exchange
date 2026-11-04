@@ -6,7 +6,7 @@ Working branch: `feature/alpha-wallet-dev-20261104`.
 
 **Development resumed at the user's request on 4 November 2026.** The [saved pause checkpoint](PAUSED-2026-11-04.md) records the earlier handoff. The no-live-launch restriction remains in force; unfinished verification and integration are tracked in [launch-readiness.md](launch-readiness.md).
 
-Latest verified source: `08fb7fa`. [Versioned ledger verification](ledger-v2-verification-2026-11-05.md) records **879 passing wallet/authentication/marketplace tests**, full-project TypeScript, four native PostgreSQL drills and actual English/Arabic Chromium checks. This is a development checkpoint, not launch approval.
+**Previous verified baseline: `08fb7fa`.** [Versioned ledger verification](ledger-v2-verification-2026-11-05.md) records **879 passing wallet/authentication/marketplace tests**, full-project TypeScript, four native PostgreSQL drills and actual English/Arabic Chromium checks for that source. The new [private canonical coordinator](marketplace-coordinator-design.md) is implemented in the current development work; its final exact-source CI result and evidence report are pending. The earlier counts do not verify these subsequent changes, and neither checkpoint authorizes launch.
 
 This is an executable specification connected to an isolated, durable simulation repository and an offline provider fixture. It is not a live wallet, a testnet deployment, a custody provider, or a production-ready financial service. There are no real deposit addresses, keys, signing functions, RPC requests, public routes, scheduled workers, or applied production migrations in this change.
 
@@ -27,8 +27,8 @@ This is an executable specification connected to an isolated, durable simulation
 | --- | --- | --- |
 | Exact amounts | Decimal-string inputs; integer raw units; bounds; per-asset precision; six-decimal marketplace fee rounding | Synthetic assets only |
 | Deposits | Dedicated synthetic intent; chain/token/destination/amount validation; pending/finalized distinction; event deduplication | Evidence is supplied by a trusted test fixture, not a live observer |
-| Listings | Full principal funding; separate owner approval; automatic allocation after credit; partial inventory | Existing marketplace remains disconnected |
-| Trades | Partial reservations; three active trades per seller; self-trade rejection; cancellation before payment claim | Pure domain engine, serialized by the durable simulation repository |
+| Listings | Full principal funding; separate owner approval; automatic allocation after credit; partial inventory | Live marketplace funding and listing creation remain disconnected |
+| Trades | Partial reservations; three active trades per seller; self-trade rejection; cancellation before payment claim | General domain policy is unchanged; the private canonical coordinator initially admits one clean nonterminal trade globally |
 | Payment/release | Exact inclusive fiat evidence; evidence reuse blocked; independent fixture verifier; seller authorization bound to principal and recipient | Production authentication routes, bank/cash evidence adapters, and policy review are still required |
 | Payouts | Immutable intent; one dispatch claim; unknown/broadcast/failed/finalized outcomes; matching receipt; retained uncertain funds | No signer or real network submission |
 | Withdrawals | Only unallocated seller funds; same-asset recipient; synthetic step-up marker; immutable intent | Marker is not a real MFA implementation |
@@ -36,18 +36,19 @@ This is an executable specification connected to an isolated, durable simulation
 | Incident behavior | Dispute stops queued dispatch; account mismatch or changed finalized deposit evidence pauses new outgoing work | Resume, adjudication, and payout replacement require later controlled recovery commands |
 | Accounting | Balanced journal; no negative custody allocations; conservation checks after every command; atomic durable command, journal, and outbox writes | Global serialization and replay are a correctness-oriented development bridge, not a production scaling design |
 | Durable repository | Versioned strict commands; exact amounts; committed result/state hashes; append-only history; restart replay; immutable SQL projections; bounded SQL retries | File-backed PGlite or explicit loopback development PostgreSQL only; fixture identities remain synthetic |
-| Recovery worker | Persist claim before submission; retain uncertain funds; look up original reference; exact final receipt; tolerate late matching reports | Explicit single offline step with file-backed fake provider; no registered service or cron |
-| Backup and restore | Verified logical history; explicit local CLI; fresh-target restore; pause committed atomically with restored funds | Development stores only; old writers must be fenced and provider history reconciled before any later resumption |
-| User access boundary | Actual web/mobile session-source adapters for development; strict stored expiry/canonical evidence; participant privacy; exact-terms withdrawal approvals; privileged service commands excluded | Isolated fixtures verify the adapters; no production wallet route, actual MFA issuer or atomic authentication/financial commit |
-| Marketplace groundwork | Pure accepted-amount planner using actual contract rules; frozen 41-command v1 history; actual focused repository SQL can participate in one owned simulation transaction | Production marketplace enrollment, initial acceptance, lifecycle coordination and all enrolled legacy-writer guards remain unfinished |
-| Versioned ledger continuation | Explicit atomic v1-to-v2 migration; unchanged historical prefix; durable synthetic enrollment, principal-delta corrections and immutable proposal receipts; inherited settlement/recovery and mixed-history backup | Development ledger only; canonical marketplace consent is supplied by fixtures and is not authenticated or committed by a production coordinator |
+| Recovery worker | Persist claim before submission; retain uncertain funds; look up original reference; exact final receipt; tolerate late matching reports | Explicit offline fake-provider step; standalone workers are blocked after canonical cohort activation; no registered service or cron |
+| Backup and restore | Verified standalone v1/mixed-v2 history; explicit local CLI; fresh-target restore; pause committed atomically with restored funds | Applies only without canonical marketplace activation; wallet-only export is blocked afterward, pending a combined recovery protocol |
+| User access boundary | Existing development web/mobile session-source adapters and strict gateway; new canonical coordinator locks actual web session/account rows inside its financial transaction and rechecks eligibility/expiry | Same-transaction authentication covers the private web cohort only; production routes, coordinated mobile auth and a real withdrawal step-up issuer remain required |
+| Marketplace groundwork | Pure accepted-amount planner using actual contract rules; frozen 41-command v1 history; actual focused repository SQL participates in one owned simulation transaction | Broader initial-acceptance, lifecycle and production integration remain unfinished |
+| Private canonical coordinator | Owner enrollment/inspection/pause; stored-session buyer acceptance; atomic canonical terms, principal delta, immutable receipt and safe publication intent; database fences for the complete enrolled listing | One already-reserved development trade with an existing pending amount proposal; Bank Transfer/Face-to-Face only; no public route or delivery |
+| Versioned ledger continuation | Explicit atomic v1-to-v2 migration; unchanged historical prefix; durable synthetic enrollment, principal-delta corrections and immutable proposal receipts; inherited standalone settlement/recovery and mixed-history backup | The private coordinator adds canonical SQL/auth coupling; its active cohort fences unsupported settlement, worker and standalone-backup paths |
 | Chain evidence | Strict BSC/TRON receipt decoding, event identity, exact units, execution status and supplied canonical ancestry | Pure fixture consistency; no live RPC, consensus proof, authoritative finality source or automatic credit |
 | Interactive rehearsal | Persistent loopback app with English/Arabic flows, partial trades, fee accounting and fault recovery | Explicit synthetic role switcher; not real account authentication or a deployed product |
-| SQL proof | Connected `durable-schema.sql` plus retained historical `schema-draft.sql` | Neither file is registered as an application migration |
+| SQL proof | Connected durable/v2 schemas and `marketplace-coordination-schema.sql`, plus retained historical `schema-draft.sql` | Explicit isolated development initialization only; none is registered as a production application migration |
 
 ## Durable development repository
 
-`commands.ts` defines a strict versioned command envelope. No request can name arbitrary executable methods, provide extra authority fields, or introduce an unknown asset/engine version. The durable harness uses fixture actors. The separate development access gateway can now derive actors through the platform session-source adapters; no production HTTP wallet boundary is connected.
+`commands.ts` defines a strict versioned command envelope. No request can name arbitrary executable methods, provide extra authority fields, or introduce an unknown asset/engine version. The durable harness uses fixture actors. The separate development access gateway derives actors through the platform session-source adapters. The private canonical coordinator derives web authority from actual session/account rows on its own transaction; no production HTTP wallet boundary is connected.
 
 `durable.ts` rebuilds the domain engine from committed commands under their recorded timestamps. It verifies every command identity, result digest, state digest, previous-event hash, head revision, normalized journal entry, payout intent/state transition, and chain-event claim before processing more work. Unknown versions, missing history, altered projections, or mismatching evidence stop the operation. Hashes detect inconsistent storage; they are not signatures or protection against an administrator who can rewrite the complete database and application together.
 
@@ -62,7 +63,7 @@ The SQL namespace is private and uses forced RLS without client policies. Tests 
 
 The file-backed fake provider keeps immutable broadcasts separately from the wallet database. Its reference binds the asset, destination, amount, and payout ID. Atomic publication, exact comparison of duplicate requests, and separate finality records let tests reproduce acceptance with a lost response. The worker persists the dispatch claim before calling this provider. If a claim exists but lookup finds nothing, it keeps the reservation and requests resolution; an empty lookup never authorizes a second submission. A late report cannot downgrade a confirmed or failed transfer.
 
-Replay is intentionally bounded to 100,000 commands and serializes the whole development wallet. It is not an authenticated append-only service or a production performance implementation. Logical development backups now use the same verified replay, with a stricter 1,000-command/16 MiB backup limit and atomic restore quarantine; production checkpointing, recovery and performance still require review. Never change the meaning of a recorded engine version to make old history pass.
+Replay is intentionally bounded to 100,000 commands and serializes the whole development wallet. It is not an authenticated append-only service or a production performance implementation. Standalone logical development backups use the same verified replay, with a stricter 1,000-command/16 MiB backup limit and atomic restore quarantine. Those formats omit canonical marketplace coordination records and are blocked after cohort activation. Combined recovery, production checkpointing and performance still require implementation/review. Never change the meaning of a recorded engine version to make old history pass.
 
 ### Explicit v2 continuation
 
@@ -70,9 +71,30 @@ The separate `versioned-durable.ts` repository reads the unchanged v1 prefix and
 
 An operator fixture can enroll an existing clean reservation, then a buyer fixture can accept an amount correction derived from the canonical planner. Increasing or decreasing the amount moves only the difference between the same listing and trade accounts; a zero-delta acceptance records its receipt without moving money. Price, participants, asset, destination, payment instructions and fee policy stay bound. The original trade can then settle its corrected full principal, with commissions still funded separately. Proposal identity prevents different transport request IDs from applying the same acceptance twice.
 
-This implements the ledger side of the [v2 continuation contract](ledger-v2-continuation-design.md). The marketplace inputs are synthetic evidence. The actual marketplace transaction coordinator, database-backed guards for all enrolled marketplace writers, lifecycle integration and publication of account/trade changes are still required before connecting this behavior to real users. No marketplace cohort is activated by the new ledger tables.
+This implements the ledger side of the [v2 continuation contract](ledger-v2-continuation-design.md). Its standalone fixtures supply synthetic marketplace evidence. The private canonical coordinator described below now couples the actual focused marketplace SQL and stored web-session checks to this ledger in an isolated development database. Initial trade acceptance, broader lifecycle integration and external publication remain required before connecting the behavior to real users. Installing the v2 ledger tables alone does not activate a canonical marketplace cohort.
 
-`versioned-backup.ts` accepts pure v1 and mixed histories without rewriting them. A mixed restore replays the explicit upgrade and appends a v2 pause within the same transaction. `versioned-payout-worker.ts` adapts the existing conservative fake-provider worker for explicitly upgraded stores; it registers no service and never automatically upgrades a wallet. The original backup CLI and browser rehearsal continue to use v1.
+For sources without canonical marketplace activation, `versioned-backup.ts` accepts pure v1 and mixed histories without rewriting them. A mixed restore replays the explicit upgrade and appends a v2 pause within the same transaction. `versioned-payout-worker.ts` adapts the existing conservative fake-provider worker for explicitly upgraded standalone stores; it registers no service and never automatically upgrades a wallet. Both standalone access paths are fenced after canonical activation. The original backup CLI and browser rehearsal continue to use v1.
+
+### Private canonical marketplace coordinator
+
+The [coordinator contract](marketplace-coordinator-design.md) describes the new server-only development boundary. `createDevelopmentMarketplaceWalletCoordinator` owns one guarded `WalletStore` transaction for canonical reads, web authentication, wallet replay/commands and marketplace persistence. Its strict inputs accept operation identities; the server derives the actor and all financial terms. No production `updateTradeTerms` wrapper, public route or mobile endpoint is connected.
+
+Owner enrollment requires an already accepted canonical request, an existing clean funded/approved wallet reservation and a valid stored pending `amount_correction` proposal at the locked unit price. The initial cohort supports current ILS policies, Bank Transfer and Face-to-Face. The target must be the only active canonical reservation on its listing and the only nonterminal wallet trade globally, with no unfinished payout. This development activation restriction does not change the general three-active-trades-per-seller policy.
+
+| Private operation | Authority and result |
+| --- | --- |
+| `enrollReservedTrade` | A freshly authenticated stored owner binds the existing canonical request to its existing wallet reservation; enrollment does not accept the proposal |
+| `acceptAmountCorrection` | The freshly authenticated canonical buyer accepts the stored proposal; canonical terms, the exact principal delta, original receipt, system message, seller notification, dedicated audit and safe publication intent commit together |
+| `inspect` | The stored owner reads a bounded verified view of current terms, balances, pause state and original ledger metadata |
+| `pause` | The stored owner appends the typed pause command; there is no resume operation |
+
+The web principal reader uses the same transaction's actual session/account rows and holds `FOR SHARE` locks through commit or rollback. It checks stored-token hashing, normalized/payload coherence, expiry, disabled state, email/phone/adult evidence and roles. Ownership is checked before historical receipt lookup. Authority and expiry are checked again after awaited persistence. Concurrent revocation is ordered by the locks; this is not a claim that a queued revocation cancels an already authorized transaction or that COMMIT acknowledgement precedes wall-clock expiry. Existing mobile/session-source adapters do not acquire this atomic contract automatically.
+
+An acceptance retry with the same buyer, request, proposal and expected binding revision recovers the original receipt even with a different transport operation ID or after owner pause. It verifies the stored receipt and original command/event hash against wallet history; public results omit session credentials/hashes, private profiles, receiving destinations and bank instructions. The publication record is a durable intent only: no realtime event, external notification, provider request or signer is invoked.
+
+After enrollment, database guards freeze unsupported mutations across the enrolled listing and its related requests/evidence/disputes/trades/commissions/events. Standalone wallet commands, snapshots, workers and wallet-only exports fail closed. Use the coordinator's owner inspection/pause and preserve the complete isolated source. A combined marketplace/wallet backup, restore and quarantine protocol is still required; the [recovery runbook](recovery-runbook.md) separates this cohort from the earlier standalone backup procedure.
+
+Initial trade acceptance, subsequent proposals, payment/cancellation/dispute/release/settlement transitions, mobile coordination and delivery remain outside this cohort. The current implementation is development work awaiting its final exact-source verification, not a complete production wallet lifecycle.
 
 ## Financial policy preserved
 
@@ -151,12 +173,12 @@ Disputes opened before dispatch stop the outgoing action. A dispute opened after
 | --- | --- |
 | `createMarketplaceListing` and owner review in `alpha-exchange-store.ts` | Add funded-principal eligibility while retaining owner approval |
 | `createPurchaseRequest` / accepted trade transitions | Bind chain/token/recipient and reserve principal atomically |
-| `updateTradeTerms` | Pure planner now preserves existing pre-payment consent/quote rules; versioned durable resize and acceptance receipt still need atomic integration |
+| `updateTradeTerms` | The private coordinator now atomically accepts an existing amount proposal through actual focused SQL; the production wrapper and other proposal/lifecycle operations remain separate |
 | Current `funds_received` | Do not use as wallet authority; face-to-face presently allows a buyer-originated transition |
 | Current `usdt_sent` / owner completion | Do not infer a blockchain transfer from a manual status change |
 | Cancellations and disputes | Preserve reservation until safely cancellable; freeze unsent intents; distinguish in-flight outcomes |
 | Completion and receipts | Derive financial completion from payout confirmation; apply benefits/history/fees once |
-| `alpha-exchange-repository.ts` | Focused read/persistence now has a guarded shared-transaction development participant; lifecycle extraction and enrolled-writer guards remain |
+| `alpha-exchange-repository.ts` | Focused read/persistence participates in the private coordinator with enrolled-listing SQL fences; broader lifecycle extraction and production cutover remain |
 | Mobile auth route matching | Explicitly apply phone, age, session, and role checks to wallet routes; current route regex alone does not include them |
 
 No production integration in this table has been performed in this milestone.
@@ -207,6 +229,18 @@ NODE_ENV=test node --conditions=react-server --import tsx scripts/alpha-wallet/p
 
 It pairs trade-note updates with synthetic wallet commands to check shared commit, rollback even after a swallowed callback error, stale-snapshot retry and original-identity recovery. It does not perform business acceptance or resize. The `react-server` condition permits the repository's existing server-only imports in this explicit Node fixture.
 
+The new private coordinator has its own native fixture using three distinct, already-created empty loopback databases:
+
+```bash
+NODE_ENV=test node --conditions=react-server --import tsx scripts/alpha-wallet/postgres-marketplace-coordinator.ts \
+  --fresh-simulation-databases \
+  --atomic-connection-string 'postgresql://wallet_fixture:simulation-only@127.0.0.1:5432/alpha_wallet_dev_coordinator_atomic' \
+  --race-connection-string 'postgresql://wallet_fixture:simulation-only@127.0.0.1:5432/alpha_wallet_dev_coordinator_races' \
+  --auth-connection-string 'postgresql://wallet_fixture:simulation-only@127.0.0.1:5432/alpha_wallet_dev_coordinator_auth'
+```
+
+It exercises actual canonical enrollment/acceptance, cross-domain rollback, enrolled-writer fences, concurrent acceptance, stale session/account authority, visible authentication-row waits and original receipt recovery after a lost response. It neither creates/drops databases nor reads ambient application URLs. Its final executed result must be recorded against the new tested source; the earlier `08fb7fa` report covers only the previous four native drills. The existing Chromium checks remain evidence for the earlier standalone rehearsal, since this coordinator adds no UI.
+
 The test runner sets a test environment. The demo explicitly opts into local development. The factory rejects production and recognized hosted runtimes, refuses mainnet/signing flags, and rechecks those conditions for mutations. The SQL draft also requires an explicit simulation-only setting before it can create its isolated schema. These are development guards, not substitutes for production security design.
 
 The demo simulates a pending deposit, final 500 USDT funding, 200 and 300 USDT purchases, verified payment, uncertain payout response, safe duplicate handling, and separate 10 USDT commissions. It asserts that the full 500 reaches buyers and the remaining 10 is platform revenue. Its native-fee readiness is a synthetic policy fixture, not a real gas purchase or cost model.
@@ -223,7 +257,8 @@ Current acceptance evidence, open gates and owner decisions are tracked in [laun
 | 2. Durable development repository | Connected transactional commands/journal/outbox, immutable evidence, replay, fake-provider recovery — implemented for simulation | Current durable verification report; native concurrency execution and backup/restore evidence tracked separately |
 | 2a. Recovery, access and rehearsal | Quarantined logical restore, separate-process backup CLI, trusted-user gateway, fixture receipt decoders and local bilingual UI — implemented for simulation | [Phase-three verification](phase3-verification-2026-11-04.md): 468 tests, actual native restore and Chromium English/Arabic flows passed |
 | 2a extension. Marketplace transaction groundwork | Pure canonical acceptance planner, frozen v1 history and actual focused SQL participant — implemented for simulation | [Groundwork verification](marketplace-groundwork-verification-2026-11-04.md): 800 tests and all three native PostgreSQL drills passed |
-| 2a extension. Versioned ledger | Explicit continuation/migration, synthetic enrollment, delta-only corrections, receipts, inherited recovery and mixed backup — implemented for simulation | [Versioned verification](ledger-v2-verification-2026-11-05.md): 879 tests, four native drills and the retained browser rehearsal passed; the real marketplace coordinator remains a later gate |
+| 2a extension. Versioned ledger | Explicit continuation/migration, synthetic enrollment, delta-only corrections, receipts, inherited recovery and mixed backup — implemented for simulation | [Previous versioned baseline](ledger-v2-verification-2026-11-05.md): `08fb7fa`, 879 tests, four native drills and the retained browser rehearsal |
+| 2a extension. Private canonical coordinator | Same-transaction stored web auth, owner enrollment/inspection/pause, existing-proposal acceptance, canonical/wallet receipts and listing-wide fences — implemented for the bounded development cohort | Final exact-source CI and separate coordinator evidence pending; combined recovery and the remaining lifecycle are separate gates |
 | 2b. Production repository design | Auth-derived identities, production role design, version migration, checkpointing/scaling, backup/restore and operational recovery | Reviewed permissions, fault-injection evidence, restore/reconciliation exercise, realistic load tests |
 | 3. Testnet adapters | Exact chain allowlists; deposit address assignment; confirmed receipt observers; cursor recovery; chosen signer/custody sandbox; gas handling | Wrong-token, finality, provider outage, timeout, duplicate webhook, and ambiguous-broadcast recovery tests |
 | 4. Private integrated flow | Seller deposit/withdraw screens; funded listings; existing trade UI; Arabic/English mobile behavior; payment-verification and dispute resolution interfaces | End-to-end tests using synthetic/testnet funds; existing marketplace/commission/review/receipt regressions |
@@ -241,6 +276,7 @@ Additional implementation contracts:
 - [Access and existing-platform integration](access-and-integration.md)
 - [Atomic marketplace terms integration design](transaction-integration-design.md)
 - [V2 ledger continuation and resize contract](ledger-v2-continuation-design.md)
+- [Private canonical marketplace coordinator](marketplace-coordinator-design.md)
 - [Chain evidence adapter contract](chain-adapter-contract.md)
 - [Interactive rehearsal](rehearsal.md)
 - [Custody and signing decision](custody-decision.md)
