@@ -42,6 +42,10 @@ Inspect `commission_payment_verification_cron` in production runtime logs. Summa
 
 `providerHealth` is a serialized summary so runtime console truncation does not hide provider results as `[Object]`. Individual failures also emit `commission_deposit_discovery` with a fixed reason code and provider name.
 
+Binance receiving-history scans include bounded filtering diagnostics: observed, accepted and rejected row counts, fixed rejection reasons, a recent 15-minute window, and valid latest observation/rejection timestamps. Both commission jobs expose these through `providerHealth`; the durable history checkpoint retains them for the latest provider invocation. A complete page scan with zero eligible deposits is distinguishable from a response whose rows were excluded. Complete pagination alone does not prove that a reported customer deposit was eligible or settled.
+
+The Binance history request reads all USDT deposit statuses so pending, locked and held deposits can be diagnosed. Only status `1`, an allowed transfer type, cleared Travel Rule status, a supported network, the canonical destination, a valid amount/time and an acceptable receipt reference can enter reconciliation. Diagnostics contain no provider bodies, credentials, receipt IDs, amounts, payer addresses or provider cursors. Rejection timestamps describe observations, not proof of payer attribution. Never change a payment's status based on diagnostic counters.
+
 Commission settlement persists pending confirmation-email work in the same write as payment. The existing idempotent email outbox handles provider delivery; the commission job recovers interrupted enqueue work within a bounded remaining runtime budget. Inspect `emailRecovery` for checked, queued, pending, errors and exhausted-budget counts. Recovery applies only to explicit pending markers, not every historical paid commission.
 
 HTTP 401 = unauthorized caller. HTTP 503 = missing scheduler secret or degraded scan/retry. HTTP 500 = pending sweep failure. HTTP 200 alone is not proof a payment was received: inspect `verified` and `autoReconciliation.verified`.

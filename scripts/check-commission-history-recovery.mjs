@@ -52,6 +52,36 @@ function binanceRow(competing = false) {
     network: competing ? "BSC" : "TRX", address: competing ? bepWallet : tronWallet,
     amount: competing ? "102.000000" : "100.000000", insertTime: 100_000, txId: "synthetic-internal-credit" };
 }
+function withheldBinanceRows() {
+  // Real status values from the receiving-history API: observed, never eligible.
+  return [0, 6, 8].map((status, index) => ({ ...binanceRow(), id: String(901 + index), status }));
+}
+function assertBinanceDiagnostics(diagnostics, acceptedRows, repetitions = 1) {
+  assert.equal(diagnostics.observedRows, acceptedRows + 3 * repetitions);
+  assert.equal(diagnostics.acceptedRows, acceptedRows);
+  assert.equal(diagnostics.rejectedRows, 3 * repetitions);
+  assert.deepEqual(diagnostics.rejectedReasons, {
+    status_pending: repetitions, status_credited_locked: repetitions, status_waiting_confirmation: repetitions,
+  });
+  assert.deepEqual(diagnostics.latestRejectedAtByReason, {
+    status_pending: 100_000, status_credited_locked: 100_000, status_waiting_confirmation: 100_000,
+  });
+  assert.equal(diagnostics.latestObservedTimestamp, 100_000);
+  assert.equal(diagnostics.latestAcceptedTimestamp, 100_000);
+  assert.equal(Number.isSafeInteger(diagnostics.observedAt), true);
+  assert.equal(diagnostics.recentWindowMs, 900_000);
+  assert.equal(diagnostics.recentObservedRows, 0);
+  assert.equal(diagnostics.recentAcceptedRows, 0);
+  assert.equal(diagnostics.recentRejectedRows, 0);
+  assert.deepEqual(diagnostics.recentRejectedReasons, {});
+  const serialized = JSON.stringify(diagnostics);
+  for (const privateValue of [fixtureKey, fixtureSecret, tronWallet, bepWallet, "synthetic-internal-credit", "/sapi/"]) {
+    assert.equal(serialized.includes(privateValue), false);
+  }
+}
+function assertWithheldReceiptsAbsent(deposits) {
+  assert.equal(deposits.some(row => ["binance-deposit:901", "binance-deposit:902", "binance-deposit:903"].includes(row.signature)), false);
+}
 const server = createServer((request, response) => {
   const url = new URL(request.url, "http://127.0.0.1");
   const send = (body, status = 200) => { response.writeHead(status, { "Content-Type": "application/json" }); response.end(JSON.stringify(body)); };
@@ -100,13 +130,15 @@ const server = createServer((request, response) => {
       const unsigned = new URLSearchParams(url.searchParams); unsigned.delete("signature");
       assert.equal(signature, createHmac("sha256", fixtureSecret).update(unsigned.toString()).digest("hex"));
       assert.equal(url.searchParams.get("coin"), "USDT");
-      assert.equal(url.searchParams.get("status"), "1");
+      assert.equal(url.searchParams.has("status"), false);
       const offset = Number(url.searchParams.get("offset"));
       const since = Number(url.searchParams.get("startTime"));
       const until = Number(url.searchParams.get("endTime"));
       requests.push({ phase, provider: "BINANCE_DEPOSITS", offset, since, until });
-      const rows = since > 100_000 ? [] : mode === "fresh" ? [binanceRow()]
-        : offset < 1000 ? Array.from({ length: 200 }, () => binanceRow()) : [binanceRow(true)];
+      const withheld = withheldBinanceRows();
+      const rows = since > 100_000 ? [] : mode === "fresh" ? [binanceRow(), ...withheld]
+        : offset < 1000 ? Array.from({ length: 200 }, (_, index) => withheld[index] ?? binanceRow())
+          : [binanceRow(true), ...withheld];
       send(rows); return;
     }
     throw new Error("Unexpected fixture request");
@@ -195,6 +227,9 @@ try {
   assert.equal(initial.payload.providers.TRC20.progress.fingerprint, "5");
   assert.deepEqual(initial.payload.providers.BEP20.progress, { until: 1_000_000, page: 6, endBlock: "5000" });
   assert.deepEqual(initial.payload.providers.BINANCE_DEPOSITS.progress, { until: 1_000_000, windowEnd: 1_000_000, offset: 1000 });
+  assertBinanceDiagnostics(initial.payload.providers.BINANCE_DEPOSITS.diagnostics, 985, 5);
+  assert.deepEqual(initial.payload.providers.BINANCE_DEPOSITS.diagnostics, result.providers.BINANCE_DEPOSITS.diagnostics);
+  assertWithheldReceiptsAbsent(initial.payload.deposits);
   passed("All three real scanner adapters persist their five-page continuation before process exit", { providers: 3, pages: 15, releasedReceipts: 0 });
 
   phase = "provider-outage"; failTronOnce = true;
@@ -206,6 +241,8 @@ try {
   assert.deepEqual(outage.payload.providers.TRC20.progress, initial.payload.providers.TRC20.progress);
   assert.equal(outage.payload.providers.BEP20.complete, true);
   assert.equal(outage.payload.providers.BINANCE_DEPOSITS.complete, true);
+  assertBinanceDiagnostics(outage.payload.providers.BINANCE_DEPOSITS.diagnostics, 1);
+  assert.deepEqual(outage.payload.providers.BINANCE_DEPOSITS.diagnostics, result.providers.BINANCE_DEPOSITS.diagnostics);
   assert.equal(requests.some(row => row.phase === phase && row.provider === "BEP20_BLOCK"), false);
   assert.deepEqual(requests.find(row => row.phase === phase && row.provider === "BEP20"), { phase, provider: "BEP20", page: 6, endBlock: "5000" });
   assert.equal(requests.find(row => row.phase === phase && row.provider === "BINANCE_DEPOSITS").offset, 1000);
@@ -215,11 +252,13 @@ try {
   result = await run(origin, 1_002_000);
   assert.equal(result.complete, false); assert.deepEqual(result.deposits, []);
   assert.deepEqual(requests.filter(row => row.phase === phase).map(row => row.provider), ["TRC20", "TRC20"]);
+  assert.deepEqual(result.providers.BINANCE_DEPOSITS.diagnostics, outage.payload.providers.BINANCE_DEPOSITS.diagnostics);
   assert.equal((await saved()).payload.until, 0);
   phase = "catch-up";
   result = await run(origin, 1_003_000);
   assert.equal(result.complete, true); assert.equal(result.deposits.length, 6);
   assert.equal(new Set(result.deposits.map(row => `${row.network}:${row.signature}`)).size, 6);
+  assertWithheldReceiptsAbsent(result.deposits);
   assert.equal(requests.find(row => row.phase === phase && row.provider === "TRC20").since, 999_000);
   assert.equal((await saved()).payload.consumed, true);
   passed("Independent workers resume every cursor and complete fresh catch-up before releasing history", { processes: 4, distinctReceipts: 6, duplicateObservationsRemoved: true });
@@ -231,6 +270,7 @@ try {
   assert.equal(requests.find(row => row.phase === phase && row.provider === "TRC20").page, 0);
   assert.equal(requests.find(row => row.phase === phase && row.provider === "BEP20").page, 1);
   assert.equal(requests.find(row => row.phase === phase && row.provider === "BINANCE_DEPOSITS").offset, 0);
+  assertBinanceDiagnostics((await saved()).payload.providers.BINANCE_DEPOSITS.diagnostics, 985, 5);
   passed("A completed cycle starts a full observation again for late-indexed receipts", { providers: 3 });
 
   await reset(); mode = "fresh"; phase = "crash-before-save";
@@ -239,6 +279,9 @@ try {
   assert.equal(await saved(), null);
   result = await run(origin, 2_001_000);
   assert.equal(result.complete, true); assert.equal(result.deposits.length, 3); assert.equal((await saved()).version, 1);
+  assertBinanceDiagnostics(result.providers.BINANCE_DEPOSITS.diagnostics, 1);
+  assert.deepEqual((await saved()).payload.providers.BINANCE_DEPOSITS.diagnostics, result.providers.BINANCE_DEPOSITS.diagnostics);
+  assertWithheldReceiptsAbsent(result.deposits);
   passed("SIGKILL before checkpoint persistence cannot advance progress or publish receipts", { killedProcesses: 1, recoveredReceipts: 3, checkpointVersion: 1 });
 
   await reset(); phase = "crash-after-save";
@@ -246,8 +289,13 @@ try {
   await stopAt(after, "after-save");
   const committed = await saved();
   assert.equal(committed.version, 1); assert.equal(committed.payload.consumed, true);
+  assertBinanceDiagnostics(committed.payload.providers.BINANCE_DEPOSITS.diagnostics, 1);
+  assertWithheldReceiptsAbsent(committed.payload.deposits);
   result = await run(origin, 3_001_000);
   assert.equal(result.complete, true); assert.equal(result.deposits.length, 3); assert.equal((await saved()).version, 2);
+  assertBinanceDiagnostics(result.providers.BINANCE_DEPOSITS.diagnostics, 1);
+  assert.deepEqual((await saved()).payload.providers.BINANCE_DEPOSITS.diagnostics, result.providers.BINANCE_DEPOSITS.diagnostics);
+  assertWithheldReceiptsAbsent(result.deposits);
   passed("SIGKILL after commit but before publication reobserves receipts on restart", { killedProcesses: 1, recoveredReceipts: 3, checkpointVersion: 2, settlementPerformed: false });
 
   await reset(); phase = "concurrent-publication";
@@ -260,6 +308,12 @@ try {
   assert.equal(results.filter(row => row.checkpointConflict).length, 1);
   assert.equal(results.reduce((total, row) => total + row.deposits.length, 0), 3);
   assert.equal((await saved()).version, 1);
+  for (const history of results) {
+    assertBinanceDiagnostics(history.providers.BINANCE_DEPOSITS.diagnostics, 1);
+    assertWithheldReceiptsAbsent(history.deposits);
+  }
+  assert.deepEqual((await saved()).payload.providers.BINANCE_DEPOSITS.diagnostics,
+    results.find(history => history.complete).providers.BINANCE_DEPOSITS.diagnostics);
   passed("Two independent processes can publish only one committed receiving-history result", { workers: 2, winners: 1, losingWorkerReceipts: 0 });
   assert.deepEqual(fixtureErrors, []);
   await reset();

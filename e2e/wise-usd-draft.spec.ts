@@ -4,6 +4,7 @@ import { OFFLINE_ACCOUNTS, OFFLINE_PASSWORD, OFFLINE_HEADERS, seedOfflineFixture
 import type { DemandWorkspace } from "../src/types/usdt-demand";
 import { createHardNavigationErrorAudit, marketDestinationFeed, unblockedAccountDestinationFeed } from "./support/hard-navigation-errors";
 import { clickConfirmedTradeAction } from "./support/action-dialog";
+import { installFocusDiagnostics } from "./support/focus-diagnostics";
 
 async function ok(response: Pick<APIResponse, "ok" | "status" | "text" | "json">) {
   expect(response.ok(), `${response.status()} ${await response.text()}`).toBe(true);
@@ -15,6 +16,10 @@ async function login(api: APIRequestContext, email: string) {
 }
 
 test("personal Wise USD accounts and Buy Request complete locally with private payment instructions", async ({ page, context, playwright, baseURL, browserName }, info) => {
+  const focusDiagnostics = await installFocusDiagnostics(page, [
+    "wise-accountHolderName", "wise-bankName", "wise-routingNumber", "wise-accountNumber", "wise-bankAddress",
+  ]);
+  let initialInputDiagnostics: ReturnType<typeof focusDiagnostics> | undefined;
   const browserErrorAudit = createHardNavigationErrorAudit(browserName);
   browserErrorAudit.observe(page);
   let phase = "fixture setup";
@@ -65,6 +70,9 @@ test("personal Wise USD accounts and Buy Request complete locally with private p
       ["Account number", "00001001001"],
       ["Bank address (optional)", "1 Example Street, Test City, US"],
     ]) await expect(buyerAccountForm.getByLabel(label, { exact: true })).toHaveValue(value);
+    // Retain the initial input events on successful runs before later navigation
+    // can rotate the bounded buffer. Diagnostics contain lengths, never values.
+    initialInputDiagnostics = focusDiagnostics();
     const accountSaved = page.waitForResponse(response => response.url().endsWith("/api/alpha-exchange/wise-accounts") && response.request().method() === "POST");
     await buyerAccountForm.getByRole("button", { name: "Save for review", exact: true }).click();
     const buyerCreated = await ok(await accountSaved);
@@ -197,6 +205,10 @@ test("personal Wise USD accounts and Buy Request complete locally with private p
     expect(final.usdtDemands.find((entry: { id: string }) => entry.id === demand.id).state).toBe("matched");
     expect(browserErrorAudit.errors, JSON.stringify({ pageErrors, audit: browserErrorAudit.report() }, null, 2)).toEqual([]);
   } finally {
+    await info.attach("wise-input-focus-diagnostics", {
+      body: JSON.stringify({ initialValuesVerified: Boolean(initialInputDiagnostics), ...(initialInputDiagnostics ?? focusDiagnostics()) }),
+      contentType: "application/json",
+    });
     await info.attach("browser-error-audit", { body: JSON.stringify({ pageErrors, audit: browserErrorAudit.report() }, null, 2), contentType: "application/json" });
     await seller.dispose(); await reviewer.dispose(); await outsider.dispose();
   }

@@ -20,6 +20,32 @@ export interface DepositScan {
   complete: boolean;
   configured: boolean;
   continuation?: DepositScanProgress;
+  /** Fixed counters and timestamps only; never raw receiving-account records. */
+  diagnostics?: BinanceDepositDiagnostics;
+}
+
+export type BinanceDepositRejectionReason =
+  | "malformed_record" | "asset_mismatch"
+  | "status_pending" | "status_rejected" | "status_credited_locked"
+  | "status_wrong_deposit" | "status_waiting_confirmation" | "invalid_status"
+  | "unsupported_transfer_type" | "travel_rule_not_cleared" | "unsupported_network"
+  | "destination_mismatch" | "invalid_amount" | "invalid_timestamp"
+  | "before_scan_window" | "invalid_reference";
+
+export interface BinanceDepositDiagnostics {
+  observedRows: number;
+  acceptedRows: number;
+  rejectedRows: number;
+  observedAt: number;
+  recentWindowMs: number;
+  recentObservedRows: number;
+  recentAcceptedRows: number;
+  recentRejectedRows: number;
+  rejectedReasons: Partial<Record<BinanceDepositRejectionReason, number>>;
+  recentRejectedReasons: Partial<Record<BinanceDepositRejectionReason, number>>;
+  latestObservedTimestamp: number | null;
+  latestAcceptedTimestamp: number | null;
+  latestRejectedAtByReason: Partial<Record<BinanceDepositRejectionReason, number>>;
 }
 
 /** Only server-created progress is persisted; no provider URL or credentials. */
@@ -36,6 +62,7 @@ const PAGE_SIZE = 200;
 const MAX_PAGES = 5;
 const SCAN_TIMEOUT_MS = 12_000;
 const BINANCE_WINDOW_MS = 89 * 24 * 60 * 60_000;
+const BINANCE_DIAGNOSTIC_RECENT_WINDOW_MS = 15 * 60_000;
 
 function integerMicros(raw: unknown, decimals: number) {
   if (typeof raw !== "string" || !/^\d{1,80}$/.test(raw)) return null;
@@ -170,7 +197,9 @@ async function readBinanceDeposits(start: number, end: number, offset: number, s
   const key = process.env.ALPHA_EXCHANGE_BINANCE_READ_API_KEY?.trim();
   const secret = process.env.ALPHA_EXCHANGE_BINANCE_READ_API_SECRET?.trim();
   if (!key || !secret) throw new Error("binance_read_not_configured");
-  const params = new URLSearchParams({ coin: "USDT", status: "1", startTime: String(Math.floor(start)),
+  // Binance documents status as optional. Observe non-success/held rows for
+  // diagnostics, while parseBinanceDeposit still accepts only numeric status 1.
+  const params = new URLSearchParams({ coin: "USDT", startTime: String(Math.floor(start)),
     endTime: String(Math.floor(end)), offset: String(offset), limit: String(PAGE_SIZE),
     recvWindow: "5000", timestamp: String(Date.now()),
   });
@@ -182,36 +211,81 @@ async function readBinanceDeposits(start: number, end: number, offset: number, s
   if (!response.ok) throw new Error(`binance_read_http_${response.status}`);
   const rows: unknown = await response.json();
   if (!Array.isArray(rows)) throw new Error("binance_read_invalid_response");
-  return rows as Record<string, unknown>[];
+  return rows;
 }
 
-function parseBinanceDeposit(row: Record<string, unknown>, min: number): CommissionDeposit | null {
-  if (!row || row.coin !== "USDT" || row.status !== 1 || (row.transferType !== 0 && row.transferType !== 1)) return null;
-  if (row.travelRuleStatus !== undefined && row.travelRuleStatus !== 0) return null;
+type ParsedBinanceDeposit = { deposit: CommissionDeposit } | { reason: BinanceDepositRejectionReason };
+function parseBinanceDeposit(value: unknown, min: number): ParsedBinanceDeposit {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return { reason: "malformed_record" };
+  const row = value as Record<string, unknown>;
+  if (row.coin !== "USDT") return { reason: "asset_mismatch" };
+  if (row.status !== 1) {
+    const reason = row.status === 0 ? "status_pending" : row.status === 2 ? "status_rejected"
+      : row.status === 6 ? "status_credited_locked" : row.status === 7 ? "status_wrong_deposit"
+      : row.status === 8 ? "status_waiting_confirmation" : "invalid_status";
+    return { reason };
+  }
+  if (row.transferType !== 0 && row.transferType !== 1) return { reason: "unsupported_transfer_type" };
+  if (row.travelRuleStatus !== undefined && row.travelRuleStatus !== 0) return { reason: "travel_rule_not_cleared" };
   const network = row.network === "TRX" ? "TRC20" : row.network === "BSC" ? "BEP20" : null;
-  if (!network) return null;
+  if (!network) return { reason: "unsupported_network" };
   const recipient = network === "TRC20" ? CANONICAL_TRC20_COMMISSION_WALLET : CANONICAL_BEP20_COMMISSION_WALLET;
   const address = String(row.address ?? "");
-  if ((network === "BEP20" ? address.toLowerCase() : address) !== recipient) return null;
+  if ((network === "BEP20" ? address.toLowerCase() : address) !== recipient) return { reason: "destination_mismatch" };
   const amountMicros = decimalMicros(row.amount);
   const timestamp = Number(row.insertTime);
-  if (amountMicros === null || !validTimestamp(timestamp, min)) return null;
+  if (amountMicros === null) return { reason: "invalid_amount" };
+  if (!validTimestamp(timestamp, 0)) return { reason: "invalid_timestamp" };
+  if (timestamp < min) return { reason: "before_scan_window" };
   const txId = String(row.txId ?? "");
   // Public deposits keep the SAME chain reference across all providers. They
   // still pass the chain receipt verifier and cannot gain a second ID alias.
   if (/^(?:0x)?[a-f0-9]{64}$/i.test(txId)) {
     const hash = txId.replace(/^0x/i, "").toLowerCase();
-    return { network, signature: network === "BEP20" ? `0x${hash}` : hash, payer: "", amountMicros, timestamp };
+    return { deposit: { network, signature: network === "BEP20" ? `0x${hash}` : hash, payer: "", amountMicros, timestamp } };
   }
-  if (row.transferType !== 1 || typeof row.id !== "string" || !/^\d{1,64}$/.test(row.id)) return null;
-  return { network, signature: `binance-deposit:${row.id}`, payer: "", amountMicros, timestamp };
+  if (row.transferType !== 1 || typeof row.id !== "string" || !/^\d{1,64}$/.test(row.id)) return { reason: "invalid_reference" };
+  return { deposit: { network, signature: `binance-deposit:${row.id}`, payer: "", amountMicros, timestamp } };
+}
+
+function observeBinanceDeposit(diagnostics: BinanceDepositDiagnostics, value: unknown, parsed: ParsedBinanceDeposit) {
+  const rawTime = value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>).insertTime : undefined;
+  const timestamp = typeof rawTime === "number" || (typeof rawTime === "string" && rawTime.trim()) ? Number(rawTime) : NaN;
+  const validTime = Number.isSafeInteger(timestamp) && timestamp >= 0 && timestamp <= diagnostics.observedAt + 5 * 60_000;
+  // Recent means relative to this invocation, never a historical paging horizon.
+  // Malformed and future timestamps cannot inflate the recent counters.
+  const recent = validTime && timestamp >= diagnostics.observedAt - diagnostics.recentWindowMs && timestamp <= diagnostics.observedAt;
+  diagnostics.observedRows++;
+  if (recent) diagnostics.recentObservedRows++;
+  if (validTime) diagnostics.latestObservedTimestamp = Math.max(diagnostics.latestObservedTimestamp ?? 0, timestamp);
+  if ("deposit" in parsed) {
+    diagnostics.acceptedRows++;
+    if (recent) diagnostics.recentAcceptedRows++;
+    if (validTime) diagnostics.latestAcceptedTimestamp = Math.max(diagnostics.latestAcceptedTimestamp ?? 0, timestamp);
+  } else {
+    diagnostics.rejectedRows++;
+    const reason = parsed.reason;
+    diagnostics.rejectedReasons[reason] = (diagnostics.rejectedReasons[reason] ?? 0) + 1;
+    if (recent) {
+      diagnostics.recentRejectedRows++;
+      diagnostics.recentRejectedReasons[reason] = (diagnostics.recentRejectedReasons[reason] ?? 0) + 1;
+    }
+    if (validTime) diagnostics.latestRejectedAtByReason[reason] = Math.max(diagnostics.latestRejectedAtByReason[reason] ?? 0, timestamp);
+  }
 }
 
 export async function scanBinanceCommissionDeposits(minTimestamp: number, progress?: DepositScanProgress): Promise<DepositScan> {
-  const scan: DepositScan = { deposits: [], pages: 0, complete: false, configured: isBinanceDepositReadConfigured() };
+  const observedAt = Date.now();
+  const diagnostics: BinanceDepositDiagnostics = { observedRows: 0, acceptedRows: 0, rejectedRows: 0,
+    observedAt, recentWindowMs: BINANCE_DIAGNOSTIC_RECENT_WINDOW_MS,
+    recentObservedRows: 0, recentAcceptedRows: 0, recentRejectedRows: 0,
+    rejectedReasons: {}, recentRejectedReasons: {}, latestObservedTimestamp: null,
+    latestAcceptedTimestamp: null, latestRejectedAtByReason: {} };
+  const scan: DepositScan = { deposits: [], pages: 0, complete: false, configured: isBinanceDepositReadConfigured(), diagnostics };
   if (!scan.configured) return scan;
   const signal = AbortSignal.timeout(SCAN_TIMEOUT_MS);
-  let end = progress?.windowEnd ?? progress?.until ?? Date.now();
+  let end = progress?.windowEnd ?? progress?.until ?? observedAt;
   let offset = progress?.offset ?? 0;
   while (end >= minTimestamp && scan.pages < MAX_PAGES) {
     const start = Math.max(minTimestamp, end - BINANCE_WINDOW_MS);
@@ -219,8 +293,9 @@ export async function scanBinanceCommissionDeposits(minTimestamp: number, progre
       const rows = await readBinanceDeposits(start, end, offset, signal);
       scan.pages++;
       for (const row of rows) {
-        const deposit = parseBinanceDeposit(row, minTimestamp);
-        if (deposit) scan.deposits.push(deposit);
+        const parsed = parseBinanceDeposit(row, minTimestamp);
+        observeBinanceDeposit(diagnostics, row, parsed);
+        if ("deposit" in parsed) scan.deposits.push(parsed.deposit);
       }
       if (rows.length < PAGE_SIZE) { end = start - 1; offset = 0; break; }
     }

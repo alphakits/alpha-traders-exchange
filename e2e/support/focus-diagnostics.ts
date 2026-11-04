@@ -8,14 +8,14 @@ const TARGET_TESTS = new Set([
 
 // Keep the event history missing from D95/D110 without recording entered text.
 // Each navigation creates a fresh document; the bounded buffer spans the test.
-export async function installFocusDiagnostics(page: Page) {
+export async function installFocusDiagnostics(page: Page, inputIds: readonly string[] = ["create-available", "create-price", "create-min-trade"]) {
   const events: unknown[] = [];
   let droppedEvents = 0;
   await page.exposeBinding("__alphaFocusDiagnostic", (_source, event: unknown) => {
     if (events.length === MAX_EVENTS) { events.shift(); droppedEvents += 1; }
     events.push(event);
   });
-  await page.addInitScript(() => {
+  await page.addInitScript((inputIds) => {
     type DiagnosticWindow = Window & { __alphaFocusDiagnostic: (event: unknown) => Promise<void> };
     const label = (node: EventTarget | null) => node instanceof Element
       ? `${node.tagName.toLowerCase()}#${node.id}`.slice(0,100)
@@ -25,7 +25,7 @@ export async function installFocusDiagnostics(page: Page) {
       documentFocused: document.hasFocus(),
       visibility: document.visibilityState,
       path: /^https?:$/.test(location.protocol) ? location.pathname.slice(0,256) : "[non-http]",
-      amounts: ["create-available", "create-price", "create-min-trade"].map(id => {
+      amounts: inputIds.map(id => {
         const input = document.getElementById(id);
         return input instanceof HTMLInputElement
           ? { id, length: input.value.length, empty: input.value === "", disabled: input.disabled }
@@ -60,7 +60,7 @@ export async function installFocusDiagnostics(page: Page) {
       childList: true, subtree: true, attributes: true, attributeFilter: ["disabled", "hidden", "open"],
     });
     window.setInterval(observe, 100);
-  });
+  }, inputIds);
   return () => ({ version: 1, maxEvents: MAX_EVENTS, droppedEvents, events: [...events] });
 }
 

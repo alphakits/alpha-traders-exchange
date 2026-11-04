@@ -25,6 +25,10 @@ jobs:
     name: Wise isolated USD lifecycle and phone layouts
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    # Reuse the browser image already verified by the WebKit regression jobs.
+    container:
+      image: mcr.microsoft.com/playwright:v1.61.1-noble@sha256:5b8f294aff9041b7191c34a4bab3ac270157a28774d4b0660e9743297b697e48
+      options: --user 1001
     steps:
       - name: Check out source
         uses: actions/checkout@v4
@@ -37,8 +41,24 @@ jobs:
           cache: npm
       - name: Install locked dependencies
         run: npm ci
-      - name: Install Chromium and WebKit
-        run: npx playwright install --with-deps chromium webkit
+      - name: Verify pinned Chromium and WebKit runtimes
+        run: |
+          node <<'NODE'
+          const assert = require('node:assert/strict');
+          assert.equal(require('playwright/package.json').version, '1.61.1',
+            'Update the pinned Playwright image together with the package lock.');
+          const { chromium, webkit } = require('playwright');
+          (async () => {
+            for (const [engine, options] of [
+              [chromium, { channel: 'chromium', args: ['--disable-gpu'] }],
+              [webkit, {}],
+            ]) {
+              const browser = await engine.launch(options);
+              console.log(`Pinned ${engine.name()} runtime ready: ${browser.version()}`);
+              await browser.close();
+            }
+          })().catch((error) => { console.error(error); process.exitCode = 1; });
+          NODE
       - name: Verify staging isolation and source packaging guards
         run: node --test scripts/wise-staging/deploy.test.mjs scripts/wise-staging/adapters.test.mjs scripts/wise-staging/audit/guards.test.mjs
       - name: Build isolated Wise fixture without provider credentials
@@ -447,6 +467,10 @@ jobs:
     runs-on: ubuntu-latest
     # Allow setup, a cold production build, and all serial browser cases.
     timeout-minutes: 60
+    # Keep browser dependencies out of the runner's Ubuntu mirror download path.
+    container:
+      image: mcr.microsoft.com/playwright:v1.61.1-noble@sha256:5b8f294aff9041b7191c34a4bab3ac270157a28774d4b0660e9743297b697e48
+      options: --user 1001
     strategy:
       fail-fast: false
       matrix:
@@ -467,8 +491,22 @@ jobs:
           cache: npm
       - name: Install locked dependencies
         run: npm ci
-      - name: Install isolated browser runtime
-        run: npx playwright install --with-deps ${{ matrix.browser }}
+      - name: Verify pinned isolated browser runtime
+        run: |
+          node <<'NODE'
+          const assert = require('node:assert/strict');
+          assert.equal(require('playwright/package.json').version, '1.61.1',
+            'Update the pinned Playwright image together with the package lock.');
+          const engineName = process.env.USDT_OFFLINE_BROWSER;
+          assert.ok(['chromium', 'webkit'].includes(engineName), 'Unknown Buy Requests browser.');
+          const engine = require('playwright')[engineName];
+          (async () => {
+            const browser = await engine.launch(engineName === 'chromium'
+              ? { channel: 'chromium', args: ['--disable-gpu'] } : {});
+            console.log(`Pinned ${engineName} runtime ready: ${browser.version()}`);
+            await browser.close();
+          })().catch((error) => { console.error(error); process.exitCode = 1; });
+          NODE
       - name: Build the release source
         env:
           ALPHA_E2E_TEST_SUPPORT: "1"
