@@ -1,0 +1,63 @@
+name: Publish reviewed Trade Room alias correction
+on:
+  push:
+    branches: [release/location-alias-transfer-20261104]
+permissions:
+  contents: read
+jobs:
+  publish-reviewed-correction:
+    if: github.repository == 'alphakits/alpha-traders-exchange'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    permissions:
+      contents: write
+    steps:
+      - name: Check out the exact approved release source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: a8fe878a552a1435ac52721e36ea084bd90e8406
+          persist-credentials: false
+      - name: Use pinned Node.js runtime
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - name: Validate and apply the reviewed source-only correction
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = a8fe878a552a1435ac52721e36ea084bd90e8406
+          curl --proto '=https' --tlsv1.2 --fail --silent --show-error --max-time 45 --retry 2 https://sb-3lk6wthezxr7.vercel.run/location-alias-fix.patch -o "$RUNNER_TEMP/location-alias-fix.patch"
+          echo "884c6214639e18fafe1ebb3b59d9c70599d9ff5c15db85a61cc660e01e3f9ada  $RUNNER_TEMP/location-alias-fix.patch" | sha256sum --check --strict
+          git apply --check "$RUNNER_TEMP/location-alias-fix.patch"
+          git apply --index "$RUNNER_TEMP/location-alias-fix.patch"
+          git diff --cached --check
+          test "$(git write-tree)" = b95039a8d0657b4b889f4de2cab61dad6fe4d042
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Verify location, alias, normal chat, and stale-room protections
+        shell: bash
+        run: |
+          set -euo pipefail
+          node node_modules/vitest/vitest.mjs run src/lib/trade-room-route-match.test.ts src/lib/trade-room-client.test.ts src/lib/trade-location.test.ts src/__tests__/trade-chat.test.ts src/__tests__/trade-room-message-route.test.ts src/lib/security-headers.test.ts src/components/sections/trade-room/trade-location-composer.test.tsx src/components/sections/trade-room/trade-location-map.test.tsx src/components/sections/trade-room/trade-room-feedback.test.tsx src/components/sections/trade-room/trade-room-page.test.ts --maxWorkers=2
+          node node_modules/typescript/bin/tsc --noEmit --incremental false
+          node node_modules/eslint/bin/eslint.js src/lib/trade-room-route-match.ts src/lib/trade-room-route-match.test.ts src/components/sections/trade-room/trade-room-feedback.test.tsx src/components/sections/trade-room/trade-room-page.tsx
+      - name: Commit only the hash-verified correction
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git write-tree)" = b95039a8d0657b4b889f4de2cab61dad6fe4d042
+          git diff --exit-code
+          git -c user.name='Alpha Traders Development Assistant' -c user.email='development-assistant@users.noreply.github.com' commit -m 'fix: preserve Trade Room chat through supported route aliases'
+          test "$(git rev-parse HEAD^{tree})" = b95039a8d0657b4b889f4de2cab61dad6fe4d042
+          test "$(git rev-parse HEAD^)" = a8fe878a552a1435ac52721e36ea084bd90e8406
+      - name: Publish isolated candidate without changing production or the release branch
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^{tree})" = b95039a8d0657b4b889f4de2cab61dad6fe4d042
+          gh auth setup-git --hostname github.com
+          git push origin HEAD:refs/heads/release/location-alias-tested-20261104
+          git log -1 --format='%H %T %s'
