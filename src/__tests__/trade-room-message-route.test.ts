@@ -87,6 +87,18 @@ describe("Trade Room message email scheduling", () => {
     mocks.requireMarketplaceVerificationForTrading.mockReturnValue(null);
   });
 
+  it("forwards a structured location without trusting sender or trade-method fields and never puts coordinates in email", async () => {
+    const location = { version: 1, latitude: 32.123456, longitude: 35.654321, source: "meeting_point" };
+    const response = await POST(new NextRequest("http://localhost/api/alpha-exchange/purchase-requests/purchase-1/messages", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: "", location, actorUserId: "forged-owner", paymentMethod: "Face-to-Face", clientMessageId: "11111111111111111111111111111111" }),
+    }), routeContext());
+    expect(response.status).toBe(201);
+    expect(mocks.postTradeRoomMessage).toHaveBeenCalledWith(expect.objectContaining({ actorUserId: "buyer-1", purchaseRequestId: "purchase-1", message: "", location }));
+    expect(mocks.postTradeRoomMessage.mock.calls[0][0]).not.toHaveProperty("paymentMethod");
+    await runPostResponseTasks(); expect(JSON.stringify(mocks.prepareTradeRoomConversationEmail.mock.calls)).not.toContain("32.123456");
+  });
+
   it("schedules only the first recipient/trade message email in the server-owned two-minute burst", async () => {
     mocks.checkSharedRateLimit
       .mockResolvedValueOnce({ allowed: true, retryAfterSeconds: 0, reason: null })

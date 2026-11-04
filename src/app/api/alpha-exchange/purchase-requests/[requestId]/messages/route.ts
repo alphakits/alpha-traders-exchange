@@ -30,7 +30,7 @@ export async function GET(_request: NextRequest, context: RouteContext) {
       trade: room.request,
       listing: room.listing,
       counterpart: room.counterpart,
-    });
+    }, { headers: { "Cache-Control": "private, no-store, max-age=0" } });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to load messages." },
@@ -62,7 +62,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
 
   try {
     const { requestId } = await context.params;
-    const body = (await request.json()) as { message?: string; clientMessageId?: string; imageUrl?: string; imageName?: string; imageMimeType?: string };
+    const body = (await request.json()) as { message?: string; clientMessageId?: string; imageUrl?: string; imageName?: string; imageMimeType?: string; location?: unknown };
     const posted = await postTradeRoomMessage({
       purchaseRequestId: requestId,
       actorUserId: user.id,
@@ -71,6 +71,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
       imageUrl: body.imageUrl,
       imageName: body.imageName,
       imageMimeType: body.imageMimeType,
+      location: body.location,
     });
     if (!posted.created) {
       return NextResponse.json(

@@ -1,3 +1,5 @@
+import { parseTradeChatLocation, readTradeChatLocation, TRADE_LOCATION_MESSAGE } from "@alpha-traders/contracts";
+import { canShareTradeLocation, TRADE_LOCATION_UNAVAILABLE } from "@/lib/trade-location-policy";
 import { buildTradeReceipt } from "@/lib/trade-receipt";
 import { isWisePaymentsEnabled } from "@/lib/wise-payments-capability";
 import { assertDemandActor, assertDemandEnabled, commitDemandMatch, isDemandReservedTrade, parseDemandMatchBinding, validateDemandMatch } from "@/lib/usdt-demand-policy";
@@ -1065,6 +1067,7 @@ function sanitizeTradeRoomMessageForCounterparty(
           })()
       : canViewPrivateContent || message.senderRole === "owner" || (network && isTradeWalletMessage(message.message, network)) ? message.message : redactExchangeUserContent(message.message),
     payloadHash: undefined,
+    location: message.deletedAt ? undefined : readTradeChatLocation(message.location),
     imageUrl: hasSafeImage ? message.imageUrl : undefined,
     imageMimeType: hasSafeImage ? imageMimeType : undefined,
     imageName: hasSafeImage ? `trade-room-attachment.${extensionForEvidenceMimeType(imageMimeType!)}` : undefined,
@@ -12763,6 +12766,7 @@ export async function postTradeRoomMessage(input: {
   imageUrl?: string;
   imageName?: string;
   imageMimeType?: string;
+  location?: unknown;
 }) {
   const startedAt = Date.now();
   const dbReadStartedAt = Date.now();
@@ -12780,10 +12784,18 @@ export async function postTradeRoomMessage(input: {
   };
   messageSide(db, request);
 
-  const message = input.message.trim();
+  const location = input.location === undefined ? undefined : parseTradeChatLocation(input.location);
+  if (location && (input.message.trim() || input.imageUrl || input.imageName || input.imageMimeType)) {
+    throw new Error("Send a meeting location separately from text or images.");
+  }
+  const message = location ? TRADE_LOCATION_MESSAGE : input.message.trim();
   // Apply the privilege to canonical server accounts only, and recheck it under
   // the transaction lock below so a concurrent owner revocation cannot bypass it.
   const validateMessagePolicy = (snapshot: AlphaExchangeDb, trade: PurchaseRequest) => {
+    if (location && (!isFaceToFacePaymentMethod(trade.paymentMethod)
+      || (trade.buyerId !== input.actorUserId && trade.sellerId !== input.actorUserId))) {
+      throw new Error(TRADE_LOCATION_UNAVAILABLE);
+    }
     const owner = isPublicOwnerIdentity(snapshot.users.find(user => user.id === input.actorUserId));
     if (message.length > (owner ? OWNER_TRADE_CHAT_MESSAGE_MAX_LENGTH : TRADE_CHAT_MESSAGE_MAX_LENGTH)) throw new Error("Message is too long.");
     const walletError = tradeWalletShareError(message, trade.network);
@@ -12804,7 +12816,7 @@ export async function postTradeRoomMessage(input: {
     .digest("hex")
     .slice(0, 32)}`;
   const payloadHash = createHash("sha256")
-    .update(`${message}\0${image?.mimeType ?? ""}\0${image?.dataUrl ?? ""}`)
+    .update(`${message}\0${image?.mimeType ?? ""}\0${image?.dataUrl ?? ""}${location ? "\0" + JSON.stringify(location) : ""}`)
     .digest("hex");
   const validationMs = Date.now() - validationStartedAt;
 
@@ -12831,7 +12843,7 @@ export async function postTradeRoomMessage(input: {
     const existingMessage = canonicalRequest.messages?.find((candidate) => candidate.id === messageId);
     if (existingMessage) {
       const existingPayloadHash = existingMessage.payloadHash ?? createHash("sha256")
-        .update(`${existingMessage.message}\0${existingMessage.imageMimeType ?? ""}\0${existingMessage.imageUrl ?? ""}`)
+        .update(`${existingMessage.message}\0${existingMessage.imageMimeType ?? ""}\0${existingMessage.imageUrl ?? ""}${existingMessage.location ? "\0" + JSON.stringify(existingMessage.location) : ""}`)
         .digest("hex");
       if (!constantTimeHexEquals(existingPayloadHash, payloadHash)) {
         throw new TradeBlockedError("message-id-payload-mismatch", "This message request id was already used with different content.", canonicalRequest.id, {
@@ -12847,6 +12859,12 @@ export async function postTradeRoomMessage(input: {
         created: false,
       };
       return snapshot;
+    }
+    // Replay above remains safe after completion, but no new locations can be sent.
+    if (location && !canShareTradeLocation(canonicalRequest)) throw new Error(TRADE_LOCATION_UNAVAILABLE);
+    if (location && (canonicalRequest.messages ?? []).filter(item => item.location
+      && item.senderUserId === input.actorUserId && Date.parse(item.createdAt) > Date.now() - 60_000).length >= 5) {
+      throw new Error("Please wait a minute before sharing another meeting location.");
     }
     if (canonicalRequest.closedAt || canonicalRequest.status === "cancelled" || canonicalRequest.status === "declined") {
       throw new TradeBlockedError("trade-chat-closed", "Messages cannot be sent after this trade is closed.", canonicalRequest.id, {
@@ -12879,6 +12897,7 @@ export async function postTradeRoomMessage(input: {
       senderUserId: input.actorUserId,
       senderRole: canonicalOwner ? "owner" : canonicalParticipantSide === "buyer" ? "buyer" : "approved_seller",
       message,
+      ...(location ? { location } : {}),
       payloadHash,
       createdAt,
       sentAt: createdAt,

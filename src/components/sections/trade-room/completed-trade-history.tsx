@@ -1,3 +1,4 @@
+import { TradeLocationCard } from "./trade-location-card";
 import { currencyText } from "@/components/ui/currency-text";
 import { receiptDate, receiptEventLabel } from "@alpha-traders/contracts";
 import type { PurchaseRequest, TradeChatMessage } from "@/types/alpha-exchange";
@@ -19,7 +20,8 @@ export function CompletedTradeHistory({ request, messages, locale }: { request: 
       <div className="max-h-96 space-y-3 overflow-y-auto overscroll-contain" tabIndex={0} role="region" aria-label={isAr ? "المحادثة للقراءة فقط" : "Read-only conversation"}>
         {messages.map(message => <article key={message.id} className="rounded-xl bg-white/5 p-3 text-sm">
           <p className="text-xs font-semibold text-[#C9A227]">{message.kind === "system" ? (isAr ? "النظام" : "System") : message.senderUserId === request.buyerId ? (isAr ? "المشتري" : "Buyer") : message.senderUserId === request.sellerId ? (isAr ? "البائع" : "Seller") : (isAr ? "إدارة المنصة" : "Platform management")}</p>
-          <p dir="auto" className="whitespace-pre-wrap break-words">{currencyText(message.credentialKind ? (isAr ? "تمت مشاركة بيانات سحب محمية خلال الصفقة." : "Protected withdrawal details were shared during the trade.") : message.kind === "system" ? localizeTradeRoomSystemMessage(message.message, locale).text : message.message)}</p>
+          <p dir="auto" className="whitespace-pre-wrap break-words">{currencyText(message.credentialKind ? (isAr ? "تمت مشاركة بيانات سحب محمية خلال الصفقة." : "Protected withdrawal details were shared during the trade.") : message.kind === "system" ? localizeTradeRoomSystemMessage(message.message, locale).text : message.location ? (isAr ? "تمت مشاركة نقطة اللقاء." : "Meeting location shared.") : message.message)}</p>
+          {message.location && !message.deletedAt ? <TradeLocationCard location={message.location} isAr={isAr} /> : null}
           {message.imageUrl && !message.credentialKind ? <a href={message.imageUrl} target="_blank" rel="noopener noreferrer" className="my-2 block min-h-11 break-words text-[#E8C766] underline">{message.imageName || (isAr ? "فتح المرفق" : "Open attachment")}</a> : null}
           <time dateTime={message.createdAt} className="text-xs text-[#9CA3AF]">{receiptDate(message.createdAt, locale)}</time>
         </article>)}

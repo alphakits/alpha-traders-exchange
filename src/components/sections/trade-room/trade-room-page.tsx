@@ -1,4 +1,9 @@
 "use client";
+
+import { TradeLocationComposer } from "./trade-location-composer";
+import { TradeLocationCard } from "./trade-location-card";
+import { canShareTradeLocation, TRADE_LOCATION_UNAVAILABLE } from "@/lib/trade-location-policy";
+import { TRADE_LOCATION_MESSAGE, type TradeChatLocation } from "@alpha-traders/contracts";
 import { formatMoneyNumber } from "@/lib/accent-text";
 import { sellerFeeResponsibilityNotice, tradePaymentReceiptConfirmation, isTradeChatOpen, tradeWalletShareError, TRADE_CHAT_MESSAGE_MAX_LENGTH, OWNER_TRADE_CHAT_MESSAGE_MAX_LENGTH } from "@alpha-traders/contracts";
 
@@ -40,6 +45,7 @@ import {
   tradeActionConfirmationKey,
 } from "@/lib/trade-room-actions";
 import { clearTradeRoomCache, readTradeRoomCache, writeTradeRoomCache } from "@/lib/trade-room-client";
+import { matchesTradeRoomRoute } from "@/lib/trade-room-route-match";
 import { postTradeReview, TradeReviewTimeoutError } from "@/lib/trade-review-client";
 import { fetchClientJson, runClientRequest } from "@/lib/client-request-deadline";
 import { isBankDetailsDisclosureStage, isBankTransferPaymentMethod, isCardlessAtmPaymentMethod, isCashTradePaymentMethod, isCashTradeUsdtSentConfirmationAvailable, isFaceToFacePaymentMethod, isSellerTradeCompletionAvailable, isSellerEvidenceRequiredForPaymentMethod, normalizeMarketplacePaymentMethod } from "@/lib/marketplace-payment-methods";
@@ -269,6 +275,12 @@ function readTradeRoomChatError(
   payload: { code?: string; error?: string } | null,
   isAr: boolean,
 ) {
+  if (payload?.error === TRADE_LOCATION_UNAVAILABLE) {
+    return isAr ? "إرسال الموقع متاح لطرفَي صفقة وجهًا لوجه فقط، بعد قبولها وقبل انتهائها. حدّث غرفة الصفقة." : TRADE_LOCATION_UNAVAILABLE;
+  }
+  if (payload?.error === "Please wait a minute before sharing another meeting location.") {
+    return isAr ? "أرسلت عدة مواقع بسرعة. انتظر دقيقة قبل إرسال موقع آخر؛ المحادثة العادية ما زالت متاحة." : payload.error;
+  }
   if (payload?.code === "DIRECT_CONTACT_BLOCKED") {
     return isAr
       ? "حافظ على خصوصية بيانات التواصل. استخدم دردشة الصفقة."
@@ -1434,6 +1446,7 @@ function TradeRoomPageSession({
   const pokeInFlightRef = useRef<string | null>(null);
   const chatMessageInFlightRef = useRef(false);
   const pendingChatAttemptRef = useRef<{ signature: string; clientMessageId: string } | null>(null);
+  const pendingLocationAttemptRef = useRef<{ signature: string; clientMessageId: string } | null>(null);
   const buyerRedirectTimeoutRef = useRef<number | null>(null);
   const buyerRedirectFadeTimeoutRef = useRef<number | null>(null);
   const buyerEvidenceInputRef = useRef<HTMLInputElement | null>(null);
@@ -1471,7 +1484,7 @@ function TradeRoomPageSession({
   const backgroundRefreshInFlightRef = useRef(false);
   const applyChatReceipts = useCallback((receipts: TradeChatReceipt[]) => {
     const current = roomRef.current;
-    if (!current || current.request.id !== requestId || !receipts.length) return;
+    if (!current || !matchesTradeRoomRoute(current.request, requestId) || !receipts.length) return;
     const byId = new Map(receipts.map(receipt => [receipt.id, receipt]));
     const next = { ...current, messages: current.messages.map(message => {
       const receipt = byId.get(message.id);
@@ -1594,7 +1607,7 @@ function TradeRoomPageSession({
       return;
     }
     const cachedCandidate = readTradeRoomCache<TradeRoomData>(requestId, actor.id);
-    const cached = cachedCandidate?.request?.id === requestId ? cachedCandidate : null;
+    const cached = cachedCandidate?.request && matchesTradeRoomRoute(cachedCandidate.request, requestId) ? cachedCandidate : null;
     if (cachedCandidate && !cached) clearTradeRoomCache(requestId, actor.id);
     if (cached) {
       roomRef.current = cached;
@@ -2339,30 +2352,34 @@ function TradeRoomPageSession({
     }
   }, [actor, cardlessCode, cardlessVerificationKind, cardlessVerificationValue, confirmAction, hasPreparedCardlessDetails, fetchRoom, isAr, isConfirmedTradeCurrent, request, requestId, room, router, setActionError, setStatusMessage, startBuyerCompletionSuccessFlow, streamConnected]);
 
-  const handleSendMessage = useCallback(async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (chatMessageInFlightRef.current) return;
+  const handleSendMessage = useCallback(async (event?: FormEvent<HTMLFormElement>, location?: TradeChatLocation): Promise<boolean> => {
+    event?.preventDefault();
+    if (chatMessageInFlightRef.current) return false;
     const currentRoom = roomRef.current ?? room;
-    if (!currentRoom || !isTradeChatOpen(currentRoom.request)) return;
-    const message = chatDraft.trim();
+    if (!currentRoom || !matchesTradeRoomRoute(currentRoom.request, requestId) || !isTradeChatOpen(currentRoom.request)) return false;
+    if (location && (!canShareTradeLocation(currentRoom.request)
+      || (actor.id !== currentRoom.request.buyerId && actor.id !== currentRoom.request.sellerId))) return false;
+    const attachment = location ? null : chatImage;
+    const message = location ? "" : chatDraft.trim();
     const walletError = tradeWalletShareError(message, currentRoom.request.network, isAr ? "ar" : "en");
-    if (walletError && !currentRoom.canViewPrivateIdentity) { setChatErrorMessage(walletError); return; }
-    if (!message && !chatImage) return;
-    if (chatImage && isCashTradePaymentMethod(currentRoom.request.paymentMethod)) {
+    if (walletError && !currentRoom.canViewPrivateIdentity) { setChatErrorMessage(walletError); return false; }
+    if (!message && !attachment && !location) return false;
+    if (attachment && isCashTradePaymentMethod(currentRoom.request.paymentMethod)) {
       setChatErrorMessage(isAr ? "لا تقبل صفقات النقد صور المحادثة أو إثباتات الدفع." : "Cash trades do not accept chat photos or payment evidence.");
-      return;
+      return false;
     }
-    if (chatImage && !ALLOWED_CHAT_IMAGE_TYPES.has(chatImage.type)) {
+    if (attachment && !ALLOWED_CHAT_IMAGE_TYPES.has(attachment.type)) {
       setChatErrorMessage(isAr ? "يجب أن يكون مرفق المحادثة صورة PNG أو JPEG أو WebP." : "Chat attachments must be PNG, JPEG, or WebP images.");
-      return;
+      return false;
     }
-    if (chatImage && chatImage.size > MAX_EVIDENCE_SIZE_BYTES) {
+    if (attachment && attachment.size > MAX_EVIDENCE_SIZE_BYTES) {
       setChatErrorMessage(isAr ? "حجم صورة المحادثة كبير جدًا (الحد 8MB)." : "Chat image is too large (max 8MB).");
-      return;
+      return false;
     }
-    const attemptSignature = tradeRoomChatAttemptSignature(message, chatImage);
-    const pendingAttempt = resolveTradeRoomChatAttempt(pendingChatAttemptRef.current, attemptSignature);
-    pendingChatAttemptRef.current = pendingAttempt;
+    const attemptSignature = tradeRoomChatAttemptSignature(message, attachment) + (location ? "\0location:" + JSON.stringify(location) : "");
+    const pendingAttemptRef = location ? pendingLocationAttemptRef : pendingChatAttemptRef;
+    const pendingAttempt = resolveTradeRoomChatAttempt(pendingAttemptRef.current, attemptSignature);
+    pendingAttemptRef.current = pendingAttempt;
     const clientMessageId = pendingAttempt.clientMessageId;
     // Optimistically append the message so it appears instantly for the sender.
     const optimisticMsg: TradeChatMessage = {
@@ -2372,12 +2389,13 @@ function TradeRoomPageSession({
       kind: "user",
       senderUserId: actor.id,
       senderRole: actor.role,
-      message,
+      message: location ? TRADE_LOCATION_MESSAGE : message,
+      ...(location ? { location } : {}),
       createdAt: new Date().toISOString(),
       sentAt: new Date().toISOString(),
       readByUserIds: [actor.id],
-      imageName: chatImage?.name,
-      imageMimeType: chatImage?.type,
+      imageName: attachment?.name,
+      imageMimeType: attachment?.type,
     };
     const optimisticRoom = {
       ...currentRoom,
@@ -2388,17 +2406,18 @@ function TradeRoomPageSession({
     roomRef.current = optimisticRoom;
     writeTradeRoomCache(requestId, actor.id, optimisticRoom);
     setRoom(optimisticRoom);
-    setChatDraft("");
+    if (!location) setChatDraft("");
     setChatErrorMessage(null);
     setChatBusy(true);
     try {
-      const imageUrl = chatImage ? await encodeFileToDataUrl(chatImage) : undefined;
+      const imageUrl = attachment ? await encodeFileToDataUrl(attachment) : undefined;
       const requestBody = JSON.stringify({
         message,
         clientMessageId,
+        ...(location ? { location } : {}),
         imageUrl,
-        imageName: chatImage?.name,
-        imageMimeType: chatImage?.type,
+        imageName: attachment?.name,
+        imageMimeType: attachment?.type,
       });
       let response: Response | null = null;
       let payload: TradeRoomChatPostPayload | null = null;
@@ -2452,11 +2471,13 @@ function TradeRoomPageSession({
       // Keep the same client id across uncertain retries, but retire it as soon
       // as the server confirms this exact content. This mirrors the native app
       // and makes a timeout-after-commit safe from duplicate chat messages.
-      if (pendingChatAttemptRef.current?.clientMessageId === clientMessageId) {
-        pendingChatAttemptRef.current = null;
+      if (pendingAttemptRef.current?.clientMessageId === clientMessageId) {
+        pendingAttemptRef.current = null;
       }
-      setChatImage(null);
-      if (chatImageInputRef.current) chatImageInputRef.current.value = "";
+      if (!location) {
+        setChatImage(null);
+        if (chatImageInputRef.current) chatImageInputRef.current.value = "";
+      }
       const confirmedMessage = payload?.message;
       if (confirmedMessage) {
         const confirmedRoom = roomRef.current;
@@ -2470,6 +2491,7 @@ function TradeRoomPageSession({
           setRoom(nextRoom);
         }
       }
+      return true;
     } catch (error) {
       const failedRoom = roomRef.current;
       if (failedRoom) {
@@ -2481,8 +2503,9 @@ function TradeRoomPageSession({
         writeTradeRoomCache(requestId, actor.id, revertedRoom);
         setRoom(revertedRoom);
       }
-      setChatDraft((current) => current.trim() ? `${message}\n${current}` : message);
+      if (!location) setChatDraft((current) => current.trim() ? `${message}\n${current}` : message);
       setChatErrorMessage(localizedCaughtError(error, isAr ? "تعذر إرسال الرسالة. حاول مرة أخرى." : "Message was not sent. Please try again.", isAr));
+      return false;
     } finally {
       chatMessageInFlightRef.current = false;
       setChatBusy(false);
@@ -3909,7 +3932,7 @@ function TradeRoomPageSession({
                       const ownMessage = message.senderUserId === actor.id;
                       const messageBody = message.credentialKind === "cardless_code"
                         ? localizeCardlessWithdrawalMessage(message.message, locale)
-                        : message.message || (isAr ? "صورة مرفقة" : "Image attachment");
+                        : message.location ? (isAr ? "تمت مشاركة نقطة اللقاء." : TRADE_LOCATION_MESSAGE) : message.message || (isAr ? "صورة مرفقة" : "Image attachment");
                       const localizedSystemMessage = message.kind === "system"
                         ? localizeTradeRoomSystemMessage(messageBody, locale)
                         : null;
@@ -3948,6 +3971,7 @@ function TradeRoomPageSession({
                                     ))
                                   : currencyText(messageBody)}
                               </p>
+                              {message.location && !message.deletedAt ? <TradeLocationCard location={message.location} isAr={isAr} /> : null}
                               {message.imageUrl ? (
                                 <a href={message.imageUrl} target="_blank" rel="noreferrer" className="mt-2 inline-block overflow-hidden rounded-xl border border-white/10">
                                   <Image src={message.imageUrl} alt={message.imageName ?? "chat attachment"} width={640} height={480} className="h-auto w-full object-cover" />
@@ -3986,6 +4010,10 @@ function TradeRoomPageSession({
                   ? (isAr ? "بتفتح المحادثة بعد قبول العرض." : "Chat opens when the offer is accepted.")
                   : (isAr ? "محادثة هذه الصفقة مغلقة." : "This trade chat is closed.")}</p> : (
                 <form className="relative z-10 space-y-2 rounded-2xl border border-white/10 bg-[#101010]/95 p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] shadow-xl backdrop-blur-md" onSubmit={handleSendMessage}>
+                  {canShareTradeLocation(request) && (actor.id === request.buyerId || actor.id === request.sellerId) ? (
+                    <TradeLocationComposer key={request.id} isAr={isAr} disabled={chatBusy || actionBusy}
+                      onSend={location => handleSendMessage(undefined, location)} />
+                  ) : null}
                   <div className="flex flex-wrap gap-2">
                     <Button type="button" size="sm" variant="secondary" disabled={chatBusy || Boolean(chatDraft.trim())} onClick={() => setChatDraft(request.network)}>{isAr ? "إضافة الشبكة" : "Add network"} · {request.network}</Button>
                     <Button type="button" size="sm" variant="secondary" disabled={chatBusy || Boolean(chatDraft.trim())} onClick={event => {

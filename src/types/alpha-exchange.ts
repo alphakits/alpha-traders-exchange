@@ -606,6 +606,7 @@ export interface TradeEvidenceFile {
 }
 
 export interface TradeChatMessage {
+  location?: import("@alpha-traders/contracts").TradeChatLocation;
   id: string;
   /** Opaque send-attempt ID for matching a live snapshot before POST acknowledgement. */
   clientMessageId?: string;

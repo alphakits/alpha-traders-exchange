@@ -985,6 +985,7 @@ export interface MobileTradeSummary {
 }
 
 export interface MobileTradeMessage {
+  location?: import("./trade-location").TradeChatLocation;
   credentialKind?: "cardless_code";
   sender: "you" | "counterparty" | "system";
   senderPublicId?: string;

@@ -66,3 +66,8 @@ export function buildSecurityHeaders(input: { isProduction: boolean }): Security
     { key: "Content-Security-Policy", value: contentSecurityPolicy },
   ];
 }
+
+/** Browser capability only; trade eligibility and participant identity are checked by the server. */
+export function buildTradeRoomLocationHeaders(): SecurityHeader[] {
+  return [{ key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=(self), payment=()" }];
+}

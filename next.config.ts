@@ -1,7 +1,7 @@
 import type { NextConfig } from "next";
 import createNextIntlPlugin from "next-intl/plugin";
 import { isProductionSecurityRuntime } from "./src/lib/runtime-safety";
-import { buildPublicBrandAssetHeaders, buildPublicCourseDocumentHeaders, buildSecurityHeaders } from "./src/lib/security-headers";
+import { buildPublicBrandAssetHeaders, buildPublicCourseDocumentHeaders, buildSecurityHeaders, buildTradeRoomLocationHeaders } from "./src/lib/security-headers";
 
 const withNextIntl = createNextIntlPlugin("./src/i18n/request.ts");
 const isDev = process.env.NODE_ENV !== "production";
@@ -35,6 +35,7 @@ const nextConfig: NextConfig = {
         source: "/:path*",
         headers: securityHeaders,
       },
+      { source: "/:locale(ar|en)/trade-room/:path*", headers: buildTradeRoomLocationHeaders() },
       // Long-lived immutable cache for public images (fingerprinted by content in most CDNs)
       {
         source: "/images/:path*",
