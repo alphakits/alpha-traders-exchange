@@ -1,0 +1,700 @@
+{
+  "scope": "offline simulation and isolated PGlite storage draft only",
+  "verifiedAt": "2026-11-04T20:20:30+02:00",
+  "baseCommit": "0b11b21fc0de3d04e4325a748ea2de62ade4f317",
+  "branch": "feature/alpha-wallet-dev-20261104",
+  "tests": {
+    "passed": 146,
+    "failed": 0,
+    "files": [
+      {
+        "file": "src/lib/alpha-wallet/amounts.test.ts",
+        "passed": 22,
+        "failed": 0,
+        "cases": [
+          {
+            "name": "exact wallet amounts and existing fee contract keeps TRON six decimals and Binance-Peg simulation eighteen decimals distinct",
+            "status": "passed"
+          },
+          {
+            "name": "exact wallet amounts and existing fee contract rejects ambiguous decimal input -1",
+            "status": "passed"
+          },
+          {
+            "name": "exact wallet amounts and existing fee contract rejects ambiguous decimal input +1",
+            "status": "passed"
+          },
+          {
+            "name": "exact wallet amounts and existing fee contract rejects ambiguous decimal input 1e6",
+            "status": "passed"
+          },
+          {
+            "name": "exact wallet amounts and existing fee contract rejects ambiguous decimal input  500",
+            "status": "passed"
+          },
+          {
+            "name": "exact wallet amounts and existing fee contract rejects ambiguous decimal input 500 ",
+            "status": "passed"
+          },
+          {
+            "name": "exact wallet amounts and existing fee contract rejects ambiguous decimal input 1,000",
+            "status": "passed"
+          },
+          {
+            "name": "exact wallet amounts and existing fee contract rejects ambiguous decimal input NaN",
+            "status": "passed"
+          },
+          {
+            "name": "exact wallet amounts and existing fee contract rejects ambiguous decimal input Infinity",
+            "status": "passed"
+          },
+          {
+            "name": "exact wallet amounts and existing fee contract rejects ambiguous decimal input .5",
+            "status": "passed"
+          },
+          {
+            "name": "exact wallet amounts and existing fee contract rejects ambiguous decimal input 01",
+            "status": "passed"
+          },
+          {
+            "name": "exact wallet amounts and existing fee contract rejects ambiguous decimal input 1.",
+            "status": "passed"
+          },
+          {
+            "name": "exact wallet amounts and existing fee contract rejects excess precision without rounding",
+            "status": "passed"
+          },
+          {
+            "name": "exact wallet amounts and existing fee contract bounds raw token units exactly",
+            "status": "passed"
+          },
+          {
+            "name": "exact wallet amounts and existing fee contract preserves full 500 principal and separate 1% tron-sim-usdt + 1% undefined commission on undefined",
+            "status": "passed"
+          },
+          {
+            "name": "exact wallet amounts and existing fee contract preserves full 500 principal and separate 1% bsc-sim-binance-peg-usdt + 1% undefined commission on undefined",
+            "status": "passed"
+          },
+          {
+            "name": "exact wallet amounts and existing fee contract matches existing marketplace fiat and fee policy for 200 at 3.75",
+            "status": "passed"
+          },
+          {
+            "name": "exact wallet amounts and existing fee contract matches existing marketplace fiat and fee policy for 1.00005 at 3.20",
+            "status": "passed"
+          },
+          {
+            "name": "exact wallet amounts and existing fee contract matches existing marketplace fiat and fee policy for 13752.123456 at 3.78",
+            "status": "passed"
+          },
+          {
+            "name": "exact wallet amounts and existing fee contract matches existing marketplace fiat and fee policy for 999999.999999 at 3.01",
+            "status": "passed"
+          },
+          {
+            "name": "exact wallet amounts and existing fee contract keeps half-up per-party six-decimal rounding on BSC",
+            "status": "passed"
+          },
+          {
+            "name": "exact wallet amounts and existing fee contract rejects trades that would round to zero fiat or zero payable fees",
+            "status": "passed"
+          }
+        ]
+      },
+      {
+        "file": "src/lib/alpha-wallet/runtime.test.ts",
+        "passed": 12,
+        "failed": 0,
+        "cases": [
+          {
+            "name": "simulation cannot become a deployed wallet is disabled without explicit opt-in",
+            "status": "passed"
+          },
+          {
+            "name": "simulation cannot become a deployed wallet rejects non-local NODE_ENV production",
+            "status": "passed"
+          },
+          {
+            "name": "simulation cannot become a deployed wallet rejects non-local NODE_ENV ",
+            "status": "passed"
+          },
+          {
+            "name": "simulation cannot become a deployed wallet rejects non-local NODE_ENV undefined",
+            "status": "passed"
+          },
+          {
+            "name": "simulation cannot become a deployed wallet refuses hosted execution through VERCEL",
+            "status": "passed"
+          },
+          {
+            "name": "simulation cannot become a deployed wallet refuses hosted execution through VERCEL_ENV",
+            "status": "passed"
+          },
+          {
+            "name": "simulation cannot become a deployed wallet refuses hosted execution through AWS_LAMBDA_FUNCTION_NAME",
+            "status": "passed"
+          },
+          {
+            "name": "simulation cannot become a deployed wallet refuses hosted execution through CF_PAGES",
+            "status": "passed"
+          },
+          {
+            "name": "simulation cannot become a deployed wallet refuses hosted execution through K_SERVICE",
+            "status": "passed"
+          },
+          {
+            "name": "simulation cannot become a deployed wallet rejects attempted enable flag ALPHA_WALLET_MAINNET_ENABLED",
+            "status": "passed"
+          },
+          {
+            "name": "simulation cannot become a deployed wallet rejects attempted enable flag ALPHA_WALLET_SIGNING_ENABLED",
+            "status": "passed"
+          },
+          {
+            "name": "simulation cannot become a deployed wallet factory checks the real environment and rechecks each mutation",
+            "status": "passed"
+          }
+        ]
+      },
+      {
+        "file": "src/lib/alpha-wallet/sandbox.test.ts",
+        "passed": 78,
+        "failed": 0,
+        "cases": [
+          {
+            "name": "Alpha Wallet principal funding requires both full 500 USDT funding and owner approval: approval-first",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet principal funding requires both full 500 USDT funding and owner approval: funding-first",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet principal funding does not apply the legacy commission tolerance to 498 USDT of 500 USDT principal",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet principal funding does not credit an unconfirmed or failed deposit: {\"finalized\":false,\"successful\":true}",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet principal funding does not credit an unconfirmed or failed deposit: {\"finalized\":true,\"successful\":false}",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet principal funding does not credit an unconfirmed or failed deposit: {\"finalized\":false,\"successful\":false}",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet principal funding credits a pending deposit once when the same event finalizes",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet principal funding reports the current pause on a duplicate credited-deposit callback without crediting again",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet principal funding can replace unfinalized failed execution in a different block but rejects a contradictory same-block result",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet principal funding rejects invalid deposit network without any credit",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet principal funding rejects invalid deposit token without any credit",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet principal funding rejects invalid deposit recipient without any credit",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet principal funding rejects invalid deposit intent asset without any credit",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet principal funding rejects invalid deposit zero amount without any credit",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet principal funding rejects invalid deposit real transaction without any credit",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet principal funding deduplicates each transfer log while allowing two distinct logs in one transaction",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet principal funding rejects event reassignment and conflicting idempotency payloads",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet principal funding keeps chain-specific custody and commission-purpose deposits out of principal funding",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet principal funding does not reuse one deposit to fund two listings",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet principal funding detects missing account balances even when all credited snapshot accounts are deleted",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet principal funding preserves a single raw unit through tron-sim-usdt deposit and withdrawal",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet principal funding preserves a single raw unit through bsc-sim-binance-peg-usdt deposit and withdrawal",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet principal funding retains 18-decimal deposit dust beside a six-decimal marketplace quantity",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet reservations reserves 200 + 300 from 500 exactly and returns a cancelled reservation",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet reservations allows only one competing 300 USDT reservation in one process",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet reservations enforces three active seller trades and frees capacity after cancellation",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet reservations rejects self-trades and a receiving chain different from funded custody",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet reservations does not let returned objects or snapshots rewrite reserved terms",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet verified payment and authority never treats buyer-paid as release authority",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet verified payment and authority rejects payment verification by unauthorized or non-independent actor {\"kind\":\"buyer\",\"id\":\"buyer-a\"}",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet verified payment and authority rejects payment verification by unauthorized or non-independent actor {\"kind\":\"seller\",\"id\":\"seller-a\"}",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet verified payment and authority rejects payment verification by unauthorized or non-independent actor {\"kind\":\"operator\",\"id\":\"owner-operator\"}",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet verified payment and authority rejects payment verification by unauthorized or non-independent actor {\"kind\":\"verifier\",\"id\":\"buyer-a\"}",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet verified payment and authority rejects payment verification by unauthorized or non-independent actor {\"kind\":\"verifier\",\"id\":\"seller-a\"}",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet verified payment and authority checks the actual buyer and seller, not just their role",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet verified payment and authority requires exact independent payment evidence: missing buyer fee",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet verified payment and authority requires exact independent payment evidence: short payment",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet verified payment and authority requires exact independent payment evidence: different payment amount",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet verified payment and authority requires exact independent payment evidence: wrong currency",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet verified payment and authority requires exact independent payment evidence: buyer claim",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet verified payment and authority requires exact independent payment evidence: real payment reference",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet verified payment and authority cannot use one payment proof to release two trades",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet full principal and separate commission creates the 2% obligation only after payout, and pays it only from commission-purpose funds",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet full principal and separate commission delivers all 500 USDT and settles 10 USDT from a separately funded fee balance",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet full principal and separate commission finishes existing 200 + 300 reservations even when the first payout creates commission due",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet full principal and separate commission does not recognize commission or revenue from a failed final payout",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet cancellations, disputes, and withdrawals cancels before payment and rejects cancellation after a payment claim",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet cancellations, disputes, and withdrawals freezes further payment or payout progress when disputed at reserved",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet cancellations, disputes, and withdrawals freezes further payment or payout progress when disputed at payment_reported",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet cancellations, disputes, and withdrawals freezes further payment or payout progress when disputed at payment_verified",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet cancellations, disputes, and withdrawals freezes further payment or payout progress when disputed at release_authorized",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet cancellations, disputes, and withdrawals freezes further payment or payout progress when disputed at queued",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet cancellations, disputes, and withdrawals reports an already-settled payout truthfully when a dispute is opened later",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet cancellations, disputes, and withdrawals closing a listing frees only unreserved principal and preserves the live trade",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet cancellations, disputes, and withdrawals withdrawals cannot consume listing principal, trade locks, or fee-purpose balances",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet cancellations, disputes, and withdrawals binds withdrawal amount and destination across retries and returned-object mutations",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet cancellations, disputes, and withdrawals unpaid commission blocks withdrawal even after listing principal becomes available",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet payout reconciliation and retry safety requires fresh reconciliation and a separate native fee reserve",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet payout reconciliation and retry safety invalidates a reconciliation when a later deposit changes custody",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet payout reconciliation and retry safety holds an unknown submission and reconciles its late receipt without dispatching twice",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet payout reconciliation and retry safety never reissues dispatch permission for the same command, including after dispute, pause, and settlement",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet payout reconciliation and retry safety does not accept an on-chain receipt before dispatch or finality",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet payout reconciliation and retry safety rejects payout receipts with mismatching amount",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet payout reconciliation and retry safety rejects payout receipts with mismatching destination",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet payout reconciliation and retry safety rejects payout receipts with mismatching network",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet payout reconciliation and retry safety rejects payout receipts with mismatching token",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet payout reconciliation and retry safety rejects payout receipts with mismatching asset",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet payout reconciliation and retry safety rejects payout receipts with mismatching provider reference",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet payout reconciliation and retry safety rejects payout receipts with mismatching transaction",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet payout reconciliation and retry safety consumes a payout receipt once across same-key and fresh-key retries",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet payout reconciliation and retry safety rejects reused transfer evidence while recognizing separate payout logs in a shared transaction",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet payout reconciliation and retry safety cannot reuse an incoming chain event as outgoing payout evidence",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet payout reconciliation and retry safety cannot reuse a settled outgoing chain event as a new incoming deposit",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet payout reconciliation and retry safety pauses outgoing actions after reconciliation mismatch and does not resume automatically",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet payout reconciliation and retry safety cannot reconcile partial provider history",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet payout reconciliation and retry safety pauses when finalized funding evidence changes: {\"blockHash\":\"sim-block-reorganized\"}",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet payout reconciliation and retry safety pauses when finalized funding evidence changes: {\"finalized\":false}",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet payout reconciliation and retry safety pauses when finalized funding evidence changes: {\"successful\":false}",
+            "status": "passed"
+          }
+        ]
+      },
+      {
+        "file": "src/lib/alpha-wallet/schema-draft.test.ts",
+        "passed": 34,
+        "failed": 0,
+        "cases": [
+          {
+            "name": "Alpha Wallet development schema: actual storage invariants refuses schema creation without explicit simulation-only opt-in",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet development schema: actual storage invariants requires opt-in again for later writes and cannot accept a real asset",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet development schema: actual storage invariants refuses ledger writes under READ COMMITTED isolation",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet development schema: actual storage invariants refuses ledger writes under REPEATABLE READ isolation",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet development schema: actual storage invariants stores exact 6- and 18-decimal base units without floating point conversion",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet development schema: actual storage invariants rejects noninteger/nonfinite/out-of-range units 1.5 without coercing them",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet development schema: actual storage invariants rejects noninteger/nonfinite/out-of-range units NaN without coercing them",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet development schema: actual storage invariants rejects noninteger/nonfinite/out-of-range units Infinity without coercing them",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet development schema: actual storage invariants rejects noninteger/nonfinite/out-of-range units -Infinity without coercing them",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet development schema: actual storage invariants rejects noninteger/nonfinite/out-of-range units 115792089237316195423570985008687907853269984665640564039457584007913129639936 without coercing them",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet development schema: actual storage invariants deduplicates a deposit by network, token, transaction and log index; a second log remains distinct",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet development schema: actual storage invariants bounds aggregated balances as well as individual journal entries",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet development schema: actual storage invariants refuses wrong network/token/destination/owner routing {\"network\":\"bsc-simulation\"}",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet development schema: actual storage invariants refuses wrong network/token/destination/owner routing {\"token\":\"sim-impostor-usdt\"}",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet development schema: actual storage invariants refuses wrong network/token/destination/owner routing {\"recipient\":\"sim:address:unassigned\"}",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet development schema: actual storage invariants refuses wrong network/token/destination/owner routing {\"creditAccount\":\"sim:other\"}",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet development schema: actual storage invariants refuses unfinalized or failed receipts {\"finality\":\"pending\"}",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet development schema: actual storage invariants refuses unfinalized or failed receipts {\"succeeded\":false}",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet development schema: actual storage invariants requires credit to equal the exact event amount; principal has no commission tolerance",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet development schema: actual storage invariants rejects unbalanced and empty journals at commit and rolls back their complete transaction",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet development schema: actual storage invariants revalidates entries added after an early SET CONSTRAINTS flush",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet development schema: actual storage invariants prevents reserving more than a seller has and preserves the earlier committed reservation",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet development schema: actual storage invariants rejects cross-asset posting and cross-owner allocation",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet development schema: actual storage invariants does not allow fabricating a balance through an unlinked external-chain transfer",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet development schema: actual storage invariants prevents changing journal history or appending new entries to a committed journal",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet development schema: actual storage invariants reserves the full principal with one immutable payout intent in the same transaction",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet development schema: actual storage invariants rejects a payout reservation without its matching outbox instruction",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet development schema: actual storage invariants rejects a second logical payout even with another transport intent ID",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet development schema: actual storage invariants rejects a reduced payout for a fully allocated trade",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet development schema: actual storage invariants cannot hide a reduced payout by returning some trade principal in the same transaction",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet development schema: actual storage invariants prevents reopening a trade allocation after its payout instruction was committed",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet development schema: actual storage invariants keeps separate fee settlement from all 500 USDT of buyer principal",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet development schema: actual storage invariants denies unprivileged schema/function/table access and keeps RLS default-deny even after a SELECT grant",
+            "status": "passed"
+          },
+          {
+            "name": "Alpha Wallet development schema: actual storage invariants revokes pre-existing default client grants on the draft tables and functions",
+            "status": "passed"
+          }
+        ]
+      }
+    ]
+  },
+  "typecheck": {
+    "command": "node node_modules/typescript/bin/tsc --noEmit --incremental false",
+    "exitCode": 0
+  },
+  "demo": {
+    "mode": "OFFLINE SIMULATION ONLY \u2014 no real funds, chain calls, keys, or payouts",
+    "checkpoints": [
+      {
+        "stage": "Owner approved; no confirmed principal",
+        "listing": "awaiting_funding",
+        "availableUSDT": "0",
+        "expectedCustodyUSDT": "0"
+      },
+      {
+        "stage": "Deposit observed; waiting for finality",
+        "listing": "awaiting_funding",
+        "availableUSDT": "0",
+        "expectedCustodyUSDT": "0"
+      },
+      {
+        "stage": "Confirmed 500 USDT principal; listing active",
+        "listing": "active",
+        "availableUSDT": "500",
+        "expectedCustodyUSDT": "500"
+      },
+      {
+        "stage": "Buyer receives full 200 USDT; separate commission settles",
+        "listing": "active",
+        "availableUSDT": "300",
+        "expectedCustodyUSDT": "310"
+      },
+      {
+        "stage": "Buyer receives full 300 USDT; separate commission settles",
+        "listing": "no_available_inventory",
+        "availableUSDT": "0",
+        "expectedCustodyUSDT": "10"
+      }
+    ],
+    "totals": {
+      "principalDepositedUSDT": "500",
+      "principalDeliveredUSDT": "500",
+      "separateCommissionDepositedUSDT": "10",
+      "commissionRecognizedUSDT": "10",
+      "remainingCustomerPrincipalUSDT": "0"
+    },
+    "protectionsExercised": [
+      "unconfirmed deposit cannot activate",
+      "duplicate deposit cannot credit again",
+      "buyer claim cannot authorize release",
+      "unknown payout retains original intent",
+      "duplicate dispatch claim cannot send again",
+      "principal conserved",
+      "fees remain separate"
+    ]
+  },
+  "limitations": [
+    "No production integration or deployment",
+    "No real/testnet blockchain observer or signer",
+    "PGlite is not a multi-process PostgreSQL concurrency or crash-recovery test",
+    "Fixture role and payment evidence are not production authentication or bank verification",
+    "SQL draft is not yet the simulator persistence adapter",
+    "No independent external security audit"
+  ],
+  "sourceSha256": {
+    "src/lib/alpha-wallet/amounts.test.ts": "21319f0b445a097e7815f29d4aba68ee7c26f5f1860f52318a23889e7e2f5de2",
+    "src/lib/alpha-wallet/amounts.ts": "b24d8fea56a0c2c7f7948f2aaa73bcf31d1da0bbbc8a2e892e1798ec09f10011",
+    "src/lib/alpha-wallet/ledger.ts": "a84d72d3d0a534d71b3a0993d570eda97b5894603254566c9ea74ca2e4082a64",
+    "src/lib/alpha-wallet/runtime.test.ts": "0ed34e41ce9bf297b493c74670df7edd625cb8fce2200795598e387378707fda",
+    "src/lib/alpha-wallet/runtime.ts": "ec3c10b23bac049df9b86bb451193e6ead1f1cbae1a336b02e85f546307bf1de",
+    "src/lib/alpha-wallet/sandbox.test.ts": "00bbdc9346ff2ce300761664052d77983c357838fadf688a162aa7446262cce1",
+    "src/lib/alpha-wallet/sandbox.ts": "ca00563a69feee6086c4113f8c3072dfbd82c3522a59f2d200b2421645b2547d",
+    "src/lib/alpha-wallet/schema-draft.test.ts": "71405f83610453c7bc6493b162e9a575807ab2100557890303eb8ace6e9dca66",
+    "src/lib/alpha-wallet/types.ts": "c6584047e00afd8d436e970529ac60429bf9071050418fbe2122a6b9dbf0bed7",
+    "scripts/alpha-wallet/demo.ts": "9c3149119728e7914a7fe6f4c3882c41c8e0c294a611d69c5085786f576ef7df",
+    "docs/alpha-wallet/schema-draft.sql": "79f1727d8551a619ebd4981266c93ea3d18b7e653938dfd8edfe52f744b107b9"
+  }
+}

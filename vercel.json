@@ -1,5 +1,10 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "git": {
+    "deploymentEnabled": {
+      "feature/alpha-wallet-dev-20261104": false
+    }
+  },
   "framework": "container",
   "installCommand": null,
   "buildCommand": null,
