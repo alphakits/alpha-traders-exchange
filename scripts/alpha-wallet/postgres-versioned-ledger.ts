@@ -256,7 +256,7 @@ async function verify(sourceUrl: string, targetUrl: string) {
     assert.equal(reduced.state.trades.get(MAIN_TRADE)?.totalFeeRaw, units("3"));
     await wallet.execute(v2Command("markBuyerPaid", BUYER, "v2-main-paid", MAIN_TRADE));
     await wallet.execute(v2Command("verifyPayment", VERIFIER, "v2-main-verified", { tradeId: MAIN_TRADE,
-      evidence: { reference: "sim-v2-native-payment", amountMinor: "48480", currency: "ILS", kind: "simulated-bank-credit" } }));
+      evidence: { reference: "sim-evidence-v2-native-payment", amountMinor: "48480", currency: "ILS", kind: "simulated-bank-credit" } }));
     await wallet.execute(v2Command("authorizeRelease", SELLER, "v2-main-release", MAIN_TRADE));
     await wallet.execute(v2Command("reconcileAsset", VERIFIER, "v2-main-reconcile", { assetId: TRON, observedRaw: units("600").toString(), complete: true }));
     await wallet.execute(v2Command("setNativeFeeReadiness", OPERATOR, "v2-main-gas", { assetId: TRON, ready: true }));
