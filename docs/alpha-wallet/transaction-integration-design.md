@@ -4,6 +4,8 @@
 
 The preliminary stage passed [exact-source verification at `44ac6c4`](marketplace-groundwork-verification-2026-11-04.md): 800 tests, full-project TypeScript, three native PostgreSQL drills and the browser rehearsal. The separate [v2 continuation contract](ledger-v2-continuation-design.md) is now [verified at `08fb7fa`](ledger-v2-verification-2026-11-05.md): 879 tests and four native drills, including explicit ledger migration, correction and mixed restore. Its new commands consume trusted synthetic planner evidence; they do not implement the marketplace transaction described below.
 
+The subsequent [bounded canonical coordinator at `ecc3752`](marketplace-coordinator-verification-2026-11-05.md) passed 998 tests and five native drills, including 16 new canonical/authentication/writer-fence checks. It connects the already-reserved Bank Transfer/Face-to-Face amount-correction path. This wider design still includes lifecycle, mobile, delivery and combined-recovery work beyond that cohort.
+
 ## Decision and smallest next stage
 
 Use one database transaction to accept marketplace terms and adjust the corresponding wallet reservation. Two independently committed calls, including a wallet call inside today's marketplace callback, cannot provide that guarantee.

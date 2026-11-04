@@ -4,6 +4,8 @@ Date: 5 November 2026 (Asia/Jerusalem). **Simulation only; no deployment or prod
 
 This milestone connects the actual focused marketplace SQL participant to the separately versioned wallet ledger. An authenticated buyer can accept an existing seller amount-correction proposal, and the canonical request, wallet principal adjustment, immutable receipt and publication intent commit together. The former production `updateTradeTerms` wrapper is not called or changed. There is no new public route, provider call, signer, worker registration or live cohort.
 
+[Exact-source verification at `ecc3752`](marketplace-coordinator-verification-2026-11-05.md) passed 998 wallet/targeted platform tests, full-project TypeScript, five native PostgreSQL drills and the existing Chromium rehearsal. The coordinator's new native drill passed 16 checks, including both stale-authentication and legacy-writer races. The scope and recovery limits below remain in force.
+
 ## Deliberately bounded initial cohort
 
 Enrollment is a separate, explicit owner operation. It requires an already accepted canonical request with an existing clean wallet reservation, the current ILS fee/calculation policies, and a valid pending `amount_correction` proposal at the locked request price. Bank Transfer and Face-to-Face are supported. Current canonical bank instructions are bound by a digest and remain private.
@@ -54,6 +56,8 @@ In the same transaction, the canonical request receives the accepted exact terms
 Buyer authentication and canonical ownership precede every acceptance receipt lookup. The immutable business-input digest includes actor, request, proposal and expected prior binding revision. It excludes the transport operation ID, so a retry from a new connection or renewed session can recover the original result without generating a new principal transfer.
 
 Once an acceptance exists, recovery verifies the application receipt against replayed wallet history before evaluating fresh proposal/payment/pause eligibility. The proposal may already be accepted and the wallet may now be paused. Recovery returns the original terms, revision and event hash. It does not recompute a plan from changed current state, return a newer receipt as if it were the original, or disclose the receipt to a different actor. Changed business input is rejected.
+
+Inspection and historical recovery still register their transaction and acquire the wallet's physical head fence. Their internal context/lock-version writes are separate from the business deduplication guarantee: no additional financial command, principal transfer or canonical acceptance event is produced.
 
 An uncertain COMMIT response propagates as unknown. Reopen and authenticate against the same source and recover the same request/proposal/expected revision. The native drill injects a lost reply after a real commit; it is not a physical network-partition test. Never infer rollback from the exception, delete a receipt, create a replacement acceptance or activate a second source.
 

@@ -4,6 +4,8 @@ Status: **implemented for the isolated development ledger; production marketplac
 
 The separate [private canonical coordinator](marketplace-coordinator-design.md) now connects a bounded Bank Transfer/Face-to-Face development cohort without changing these v1/v2 engine files. Once that cohort is explicitly enrolled, standalone wallet operations and wallet-only export are fenced; use its typed owner inspection/pause and preserve both domains together. Broader lifecycle, mobile, delivery and combined recovery integration remain unfinished.
 
+[Coordinator verification at `ecc3752`](marketplace-coordinator-verification-2026-11-05.md) passed 998 tests, full-project TypeScript, five native PostgreSQL drills and the existing browser rehearsal. Its 16 new native checks supplement the original ledger/mixed-restore evidence below; they do not establish combined marketplace/wallet backup support.
+
 The original design was reviewed against development commit `44ac6c4` and the frozen v1 fixtures. The implementation adds separate v2 files; it leaves the original v1 engine, command parser, durable repository, schema, backup and frozen history unchanged. [Exact-source verification at `08fb7fa`](ledger-v2-verification-2026-11-05.md) passed 879 tests, full-project TypeScript, four native PostgreSQL drills and the retained browser rehearsal. The new native v2 drill passed all nine checks; focused local tests alone are not the basis for that result.
 
 ## Explicit version boundary

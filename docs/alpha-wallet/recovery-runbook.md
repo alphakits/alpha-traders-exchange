@@ -2,7 +2,7 @@
 
 This runbook applies only to local **simulation-only** development stores. It does not authorize live deployment, live chain access, signing keys or real funds.
 
-**Previous verified baseline: `08fb7fa`.** The [versioned-ledger report](ledger-v2-verification-2026-11-05.md) covers the earlier standalone recovery implementation. The new private canonical coordinator is implemented in current development work; final exact-source CI and its separate verification report are pending. Earlier backup evidence does not establish recovery of the integrated cohort.
+**Latest verified source: `ecc3752`.** The [canonical coordinator report](marketplace-coordinator-verification-2026-11-05.md) records 998 passing tests and five native PostgreSQL drills, including the new coordinator's original-receipt recovery and writer/authentication races. The [previous versioned-ledger report](ledger-v2-verification-2026-11-05.md) covers standalone recovery. Neither standalone backup evidence nor successful acceptance recovery establishes the still-missing combined recovery protocol.
 
 ## First identify whether the canonical cohort is active
 
@@ -232,7 +232,7 @@ The tests use real local PGlite files and separate source/target directories. Th
 
 These tests do not establish production backup retention, encryption, authenticated provenance, point-in-time recovery, real chain completeness, power-loss durability, production RPO/RTO, or an independent audit. Native PostgreSQL integration and process-failure tests are separate evidence. Keep those boundaries explicit when reporting recovery readiness.
 
-The new coordinator suites and [native coordinator drill](../../scripts/alpha-wallet/postgres-marketplace-coordinator.ts) separately cover shared canonical/wallet transactions, current web authority, typed owner controls, original receipt recovery and rejection of standalone bypasses. The native drill requires three fresh disposable databases; it is not a repair or restore command for an existing enrolled source. Its final exact-source result is pending and must be recorded separately from `08fb7fa`. No passing acceptance/receipt test substitutes for the still-missing combined backup/restore protocol.
+The coordinator suites and [native coordinator drill](../../scripts/alpha-wallet/postgres-marketplace-coordinator.ts) separately cover shared canonical/wallet transactions, current web authority, typed owner controls, original receipt recovery and rejection of standalone bypasses. The native drill requires three fresh disposable databases; it is not a repair or restore command for an existing enrolled source. [Its 16 native checks passed at `ecc3752`](marketplace-coordinator-verification-2026-11-05.md), alongside the four prior native drills. No passing acceptance/receipt test substitutes for the still-missing combined backup/restore protocol.
 
 ### Native PostgreSQL recovery fixture
 
