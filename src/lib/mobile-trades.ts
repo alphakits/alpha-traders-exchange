@@ -1,3 +1,4 @@
+import { readTradeChatLocation } from "@alpha-traders/contracts";
 import { canBuyerCancelTrade, canSellerCancelTrade, canSellerDeclineTrade } from "@/lib/trade-room-actions";
 import { areTradeAmountsLocked } from "@/lib/trade-amount-lock";
 import { PrivateContactError } from "@/lib/buyer-contact";
@@ -65,6 +66,7 @@ export function toMobileTradeMessage(
       ? "you"
       : "counterparty";
   const identity = context ? tradeChatSender(message, context) : undefined;
+  const location = message.deletedAt ? undefined : readTradeChatLocation(message.location);
   return {
     sender,
     ...(context && message.kind !== "system" ? {
@@ -74,12 +76,13 @@ export function toMobileTradeMessage(
       isOwnerMessage: identity?.role === "owner",
       status: tradeChatStatus(message, context.request),
     } : {}),
+    ...(location ? { location } : {}),
     ...(message.credentialKind === "cardless_code" ? { credentialKind: "cardless_code" as const } : {}),
     message: message.kind === "system"
       ? localizeTradeRoomSystemMessage(message.message, locale).text
       : message.credentialKind === "cardless_code"
         ? localizeCardlessWithdrawalMessage(message.message, locale)
-        : message.message,
+        : location ? (locale === "ar" ? "تمت مشاركة نقطة لقاء. افتح غرفة الصفقة على الموقع لعرض الموقع وأزرار الملاحة." : "Meeting location shared. Open this Trade Room on the website to view the location and navigation buttons.") : message.message,
     createdAt: message.createdAt,
   };
 }

@@ -9,6 +9,7 @@ export * from "./cardless-withdrawal";
 export * from "./israeli-banks";
 export * from "./user-presence";
 export * from "./trade-chat";
+export * from "./trade-location";
 
 export * from "./marketplace-fees";
 export * from "./interface-access";

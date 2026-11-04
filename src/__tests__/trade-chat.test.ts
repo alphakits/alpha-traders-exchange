@@ -148,6 +148,70 @@ describe("Trade Room participant communication", () => {
     mocks.checkSharedRateLimit.mockResolvedValue({ allowed: true, retryAfterSeconds: 0, reason: null });
   });
 
+  const meetingPoint = { version: 1, latitude: 32.123456, longitude: 35.654321, source: "meeting_point" } as const;
+  it.each([BUYER_ID, SELLER_ID])("lets only the actual participant %s share a face-to-face location without changing financial terms", async actorUserId => {
+    const request = snapshot().purchaseRequests[0]!; request.paymentMethod = "Face-to-Face (Meet in Person)";
+    const before = { amount: request.usdtAmount, fiat: request.fiatAmount, status: request.status };
+    const posted = await postTradeRoomMessage({ purchaseRequestId: request.id, actorUserId, message: "", location: meetingPoint });
+    expect(posted.message.location).toEqual(meetingPoint);
+    const counterpartId = actorUserId === BUYER_ID ? SELLER_ID : BUYER_ID;
+    const room = await getTradeRoomData({ purchaseRequestId: request.id, actorUserId: counterpartId, actorRole: counterpartId === BUYER_ID ? "buyer" : "approved_seller", markMessagesRead: false });
+    expect(room.messages.some(message => message.location?.latitude === meetingPoint.latitude)).toBe(true);
+    const after = snapshot().purchaseRequests[0]!;
+    expect({ amount: after.usdtAmount, fiat: after.fiatAmount, status: after.status }).toEqual(before);
+    expect(snapshot().commissionRecords).toHaveLength(0);
+    expect(JSON.stringify(snapshot().notifications)).not.toContain("32.123456");
+    expect(JSON.stringify(snapshot().notifications)).not.toContain("35.654321");
+  });
+  it.each(["Bank Transfer", "Cardless ATM Withdrawal"])("rejects direct API location sharing on %s", async paymentMethod => {
+    snapshot().purchaseRequests[0]!.paymentMethod = paymentMethod;
+    for (const actorUserId of [BUYER_ID, SELLER_ID, "owner-1"]) {
+      await expect(postTradeRoomMessage({ purchaseRequestId: "trade-1", actorUserId, message: "", location: meetingPoint })).rejects.toThrow();
+    }
+    expect(snapshot().purchaseRequests[0]!.messages).toHaveLength(0);
+  });
+  it.each(["pending", "completed", "review_open", "locked", "cancelled", "declined"] as const)("rejects new locations in %s trades", async status => {
+    Object.assign(snapshot().purchaseRequests[0]!, { paymentMethod: "Face-to-Face", status });
+    await expect(postTradeRoomMessage({ purchaseRequestId: "trade-1", actorUserId: BUYER_ID, message: "", location: meetingPoint })).rejects.toThrow();
+    expect(snapshot().purchaseRequests[0]!.messages).toHaveLength(0);
+  });
+  it.each([OUTSIDER_ID, ADMIN_ID, "owner-1"])("does not permit non-participant %s to send a location", async actorUserId => {
+    snapshot().purchaseRequests[0]!.paymentMethod = "Face-to-Face";
+    await expect(postTradeRoomMessage({ purchaseRequestId: "trade-1", actorUserId, message: "", location: meetingPoint })).rejects.toThrow();
+    expect(snapshot().purchaseRequests[0]!.messages).toHaveLength(0);
+  });
+  it("keeps locations idempotent, checks changed coordinates, and allows safe replay after completion", async () => {
+    snapshot().purchaseRequests[0]!.paymentMethod = "Face-to-Face";
+    const input = { purchaseRequestId: "trade-1", actorUserId: BUYER_ID, message: "", location: meetingPoint, clientMessageId: "11111111111111111111111111111111" };
+    expect((await postTradeRoomMessage(input)).created).toBe(true);
+    expect((await postTradeRoomMessage(input)).created).toBe(false);
+    await expect(postTradeRoomMessage({ ...input, location: { ...meetingPoint, latitude: 33 } })).rejects.toThrow();
+    Object.assign(snapshot().purchaseRequests[0]!, { status: "review_open", completedAt: new Date().toISOString() });
+    invalidateAlphaExchangeStoreCache();
+    expect((await postTradeRoomMessage(input)).created).toBe(false);
+    expect(snapshot().purchaseRequests[0]!.messages).toHaveLength(1);
+    expect(snapshot().notifications).toHaveLength(1);
+  });
+  it("does not turn the location attachment into a phone/link bypass", async () => {
+    snapshot().purchaseRequests[0]!.paymentMethod = "Face-to-Face";
+    for (const input of [
+      { message: "0501234567", location: meetingPoint },
+      { message: "https://wa.me/972501234567", location: meetingPoint },
+      { message: "", location: { ...meetingPoint, label: "0501234567" } },
+      { message: "", location: { ...meetingPoint, url: "https://wa.me/1234567" } },
+      { message: "", location: { ...meetingPoint, latitude: "0501234567" } },
+      { message: "", location: null },
+    ]) await expect(postTradeRoomMessage({ purchaseRequestId: "trade-1", actorUserId: BUYER_ID, ...input })).rejects.toThrow();
+    expect(snapshot().purchaseRequests[0]!.messages).toHaveLength(0);
+  });
+  it("limits each participant to five location sends per minute without blocking ordinary chat", async () => {
+    snapshot().purchaseRequests[0]!.paymentMethod = "Face-to-Face";
+    for (let i = 0; i < 5; i++) await postTradeRoomMessage({ purchaseRequestId: "trade-1", actorUserId: BUYER_ID, message: "", location: meetingPoint });
+    await expect(postTradeRoomMessage({ purchaseRequestId: "trade-1", actorUserId: BUYER_ID, message: "", location: meetingPoint })).rejects.toThrow("Please wait a minute");
+    expect((await postTradeRoomMessage({ purchaseRequestId: "trade-1", actorUserId: BUYER_ID, message: "Meet by the main entrance." })).created).toBe(true);
+    expect((await postTradeRoomMessage({ purchaseRequestId: "trade-1", actorUserId: SELLER_ID, message: "", location: meetingPoint })).created).toBe(true);
+  });
+
   it("locks both participants out of unaccepted offers, including direct API text, wallet and attachment writes", async () => {
     snapshot().purchaseRequests[0]!.status = "pending";
     for (const actorUserId of [BUYER_ID, SELLER_ID]) {
