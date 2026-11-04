@@ -64,7 +64,7 @@ jobs:
       - name: Run the wallet unit and local persistence suite
         run: |
           set -euo pipefail
-          node ./node_modules/vitest/vitest.mjs run src/lib/alpha-wallet \
+          node ./node_modules/vitest/vitest.mjs run src/lib/alpha-wallet --maxWorkers=4 \
             --reporter=default --reporter=json \
             --outputFile.json=test-results/alpha-wallet/unit-results.json \
             2>&1 | tee test-results/alpha-wallet/unit-tests.log
@@ -126,6 +126,8 @@ jobs:
             await connection.query('CREATE DATABASE alpha_wallet_dev_backup_source');
             await connection.query('CREATE DATABASE alpha_wallet_dev_restore_target');
             await connection.query('CREATE DATABASE alpha_wallet_dev_marketplace');
+            await connection.query('CREATE DATABASE alpha_wallet_dev_v2_source');
+            await connection.query('CREATE DATABASE alpha_wallet_dev_v2_restore');
           } finally { await connection.end(); }
           NODE
 
@@ -147,6 +149,16 @@ jobs:
             --connection-string 'postgresql://wallet_fixture:simulation-only@127.0.0.1:5432/alpha_wallet_dev_marketplace' \
             2>test-results/alpha-wallet/postgres-marketplace-transaction.stderr.log \
             | tee test-results/alpha-wallet/postgres-marketplace-transaction.json
+
+      - name: Verify explicit v2 upgrade, resize, inherited recovery and mixed restore
+        run: |
+          set -euo pipefail
+          node --conditions=react-server --import tsx scripts/alpha-wallet/postgres-versioned-ledger.ts \
+            --fresh-simulation-databases \
+            --source-connection-string 'postgresql://wallet_fixture:simulation-only@127.0.0.1:5432/alpha_wallet_dev_v2_source' \
+            --target-connection-string 'postgresql://wallet_fixture:simulation-only@127.0.0.1:5432/alpha_wallet_dev_v2_restore' \
+            2>test-results/alpha-wallet/postgres-versioned-ledger.stderr.log \
+            | tee test-results/alpha-wallet/postgres-versioned-ledger.json
 
       - name: Install the locked Playwright Chromium browser
         run: node ./node_modules/playwright/cli.js install --with-deps chromium

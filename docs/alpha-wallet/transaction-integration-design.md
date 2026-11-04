@@ -1,14 +1,14 @@
 # Alpha Wallet: atomic marketplace terms integration
 
-**Status: preliminary planner, frozen v1 evidence and focused repository participant implemented for simulation; full coordinator and resize remain design work.** Original source review: 4 November 2026, development baseline `23ee55f`. The current wallet remains an isolated simulation. This document does not connect a production route, migrate a database, authorize a provider, or establish launch readiness.
+**Status: preliminary planner, frozen v1 evidence, focused repository participant and separate v2 ledger continuation/resize implemented for simulation; the actual marketplace coordinator and enrolled-writer cutover remain unfinished.** Original source review: 4 November 2026, development baseline `23ee55f`. The current wallet remains an isolated simulation. This document does not connect a production route, migrate a production database, authorize a provider, or establish launch readiness.
 
-The preliminary stage passed [exact-source verification at `44ac6c4`](marketplace-groundwork-verification-2026-11-04.md): 800 tests, full-project TypeScript, three native PostgreSQL drills and the browser rehearsal. The [v2 continuation handoff](ledger-v2-continuation-design.md) specifies the proposed next version/migration/backup boundary; that behavior is not yet implemented.
+The preliminary stage passed [exact-source verification at `44ac6c4`](marketplace-groundwork-verification-2026-11-04.md): 800 tests, full-project TypeScript, three native PostgreSQL drills and the browser rehearsal. The separate [v2 continuation contract](ledger-v2-continuation-design.md) now describes the implemented development ledger version/migration/backup boundary. Its new commands consume trusted synthetic planner evidence; they do not implement the marketplace transaction described below.
 
 ## Decision and smallest next stage
 
 Use one database transaction to accept marketplace terms and adjust the corresponding wallet reservation. Two independently committed calls, including a wallet call inside today's marketplace callback, cannot provide that guarantee.
 
-The preliminary stage now contains a pure accepted-terms planner, immutable v1 replay fixtures and one transaction-scoped focused repository participant. It reuses existing quote, proposal and payment-lock rules. A working durable resize additionally requires a reviewed command/version extension, explicit marketplace-to-wallet bindings and protection against independent legacy financial writes. The preliminary stage is not completed integration.
+The preliminary stage contains a pure accepted-terms planner, immutable v1 replay fixtures and one transaction-scoped focused repository participant. It reuses existing quote, proposal and payment-lock rules. The v2 ledger adds its explicit command/version extension, simulation terms bindings and immutable acceptance receipts. Activating a marketplace cohort still requires canonical enrollment, protection against every independent legacy financial writer and an authenticated coordinator committing both systems together. These separate components are not completed business integration.
 
 ## Implemented preliminary stage
 
@@ -145,7 +145,7 @@ Cancel-and-reserve changes trade identity and uses listing price; it cannot subs
 
 A pure planner and shared-transaction groundwork are provider-independent work implemented offline with synthetic data. The harness now exercises the extracted real focused repository statements against minimal disposable marketplace tables. To claim actual business integration, connect the planner, versioned transitions, durable bindings/receipts and every enrolled-writer guard, then prove the corresponding native PostgreSQL business races and failure paths.
 
-Durable resizing remains incomplete until the command/version/backup decision, binding migration and all enrolled financial writers are implemented and verified. Production routes, deployments and real funds remain outside this stage.
+Ledger resizing is implemented in the separate v2 simulation. Marketplace resizing remains incomplete until canonical enrollment, the actual coordinator and all enrolled financial-writer guards are implemented and verified together. Production routes, deployments and real funds remain outside this stage.
 
 ## Primary database references
 

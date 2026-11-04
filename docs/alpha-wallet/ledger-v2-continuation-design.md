@@ -1,50 +1,72 @@
-# Alpha Wallet: proposed v2 continuation and resize
+# Alpha Wallet: v2 continuation and reservation corrections
 
-Date: 4 November 2026 (UTC). **Design handoff only: v2, migration, enrollment and durable resize are not implemented.** Reviewed against development commit `44ac6c4` and the frozen v1 fixtures. This follows the [shared-transaction groundwork](transaction-integration-design.md); it does not authorize a production migration or deployment.
+Status: **implemented for the isolated development ledger; production marketplace integration remains unfinished**. This extends the [shared-transaction groundwork](transaction-integration-design.md). It does not activate a marketplace cohort, register an application migration, connect a public route or authorize deployment.
 
-## Recommended version boundary
+The original design was reviewed against development commit `44ac6c4` and the frozen v1 fixtures. The implementation adds separate v2 files; it leaves the original v1 engine, command parser, durable repository, schema, backup and frozen history unchanged. Native verification must be recorded for the exact source commit; focused local tests alone are not native PostgreSQL evidence.
 
-Record one explicit, one-way `continueFromV1` command in the existing command log. Preserve the entire original prefix: commands, timestamps, results, journals, projections and hashes. Keep the v1 parser/reducer behavior, `walletJson`, command identities and digest construction unchanged. Implement v2 as a separate strict envelope and reducer.
+## Explicit version boundary
 
-The continuation binds the expected verified v1 checkpoint: revision, event hash, state hash and last command timestamp. Replay must first reconstruct that exact prefix, then construct v2 state from a clone. Add terms and acceptance-receipt maps only at this boundary. The transition moves no money. Historical v1 states must not acquire default fields, empty maps or newly present `undefined` properties.
+`upgradeDurableWalletV2` in [versioned-durable.ts](../../src/lib/alpha-wallet/versioned-durable.ts) owns one transaction through the supplied guarded development store. It verifies the entire v1 history and all original SQL projections, validates the operator command and expected checkpoint, applies [durable-v2-migration.sql](durable-v2-migration.sql), appends one `continueFromV1` command and advances the head to storage format 2. The checkpoint binds revision, event hash, state hash and last command timestamp. A failed upgrade rolls back both schema and history. Ordinary v1 initialization never upgrades a store.
 
-Replay accepts a v1 prefix followed by one valid continuation and then v2 commands. Reject unknown versions, repeated continuations and new v1 appends after transition. Link the continuation to the original last event hash using the retained hash-chain construction. The new engine must support settlement and recovery of inherited trades and payouts; introducing resize cannot strand existing obligations.
+The continuation moves no money. V2 metadata is added only after cloning the verified v1 state at this boundary. The original prefix keeps every command, timestamp, result, journal, projection and hash. Replay reconstructs that prefix with the unchanged original engine, then applies the separate strict v2 reducer. It rejects unknown versions, a second continuation and new v1 commands after transition.
 
-## Preserve retry identities
+Inherited v1 operations must run against current balances and corrected terms. [v2-kernel.ts](../../src/lib/alpha-wallet/v2-kernel.ts) is a separately pinned copy of the original reducer with only its constructor/factory changed to hydrate a validated state. Tests compare the source transformation and replay every frozen v1 result/state hash. Replaying v1 from genesis after a correction would erase that correction; the hydrated kernel avoids that error while retaining the existing settlement rules.
 
-Keep the current version-independent command-key tuple. A version namespace must not create a fresh financial identity for an old operation. An exact historical retry retains its original revision, event hash and result shape; changed input under the same key fails. Historical `beginDispatch` replay still returns `shouldDispatch: false` with the current payout state.
+## Historical and proposal retries
 
-Persist one acceptance receipt per `(platformRequestId, proposalId)`, independent of transport request IDs. Perform fresh actor and ownership checks, then look up an existing receipt before evaluating current-proposal eligibility. That lets a client recover an earlier accepted correction after another proposal or payment step without reapplying it. The planner's snapshot-specific `inputDigest` is not a replacement for this receipt contract.
+The durable command identity remains the version-independent tuple `[actor.kind, actor.id, type, requestId]`. A version change cannot create a fresh identity for an old financial operation. Exact historical retries through the versioned repository retain their original revision, event hash and result. Changed payload or engine version under the same key fails. Historical `beginDispatch` retries always return `shouldDispatch: false` and the current payout state.
 
-## First supported resize cohort
+Each accepted proposal also has an immutable business identity derived from `(platformRequestId, proposalId)`, independent of transport request ID. Its receipt binds the buyer and complete accepted input evidence. Different transport IDs carrying that same original evidence return the first receipt without another command, journal or revision. Reusing the proposal with changed actor or evidence fails. The lookup occurs before current eligibility checks so an earlier accepted correction remains recoverable after another proposal, payment progress or a pause.
 
-Start with a clean, already-reserved current-policy ILS trade, an open funded listing and an unchanged locked unit price. Explicit enrollment records the canonical platform/wallet identities, participants, asset/network/destination, currency/payment method, payment-instruction digest, both fee versions, exact quantities/fees/fiat and terms revision/digests. Validate those against the verified existing reservation. Status and current wallet settings do not establish enrollment.
+This API requires the original input evidence for an exact business retry. A future user-facing coordinator must authenticate the caller, verify current ownership and resolve the historical receipt before rebuilding a plan from newer marketplace state. A client-supplied buyer ID or source digest is not authentication.
 
-The later `acceptAmountCorrection` operation binds the stored proposal, previous terms/binding digests and authenticated buyer. Under one outer transaction, it rereads canonical marketplace context, checks all payment/evidence/dispute/inventory locks, moves only the principal delta between the existing listing and trade accounts, updates that same trade's terms and appends the immutable acceptance receipt. A zero-delta acceptance creates a receipt without a zero-value journal.
+## Supported development correction
 
-The marketplace update, wallet command/projections, binding, receipt and publication intent must commit together. The current focused participant supplies transaction mechanics; lifecycle participants, initial acceptance, buyer eligibility and completion publication remain separate implementation work.
+The first cohort is a clean, already-reserved, current-policy ILS trade on an open, funded, owner-approved listing. Explicit operator enrollment records canonical platform/wallet identities, participants, asset/network/destination, currency/payment method, a payment-instruction digest, both fee versions, exact principal/fees/fiat, and the original terms and reservation digests. Enrollment verifies those fields against the existing reservation and the immutable wallet listing price. Binding revision starts at zero and enrollment moves no funds.
 
-## Explicit storage migration and writer fencing
+`acceptAmountCorrection` requires the bound buyer, an unchanged full wallet checkpoint and binding, the canonical planner digest, advancing submitted-proposal count within the existing limit of two, and a still-clean reservation. Payment claims, verification evidence, release authorization, payouts, commissions and disputes lock that reservation. An increased commitment is also blocked by unpaid seller commissions.
 
-The current schema requires `format_version = 1`, and `guard_head_update` prevents changing it. Introduce a separately reviewed development migration; the ordinary initializer must not silently upgrade an existing store.
-
-| Boundary | Required change |
+| Correction | Committed ledger effect |
 | --- | --- |
-| Head and command guards | Permit formats 1 and 2, with one-way transition only when the matching continuation is committed atomically; enforce command-engine sequence. |
-| New projections | Append-only terms events and acceptance receipts, command-revision foreign keys, unique acceptance identities and current-command protections. |
-| Binding persistence | Explicit enrolled identity and guarded terms-revision advancement; reconstruct and verify it against history. |
-| Projection replay | Extend delta generation, persistence and verification while retaining original command/journal/payout/claim rows unchanged. |
-| Old wallet writers | Require a transaction-local v2 protocol marker at the format-2 head gate. The marker proves compatibility only; it is not authentication or a substitute for database roles. |
-| Old marketplace writers | Install database-backed enrollment guards before activating any binding. Reject unsupported financial, lifecycle, listing and generic snapshot writes affecting enrolled records. A shared advisory lock alone is insufficient. |
+| Increased principal | Move only the increase from the same listing account to the same trade account; reject insufficient inventory. |
+| Decreased principal | Move only the decrease from that trade back to its original open listing account. |
+| Unchanged principal | Record the acceptance receipt and terms revision without adding a journal. |
 
-## Mixed-history backup contract
+All three paths retain price, participants, asset, receiving destination, currency, payment method, payment instructions and fee-policy versions. The same trade receives the new principal, exact 1% per-party fees and inclusive fiat quote. The receipt and append-only terms event commit with the financial effect. Settlement through inherited commands delivers the corrected full principal; the seller's combined 2% USDT commission is still funded separately.
 
-Retain format-1 inspection/export/restore semantics for pure v1 histories. Add a strict format-2 manifest identifying the terminal engine and continuation checkpoint, validated against every command and the final state. Reject unknown combinations.
+The source request, listing, proposal, inventory, evidence and dispute digests are **trusted synthetic planner evidence** in this stage. The reducer verifies internal consistency; it cannot independently authenticate a bank record, buyer consent or a live marketplace snapshot. Prepared cardless-credential invalidation is bound in the command, but actual marketplace invalidation belongs to the future atomic coordinator.
 
-Restore retains every original row and hash, replays the recorded continuation, and appends the terminal engine's pause command before the same outer transaction commits. Restoring a v1 backup must not silently upgrade it. Existing writer fencing and provider reconciliation remain necessary before a restored environment could later resume.
+## Storage integrity and wallet writer fencing
 
-## Deferred policy and acceptance evidence
+The reviewed development migration extends the format-1 head contract without rewriting old rows. The original deferred constraints are flushed before altering the head, then deferral is restored so the registry and matching continuation can be written together.
 
-Closed-listing resize, initial reservation/counter-price acceptance, unsupported currency/fee cohorts and resume/adjudication require their own explicit mappings. Do not infer those policies from this continuation design.
+| Boundary | Implemented protection |
+| --- | --- |
+| Atomic transition | One immutable continuation registry row has a deferred foreign key to the exact continuation command. Deferred checks require the registry, command and format-2 head to agree before commit; migration DDL alone cannot commit. |
+| Version sequence | New command guards require the v2 engine and strict command identity, with exactly one continuation extending the v1 prefix. |
+| Old wallet writers | A transaction-local `simulation-v2` protocol is required at the head and command gate. The old repository and initializer fail closed after migration. The marker establishes compatibility, not authorization. |
+| Terms and receipts | Append-only tables, original command links, unique enrollment/proposal identities, buyer/terms linkage, monotonic revisions and full replay comparison. |
+| Principal delta | Deferred constraints require exactly the accepted signed difference between the same listing and trade, with no payout or chain-evidence side effects. Zero-delta corrections and enrollment/continuation cannot move funds. |
+| Late writes | Deferred checks are attached to every relevant projection insertion, including entries written after an early constraint flush. |
+| Database access | Forced RLS, no client policies, no grants to application client roles. Tests use an isolated privileged fixture role. This is not a production database-role design. |
+| Shared transaction failure | The participant verifies a stable writable SERIALIZABLE simulation transaction. A failure poisons that same certified transaction so a bound caller cannot catch a semantic error after writes and then commit partial work. An unknown or changed transaction identity is not touched. |
 
-Before activation, require the frozen v1 fixture to pass unchanged; mixed-history reopen/backup/restore tests; old-binary rejection; original idempotent results; inherited settlement/recovery; concurrent acceptance/payment/inventory races; and rollback/unknown-commit recovery through the real coordinator. These are future gates, not results of the current groundwork verification.
+Every load verifies reconstructed projections against SQL, including the continuation registry, historical terms events and receipts. A matching terminal hash alone is insufficient.
+
+**Marketplace writer fencing remains separate work.** Before activating any real enrollment, database-backed guards must reject unsupported financial, lifecycle, listing and generic snapshot writes affecting enrolled records. The current ledger tables do not install those marketplace guards, and a shared advisory lock is not a substitute.
+
+## Mixed histories and inherited recovery
+
+[versioned-backup.ts](../../src/lib/alpha-wallet/versioned-backup.ts) delegates pure v1 files to the unchanged v1 inspector/exporter/restorer. A v1 restore remains v1. Format-2 files explicitly name the terminal v2 engine and continuation metadata; inspection verifies the checksum, semantic replay, exact boundary and terminal checkpoint before accessing a target. Existing 1,000-command and 16 MiB limits still apply.
+
+A mixed restore replays the original v1 prefix, executes the recorded migration/continuation and v2 tail, then appends one v2 pause before the same outer transaction commits. Original commands and hashes stay identical. A failure at the final pause rolls back initialization, migration and all replayed history. If the commit reply is lost, inspect the same target through verified replay; never erase it or infer rollback from an error. The original backup CLI remains v1-only; mixed histories use the explicit versioned module and isolated native harness.
+
+[versioned-payout-worker.ts](../../src/lib/alpha-wallet/versioned-payout-worker.ts) adapts the existing fake-provider recovery algorithm to a store that has already continued to v2. It does not upgrade a database or register a background worker. Inherited queued payouts retain current policy checks. Inherited submitting, unknown and broadcast payouts retain their original provider reference and lookup-only recovery. A missing lookup cannot authorize another send. Matching finality can resolve an already-submitted payout while the restored ledger remains paused.
+
+## Verification and remaining integration
+
+Focused tests cover immutable v1 compatibility, strict commands, both simulated assets, increase/decrease/zero-delta corrections, old and business retries, inherited settlement/uncertainty, explicit upgrade rollback, SQL projection guards and mixed-history restoration. [postgres-versioned-ledger.ts](../../scripts/alpha-wallet/postgres-versioned-ledger.ts) adds a separate disposable native PostgreSQL drill for upgrade DDL rollback, lost upgrade acknowledgement, old-writer fencing, concurrent acceptance on distinct connections, resized settlement, mixed restore and conservative recovery. Its marketplace inputs are synthetic; its concurrency proof does not establish that the actual marketplace coordinator exists.
+
+Before actual marketplace activation, implement and verify canonical enrollment, current authenticated ownership, initial acceptance, lifecycle participants, every enrolled-writer guard, ATM invalidation, current buyer eligibility/reviews, and exactly-once publication of benefits/ranks/receipts/notifications. Then prove acceptance/payment/inventory races and unknown-commit recovery through that real coordinator. Closed-listing corrections, counter-price/initial reservation, unsupported currency/fee cohorts and resume/adjudication require explicit supported mappings.
+
+Production roles, custody/signing, authoritative payment and chain evidence, realistic load/checkpointing, operations and separate launch authorization remain open in [launch-readiness.md](launch-readiness.md).

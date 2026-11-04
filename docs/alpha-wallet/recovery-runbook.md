@@ -12,7 +12,7 @@ Implementation references: [backup and restore](../../src/lib/alpha-wallet/backu
 
 ## What the backup contains
 
-The exported JSON uses format `alpha-wallet-simulation-command-backup`, format version `1`, and the recorded wallet engine version. It contains the immutable commands in their original order, their original timestamps, command identities, input/result/state hashes, and the event hash chain. A checkpoint records the final revision, event hash, state hash, and last command timestamp. Amounts retain their original decimal strings or tagged integer representations; they never pass through floating-point currency arithmetic.
+The exported JSON uses format `alpha-wallet-simulation-command-backup`. Pure v1 histories retain format version `1`; mixed histories use format version `2`, the terminal v2 engine and an explicit verified continuation boundary. Both contain the immutable commands in their original order, original timestamps, command identities, input/result/state hashes and event hash chain. A checkpoint records the final revision, event hash, state hash and last command timestamp. Amounts retain their original decimal strings or tagged integer representations; they never pass through floating-point currency arithmetic.
 
 Export runs inside one storage transaction. The repository first replays the source history and verifies its SQL journal, entries, payout intents, payout events, and chain-event claims. An inconsistent source cannot produce a backup through this API. The file contains logical command history; it does not contain arbitrary SQL, provider records, credentials, private keys, physical PostgreSQL files, or a complete copy of the surrounding marketplace.
 
@@ -74,9 +74,19 @@ The optional `clock` is for explicit synthetic fixtures. Original command timest
 
 All writes, including schema initialization and the pause, share one `SERIALIZABLE` transaction. A known failure rolls back the whole restore. If the final pause cannot be recorded, the preceding restored commands must not become an active wallet.
 
+### Mixed v1/v2 history
+
+Use [versioned-backup.ts](../../src/lib/alpha-wallet/versioned-backup.ts) for a source that has explicitly continued to v2: `exportVersionedWalletBackup`, `inspectVersionedWalletBackup` and `restoreVersionedWalletBackup` take the corresponding options shown above. These functions also delegate pure v1 files to the original implementation without upgrading them. The versioned modules use the server-only canonical planner; standalone Node fixtures run with `NODE_ENV=test` and `--conditions=react-server`.
+
+Mixed inspection validates both engines, all original results/hashes, the exact continuation and final checkpoint before opening a target transaction. Restore replays the v1 prefix, the recorded development migration/continuation and v2 tail, then adds a v2 pause in that same transaction. A final-pause failure rolls back the v1 initialization, v2 migration and all commands together. Reopen through `createVersionedDurableWallet`; the original v1 repository deliberately cannot write or inspect an upgraded store.
+
+Use `createVersionedSimulationPayoutWorker` for an already-upgraded fake-provider fixture. It retains the original recovery policy, including lookup of inherited uncertain payouts while paused and no resubmission after an empty lookup. It never upgrades a store or registers a worker. The migration's old-wallet-writer fence does not stop another source database, fence production marketplace writers or reconcile an external provider; the incident procedure still applies.
+
+The separately executable [native v2 drill](../../scripts/alpha-wallet/postgres-versioned-ledger.ts) checks migration rollback, inherited settlement, concurrent proposal retries, mixed restore and lookup-only recovery on fresh disposable PostgreSQL databases. Its actual result belongs in the exact-source verification report. See the [v2 continuation contract](ledger-v2-continuation-design.md) for the command and compatibility boundaries.
+
 ## Guarded local backup CLI
 
-[backup-cli.ts](../../scripts/alpha-wallet/backup-cli.ts) provides an executable local file-store wrapper. Run it from the development checkout with a development/test runtime. All paths must be absolute, their existing directory ancestors must be real directories, and backup reads reject symlinks, nonregular files, invalid UTF-8, and files larger than 16 MiB. A restore requires both the fresh-target flag and a separately retained canonical checksum.
+[backup-cli.ts](../../scripts/alpha-wallet/backup-cli.ts) remains a **v1-only** executable local file-store wrapper; it rejects an upgraded source or mixed-history file. Use the explicit versioned module for v2. Run this CLI from the development checkout with a development/test runtime. All paths must be absolute, their existing directory ancestors must be real directories, and backup reads reject symlinks, nonregular files, invalid UTF-8, and files larger than 16 MiB. A restore requires both the fresh-target flag and a separately retained canonical checksum.
 
 **Close the existing PGlite writer before using this separate-process CLI.** The file transport prevents duplicate opens within one process; it does not fence independent processes. The in-process export API can use an already open store's transaction, while this CLI opens its own store. Keep the original writer stopped throughout recovery and follow the incident fencing procedure above.
 
