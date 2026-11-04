@@ -5,6 +5,7 @@ vi.mock("@/lib/postgres-runtime", () => ({ getRuntimePostgresPool: () => null })
 
 import {
   createAuthSession,
+  getAuthenticatedSessionByToken,
   getAuthenticatedUserBySessionToken,
   getSessionByToken,
   invalidateAlphaExchangeStoreCache,
@@ -52,6 +53,7 @@ afterEach(() => {
 describe.each([
   ["direct session lookup", getSessionByToken],
   ["canonical session principal", getAuthenticatedUserBySessionToken],
+  ["fresh canonical session metadata", getAuthenticatedSessionByToken],
 ] as const)("session expiry validation through %s", (_label, readSession) => {
   it.each([
     ["malformed date", "not-a-date"],

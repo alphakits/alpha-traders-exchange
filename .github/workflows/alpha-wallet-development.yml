@@ -75,6 +75,19 @@ jobs:
           node ./node_modules/typescript/bin/tsc --noEmit --incremental false --pretty false \
             2>&1 | tee test-results/alpha-wallet/typecheck.log
 
+      - name: Verify retained platform authentication contracts with isolated stores
+        run: |
+          set -euo pipefail
+          node ./node_modules/vitest/vitest.mjs run \
+            src/__tests__/session-expiry-validation.test.ts \
+            src/__tests__/authenticated-session-source.test.ts \
+            src/__tests__/api-auth.test.ts \
+            src/lib/mobile-auth.test.ts \
+            src/lib/mobile-phone-enforcement.test.ts \
+            --reporter=default --reporter=json \
+            --outputFile.json=test-results/alpha-wallet/platform-auth-results.json \
+            2>&1 | tee test-results/alpha-wallet/platform-auth-tests.log
+
       - name: Run the existing offline wallet simulation
         run: |
           set -euo pipefail

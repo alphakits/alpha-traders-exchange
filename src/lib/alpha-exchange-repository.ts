@@ -3082,11 +3082,17 @@ export class AlphaExchangeRepository {
   }
 
   /** Load one account and the application row needed for legacy role repair. */
-  async loadAuthUserSnapshot(input: { userId?: string; normalizedEmail?: string }): Promise<SnapshotWithVersion> {
+  async loadAuthUserSnapshot(
+    input: { userId?: string; normalizedEmail?: string },
+    options?: { requireFresh?: boolean },
+  ): Promise<SnapshotWithVersion> {
     await this.ensureReady();
     const userId = input.userId?.trim() || null;
     const normalizedEmail = input.normalizedEmail?.trim().toLowerCase() || null;
     const pool = this.pool;
+    if (options?.requireFresh && pool && this.usesMemoryFallback) {
+      throw new Error("Fresh authenticated account storage is unavailable.");
+    }
     if (this.usesMemoryFallback || !pool) {
       const source = getLatestAvailableFallbackSnapshot();
       const users = source.users.filter((user) => (
@@ -4506,9 +4512,15 @@ export class AlphaExchangeRepository {
    * then aggregated every user and application, multiplying pooler latency on
    * every page render and `/api/auth/me` refresh.
    */
-  async loadAuthenticatedSessionSnapshot(tokenHash: string): Promise<SnapshotWithVersion> {
+  async loadAuthenticatedSessionSnapshot(
+    tokenHash: string,
+    options?: { requireFresh?: boolean },
+  ): Promise<SnapshotWithVersion> {
     await this.ensureReady();
     const pool = this.pool;
+    if (options?.requireFresh && pool && this.usesMemoryFallback) {
+      throw new Error("Fresh authenticated session storage is unavailable.");
+    }
     if (this.usesMemoryFallback || !pool) {
       const source = getLatestAvailableFallbackSnapshot();
       const session = source.authSessions.find((candidate) => candidate.token === tokenHash);
@@ -4555,6 +4567,7 @@ export class AlphaExchangeRepository {
       );
     } catch (error) {
       if (error instanceof WiseStorageError) throw error;
+      if (options?.requireFresh) throw error;
       if (isProductionSecurityRuntime()) {
         logEvent("error", {
           event: "alpha_exchange_repository_session_user_read",

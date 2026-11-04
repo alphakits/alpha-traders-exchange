@@ -1,6 +1,6 @@
 # Alpha Wallet access and platform integration contract
 
-Status: development boundary implemented and tested; no production web/mobile route is connected.
+Status: development gateway and actual platform session-source adapters implemented and tested with isolated stores; no production web/mobile wallet route is connected.
 
 ## What the access gateway enforces
 
@@ -36,8 +36,8 @@ This does **not** issue or verify a real passkey, SMS code or MFA credential. Be
 
 | Existing source | Required integration |
 | --- | --- |
-| `src/lib/auth.ts`, `requireApiUser` in `api-auth.ts` | Resolve the current server session and fresh canonical account. Never use client session JSON as authority. Preserve disabled-account behavior and fail closed on unavailable account reads. |
-| `requireMobileApiUser` in `mobile-api-auth.ts` | Resolve bearer/device session and fresh account. Wallet routes need explicit verification gates: the current marketplace/trades/seller/admin regex does not include `/wallet`. |
+| `src/lib/auth.ts`, `requireApiUser` in `api-auth.ts` | New `getCurrentSessionForAuthorization` resolves the existing server cookie through a strict uncached combined session/account lookup and retains actual expiry. Existing user-only APIs retain their behavior. No client session JSON is authoritative. |
+| `requireMobileApiUser` in `mobile-api-auth.ts` | New `requireMobileApiSession` retains the validated bearer/device session's access expiry and uses the strict account source. The development wallet resolver revalidates the session after account loading and applies explicit wallet verification gates. The old route-facing helper retains its original result shape. |
 | `hasVerifiedPhone` and `isAccountPhoneVerificationExempt` | Derive phone access from actual OTP evidence or the exact owner-authorized account-ID/email pair. Never accept a UI badge, role label, unsigned cookie, email alias or test bypass as production authority. |
 | `hasAdultConfirmation` | Require the actual canonical adult-confirmation record. The wallet boundary must not inherit local test switches that skip marketplace gates. |
 | `seller-approval.ts`, `seller-approval-verification.ts` | Use canonical seller status and existing owner approval. Do not invent an additional completed KYC checklist or infer identity verification from role labels. |
@@ -48,18 +48,22 @@ This does **not** issue or verify a real passkey, SMS code or MFA credential. Be
 | Existing transaction/repository layer | Choose one atomic consistency design for marketplace acceptance, wallet reservation and financial completion. Two independent writes or generic snapshot replacement are not sufficient. |
 | Trade receipts, benefits, ranks, reviews, notifications and commission accounting | Publish after a durable confirmed payout through an idempotent integration outbox. Preserve the established privacy and fee policy and prove no duplicate benefits/email/commission posting. |
 
-No existing source in this table was changed by the development access gateway. These mappings identify real remaining integration work and prevent a passing isolated simulation from being mistaken for a completed live-platform integration.
+The initial gateway left existing source APIs unchanged. The subsequent session adapter adds explicit metadata/strict-read entry points in the platform's authentication modules while preserving existing caller behavior. The remaining mappings are still integration work; a passing development adapter is not a deployed wallet flow.
 
-## Session metadata required for the next integrated stage
+## Implemented platform session adapters
 
-A bounded source review after resuming development found the following concrete gaps. These are implementation requirements, not claims that authentication is already connected:
+`src/lib/alpha-wallet/platform-session.ts` exports server-only `createDevelopmentWebWalletResolver` and `createDevelopmentMobileWalletResolver`. Both require `mode: "simulation-only"` and check the runtime before and after asynchronous authorization. They call the concrete platform authentication sources and supply minimal canonical evidence to `createWalletAccess`. They do not install a route or retain an authorization result in the resolver closure.
 
-- **Web expiry is available in storage but discarded by current public helpers.** `getAuthenticatedUserBySessionToken` loads the session, account and seller-application context through `loadAuthenticatedSessionSnapshot`, validates the stored session expiry, then returns only the user. `requireApiUser` therefore cannot supply the gateway's `sessionExpiresAtMs` directly. Expose the actual `AuthSession.expiresAt` alongside the canonical account through an explicitly uncached server lookup. Preserve existing user-only caller behavior and disabled-account handling. Do not invent a TTL or call a separate session lookup and describe the two reads as one coherent snapshot.
-- **Request memoization is not a fresh authorization read.** The Next auth wrapper uses React `cache`. Repeating that wrapper is not evidence that canonical account/session state was reread after asynchronous work. The wallet resolver must use the reviewed uncached boundary, including replays and post-commit private-response checks.
-- **Mobile access expiry exists before the wrapper drops it.** `MobileAuthService.validateAccessToken` returns a validated, device-bound session with `accessExpiresAt`. `requireMobileApiUser` resolves the current account but returns no expiry metadata. Retain the validated access expiry, use a trusted account loader that can be isolated in tests, and explicitly apply wallet phone/age gates. Refresh-token expiry and client-provided metadata cannot replace access-session expiry.
-- **Use concrete verification evidence.** Map email with `emailVerified === true`, phone with `hasVerifiedPhone` or the existing exact account-ID/email exemption, and age with `hasAdultConfirmation`. The broader `isVerified` helper can accept a development photo-verification bypass and is not sufficient wallet evidence. Map legacy optional `disabled` consistently with the canonical account semantics, then pass an explicit boolean to the strict gateway.
+- **Web:** `getAuthenticatedSessionByToken` retains the stored `AuthSession.expiresAt` with the canonical user from one combined repository query. It refuses the older compatibility path of separate session and user reads. `getCurrentSessionForAuthorization` re-reads the cookie and metadata without React request memoization, cookie renewal or an invented TTL.
+- **Fresh durable source:** strict session and account reads use `requireFresh: true`. A configured repository that failed initialization or a query cannot authorize from its cached development fallback. The original user-only APIs retain their prior fallback behavior. An explicitly in-memory repository remains usable for isolated fixtures; that is not durable authentication evidence. A configured instance already in initialization fallback continues to reject strict reads until it is reinitialized.
+- **Mobile:** `requireMobileApiSession` retains the validated access session ID, subject and `accessExpiresAt`, with a trusted account loader that can be isolated in tests. The wallet resolver validates the bearer/device token again after account loading and requires unchanged session identity, subject and expiry. Refresh expiry and client metadata do not replace access expiry. `requireMobileApiUser` keeps its existing gates, original account loader and exact `{ user, accessToken, unauthorized }` result shape.
+- **Canonical evidence:** email uses `emailVerified === true`; phone uses `hasVerifiedPhone` or the exact account-ID/email exemption; age uses `hasAdultConfirmation`. Runtime gate skipping and development photo-verification bypasses are not accepted as evidence. Canonical seller suspension overrides a stale approved role. The returned object excludes email, phone, credential hashes and session tokens; role arrays are copied.
 
-Local tests can establish token/device binding, expiry deadlines, revocation, canonical suspension, actual verification helpers, loader failures and fresh rereads using isolated stores. They cannot establish atomic revocation across a separate financial transaction or prove a real deployment's authentication configuration. No production auth helper or route was modified by this review.
+The tests execute actual repository combined/account SQL through isolated PGlite, actual cookie/store helpers, real mobile issue/validate/revoke/replace methods with an isolated session store, and the real wallet access gateway. They cover exact expiry, disabled/revoked canonical rereads, database failures with a retained active fallback, exact phone exemptions, device/subject mismatch, post-await token changes, private-response denial and no credential revocation on an unavailable account read. Ambient database discovery is blocked by the fixtures.
+
+No `src/app` wallet route is connected to these entry points. These tests do not establish deployed login configuration or atomic revocation across authentication storage and a financial commit. Mobile token and account reads remain separate; the tested rereads detect those races without replacing the future transaction-level authorization contract. Real withdrawal step-up issuance, CSRF/rate limits, HTTP private-cache policy and the production adapter rollout remain unfinished.
+
+The separate [atomic marketplace terms design](transaction-integration-design.md) identifies the actual transaction owners, pending-versus-reserved distinction, required bindings, protected writer cohort and historical-version constraints. It is a design for review, not an implemented reservation resize.
 
 ## Rules for the private integrated stage
 

@@ -1,6 +1,6 @@
 import type { NextRequest, NextResponse } from "next/server";
 import type { AlphaExchangeUser } from "@/types/alpha-exchange";
-import { findUserById } from "@/lib/alpha-exchange-store";
+import { findUserById, findUserByIdForAuthorization } from "@/lib/alpha-exchange-store";
 import { needsMarketplacePhoneVerification } from "@/lib/phone-verification";
 import { needsAdultConfirmation } from "@/lib/age-eligibility";
 import { mobileAuthService, type MobileAuthService } from "@/lib/mobile-auth";
@@ -23,12 +23,23 @@ export type MobileApiAuthResult =
       unauthorized: NextResponse;
     };
 
-export async function requireMobileApiUser(
+export type MobileApiSessionAuthResult =
+  | (Extract<MobileApiAuthResult, { unauthorized: null }> & {
+      /** Server metadata from the validated access session, not a client TTL. */
+      session: { id: string; userId: string; accessExpiresAt: string };
+    })
+  | Extract<MobileApiAuthResult, { user: null }>;
+
+/** Trusted server account lookup; never a client-supplied profile. */
+export type MobileAccountLoader = (userId: string) => Promise<AlphaExchangeUser | null>;
+
+export async function requireMobileApiSession(
   request: NextRequest,
   requestId: string,
   metadata: MobileClientMetadata,
   service: MobileAuthService = mobileAuthService,
-): Promise<MobileApiAuthResult> {
+  loadUser: MobileAccountLoader = findUserByIdForAuthorization,
+): Promise<MobileApiSessionAuthResult> {
   const versionError = mobileClientVersionError(metadata, requestId, metadata.locale);
   if (versionError) {
     return { user: null, accessToken: null, unauthorized: versionError };
@@ -54,7 +65,7 @@ export async function requireMobileApiUser(
       unauthorized: mobileError(code, requestId, metadata.locale, 401),
     };
   }
-  const user = await findUserById(validation.session.userId);
+  const user = await loadUser(validation.session.userId);
   if (!user || user.disabled || user.emailVerified !== true) {
     await service.revokeDevice(accessToken, user?.disabled ? "account_disabled" : "account_unavailable");
     return {
@@ -80,5 +91,20 @@ export async function requireMobileApiUser(
       unauthorized: mobileError("PHONE_VERIFICATION_REQUIRED", requestId, metadata.locale, 403),
     };
   }
-  return { user, accessToken, unauthorized: null };
+  return {
+    user, accessToken, unauthorized: null,
+    session: { id: validation.session.id, userId: validation.session.userId, accessExpiresAt: validation.session.accessExpiresAt },
+  };
+}
+
+/** Preserve the existing gates, account loader, and exact route-facing shape. */
+export async function requireMobileApiUser(
+  request: NextRequest,
+  requestId: string,
+  metadata: MobileClientMetadata,
+  service: MobileAuthService = mobileAuthService,
+): Promise<MobileApiAuthResult> {
+  const resolved = await requireMobileApiSession(request, requestId, metadata, service, findUserById);
+  if (!resolved.user) return resolved;
+  return { user: resolved.user, accessToken: resolved.accessToken, unauthorized: null };
 }

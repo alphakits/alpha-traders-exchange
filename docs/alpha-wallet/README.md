@@ -27,7 +27,7 @@ This is an executable specification connected to an isolated, durable simulation
 | Deposits | Dedicated synthetic intent; chain/token/destination/amount validation; pending/finalized distinction; event deduplication | Evidence is supplied by a trusted test fixture, not a live observer |
 | Listings | Full principal funding; separate owner approval; automatic allocation after credit; partial inventory | Existing marketplace remains disconnected |
 | Trades | Partial reservations; three active trades per seller; self-trade rejection; cancellation before payment claim | Pure domain engine, serialized by the durable simulation repository |
-| Payment/release | Exact inclusive fiat evidence; evidence reuse blocked; independent fixture verifier; seller authorization bound to principal and recipient | Real authentication, bank/cash evidence adapters, and policy review are still required |
+| Payment/release | Exact inclusive fiat evidence; evidence reuse blocked; independent fixture verifier; seller authorization bound to principal and recipient | Production authentication routes, bank/cash evidence adapters, and policy review are still required |
 | Payouts | Immutable intent; one dispatch claim; unknown/broadcast/failed/finalized outcomes; matching receipt; retained uncertain funds | No signer or real network submission |
 | Withdrawals | Only unallocated seller funds; same-asset recipient; synthetic step-up marker; immutable intent | Marker is not a real MFA implementation |
 | Fees | Full principal delivered; separate commission account; one post-completion due; auto-settlement when funded; unpaid dues block new seller commitments | Principal and commission tolerance are never mixed |
@@ -36,14 +36,14 @@ This is an executable specification connected to an isolated, durable simulation
 | Durable repository | Versioned strict commands; exact amounts; committed result/state hashes; append-only history; restart replay; immutable SQL projections; bounded SQL retries | File-backed PGlite or explicit loopback development PostgreSQL only; fixture identities remain synthetic |
 | Recovery worker | Persist claim before submission; retain uncertain funds; look up original reference; exact final receipt; tolerate late matching reports | Explicit single offline step with file-backed fake provider; no registered service or cron |
 | Backup and restore | Verified logical history; explicit local CLI; fresh-target restore; pause committed atomically with restored funds | Development stores only; old writers must be fenced and provider history reconciled before any later resumption |
-| User access boundary | Trusted server-resolved identities; account/session gates; participant privacy; exact-terms withdrawal approvals; privileged service commands excluded | Real web/mobile identity and MFA issuers remain disconnected |
+| User access boundary | Actual web/mobile session-source adapters for development; strict stored expiry/canonical evidence; participant privacy; exact-terms withdrawal approvals; privileged service commands excluded | Isolated fixtures verify the adapters; no production wallet route, actual MFA issuer or atomic authentication/financial commit |
 | Chain evidence | Strict BSC/TRON receipt decoding, event identity, exact units, execution status and supplied canonical ancestry | Pure fixture consistency; no live RPC, consensus proof, authoritative finality source or automatic credit |
 | Interactive rehearsal | Persistent loopback app with English/Arabic flows, partial trades, fee accounting and fault recovery | Explicit synthetic role switcher; not real account authentication or a deployed product |
 | SQL proof | Connected `durable-schema.sql` plus retained historical `schema-draft.sql` | Neither file is registered as an application migration |
 
 ## Durable development repository
 
-`commands.ts` defines a strict versioned command envelope. No request can name arbitrary executable methods, provide extra authority fields, or introduce an unknown asset/engine version. The command actor is still a fixture identity; a future HTTP boundary must derive real authority from trusted authentication.
+`commands.ts` defines a strict versioned command envelope. No request can name arbitrary executable methods, provide extra authority fields, or introduce an unknown asset/engine version. The durable harness uses fixture actors. The separate development access gateway can now derive actors through the platform session-source adapters; no production HTTP wallet boundary is connected.
 
 `durable.ts` rebuilds the domain engine from committed commands under their recorded timestamps. It verifies every command identity, result digest, state digest, previous-event hash, head revision, normalized journal entry, payout intent/state transition, and chain-event claim before processing more work. Unknown versions, missing history, altered projections, or mismatching evidence stop the operation. Hashes detect inconsistent storage; they are not signatures or protection against an administrator who can rewrite the complete database and application together.
 
@@ -210,6 +210,7 @@ Additional implementation contracts:
 - [Executed recovery and browser evidence](phase3-verification-2026-11-04.md)
 - [Recovery runbook](recovery-runbook.md)
 - [Access and existing-platform integration](access-and-integration.md)
+- [Atomic marketplace terms integration design](transaction-integration-design.md)
 - [Chain evidence adapter contract](chain-adapter-contract.md)
 - [Interactive rehearsal](rehearsal.md)
 - [Custody and signing decision](custody-decision.md)

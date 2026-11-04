@@ -3,7 +3,7 @@ import { promisify } from "util";
 import { cache } from "react";
 import { cookies, headers } from "next/headers";
 import { after } from "next/server";
-import { createAuthSession, deleteSessionByToken, findUserByEmail, getAuthenticatedUserBySessionToken, recordAccountSecurityNotice } from "@/lib/alpha-exchange-store";
+import { createAuthSession, deleteSessionByToken, findUserByEmail, getAuthenticatedSessionByToken, getAuthenticatedUserBySessionToken, recordAccountSecurityNotice } from "@/lib/alpha-exchange-store";
 import { sessionDeviceLabel } from "@/lib/account-session-presentation";
 import { AUTH_COOKIE_NAME, AUTH_PHONE_VERIFIED_COOKIE_NAME, AUTH_VERIFIED_COOKIE_NAME } from "@/lib/auth-constants";
 
@@ -131,4 +131,14 @@ export async function getCurrentSessionUserForAuthorization() {
   const token = await getCurrentSessionToken();
   if (!token) return null;
   return getSessionUserForRequest(token, true);
+}
+
+/**
+ * Explicitly uncached authorization metadata for callers that must re-read the
+ * session and account around asynchronous work. No cookie or TTL is renewed.
+ */
+export async function getCurrentSessionForAuthorization() {
+  const token = await getCurrentSessionToken();
+  if (!token) return null;
+  return getAuthenticatedSessionByToken(token, { includeDisabled: true });
 }

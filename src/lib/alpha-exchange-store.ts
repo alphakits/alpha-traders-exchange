@@ -7767,6 +7767,17 @@ export async function findUserById(userId: string) {
   return db.users.find((user) => user.id === userId) ?? null;
 }
 
+/** Fresh canonical account evidence; a failed durable read cannot use a cache. */
+export async function findUserByIdForAuthorization(userId: string) {
+  const repository = await getAlphaExchangeRepository();
+  if (typeof repository.loadAuthUserSnapshot !== "function") {
+    throw new Error("Fresh authenticated account lookup is unavailable.");
+  }
+  const db = normalizeDb(await repository.loadAuthUserSnapshot({ userId }, { requireFresh: true }));
+  ensureDisplayNumbers(db);
+  return db.users.find((user) => user.id === userId) ?? null;
+}
+
 function userBlockedIds(user: AlphaExchangeUser | null | undefined) {
   return new Set((user?.blockedUserIds ?? []).map((value) => String(value).trim()).filter(Boolean));
 }
@@ -7882,21 +7893,29 @@ export async function getSessionByToken(token: string) {
   return session;
 }
 
-export async function getAuthenticatedUserBySessionToken(
+export type AuthenticatedWebSession = {
+  user: AlphaExchangeUser;
+  sessionExpiresAtMs: number;
+};
+
+/**
+ * Uncached server identity and retained expiry from the same repository read.
+ * Unlike the legacy user-only API, this requires the combined lookup; separate
+ * session/account reads cannot establish this metadata contract.
+ */
+async function readAuthenticatedSessionByToken(
   token: string,
-  options?: { includeDisabled?: boolean },
-) {
+  options?: { includeDisabled?: boolean; requireFresh?: boolean },
+): Promise<AuthenticatedWebSession | null> {
   const hashed = hashToken(token);
   const repository = await getAlphaExchangeRepository();
   if (typeof repository.loadAuthenticatedSessionSnapshot !== "function") {
-    // Compatibility for local/test repository doubles created before the
-    // combined session lookup was introduced.
-    const session = await getSessionByToken(token);
-    const user = session ? await findUserById(session.userId) : null;
-    return user?.disabled === true && options?.includeDisabled !== true ? null : user;
+    throw new Error("Coherent authenticated session lookup is unavailable.");
   }
 
-  const parsed = await repository.loadAuthenticatedSessionSnapshot(hashed);
+  const parsed = options?.requireFresh
+    ? await repository.loadAuthenticatedSessionSnapshot(hashed, { requireFresh: true })
+    : await repository.loadAuthenticatedSessionSnapshot(hashed);
   const db = normalizeDb(parsed);
   ensureDisplayNumbers(db);
   const session = db.authSessions.find((candidate) => candidate.token === hashed);
@@ -7908,7 +7927,31 @@ export async function getAuthenticatedUserBySessionToken(
     return null;
   }
   const user = db.users.find((candidate) => candidate.id === session.userId) ?? null;
-  return user?.disabled === true && options?.includeDisabled !== true ? null : user;
+  if (!user || (user.disabled === true && options?.includeDisabled !== true)) return null;
+  return { user, sessionExpiresAtMs: Date.parse(session.expiresAt) };
+}
+
+/** Uncached combined identity/expiry; configured durable storage must be fresh. */
+export async function getAuthenticatedSessionByToken(
+  token: string,
+  options?: { includeDisabled?: boolean },
+): Promise<AuthenticatedWebSession | null> {
+  return readAuthenticatedSessionByToken(token, { ...options, requireFresh: true });
+}
+
+export async function getAuthenticatedUserBySessionToken(
+  token: string,
+  options?: { includeDisabled?: boolean },
+) {
+  const repository = await getAlphaExchangeRepository();
+  if (typeof repository.loadAuthenticatedSessionSnapshot !== "function") {
+    // Preserve compatibility for older local/test repository doubles only on
+    // this user-only API. The metadata API never takes this separate-read path.
+    const session = await getSessionByToken(token);
+    const user = session ? await findUserById(session.userId) : null;
+    return user?.disabled === true && options?.includeDisabled !== true ? null : user;
+  }
+  return (await readAuthenticatedSessionByToken(token, options))?.user ?? null;
 }
 
 export async function deleteSessionByToken(token: string) {
