@@ -7,6 +7,7 @@ name: Alpha Wallet Simulation-Only Development
     paths-ignore:
       - docs/alpha-wallet/*.md
       - docs/alpha-wallet/*results*.json
+      - docs/alpha-wallet/previews/**
   workflow_dispatch:
 
 permissions:
@@ -18,7 +19,7 @@ concurrency:
 
 jobs:
   wallet-simulation:
-    name: Synthetic wallet and disposable PostgreSQL verification
+    name: Wallet, recovery and browser verification with synthetic funds
     if: ${{ github.ref == 'refs/heads/feature/alpha-wallet-dev-20261104' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -89,6 +90,38 @@ jobs:
             --connection-string 'postgresql://wallet_fixture:simulation-only@127.0.0.1:5432/alpha_wallet_dev_races' \
             2>test-results/alpha-wallet/postgres-concurrency.stderr.log \
             | tee test-results/alpha-wallet/postgres-concurrency.json
+
+      - name: Install the locked Playwright Chromium browser
+        run: node ./node_modules/playwright/cli.js install --with-deps chromium
+
+      - name: Prepare two empty disposable recovery databases
+        run: |
+          node --input-type=module <<'NODE'
+          import pg from 'pg';
+          const connection = new pg.Client({ connectionString: 'postgresql://wallet_fixture:simulation-only@127.0.0.1:5432/alpha_wallet_dev_races' });
+          await connection.connect();
+          try {
+            await connection.query('CREATE DATABASE alpha_wallet_dev_backup_source');
+            await connection.query('CREATE DATABASE alpha_wallet_dev_restore_target');
+          } finally { await connection.end(); }
+          NODE
+
+      - name: Verify backup and paused restore on disposable PostgreSQL
+        run: |
+          set -euo pipefail
+          node --import tsx scripts/alpha-wallet/postgres-backup.ts \
+            --fresh-simulation-databases \
+            --source-connection-string 'postgresql://wallet_fixture:simulation-only@127.0.0.1:5432/alpha_wallet_dev_backup_source' \
+            --target-connection-string 'postgresql://wallet_fixture:simulation-only@127.0.0.1:5432/alpha_wallet_dev_restore_target' \
+            2>test-results/alpha-wallet/postgres-backup.stderr.log \
+            | tee test-results/alpha-wallet/postgres-backup.json
+
+      - name: Rehearse the English desktop and Arabic mobile wallet in Chromium
+        run: |
+          set -euo pipefail
+          node --import tsx scripts/alpha-wallet/rehearsal-browser-check.ts \
+            2>test-results/alpha-wallet/rehearsal-browser.stderr.log \
+            | tee test-results/alpha-wallet/rehearsal-browser.json
 
       - name: Preserve simulation verification evidence
         if: always()

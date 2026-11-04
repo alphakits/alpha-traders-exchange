@@ -84,12 +84,9 @@ export async function initializeDurableWallet(store: WalletStore) {
   });
 }
 
-/** Replays committed commands only. Replayed results are evidence, NEVER provider instructions. */
-async function load(tx: WalletSql) {
-  const headRows = await tx.query(`UPDATE ${SCHEMA}.head SET lock_version=lock_version+1 WHERE singleton=true RETURNING revision,last_event_hash,format_version,mode`);
-  const head = headRows.rows[0];
-  verify(headRows.rows.length === 1 && head?.format_version === 1 && head.mode === "simulation-only", "Unsupported wallet state head");
-  const records = (await tx.query(`SELECT revision,command_key,command_type,occurred_at_ms,command_json,input_hash,result_json,result_hash,state_hash,previous_event_hash,event_hash FROM ${SCHEMA}.commands ORDER BY revision`)).rows;
+/** Replayed results are evidence, NEVER provider instructions. No side effects execute. */
+function replayHistory(records: ReadonlyArray<Row>) {
+  verify(Array.isArray(records), "Wallet history must be an array");
   verify(records.length <= 100_000, "Development replay limit reached; reviewed checkpointing is required");
   let clock = 0, revision = 0, lastHash = GENESIS;
   const wallet = createAlphaWalletSandbox({ mode: "simulation-only", clock: () => clock });
@@ -112,9 +109,25 @@ async function load(tx: WalletSql) {
     addProjection(expected, projectionDelta(before, wallet.snapshot(), next));
     keys.set(commandKey, { revision: next, inputHash, eventHash: hash }); revision = next; lastHash = hash;
   }
-  verify(safeInteger(head.revision) === revision && head.last_event_hash === lastHash, "Wallet head and immutable history disagree");
-  await verifyProjection(tx, expected);
   return { wallet, revision, lastHash, clock, keys, expected, setClock(at: number) { clock = at; } };
+}
+
+/** Validates logical backup evidence using the same versioned replay as the repository. */
+export function verifyDurableHistory(records: ReadonlyArray<Record<string, unknown>>) {
+  assertSimulationRuntime("simulation-only");
+  const verified = replayHistory(records);
+  return { revision: verified.revision, eventHash: verified.lastHash, occurredAtMs: verified.clock, state: verified.wallet.snapshot() };
+}
+
+async function load(tx: WalletSql) {
+  const headRows = await tx.query(`UPDATE ${SCHEMA}.head SET lock_version=lock_version+1 WHERE singleton=true RETURNING revision,last_event_hash,format_version,mode`);
+  const head = headRows.rows[0];
+  verify(headRows.rows.length === 1 && head?.format_version === 1 && head.mode === "simulation-only", "Unsupported wallet state head");
+  const records = (await tx.query(`SELECT revision,command_key,command_type,occurred_at_ms,command_json,input_hash,result_json,result_hash,state_hash,previous_event_hash,event_hash FROM ${SCHEMA}.commands ORDER BY revision`)).rows;
+  const verified = replayHistory(records);
+  verify(safeInteger(head.revision) === verified.revision && head.last_event_hash === verified.lastHash, "Wallet head and immutable history disagree");
+  await verifyProjection(tx, verified.expected);
+  return verified;
 }
 
 export type DurableExecution<T = unknown> = { revision: number; commandKey: string; replayed: boolean; result: T; eventHash: string };

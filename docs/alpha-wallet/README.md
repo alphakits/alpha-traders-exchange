@@ -1,8 +1,10 @@
-# Alpha Wallet — durable development foundation
+# Alpha Wallet — development and launch preparation
 
 Date: 4 November 2026. Scope: architecture and **offline development only**.
 Base: `0b11b21fc0de3d04e4325a748ea2de62ade4f317` (the existing marketplace main branch when this work began).
 Working branch: `feature/alpha-wallet-dev-20261104`.
+
+**Paused at the user's request.** See [the saved pause checkpoint](PAUSED-2026-11-04.md) for completed checks and unfinished work. Resume only after the user says continue; this checkpoint is not ready for live launch.
 
 This is an executable specification connected to an isolated, durable simulation repository and an offline provider fixture. It is not a live wallet, a testnet deployment, a custody provider, or a production-ready financial service. There are no real deposit addresses, keys, signing functions, RPC requests, public routes, scheduled workers, or applied production migrations in this change.
 
@@ -33,6 +35,10 @@ This is an executable specification connected to an isolated, durable simulation
 | Accounting | Balanced journal; no negative custody allocations; conservation checks after every command; atomic durable command, journal, and outbox writes | Global serialization and replay are a correctness-oriented development bridge, not a production scaling design |
 | Durable repository | Versioned strict commands; exact amounts; committed result/state hashes; append-only history; restart replay; immutable SQL projections; bounded SQL retries | File-backed PGlite or explicit loopback development PostgreSQL only; fixture identities remain synthetic |
 | Recovery worker | Persist claim before submission; retain uncertain funds; look up original reference; exact final receipt; tolerate late matching reports | Explicit single offline step with file-backed fake provider; no registered service or cron |
+| Backup and restore | Verified logical history; explicit local CLI; fresh-target restore; pause committed atomically with restored funds | Development stores only; old writers must be fenced and provider history reconciled before any later resumption |
+| User access boundary | Trusted server-resolved identities; account/session gates; participant privacy; exact-terms withdrawal approvals; privileged service commands excluded | Real web/mobile identity and MFA issuers remain disconnected |
+| Chain evidence | Strict BSC/TRON receipt decoding, event identity, exact units, execution status and supplied canonical ancestry | Pure fixture consistency; no live RPC, consensus proof, authoritative finality source or automatic credit |
+| Interactive rehearsal | Persistent loopback app with English/Arabic flows, partial trades, fee accounting and fault recovery | Explicit synthetic role switcher; not real account authentication or a deployed product |
 | SQL proof | Connected `durable-schema.sql` plus retained historical `schema-draft.sql` | Neither file is registered as an application migration |
 
 ## Durable development repository
@@ -52,7 +58,7 @@ The SQL namespace is private and uses forced RLS without client policies. Tests 
 
 The file-backed fake provider keeps immutable broadcasts separately from the wallet database. Its reference binds the asset, destination, amount, and payout ID. Atomic publication, exact comparison of duplicate requests, and separate finality records let tests reproduce acceptance with a lost response. The worker persists the dispatch claim before calling this provider. If a claim exists but lookup finds nothing, it keeps the reservation and requests resolution; an empty lookup never authorizes a second submission. A late report cannot downgrade a confirmed or failed transfer.
 
-Replay is intentionally bounded to 100,000 commands and serializes the whole development wallet. It is not an authenticated append-only service, a production performance implementation, or a replacement for reviewed checkpoint/backup/restore design. Never change the meaning of a recorded engine version to make old history pass.
+Replay is intentionally bounded to 100,000 commands and serializes the whole development wallet. It is not an authenticated append-only service or a production performance implementation. Logical development backups now use the same verified replay, with a stricter 1,000-command/16 MiB backup limit and atomic restore quarantine; production checkpointing, recovery and performance still require review. Never change the meaning of a recorded engine version to make old history pass.
 
 ## Financial policy preserved
 
@@ -145,7 +151,7 @@ No production integration in this table has been performed in this milestone.
 
 The user approved continued development and saving this branch while explicitly withholding live deployment. `vercel.json` disables automatic Git deployments for the exact branch `feature/alpha-wallet-dev-20261104`. The guard is included in the first remote branch commit. An explicit deployment API/CLI call could bypass this Git trigger setting and is outside the authorized scope.
 
-The connected Railway Discord worker was inspected read-only: both its current and staged source branch are `main`. Its existing pending changes were not applied or modified. Existing repository workflows do not match a push to the wallet branch. The added `alpha-wallet-development.yml` runs only synthetic tests, TypeScript, offline demos, and a disposable PostgreSQL 17 fixture on this exact branch, with read-only repository permissions and no deployment steps or production secrets. Manual dispatch has the same branch restriction.
+The connected Railway Discord worker was inspected read-only: both its current and staged source branch are `main`. Its existing pending changes were not applied or modified. Existing repository workflows do not match a push to the wallet branch. The added `alpha-wallet-development.yml` runs only synthetic tests, TypeScript, offline demos, disposable PostgreSQL 17 fixtures and local Chromium rehearsals on this exact branch, with read-only repository permissions and no deployment steps or production secrets. Manual dispatch has the same branch restriction.
 
 The original marketplace checkout and its unrelated commission work are preserved. No merge, promotion, production database write, live transfer, signing enablement, scheduled wallet worker, or application route is part of this work.
 
@@ -185,16 +191,27 @@ The test report records the actual checks run and their limits. Do not describe 
 
 ## Next development milestones and exit criteria
 
+Current acceptance evidence, open gates and owner decisions are tracked in [launch-readiness.md](launch-readiness.md). This file is the implementation overview, not a declaration that the wallet may accept live funds.
+
 | Milestone | Concrete work | Evidence needed before advancing |
 | --- | --- | --- |
 | 1. Offline foundation | Domain engine, historical SQL proof, adversarial tests, executable demo — implemented | Historical phase-one verification report |
 | 2. Durable development repository | Connected transactional commands/journal/outbox, immutable evidence, replay, fake-provider recovery — implemented for simulation | Current durable verification report; native concurrency execution and backup/restore evidence tracked separately |
+| 2a. Recovery, access and rehearsal | Quarantined logical restore, separate-process backup CLI, trusted-user gateway, fixture receipt decoders and local bilingual UI — implemented for simulation | Phase-three verification report and actual browser/restore evidence |
 | 2b. Production repository design | Auth-derived identities, production role design, version migration, checkpointing/scaling, backup/restore and operational recovery | Reviewed permissions, fault-injection evidence, restore/reconciliation exercise, realistic load tests |
 | 3. Testnet adapters | Exact chain allowlists; deposit address assignment; confirmed receipt observers; cursor recovery; chosen signer/custody sandbox; gas handling | Wrong-token, finality, provider outage, timeout, duplicate webhook, and ambiguous-broadcast recovery tests |
 | 4. Private integrated flow | Seller deposit/withdraw screens; funded listings; existing trade UI; Arabic/English mobile behavior; payment-verification and dispute resolution interfaces | End-to-end tests using synthetic/testnet funds; existing marketplace/commission/review/receipt regressions |
 | 5. Controlled production readiness | Custody model, key recovery, authorization limits, monitoring, operations runbook, independent review, reviewed rollout | Signed-off incident/recovery exercise and acceptance evidence; separate explicit production authorization |
 
 Open decisions that do not block this development milestone: custody provider versus Alpha-controlled signing, supported first production rail, fee and gas funding mechanism, trusted fiat/cash verification workflow, withdrawal step-up/limits and address changes, dispute adjudication and refund rules. These must be settled before live signing is implemented or enabled.
+
+Additional implementation contracts:
+
+- [Recovery runbook](recovery-runbook.md)
+- [Access and existing-platform integration](access-and-integration.md)
+- [Chain evidence adapter contract](chain-adapter-contract.md)
+- [Interactive rehearsal](rehearsal.md)
+- [Custody and signing decision](custody-decision.md)
 
 ## Primary technical references
 
