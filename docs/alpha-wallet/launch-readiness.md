@@ -6,6 +6,8 @@ Date: 4 November 2026. Decision: **not ready to accept live funds or deploy**.
 
 The user authorized continued development, isolated testing and saving the wallet development branch. Live launch remains withheld. A passing development suite does not change that instruction.
 
+Latest verified source: `f3422f9`, with **578 passing tests across the wallet and targeted platform authentication suites**, full-project TypeScript and successful native PostgreSQL/Chromium drills. [Exact evidence and limits](platform-verification-2026-11-04.md) are retained separately from this readiness decision.
+
 ## Accepted behavior
 
 - Full listing principal is required: a 500 USDT listing needs 500 USDT. Commission short-payment tolerance never reduces principal funding or delivery.
@@ -50,6 +52,7 @@ The current ledger rebuilds all historical commands and serializes the whole wal
 - [Initial offline verification](verification-2026-11-04.md)
 - [Durable repository and native PostgreSQL verification](durable-verification-2026-11-04.md)
 - [468-test access, recovery and actual browser verification](phase3-verification-2026-11-04.md)
+- [578-test platform session and wallet verification](platform-verification-2026-11-04.md)
 - [Access/platform integration contract](access-and-integration.md)
 - [Atomic marketplace terms integration design](transaction-integration-design.md)
 - [Recovery runbook](recovery-runbook.md)

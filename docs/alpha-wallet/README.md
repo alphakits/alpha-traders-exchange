@@ -6,6 +6,8 @@ Working branch: `feature/alpha-wallet-dev-20261104`.
 
 **Development resumed at the user's request on 4 November 2026.** The [saved pause checkpoint](PAUSED-2026-11-04.md) records the earlier handoff. The no-live-launch restriction remains in force; unfinished verification and integration are tracked in [launch-readiness.md](launch-readiness.md).
 
+Latest verified source: `f3422f9`. [Platform session integration verification](platform-verification-2026-11-04.md) records **578 passing wallet/authentication tests**, full-project TypeScript, native PostgreSQL concurrency/restore and actual English/Arabic Chromium checks. This is a development checkpoint, not launch approval.
+
 This is an executable specification connected to an isolated, durable simulation repository and an offline provider fixture. It is not a live wallet, a testnet deployment, a custody provider, or a production-ready financial service. There are no real deposit addresses, keys, signing functions, RPC requests, public routes, scheduled workers, or applied production migrations in this change.
 
 ## What the agreed experience means
@@ -208,6 +210,7 @@ Open decisions that do not block this development milestone: custody provider ve
 Additional implementation contracts:
 
 - [Executed recovery and browser evidence](phase3-verification-2026-11-04.md)
+- [Platform session integration verification](platform-verification-2026-11-04.md)
 - [Recovery runbook](recovery-runbook.md)
 - [Access and existing-platform integration](access-and-integration.md)
 - [Atomic marketplace terms integration design](transaction-integration-design.md)

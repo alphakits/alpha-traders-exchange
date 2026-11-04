@@ -2,6 +2,8 @@
 
 Status: development gateway and actual platform session-source adapters implemented and tested with isolated stores; no production web/mobile wallet route is connected.
 
+The [platform verification report](platform-verification-2026-11-04.md) identifies the exact tested commit, 578 passing wallet/authentication tests and the complete successful CI run. The 23 new resolver tests are included in the wallet suite, not counted again in the separate authentication gate.
+
 ## What the access gateway enforces
 
 `src/lib/alpha-wallet/access.ts` accepts a trusted server-side account/session resolver and a wallet repository. It does not accept identity, roles, verification flags, service authority, or raw wallet command envelopes from a request body. A request contains only an allowlisted operation, its idempotency key, and operation data.
