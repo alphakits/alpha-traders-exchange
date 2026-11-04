@@ -1,0 +1,1916 @@
+{
+  "scope": "simulation-only; no live deployment or funds",
+  "verified_source_commit": "b83e7a5245871fb985084a954e923e35c6514b4f",
+  "verified_source_tree": "3cf54469de61cf3680e4ae1724cc28246dbf9716",
+  "branch": "feature/alpha-wallet-dev-20261104",
+  "local_test_evidence": {
+    "full_run": {
+      "tests": 262,
+      "passed": 262,
+      "failed": 0,
+      "started_at_ms": 1793818344642
+    },
+    "final_changed_file_run": {
+      "tests": 28,
+      "passed": 28,
+      "failed": 0,
+      "started_at_ms": 1793818465217
+    },
+    "latest_per_file_total": 263,
+    "latest_per_file_passed": 263,
+    "latest_per_file_failed": 0,
+    "files": [
+      {
+        "file": "src/lib/alpha-wallet/amounts.test.ts",
+        "passed": 22,
+        "failed": 0,
+        "tests": [
+          {
+            "fullName": "exact wallet amounts and existing fee contract keeps TRON six decimals and Binance-Peg simulation eighteen decimals distinct",
+            "status": "passed",
+            "duration": 17.042007000000012,
+            "failureMessages": []
+          },
+          {
+            "fullName": "exact wallet amounts and existing fee contract rejects ambiguous decimal input -1",
+            "status": "passed",
+            "duration": 1.0100780000000213,
+            "failureMessages": []
+          },
+          {
+            "fullName": "exact wallet amounts and existing fee contract rejects ambiguous decimal input +1",
+            "status": "passed",
+            "duration": 0.1967660000000251,
+            "failureMessages": []
+          },
+          {
+            "fullName": "exact wallet amounts and existing fee contract rejects ambiguous decimal input 1e6",
+            "status": "passed",
+            "duration": 0.16919499999994514,
+            "failureMessages": []
+          },
+          {
+            "fullName": "exact wallet amounts and existing fee contract rejects ambiguous decimal input  500",
+            "status": "passed",
+            "duration": 0.13159699999982877,
+            "failureMessages": []
+          },
+          {
+            "fullName": "exact wallet amounts and existing fee contract rejects ambiguous decimal input 500 ",
+            "status": "passed",
+            "duration": 0.10575900000003458,
+            "failureMessages": []
+          },
+          {
+            "fullName": "exact wallet amounts and existing fee contract rejects ambiguous decimal input 1,000",
+            "status": "passed",
+            "duration": 0.10951500000010128,
+            "failureMessages": []
+          },
+          {
+            "fullName": "exact wallet amounts and existing fee contract rejects ambiguous decimal input NaN",
+            "status": "passed",
+            "duration": 0.15895899999986796,
+            "failureMessages": []
+          },
+          {
+            "fullName": "exact wallet amounts and existing fee contract rejects ambiguous decimal input Infinity",
+            "status": "passed",
+            "duration": 0.16850299999987328,
+            "failureMessages": []
+          },
+          {
+            "fullName": "exact wallet amounts and existing fee contract rejects ambiguous decimal input .5",
+            "status": "passed",
+            "duration": 0.25281999999992877,
+            "failureMessages": []
+          },
+          {
+            "fullName": "exact wallet amounts and existing fee contract rejects ambiguous decimal input 01",
+            "status": "passed",
+            "duration": 0.2129410000000007,
+            "failureMessages": []
+          },
+          {
+            "fullName": "exact wallet amounts and existing fee contract rejects ambiguous decimal input 1.",
+            "status": "passed",
+            "duration": 0.13780800000017734,
+            "failureMessages": []
+          },
+          {
+            "fullName": "exact wallet amounts and existing fee contract rejects excess precision without rounding",
+            "status": "passed",
+            "duration": 5.879951000000119,
+            "failureMessages": []
+          },
+          {
+            "fullName": "exact wallet amounts and existing fee contract bounds raw token units exactly",
+            "status": "passed",
+            "duration": 0.5455899999999474,
+            "failureMessages": []
+          },
+          {
+            "fullName": "exact wallet amounts and existing fee contract preserves full 500 principal and separate 1% tron-sim-usdt + 1% undefined commission on undefined",
+            "status": "passed",
+            "duration": 0.44138299999985975,
+            "failureMessages": []
+          },
+          {
+            "fullName": "exact wallet amounts and existing fee contract preserves full 500 principal and separate 1% bsc-sim-binance-peg-usdt + 1% undefined commission on undefined",
+            "status": "passed",
+            "duration": 0.1426050000000032,
+            "failureMessages": []
+          },
+          {
+            "fullName": "exact wallet amounts and existing fee contract matches existing marketplace fiat and fee policy for 200 at 3.75",
+            "status": "passed",
+            "duration": 1.052172000000155,
+            "failureMessages": []
+          },
+          {
+            "fullName": "exact wallet amounts and existing fee contract matches existing marketplace fiat and fee policy for 1.00005 at 3.20",
+            "status": "passed",
+            "duration": 0.23888899999997193,
+            "failureMessages": []
+          },
+          {
+            "fullName": "exact wallet amounts and existing fee contract matches existing marketplace fiat and fee policy for 13752.123456 at 3.78",
+            "status": "passed",
+            "duration": 0.23683600000003935,
+            "failureMessages": []
+          },
+          {
+            "fullName": "exact wallet amounts and existing fee contract matches existing marketplace fiat and fee policy for 999999.999999 at 3.01",
+            "status": "passed",
+            "duration": 7.694960000000037,
+            "failureMessages": []
+          },
+          {
+            "fullName": "exact wallet amounts and existing fee contract keeps half-up per-party six-decimal rounding on BSC",
+            "status": "passed",
+            "duration": 0.18231399999990572,
+            "failureMessages": []
+          },
+          {
+            "fullName": "exact wallet amounts and existing fee contract rejects trades that would round to zero fiat or zero payable fees",
+            "status": "passed",
+            "duration": 1.8885190000000875,
+            "failureMessages": []
+          }
+        ]
+      },
+      {
+        "file": "src/lib/alpha-wallet/commands.test.ts",
+        "passed": 4,
+        "failed": 0,
+        "tests": [
+          {
+            "fullName": "durable command boundary accepts only a versioned allowlisted command with no extra body fields",
+            "status": "passed",
+            "duration": 10.807727999999997,
+            "failureMessages": []
+          },
+          {
+            "fullName": "durable command boundary removes optional undefined before persistence and evaluation",
+            "status": "passed",
+            "duration": 3.3920689999999922,
+            "failureMessages": []
+          },
+          {
+            "fullName": "durable command boundary preserves exact large integers and collection order in deterministic evidence",
+            "status": "passed",
+            "duration": 1.825665000000015,
+            "failureMessages": []
+          },
+          {
+            "fullName": "durable command boundary rejects executable/ambiguous non-JSON evidence types",
+            "status": "passed",
+            "duration": 1.0024270000000115,
+            "failureMessages": []
+          }
+        ]
+      },
+      {
+        "file": "src/lib/alpha-wallet/durable-schema.test.ts",
+        "passed": 28,
+        "failed": 0,
+        "tests": [
+          {
+            "fullName": "connected durable wallet schema requires explicit development opt-in before creating any schema",
+            "status": "passed",
+            "duration": 7883.595025,
+            "failureMessages": []
+          },
+          {
+            "fullName": "connected durable wallet schema refuses write-gate acquisition under READ COMMITTED",
+            "status": "passed",
+            "duration": 2481.18094,
+            "failureMessages": []
+          },
+          {
+            "fullName": "connected durable wallet schema refuses write-gate acquisition under REPEATABLE READ",
+            "status": "passed",
+            "duration": 2092.5225530000007,
+            "failureMessages": []
+          },
+          {
+            "fullName": "connected durable wallet schema requires the changed head write gate and accepts lock-only replay transactions",
+            "status": "passed",
+            "duration": 1621.8410330000006,
+            "failureMessages": []
+          },
+          {
+            "fullName": "connected durable wallet schema extends an immutable command chain and rejects key, revision, or hash conflicts",
+            "status": "passed",
+            "duration": 1557.6785760000002,
+            "failureMessages": []
+          },
+          {
+            "fullName": "connected durable wallet schema rolls back a command if its head is omitted or points to an invented log tail",
+            "status": "passed",
+            "duration": 1355.1482100000012,
+            "failureMessages": []
+          },
+          {
+            "fullName": "connected durable wallet schema allows several journals for one command and exact 6/18-decimal asset units",
+            "status": "passed",
+            "duration": 1897.5776450000012,
+            "failureMessages": []
+          },
+          {
+            "fullName": "connected durable wallet schema rejects invalid raw units 1.5",
+            "status": "passed",
+            "duration": 1791.1971239999984,
+            "failureMessages": []
+          },
+          {
+            "fullName": "connected durable wallet schema rejects invalid raw units NaN",
+            "status": "passed",
+            "duration": 1361.969419000001,
+            "failureMessages": []
+          },
+          {
+            "fullName": "connected durable wallet schema rejects invalid raw units Infinity",
+            "status": "passed",
+            "duration": 1345.537021,
+            "failureMessages": []
+          },
+          {
+            "fullName": "connected durable wallet schema rejects invalid raw units -Infinity",
+            "status": "passed",
+            "duration": 1504.5416640000003,
+            "failureMessages": []
+          },
+          {
+            "fullName": "connected durable wallet schema rejects invalid raw units 115792089237316195423570985008687907853269984665640564039457584007913129639936",
+            "status": "passed",
+            "duration": 1268.3116950000003,
+            "failureMessages": []
+          },
+          {
+            "fullName": "connected durable wallet schema checks aggregate overdrafts and overflow atomically",
+            "status": "passed",
+            "duration": 1481.6205679999985,
+            "failureMessages": []
+          },
+          {
+            "fullName": "connected durable wallet schema rejects an empty or unbalanced journal and preserves the committed prefix",
+            "status": "passed",
+            "duration": 1327.1961090000004,
+            "failureMessages": []
+          },
+          {
+            "fullName": "connected durable wallet schema revalidates late entries after a SET CONSTRAINTS flush",
+            "status": "passed",
+            "duration": 1847.3301780000002,
+            "failureMessages": []
+          },
+          {
+            "fullName": "connected durable wallet schema prevents cross-asset entries and projections appended to already committed commands",
+            "status": "passed",
+            "duration": 1390.1018440000007,
+            "failureMessages": []
+          },
+          {
+            "fullName": "connected durable wallet schema keeps commands, financial records, and payout identity immutable",
+            "status": "passed",
+            "duration": 1340.094720000001,
+            "failureMessages": []
+          },
+          {
+            "fullName": "connected durable wallet schema deduplicates normalized chain identity across incoming and outgoing directions",
+            "status": "passed",
+            "duration": 1173.724903000002,
+            "failureMessages": []
+          },
+          {
+            "fullName": "connected durable wallet schema rejects wrong-asset and wrong-destination deposit claims",
+            "status": "passed",
+            "duration": 1291.2033450000017,
+            "failureMessages": []
+          },
+          {
+            "fullName": "connected durable wallet schema requires an immutable intent and queued event for every payout allocation",
+            "status": "passed",
+            "duration": 1400.627757999995,
+            "failureMessages": []
+          },
+          {
+            "fullName": "connected durable wallet schema holds funds across unknown dispatch outcomes and rejects duplicate/reset dispatch claims",
+            "status": "passed",
+            "duration": 1185.908279999996,
+            "failureMessages": []
+          },
+          {
+            "fullName": "connected durable wallet schema cannot skip dispatch or replace a known payout transaction",
+            "status": "passed",
+            "duration": 1451.0112910000025,
+            "failureMessages": []
+          },
+          {
+            "fullName": "connected durable wallet schema requires confirmation, full pending balance debit, and matching receipt to commit together",
+            "status": "passed",
+            "duration": 1292.9983189999984,
+            "failureMessages": []
+          },
+          {
+            "fullName": "connected durable wallet schema delivers the full 500 USDT and separately settles 10 USDT in fees",
+            "status": "passed",
+            "duration": 1332.343866000003,
+            "failureMessages": []
+          },
+          {
+            "fullName": "connected durable wallet schema rejects a terminal receipt with mismatching payout amount or destination",
+            "status": "passed",
+            "duration": 1406.815671999997,
+            "failureMessages": []
+          },
+          {
+            "fullName": "connected durable wallet schema retains failed_final funds and prevents silent refunds or terminal state replacement",
+            "status": "passed",
+            "duration": 1257.4530539999978,
+            "failureMessages": []
+          },
+          {
+            "fullName": "connected durable wallet schema allows a pre-payment downward reservation adjustment without the draft lifetime-credit restriction",
+            "status": "passed",
+            "duration": 1551.7893329999933,
+            "failureMessages": []
+          },
+          {
+            "fullName": "connected durable wallet schema denies public/client access and has no security-definer or RLS-bypassing view",
+            "status": "passed",
+            "duration": 1136.6509670000014,
+            "failureMessages": []
+          }
+        ]
+      },
+      {
+        "file": "src/lib/alpha-wallet/durable-store.test.ts",
+        "passed": 46,
+        "failed": 0,
+        "tests": [
+          {
+            "fullName": "durable local simulation transport persists exact large amounts across close and reopen, with multi-statement bootstrap",
+            "status": "passed",
+            "duration": 5639.474891,
+            "failureMessages": []
+          },
+          {
+            "fullName": "durable local simulation transport rolls back failed callbacks and refuses a success result after a swallowed SQL error",
+            "status": "passed",
+            "duration": 3464.145949999999,
+            "failureMessages": []
+          },
+          {
+            "fullName": "durable local simulation transport serializes callbacks in one process and prevents use of an escaped transaction handle",
+            "status": "passed",
+            "duration": 2586.9487210000007,
+            "failureMessages": []
+          },
+          {
+            "fullName": "durable local simulation transport waits for accepted work during close and refuses any new work",
+            "status": "passed",
+            "duration": 1873.2992830000003,
+            "failureMessages": []
+          },
+          {
+            "fullName": "durable local simulation transport refuses a second local instance for the same canonical path until the first closes",
+            "status": "passed",
+            "duration": 2154.691944,
+            "failureMessages": []
+          },
+          {
+            "fullName": "durable local simulation transport refuses unrelated folders, relative paths, roots, and redirected database folders",
+            "status": "passed",
+            "duration": 13.059932999998637,
+            "failureMessages": []
+          },
+          {
+            "fullName": "simulation and PostgreSQL destination guards rejects an unsafe connection URL before constructing a pool: postgresql://fixture:fixture@database.example/alpha_wallet_dev_fixture",
+            "status": "passed",
+            "duration": 0.9898180000000139,
+            "failureMessages": []
+          },
+          {
+            "fullName": "simulation and PostgreSQL destination guards rejects an unsafe connection URL before constructing a pool: postgresql://fixture:fixture@localhost/alpha_wallet_dev_fixture",
+            "status": "passed",
+            "duration": 0.9455010000001494,
+            "failureMessages": []
+          },
+          {
+            "fullName": "simulation and PostgreSQL destination guards rejects an unsafe connection URL before constructing a pool: postgresql://fixture:fixture@127.0.0.2/alpha_wallet_dev_fixture",
+            "status": "passed",
+            "duration": 0.3360050000010233,
+            "failureMessages": []
+          },
+          {
+            "fullName": "simulation and PostgreSQL destination guards rejects an unsafe connection URL before constructing a pool: postgresql://fixture:fixture@[::ffff:127.0.0.1]/alpha_wallet_dev_fixture",
+            "status": "passed",
+            "duration": 0.3460509999986243,
+            "failureMessages": []
+          },
+          {
+            "fullName": "simulation and PostgreSQL destination guards rejects an unsafe connection URL before constructing a pool: postgresql://fixture:fixture@%2Ftmp/alpha_wallet_dev_fixture",
+            "status": "passed",
+            "duration": 0.2985290000015084,
+            "failureMessages": []
+          },
+          {
+            "fullName": "simulation and PostgreSQL destination guards rejects an unsafe connection URL before constructing a pool: postgresql://fixture:fixture@127.0.0.1/production",
+            "status": "passed",
+            "duration": 0.4357049999998708,
+            "failureMessages": []
+          },
+          {
+            "fullName": "simulation and PostgreSQL destination guards rejects an unsafe connection URL before constructing a pool: postgresql://fixture:fixture@127.0.0.1/alpha_wallet_dev_",
+            "status": "passed",
+            "duration": 0.28645999999935157,
+            "failureMessages": []
+          },
+          {
+            "fullName": "simulation and PostgreSQL destination guards rejects an unsafe connection URL before constructing a pool: postgresql://fixture:fixture@127.0.0.1/alpha_wallet_dev_fixture/extra",
+            "status": "passed",
+            "duration": 4.440866000000824,
+            "failureMessages": []
+          },
+          {
+            "fullName": "simulation and PostgreSQL destination guards rejects an unsafe connection URL before constructing a pool: postgresql://fixture:fixture@127.0.0.1/alpha_wallet_dev_fixture%2Fextra",
+            "status": "passed",
+            "duration": 0.26961500000106753,
+            "failureMessages": []
+          },
+          {
+            "fullName": "simulation and PostgreSQL destination guards rejects an unsafe connection URL before constructing a pool: postgresql://fixture:fixture@127.0.0.1/alpha_wallet_dev_fixture?host=remote.example",
+            "status": "passed",
+            "duration": 0.2439059999996971,
+            "failureMessages": []
+          },
+          {
+            "fullName": "simulation and PostgreSQL destination guards rejects an unsafe connection URL before constructing a pool: postgresql://fixture:fixture@127.0.0.1/alpha_wallet_dev_fixture?",
+            "status": "passed",
+            "duration": 0.213701000000583,
+            "failureMessages": []
+          },
+          {
+            "fullName": "simulation and PostgreSQL destination guards rejects an unsafe connection URL before constructing a pool: postgresql://fixture:fixture@127.0.0.1/alpha_wallet_dev_fixture#fragment",
+            "status": "passed",
+            "duration": 0.23278000000027532,
+            "failureMessages": []
+          },
+          {
+            "fullName": "simulation and PostgreSQL destination guards rejects an unsafe connection URL before constructing a pool: postgresql://fixture:fixture@127.0.0.1/alpha_wallet_dev_fixture#",
+            "status": "passed",
+            "duration": 0.29380200000014156,
+            "failureMessages": []
+          },
+          {
+            "fullName": "simulation and PostgreSQL destination guards rejects an unsafe connection URL before constructing a pool: postgresql://fixture@127.0.0.1/alpha_wallet_dev_fixture",
+            "status": "passed",
+            "duration": 0.20245500000055472,
+            "failureMessages": []
+          },
+          {
+            "fullName": "simulation and PostgreSQL destination guards rejects an unsafe connection URL before constructing a pool: postgresql://:fixture@127.0.0.1/alpha_wallet_dev_fixture",
+            "status": "passed",
+            "duration": 0.17382099999849743,
+            "failureMessages": []
+          },
+          {
+            "fullName": "simulation and PostgreSQL destination guards rejects an unsafe connection URL before constructing a pool: postgresql://fixture:%00@127.0.0.1/alpha_wallet_dev_fixture",
+            "status": "passed",
+            "duration": 0.1702659999991738,
+            "failureMessages": []
+          },
+          {
+            "fullName": "simulation and PostgreSQL destination guards rejects an unsafe connection URL before constructing a pool: postgresql://fixture:fixture@127.0.0.1:0/alpha_wallet_dev_fixture",
+            "status": "passed",
+            "duration": 0.3301359999986744,
+            "failureMessages": []
+          },
+          {
+            "fullName": "simulation and PostgreSQL destination guards rejects an unsafe connection URL before constructing a pool: https://fixture:fixture@127.0.0.1/alpha_wallet_dev_fixture",
+            "status": "passed",
+            "duration": 0.6995520000000397,
+            "failureMessages": []
+          },
+          {
+            "fullName": "simulation and PostgreSQL destination guards accepts only the explicit local destination 127.0.0.1 without connecting",
+            "status": "passed",
+            "duration": 6.400332000001072,
+            "failureMessages": []
+          },
+          {
+            "fullName": "simulation and PostgreSQL destination guards accepts only the explicit local destination [::1] without connecting",
+            "status": "passed",
+            "duration": 0.33127799999965646,
+            "failureMessages": []
+          },
+          {
+            "fullName": "simulation and PostgreSQL destination guards keeps explicit connection and parser settings despite ambient PG variables",
+            "status": "passed",
+            "duration": 1.9853949999996985,
+            "failureMessages": []
+          },
+          {
+            "fullName": "simulation and PostgreSQL destination guards checks the actual runtime at construction, on each transaction, and before commit",
+            "status": "passed",
+            "duration": 2.956534000000829,
+            "failureMessages": []
+          },
+          {
+            "fullName": "PostgreSQL transaction recovery runs trusted SQL inside a serializable guarded transaction and commits once",
+            "status": "passed",
+            "duration": 1.0328229999995528,
+            "failureMessages": []
+          },
+          {
+            "fullName": "PostgreSQL transaction recovery retries the whole callback after a database work error 40001",
+            "status": "passed",
+            "duration": 1.0680749999992258,
+            "failureMessages": []
+          },
+          {
+            "fullName": "PostgreSQL transaction recovery retries the whole callback after a database work error 40P01",
+            "status": "passed",
+            "duration": 0.6757259999994858,
+            "failureMessages": []
+          },
+          {
+            "fullName": "PostgreSQL transaction recovery retries a definitely rejected COMMIT 40001 with a fresh connection",
+            "status": "passed",
+            "duration": 1.487565999999788,
+            "failureMessages": []
+          },
+          {
+            "fullName": "PostgreSQL transaction recovery retries a definitely rejected COMMIT 40P01 with a fresh connection",
+            "status": "passed",
+            "duration": 0.6099869999998191,
+            "failureMessages": []
+          },
+          {
+            "fullName": "PostgreSQL transaction recovery stops after exactly three serialization attempts",
+            "status": "passed",
+            "duration": 0.7097869999997783,
+            "failureMessages": []
+          },
+          {
+            "fullName": "PostgreSQL transaction recovery does not retry a callback error that did not come from SQL",
+            "status": "passed",
+            "duration": 0.5093550000001414,
+            "failureMessages": []
+          },
+          {
+            "fullName": "PostgreSQL transaction recovery does not retry a callback error that did not come from SQL",
+            "status": "passed",
+            "duration": 0.4565760000004957,
+            "failureMessages": []
+          },
+          {
+            "fullName": "PostgreSQL transaction recovery propagates a definitive deferred constraint COMMIT rejection P0001",
+            "status": "passed",
+            "duration": 3.932982999998785,
+            "failureMessages": []
+          },
+          {
+            "fullName": "PostgreSQL transaction recovery propagates a definitive deferred constraint COMMIT rejection 23505",
+            "status": "passed",
+            "duration": 0.5324099999997998,
+            "failureMessages": []
+          },
+          {
+            "fullName": "PostgreSQL transaction recovery keeps a lost COMMIT acknowledgement unknown without retry or rollback",
+            "status": "passed",
+            "duration": 1.111931999999797,
+            "failureMessages": []
+          },
+          {
+            "fullName": "PostgreSQL transaction recovery keeps a lost COMMIT acknowledgement unknown without retry or rollback",
+            "status": "passed",
+            "duration": 0.8469030000014754,
+            "failureMessages": []
+          },
+          {
+            "fullName": "PostgreSQL transaction recovery keeps a lost COMMIT acknowledgement unknown without retry or rollback",
+            "status": "passed",
+            "duration": 2.2815299999983836,
+            "failureMessages": []
+          },
+          {
+            "fullName": "PostgreSQL transaction recovery keeps a lost COMMIT acknowledgement unknown without retry or rollback",
+            "status": "passed",
+            "duration": 0.9499880000003031,
+            "failureMessages": []
+          },
+          {
+            "fullName": "PostgreSQL transaction recovery discards a connection lost during work and does not rerun the callback",
+            "status": "passed",
+            "duration": 0.6652709999998478,
+            "failureMessages": []
+          },
+          {
+            "fullName": "PostgreSQL transaction recovery does not report success if PostgreSQL responds to COMMIT with ROLLBACK",
+            "status": "passed",
+            "duration": 0.5319500000005064,
+            "failureMessages": []
+          },
+          {
+            "fullName": "PostgreSQL transaction recovery cannot hide a failed statement by swallowing the query error inside the callback",
+            "status": "passed",
+            "duration": 0.5186300000004849,
+            "failureMessages": []
+          },
+          {
+            "fullName": "PostgreSQL transaction recovery waits for outstanding transactions before closing the pool exactly once",
+            "status": "passed",
+            "duration": 0.5748139999996056,
+            "failureMessages": []
+          }
+        ]
+      },
+      {
+        "file": "src/lib/alpha-wallet/durable.test.ts",
+        "passed": 15,
+        "failed": 0,
+        "tests": [
+          {
+            "fullName": "durable simulation repository with real file restarts rebuilds the full 500 payout and separate 10 commission state, preserving an older command's event hash",
+            "status": "passed",
+            "duration": 7909.402519,
+            "failureMessages": []
+          },
+          {
+            "fullName": "durable simulation repository with real file restarts preserves exact 18-decimal values beyond Number's range in commands, ledger rows and payout intents",
+            "status": "passed",
+            "duration": 3362.377628,
+            "failureMessages": []
+          },
+          {
+            "fullName": "durable simulation repository with real file restarts rolls back a command and every partial projection when a persistence statement fails",
+            "status": "passed",
+            "duration": 2441.203875000001,
+            "failureMessages": []
+          },
+          {
+            "fullName": "durable simulation repository with real file restarts reconciles a lost COMMIT acknowledgment to one committed command and one deposit credit after reopening",
+            "status": "passed",
+            "duration": 2299.4859719999986,
+            "failureMessages": []
+          },
+          {
+            "fullName": "durable simulation repository with real file restarts never reissues a committed dispatch instruction after restart, even if no submission result was saved",
+            "status": "passed",
+            "duration": 2411.223607,
+            "failureMessages": []
+          },
+          {
+            "fullName": "durable simulation repository with real file restarts recovers unknown submission using the original reference, and persists a matching final receipt exactly once",
+            "status": "passed",
+            "duration": 2782.4851430000017,
+            "failureMessages": []
+          },
+          {
+            "fullName": "durable simulation repository with real file restarts deduplicates a finalized deposit after restart across repeated and new command identities",
+            "status": "passed",
+            "duration": 2106.9046610000005,
+            "failureMessages": []
+          },
+          {
+            "fullName": "durable simulation repository with real file restarts persists pending deposit evidence, later finality, and a reorg halt without creating another event claim",
+            "status": "passed",
+            "duration": 2453.8752200000017,
+            "failureMessages": []
+          },
+          {
+            "fullName": "durable simulation repository with real file restarts fails closed on corrupted command history before returning state or accepting another command",
+            "status": "passed",
+            "duration": 1994.270786000001,
+            "failureMessages": []
+          },
+          {
+            "fullName": "durable simulation repository with real file restarts detects an extra balanced journal that has no corresponding command effect",
+            "status": "passed",
+            "duration": 2372.507805999998,
+            "failureMessages": []
+          },
+          {
+            "fullName": "durable simulation repository with real file restarts rejects wrong fixture roles, malformed envelopes and invalid amounts without appending history",
+            "status": "passed",
+            "duration": 2109.085033000003,
+            "failureMessages": []
+          },
+          {
+            "fullName": "durable simulation repository with real file restarts rejects a changed payload under a previously committed identity after restart",
+            "status": "passed",
+            "duration": 1762.197917999998,
+            "failureMessages": []
+          },
+          {
+            "fullName": "durable simulation repository with real file restarts serializes competing repository instances so two 300 reservations cannot oversell a 500 listing",
+            "status": "passed",
+            "duration": 1883.2197149999993,
+            "failureMessages": []
+          },
+          {
+            "fullName": "durable simulation repository with real file restarts collapses concurrent copies of the same request into one committed command",
+            "status": "passed",
+            "duration": 1906.00202,
+            "failureMessages": []
+          },
+          {
+            "fullName": "durable simulation repository with real file restarts replays historical readiness at recorded time while rejecting a newly dispatched stale reconciliation",
+            "status": "passed",
+            "duration": 2105.3293120000017,
+            "failureMessages": []
+          }
+        ]
+      },
+      {
+        "file": "src/lib/alpha-wallet/fake-provider.test.ts",
+        "passed": 10,
+        "failed": 0,
+        "tests": [
+          {
+            "fullName": "persistent offline payout provider opens one fresh directory concurrently and publishes an identical transfer only once",
+            "status": "passed",
+            "duration": 47.97551199999998,
+            "failureMessages": []
+          },
+          {
+            "fullName": "persistent offline payout provider retains exact tron-sim-usdt units and the same reference after reopening",
+            "status": "passed",
+            "duration": 19.30336900000009,
+            "failureMessages": []
+          },
+          {
+            "fullName": "persistent offline payout provider retains exact bsc-sim-binance-peg-usdt units and the same reference after reopening",
+            "status": "passed",
+            "duration": 31.72748200000001,
+            "failureMessages": []
+          },
+          {
+            "fullName": "persistent offline payout provider rejects changed terms for a consumed reference without replacing the original record",
+            "status": "passed",
+            "duration": 49.03056800000002,
+            "failureMessages": []
+          },
+          {
+            "fullName": "persistent offline payout provider records acceptance durably even when its response is deliberately lost",
+            "status": "passed",
+            "duration": 17.429310999999984,
+            "failureMessages": []
+          },
+          {
+            "fullName": "persistent offline payout provider never overwrites a final success with failure or manufactures finality before acceptance",
+            "status": "passed",
+            "duration": 99.31012899999996,
+            "failureMessages": []
+          },
+          {
+            "fullName": "persistent offline payout provider rejects real chain addresses, wrong assets, mutable references, and missing dispatch claims",
+            "status": "passed",
+            "duration": 11.739973999999961,
+            "failureMessages": []
+          },
+          {
+            "fullName": "persistent offline payout provider detects modified provider evidence and refuses to repair it by overwriting",
+            "status": "passed",
+            "duration": 20.46172100000001,
+            "failureMessages": []
+          },
+          {
+            "fullName": "persistent offline payout provider refuses unrelated folders and symlinked directories without altering their files",
+            "status": "passed",
+            "duration": 6.15459199999998,
+            "failureMessages": []
+          },
+          {
+            "fullName": "persistent offline payout provider rechecks the runtime before every provider operation",
+            "status": "passed",
+            "duration": 10.724282000000017,
+            "failureMessages": []
+          }
+        ]
+      },
+      {
+        "file": "src/lib/alpha-wallet/payout-worker.test.ts",
+        "passed": 13,
+        "failed": 0,
+        "tests": [
+          {
+            "fullName": "durable offline payout worker settles a trade once and keeps both commission portions separate from buyer principal",
+            "status": "passed",
+            "duration": 3972.433757,
+            "failureMessages": []
+          },
+          {
+            "fullName": "durable offline payout worker allows only one provider submission when two asynchronous workers contend for a queued payout",
+            "status": "passed",
+            "duration": 1922.4487570000001,
+            "failureMessages": []
+          },
+          {
+            "fullName": "durable offline payout worker recovers a lost provider response after reopening and confirms by lookup without another submission",
+            "status": "passed",
+            "duration": 2095.59864,
+            "failureMessages": []
+          },
+          {
+            "fullName": "durable offline payout worker holds a committed dispatch claim with no provider record across reopen and never resubmits it",
+            "status": "passed",
+            "duration": 2133.771036,
+            "failureMessages": []
+          },
+          {
+            "fullName": "durable offline payout worker keeps principal reserved after a final failure without claiming completion or refund",
+            "status": "passed",
+            "duration": 1978.895434,
+            "failureMessages": []
+          },
+          {
+            "fullName": "durable offline payout worker does not submit a queued payout after pause",
+            "status": "passed",
+            "duration": 2021.087343000001,
+            "failureMessages": []
+          },
+          {
+            "fullName": "durable offline payout worker does not submit a queued payout after dispute",
+            "status": "passed",
+            "duration": 1745.0497100000011,
+            "failureMessages": []
+          },
+          {
+            "fullName": "durable offline payout worker records an already broadcast transfer's real simulated settlement even after a dispute and pause",
+            "status": "passed",
+            "duration": 1854.1361619999989,
+            "failureMessages": []
+          },
+          {
+            "fullName": "durable offline payout worker never calls the provider after losing the database acknowledgement for its dispatch claim",
+            "status": "passed",
+            "duration": 1968.0915829999976,
+            "failureMessages": []
+          },
+          {
+            "fullName": "durable offline payout worker returns an already known broadcast when a lost response arrives after a competing worker records it",
+            "status": "passed",
+            "duration": 2114.7993769999994,
+            "failureMessages": []
+          },
+          {
+            "fullName": "durable offline payout worker returns the actual terminal outcome when a competing worker finalizes successful=true before broadcast reporting",
+            "status": "passed",
+            "duration": 2202.7056989999983,
+            "failureMessages": []
+          },
+          {
+            "fullName": "durable offline payout worker returns the actual terminal outcome when a competing worker finalizes successful=false before broadcast reporting",
+            "status": "passed",
+            "duration": 1618.615804000001,
+            "failureMessages": []
+          },
+          {
+            "fullName": "durable offline payout worker does not swallow a late-report error when durable settlement names a different transaction",
+            "status": "passed",
+            "duration": 1862.5402329999997,
+            "failureMessages": []
+          }
+        ]
+      },
+      {
+        "file": "src/lib/alpha-wallet/process-recovery.test.ts",
+        "passed": 1,
+        "failed": 0,
+        "tests": [
+          {
+            "fullName": "independent process recovery recovers an accepted transfer after abrupt process exit without a second submission or settlement",
+            "status": "passed",
+            "duration": 5461.572594,
+            "failureMessages": []
+          }
+        ]
+      },
+      {
+        "file": "src/lib/alpha-wallet/runtime.test.ts",
+        "passed": 12,
+        "failed": 0,
+        "tests": [
+          {
+            "fullName": "simulation cannot become a deployed wallet is disabled without explicit opt-in",
+            "status": "passed",
+            "duration": 15.388357000000042,
+            "failureMessages": []
+          },
+          {
+            "fullName": "simulation cannot become a deployed wallet rejects non-local NODE_ENV production",
+            "status": "passed",
+            "duration": 0.36371699999995144,
+            "failureMessages": []
+          },
+          {
+            "fullName": "simulation cannot become a deployed wallet rejects non-local NODE_ENV ",
+            "status": "passed",
+            "duration": 0.27830900000003567,
+            "failureMessages": []
+          },
+          {
+            "fullName": "simulation cannot become a deployed wallet rejects non-local NODE_ENV undefined",
+            "status": "passed",
+            "duration": 0.3336020000001554,
+            "failureMessages": []
+          },
+          {
+            "fullName": "simulation cannot become a deployed wallet refuses hosted execution through VERCEL",
+            "status": "passed",
+            "duration": 0.38292599999999766,
+            "failureMessages": []
+          },
+          {
+            "fullName": "simulation cannot become a deployed wallet refuses hosted execution through VERCEL_ENV",
+            "status": "passed",
+            "duration": 0.1953640000001542,
+            "failureMessages": []
+          },
+          {
+            "fullName": "simulation cannot become a deployed wallet refuses hosted execution through AWS_LAMBDA_FUNCTION_NAME",
+            "status": "passed",
+            "duration": 8.462683999999854,
+            "failureMessages": []
+          },
+          {
+            "fullName": "simulation cannot become a deployed wallet refuses hosted execution through CF_PAGES",
+            "status": "passed",
+            "duration": 0.2829750000000786,
+            "failureMessages": []
+          },
+          {
+            "fullName": "simulation cannot become a deployed wallet refuses hosted execution through K_SERVICE",
+            "status": "passed",
+            "duration": 0.3959350000000086,
+            "failureMessages": []
+          },
+          {
+            "fullName": "simulation cannot become a deployed wallet rejects attempted enable flag ALPHA_WALLET_MAINNET_ENABLED",
+            "status": "passed",
+            "duration": 0.39562500000010914,
+            "failureMessages": []
+          },
+          {
+            "fullName": "simulation cannot become a deployed wallet rejects attempted enable flag ALPHA_WALLET_SIGNING_ENABLED",
+            "status": "passed",
+            "duration": 0.7986910000001899,
+            "failureMessages": []
+          },
+          {
+            "fullName": "simulation cannot become a deployed wallet factory checks the real environment and rechecks each mutation",
+            "status": "passed",
+            "duration": 10.094405999999935,
+            "failureMessages": []
+          }
+        ]
+      },
+      {
+        "file": "src/lib/alpha-wallet/sandbox.test.ts",
+        "passed": 78,
+        "failed": 0,
+        "tests": [
+          {
+            "fullName": "Alpha Wallet principal funding requires both full 500 USDT funding and owner approval: approval-first",
+            "status": "passed",
+            "duration": 23.25730299999998,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet principal funding requires both full 500 USDT funding and owner approval: funding-first",
+            "status": "passed",
+            "duration": 12.83798999999999,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet principal funding does not apply the legacy commission tolerance to 498 USDT of 500 USDT principal",
+            "status": "passed",
+            "duration": 9.187072000000057,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet principal funding does not credit an unconfirmed or failed deposit: {\"finalized\":false,\"successful\":true}",
+            "status": "passed",
+            "duration": 1.3865339999999833,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet principal funding does not credit an unconfirmed or failed deposit: {\"finalized\":true,\"successful\":false}",
+            "status": "passed",
+            "duration": 0.9266930000000002,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet principal funding does not credit an unconfirmed or failed deposit: {\"finalized\":false,\"successful\":false}",
+            "status": "passed",
+            "duration": 9.460722000000032,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet principal funding credits a pending deposit once when the same event finalizes",
+            "status": "passed",
+            "duration": 2.0561009999998987,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet principal funding reports the current pause on a duplicate credited-deposit callback without crediting again",
+            "status": "passed",
+            "duration": 11.657055000000014,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet principal funding can replace unfinalized failed execution in a different block but rejects a contradictory same-block result",
+            "status": "passed",
+            "duration": 4.958925000000022,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet principal funding rejects invalid deposit network without any credit",
+            "status": "passed",
+            "duration": 1.0683259999999564,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet principal funding rejects invalid deposit token without any credit",
+            "status": "passed",
+            "duration": 1.2834990000000062,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet principal funding rejects invalid deposit recipient without any credit",
+            "status": "passed",
+            "duration": 1.0077850000000126,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet principal funding rejects invalid deposit intent asset without any credit",
+            "status": "passed",
+            "duration": 6.922727000000009,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet principal funding rejects invalid deposit zero amount without any credit",
+            "status": "passed",
+            "duration": 0.8722119999999904,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet principal funding rejects invalid deposit real transaction without any credit",
+            "status": "passed",
+            "duration": 0.7853509999999915,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet principal funding deduplicates each transfer log while allowing two distinct logs in one transaction",
+            "status": "passed",
+            "duration": 1.425713000000087,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet principal funding rejects event reassignment and conflicting idempotency payloads",
+            "status": "passed",
+            "duration": 4.19101999999998,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet principal funding keeps chain-specific custody and commission-purpose deposits out of principal funding",
+            "status": "passed",
+            "duration": 1.4598039999999628,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet principal funding does not reuse one deposit to fund two listings",
+            "status": "passed",
+            "duration": 2.1696210000000065,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet principal funding detects missing account balances even when all credited snapshot accounts are deleted",
+            "status": "passed",
+            "duration": 7.1247809999999845,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet principal funding preserves a single raw unit through tron-sim-usdt deposit and withdrawal",
+            "status": "passed",
+            "duration": 2.91814700000009,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet principal funding preserves a single raw unit through bsc-sim-binance-peg-usdt deposit and withdrawal",
+            "status": "passed",
+            "duration": 1.431451999999922,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet principal funding retains 18-decimal deposit dust beside a six-decimal marketplace quantity",
+            "status": "passed",
+            "duration": 1.1035390000000689,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet reservations reserves 200 + 300 from 500 exactly and returns a cancelled reservation",
+            "status": "passed",
+            "duration": 13.330990000000043,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet reservations allows only one competing 300 USDT reservation in one process",
+            "status": "passed",
+            "duration": 6.09421199999997,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet reservations enforces three active seller trades and frees capacity after cancellation",
+            "status": "passed",
+            "duration": 1.5315229999999929,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet reservations rejects self-trades and a receiving chain different from funded custody",
+            "status": "passed",
+            "duration": 7.615006999999991,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet reservations does not let returned objects or snapshots rewrite reserved terms",
+            "status": "passed",
+            "duration": 1.5887480000000096,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet verified payment and authority never treats buyer-paid as release authority",
+            "status": "passed",
+            "duration": 1.8723149999999578,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet verified payment and authority rejects payment verification by unauthorized or non-independent actor {\"kind\":\"buyer\",\"id\":\"buyer-a\"}",
+            "status": "passed",
+            "duration": 0.7513890000000174,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet verified payment and authority rejects payment verification by unauthorized or non-independent actor {\"kind\":\"seller\",\"id\":\"seller-a\"}",
+            "status": "passed",
+            "duration": 0.8451509999999871,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet verified payment and authority rejects payment verification by unauthorized or non-independent actor {\"kind\":\"operator\",\"id\":\"owner-operator\"}",
+            "status": "passed",
+            "duration": 3.4684839999999895,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet verified payment and authority rejects payment verification by unauthorized or non-independent actor {\"kind\":\"verifier\",\"id\":\"buyer-a\"}",
+            "status": "passed",
+            "duration": 1.6549780000000283,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet verified payment and authority rejects payment verification by unauthorized or non-independent actor {\"kind\":\"verifier\",\"id\":\"seller-a\"}",
+            "status": "passed",
+            "duration": 1.6151989999999614,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet verified payment and authority checks the actual buyer and seller, not just their role",
+            "status": "passed",
+            "duration": 2.5823820000000524,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet verified payment and authority requires exact independent payment evidence: missing buyer fee",
+            "status": "passed",
+            "duration": 1.7101710000000594,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet verified payment and authority requires exact independent payment evidence: short payment",
+            "status": "passed",
+            "duration": 1.576979999999935,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet verified payment and authority requires exact independent payment evidence: different payment amount",
+            "status": "passed",
+            "duration": 1.995559999999955,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet verified payment and authority requires exact independent payment evidence: wrong currency",
+            "status": "passed",
+            "duration": 1.5687179999999898,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet verified payment and authority requires exact independent payment evidence: buyer claim",
+            "status": "passed",
+            "duration": 1.9121939999999995,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet verified payment and authority requires exact independent payment evidence: real payment reference",
+            "status": "passed",
+            "duration": 1.5308620000000701,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet verified payment and authority cannot use one payment proof to release two trades",
+            "status": "passed",
+            "duration": 2.6641149999999243,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet full principal and separate commission creates the 2% obligation only after payout, and pays it only from commission-purpose funds",
+            "status": "passed",
+            "duration": 10.271341000000007,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet full principal and separate commission delivers all 500 USDT and settles 10 USDT from a separately funded fee balance",
+            "status": "passed",
+            "duration": 1.5095989999999802,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet full principal and separate commission finishes existing 200 + 300 reservations even when the first payout creates commission due",
+            "status": "passed",
+            "duration": 8.767078999999967,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet full principal and separate commission does not recognize commission or revenue from a failed final payout",
+            "status": "passed",
+            "duration": 2.816534000000047,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet cancellations, disputes, and withdrawals cancels before payment and rejects cancellation after a payment claim",
+            "status": "passed",
+            "duration": 1.1206849999999804,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet cancellations, disputes, and withdrawals freezes further payment or payout progress when disputed at reserved",
+            "status": "passed",
+            "duration": 3.5184900000000425,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet cancellations, disputes, and withdrawals freezes further payment or payout progress when disputed at payment_reported",
+            "status": "passed",
+            "duration": 1.8318440000000464,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet cancellations, disputes, and withdrawals freezes further payment or payout progress when disputed at payment_verified",
+            "status": "passed",
+            "duration": 1.9601260000000593,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet cancellations, disputes, and withdrawals freezes further payment or payout progress when disputed at release_authorized",
+            "status": "passed",
+            "duration": 1.643750999999952,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet cancellations, disputes, and withdrawals freezes further payment or payout progress when disputed at queued",
+            "status": "passed",
+            "duration": 4.231801000000019,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet cancellations, disputes, and withdrawals reports an already-settled payout truthfully when a dispute is opened later",
+            "status": "passed",
+            "duration": 1.1875860000000102,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet cancellations, disputes, and withdrawals closing a listing frees only unreserved principal and preserves the live trade",
+            "status": "passed",
+            "duration": 2.9514270000000806,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet cancellations, disputes, and withdrawals withdrawals cannot consume listing principal, trade locks, or fee-purpose balances",
+            "status": "passed",
+            "duration": 1.4022079999999733,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet cancellations, disputes, and withdrawals binds withdrawal amount and destination across retries and returned-object mutations",
+            "status": "passed",
+            "duration": 1.5892790000000332,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet cancellations, disputes, and withdrawals unpaid commission blocks withdrawal even after listing principal becomes available",
+            "status": "passed",
+            "duration": 1.8506929999999784,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet payout reconciliation and retry safety requires fresh reconciliation and a separate native fee reserve",
+            "status": "passed",
+            "duration": 2.644875999999954,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet payout reconciliation and retry safety invalidates a reconciliation when a later deposit changes custody",
+            "status": "passed",
+            "duration": 1.516999999999939,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet payout reconciliation and retry safety holds an unknown submission and reconciles its late receipt without dispatching twice",
+            "status": "passed",
+            "duration": 8.182911999999988,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet payout reconciliation and retry safety never reissues dispatch permission for the same command, including after dispute, pause, and settlement",
+            "status": "passed",
+            "duration": 1.4596749999999474,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet payout reconciliation and retry safety does not accept an on-chain receipt before dispatch or finality",
+            "status": "passed",
+            "duration": 5.306106999999997,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet payout reconciliation and retry safety rejects payout receipts with mismatching amount",
+            "status": "passed",
+            "duration": 1.6589030000000093,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet payout reconciliation and retry safety rejects payout receipts with mismatching destination",
+            "status": "passed",
+            "duration": 1.434376000000043,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet payout reconciliation and retry safety rejects payout receipts with mismatching network",
+            "status": "passed",
+            "duration": 2.0706030000000055,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet payout reconciliation and retry safety rejects payout receipts with mismatching token",
+            "status": "passed",
+            "duration": 1.5028590000000577,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet payout reconciliation and retry safety rejects payout receipts with mismatching asset",
+            "status": "passed",
+            "duration": 1.6004259999999704,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet payout reconciliation and retry safety rejects payout receipts with mismatching provider reference",
+            "status": "passed",
+            "duration": 2.128910000000019,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet payout reconciliation and retry safety rejects payout receipts with mismatching transaction",
+            "status": "passed",
+            "duration": 2.077052999999978,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet payout reconciliation and retry safety consumes a payout receipt once across same-key and fresh-key retries",
+            "status": "passed",
+            "duration": 2.4126469999999927,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet payout reconciliation and retry safety rejects reused transfer evidence while recognizing separate payout logs in a shared transaction",
+            "status": "passed",
+            "duration": 3.6425949999999148,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet payout reconciliation and retry safety cannot reuse an incoming chain event as outgoing payout evidence",
+            "status": "passed",
+            "duration": 3.1075120000000425,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet payout reconciliation and retry safety cannot reuse a settled outgoing chain event as a new incoming deposit",
+            "status": "passed",
+            "duration": 3.4209319999999934,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet payout reconciliation and retry safety pauses outgoing actions after reconciliation mismatch and does not resume automatically",
+            "status": "passed",
+            "duration": 4.908007999999995,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet payout reconciliation and retry safety cannot reconcile partial provider history",
+            "status": "passed",
+            "duration": 0.8595329999999421,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet payout reconciliation and retry safety pauses when finalized funding evidence changes: {\"blockHash\":\"sim-block-reorganized\"}",
+            "status": "passed",
+            "duration": 10.482478000000015,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet payout reconciliation and retry safety pauses when finalized funding evidence changes: {\"finalized\":false}",
+            "status": "passed",
+            "duration": 2.6355419999999867,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet payout reconciliation and retry safety pauses when finalized funding evidence changes: {\"successful\":false}",
+            "status": "passed",
+            "duration": 2.1672079999999596,
+            "failureMessages": []
+          }
+        ]
+      },
+      {
+        "file": "src/lib/alpha-wallet/schema-draft.test.ts",
+        "passed": 34,
+        "failed": 0,
+        "tests": [
+          {
+            "fullName": "Alpha Wallet development schema: actual storage invariants refuses schema creation without explicit simulation-only opt-in",
+            "status": "passed",
+            "duration": 8424.189059,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet development schema: actual storage invariants requires opt-in again for later writes and cannot accept a real asset",
+            "status": "passed",
+            "duration": 2622.208832999999,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet development schema: actual storage invariants refuses ledger writes under READ COMMITTED isolation",
+            "status": "passed",
+            "duration": 1719.1579419999998,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet development schema: actual storage invariants refuses ledger writes under REPEATABLE READ isolation",
+            "status": "passed",
+            "duration": 1702.2322120000008,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet development schema: actual storage invariants stores exact 6- and 18-decimal base units without floating point conversion",
+            "status": "passed",
+            "duration": 1504.538770000001,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet development schema: actual storage invariants rejects noninteger/nonfinite/out-of-range units 1.5 without coercing them",
+            "status": "passed",
+            "duration": 1316.3096879999994,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet development schema: actual storage invariants rejects noninteger/nonfinite/out-of-range units NaN without coercing them",
+            "status": "passed",
+            "duration": 1863.5417540000017,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet development schema: actual storage invariants rejects noninteger/nonfinite/out-of-range units Infinity without coercing them",
+            "status": "passed",
+            "duration": 1672.2673680000007,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet development schema: actual storage invariants rejects noninteger/nonfinite/out-of-range units -Infinity without coercing them",
+            "status": "passed",
+            "duration": 1480.2514069999997,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet development schema: actual storage invariants rejects noninteger/nonfinite/out-of-range units 115792089237316195423570985008687907853269984665640564039457584007913129639936 without coercing them",
+            "status": "passed",
+            "duration": 1262.9383369999996,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet development schema: actual storage invariants deduplicates a deposit by network, token, transaction and log index; a second log remains distinct",
+            "status": "passed",
+            "duration": 1576.9661919999999,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet development schema: actual storage invariants bounds aggregated balances as well as individual journal entries",
+            "status": "passed",
+            "duration": 1506.2136370000007,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet development schema: actual storage invariants refuses wrong network/token/destination/owner routing {\"network\":\"bsc-simulation\"}",
+            "status": "passed",
+            "duration": 1275.6509829999995,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet development schema: actual storage invariants refuses wrong network/token/destination/owner routing {\"token\":\"sim-impostor-usdt\"}",
+            "status": "passed",
+            "duration": 1560.7020090000005,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet development schema: actual storage invariants refuses wrong network/token/destination/owner routing {\"recipient\":\"sim:address:unassigned\"}",
+            "status": "passed",
+            "duration": 1898.6871070000016,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet development schema: actual storage invariants refuses wrong network/token/destination/owner routing {\"creditAccount\":\"sim:other\"}",
+            "status": "passed",
+            "duration": 1256.2341180000003,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet development schema: actual storage invariants refuses unfinalized or failed receipts {\"finality\":\"pending\"}",
+            "status": "passed",
+            "duration": 1385.1821619999973,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet development schema: actual storage invariants refuses unfinalized or failed receipts {\"succeeded\":false}",
+            "status": "passed",
+            "duration": 1378.2548800000004,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet development schema: actual storage invariants requires credit to equal the exact event amount; principal has no commission tolerance",
+            "status": "passed",
+            "duration": 1249.9985450000022,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet development schema: actual storage invariants rejects unbalanced and empty journals at commit and rolls back their complete transaction",
+            "status": "passed",
+            "duration": 1518.853326000004,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet development schema: actual storage invariants revalidates entries added after an early SET CONSTRAINTS flush",
+            "status": "passed",
+            "duration": 1329.3406440000035,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet development schema: actual storage invariants prevents reserving more than a seller has and preserves the earlier committed reservation",
+            "status": "passed",
+            "duration": 1402.6063070000018,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet development schema: actual storage invariants rejects cross-asset posting and cross-owner allocation",
+            "status": "passed",
+            "duration": 1342.5511770000012,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet development schema: actual storage invariants does not allow fabricating a balance through an unlinked external-chain transfer",
+            "status": "passed",
+            "duration": 1197.3653040000063,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet development schema: actual storage invariants prevents changing journal history or appending new entries to a committed journal",
+            "status": "passed",
+            "duration": 1434.2488440000016,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet development schema: actual storage invariants reserves the full principal with one immutable payout intent in the same transaction",
+            "status": "passed",
+            "duration": 1211.042048999996,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet development schema: actual storage invariants rejects a payout reservation without its matching outbox instruction",
+            "status": "passed",
+            "duration": 1562.6592640000017,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet development schema: actual storage invariants rejects a second logical payout even with another transport intent ID",
+            "status": "passed",
+            "duration": 1479.422133,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet development schema: actual storage invariants rejects a reduced payout for a fully allocated trade",
+            "status": "passed",
+            "duration": 1175.608951000002,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet development schema: actual storage invariants cannot hide a reduced payout by returning some trade principal in the same transaction",
+            "status": "passed",
+            "duration": 1405.4219479999956,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet development schema: actual storage invariants prevents reopening a trade allocation after its payout instruction was committed",
+            "status": "passed",
+            "duration": 1443.5908439999985,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet development schema: actual storage invariants keeps separate fee settlement from all 500 USDT of buyer principal",
+            "status": "passed",
+            "duration": 1509.8277080000043,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet development schema: actual storage invariants denies unprivileged schema/function/table access and keeps RLS default-deny even after a SELECT grant",
+            "status": "passed",
+            "duration": 1542.0282270000025,
+            "failureMessages": []
+          },
+          {
+            "fullName": "Alpha Wallet development schema: actual storage invariants revokes pre-existing default client grants on the draft tables and functions",
+            "status": "passed",
+            "duration": 2474.8476569999984,
+            "failureMessages": []
+          }
+        ]
+      }
+    ]
+  },
+  "typescript": {
+    "command": "node node_modules/typescript/bin/tsc --noEmit --incremental false --pretty false",
+    "exit_code": 0
+  },
+  "offline_demo": {
+    "principal_deposited_usdt": "500",
+    "principal_delivered_usdt": "500",
+    "separate_commission_funded_usdt": "10",
+    "commission_recognized_usdt": "10",
+    "remaining_customer_principal_usdt": "0"
+  },
+  "separate_process_recovery": {
+    "exit_without_store_close": true,
+    "initial_outcome": "submission_unknown",
+    "recovered_outcome": "confirmed",
+    "dispatch_count": 1,
+    "buyer_principal_usdt": "200",
+    "remaining_custody_usdt": "300",
+    "separate_commission_due_usdt": "4",
+    "repeat_added_settlement": false
+  },
+  "ci": {
+    "run_id": 41891927526,
+    "job_id": 126791286545,
+    "url": "https://github.com/alphakits/alpha-traders-exchange/actions/runs/41891927526",
+    "status": "completed",
+    "conclusion": "success",
+    "head_sha": "b83e7a5245871fb985084a954e923e35c6514b4f",
+    "created_at": "2026-11-04T18:55:41Z",
+    "updated_at": "2026-11-04T18:58:03Z",
+    "unit_summary_lines": [
+      " Test Files  11 passed (11)",
+      "      Tests  263 passed (263)",
+      "   Duration  64.00s (transform 496ms, setup 376ms, import 1.13s, tests 185.46s, environment 1ms)"
+    ],
+    "native_postgres": {
+      "mode": "simulation-only",
+      "storage": "real PostgreSQL with two independent Node processes",
+      "checks": [
+        "Independent processes credit the same final deposit once",
+        "A forced SERIALIZABLE race prevents overselling; the remaining 200 USDT stays reservable",
+        "One dispatch claim wins; unknown submission retains its original reference and funds",
+        "Competing finalized receipts debit principal once; separate commission due does not consume it",
+        "Recovery resolves a synthetically lost client acknowledgement by the original command identity",
+        "A new store connection reconstructs identical verified state from committed history"
+      ],
+      "revision": 18,
+      "money": {
+        "fundedPrincipalUSDT": "500",
+        "buyerReceivedUSDT": "300",
+        "remainingReservedUSDT": "200",
+        "separateCommissionDueUSDT": "6"
+      }
+    },
+    "jobs": [
+      {
+        "id": 126791286545,
+        "name": "Synthetic wallet and disposable PostgreSQL verification",
+        "status": "completed",
+        "conclusion": "success",
+        "run_id": 41891927526,
+        "logs_url": null,
+        "steps": [
+          {
+            "name": "Set up job",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 1
+          },
+          {
+            "name": "Initialize containers",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 2
+          },
+          {
+            "name": "Check out the development commit",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 3
+          },
+          {
+            "name": "Use the repository Node version",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 4
+          },
+          {
+            "name": "Install locked dependencies and local dependency patches",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 5
+          },
+          {
+            "name": "Prepare simulation evidence directory",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 6
+          },
+          {
+            "name": "Run the wallet unit and local persistence suite",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 7
+          },
+          {
+            "name": "Check TypeScript across the project",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 8
+          },
+          {
+            "name": "Run the existing offline wallet simulation",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 9
+          },
+          {
+            "name": "Verify independent processes against disposable PostgreSQL",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 10
+          },
+          {
+            "name": "Preserve simulation verification evidence",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 11
+          },
+          {
+            "name": "Post Use the repository Node version",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 20
+          },
+          {
+            "name": "Post Check out the development commit",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 21
+          },
+          {
+            "name": "Stop containers",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 22
+          },
+          {
+            "name": "Complete job",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 23
+          }
+        ]
+      }
+    ],
+    "artifact": {
+      "id": 13353562470,
+      "name": "alpha-wallet-simulation-evidence-b83e7a5245871fb985084a954e923e35c6514b4f",
+      "size_in_bytes": 17970,
+      "url": "https://api.github.com/repos/alphakits/alpha-traders-exchange/actions/artifacts/13353562470",
+      "archive_download_url": "https://api.github.com/repos/alphakits/alpha-traders-exchange/actions/artifacts/13353562470/zip",
+      "expired": false,
+      "created_at": "2026-11-04T18:57:59Z",
+      "expires_at": "2026-11-18T18:57:58Z",
+      "updated_at": "2026-11-04T18:57:59Z",
+      "digest": "sha256:862c6a217e89703a55fa0716761ad8f303398ed64d611f84db5175a3938be01a",
+      "workflow_run": {
+        "id": 41891927526,
+        "repository_id": 1305713053,
+        "head_repository_id": 1305713053,
+        "head_branch": "feature/alpha-wallet-dev-20261104",
+        "head_sha": "b83e7a5245871fb985084a954e923e35c6514b4f"
+      }
+    },
+    "unit_suite": {
+      "tests": 263,
+      "passed": 263,
+      "failed": 0,
+      "files": 11
+    }
+  },
+  "deployment_evidence": {
+    "vercel_branch_auto_deployment": false,
+    "vercel_branch_deployments_observed": 0,
+    "railway_live_source_branch": "main",
+    "railway_staged_source_branch": "main",
+    "workflow_scope": "exact development branch; disposable postgres:17; read-only contents; no deployment steps or production secrets",
+    "merged": false,
+    "deployed": false,
+    "production_migrations_applied": false,
+    "real_transfers_sent": false
+  },
+  "source_sha256": {
+    ".github/workflows/alpha-wallet-development.yml": "e1fbf3d9cc635a5692ed46251a70778d6e5630d6122c266d72650c5cb46cf567",
+    "docs/alpha-wallet/README.md": "6c9dbaf971a330466865cc2d828ad1215a81497ee3a527955919c4b8e6f79b7c",
+    "docs/alpha-wallet/durable-schema.sql": "1a170370b07cb81d168ed347eca3e9c60adee8832f7b3248c267829857772914",
+    "docs/alpha-wallet/schema-draft.sql": "79f1727d8551a619ebd4981266c93ea3d18b7e653938dfd8edfe52f744b107b9",
+    "docs/alpha-wallet/verification-2026-11-04.md": "a1ff1c4e9c2bf85da1ddd0ef5d10b79ef8681e6cd210fa6584c4def99c9ac853",
+    "docs/alpha-wallet/verification-results.json": "b4955ea4a5559deeb1794b4549e98e174451231319c3e9773d1dc5eb04c7dd9f",
+    "scripts/alpha-wallet/demo.ts": "9c3149119728e7914a7fe6f4c3882c41c8e0c294a611d69c5085786f576ef7df",
+    "scripts/alpha-wallet/durable-fixtures.ts": "12139bcbf4e879258ee7001756c522d55ab2afe58f786286df85a40479fc9440",
+    "scripts/alpha-wallet/postgres-concurrency.ts": "4fbd3444138c24edc7a8441d33b34587f88ba6d8baf63a8a56fe44c00dc42432",
+    "scripts/alpha-wallet/recovery-demo.ts": "b39f4f2b2f47a87f05095cb9940de3313f6702cbaf53b641eb83b0e86ca03532",
+    "src/lib/alpha-wallet/amounts.test.ts": "21319f0b445a097e7815f29d4aba68ee7c26f5f1860f52318a23889e7e2f5de2",
+    "src/lib/alpha-wallet/amounts.ts": "b24d8fea56a0c2c7f7948f2aaa73bcf31d1da0bbbc8a2e892e1798ec09f10011",
+    "src/lib/alpha-wallet/commands.test.ts": "ca3cf285d160ea960519dab265a632534e695a4bf1fa11974ee36dbf155d80c6",
+    "src/lib/alpha-wallet/commands.ts": "ede87aecd79de462b8e713babdcb1744a703e9039042abcd1e7d896dcd8dc877",
+    "src/lib/alpha-wallet/durable-schema.test.ts": "06f95ceefc96d44ae250c79d332f034a1ece370a1a109b5dfb455c9f5a331939",
+    "src/lib/alpha-wallet/durable-store.test.ts": "f8a15b4751b9b3d8e887cda1a9ad53367736ad85607b1a62d817aef7ffa19caa",
+    "src/lib/alpha-wallet/durable-store.ts": "cf4dde3e05cb260973e57bafcb53d9f529614a82045e6067b4cee96b7835fd8b",
+    "src/lib/alpha-wallet/durable.test.ts": "196ee673665e2032f23c550fe7ad49fa308f0c1902164293aa890e9a2c7bd4ac",
+    "src/lib/alpha-wallet/durable.ts": "4198c7d26838f76649a8f5cf2927a4c1e7c8465f8767364d977233ff659c8808",
+    "src/lib/alpha-wallet/fake-provider.test.ts": "aa28ad4634283fe53460a1e1a287ccb1032c20771a8f3445ca0197bb3a5afa57",
+    "src/lib/alpha-wallet/fake-provider.ts": "b53bd4da12be38f69bd9a0963cb514a5fbfaf2f15cfbc712ba6ed88a5f3400ee",
+    "src/lib/alpha-wallet/ledger.ts": "a84d72d3d0a534d71b3a0993d570eda97b5894603254566c9ea74ca2e4082a64",
+    "src/lib/alpha-wallet/payout-worker.test.ts": "a2d63ae861ff4e64ef598d31b80dd555d76a072c329d8228844d5c3ebf6f95ec",
+    "src/lib/alpha-wallet/payout-worker.ts": "2d4dae428c865532b4a9eda861e828206f7ddc62e9e4e2a23b0f73f9029fc1d9",
+    "src/lib/alpha-wallet/process-recovery.test.ts": "907259a138b4edc3b7d3ede1c8bf5e31a36fdf9f8eb054c32381d3e896ccdab4",
+    "src/lib/alpha-wallet/runtime.test.ts": "0ed34e41ce9bf297b493c74670df7edd625cb8fce2200795598e387378707fda",
+    "src/lib/alpha-wallet/runtime.ts": "ec3c10b23bac049df9b86bb451193e6ead1f1cbae1a336b02e85f546307bf1de",
+    "src/lib/alpha-wallet/sandbox.test.ts": "00bbdc9346ff2ce300761664052d77983c357838fadf688a162aa7446262cce1",
+    "src/lib/alpha-wallet/sandbox.ts": "ca00563a69feee6086c4113f8c3072dfbd82c3522a59f2d200b2421645b2547d",
+    "src/lib/alpha-wallet/schema-draft.test.ts": "71405f83610453c7bc6493b162e9a575807ab2100557890303eb8ace6e9dca66",
+    "src/lib/alpha-wallet/types.ts": "c6584047e00afd8d436e970529ac60429bf9071050418fbe2122a6b9dbf0bed7",
+    "vercel.json": "fe4e9483cb0ebff862ca7ccf79cc66292f9ea1eeeae9afeed14f2168365f9985"
+  },
+  "limits": [
+    "Fixture actors and payment evidence are not production authentication or bank verification.",
+    "No chain RPC, testnet/mainnet adapter, custody signer, keys or live provider.",
+    "Global serialization and complete replay are a development correctness bridge, not a production load design.",
+    "Hash chains detect inconsistent history; not signatures against an administrator rewriting all evidence.",
+    "Injected lost COMMIT acknowledgments are synthetic; actual network partitions are not tested locally.",
+    "Backup/restore, key recovery, operational incident exercises and independent security audit remain outstanding."
+  ],
+  "native_postgres_verified": true
+}
