@@ -45,6 +45,29 @@ async function prepared() {
   const payment = { signature, network: "BEP20" as const, amountMicros: checkout.expectedMicros, timestamp: Date.parse(checkout.createdAt) };
   return { service, checkout, payment };
 }
+it("exposes bounded discovery diagnostics for an unpaid checkout without exposing provider cursors", async () => {
+  const { service } = await prepared();
+  const timestamp = Date.now();
+  const diagnostics = { observedAt: timestamp, recentWindowMs: 900_000,
+    observedRows: 1, acceptedRows: 0, rejectedRows: 1,
+    recentObservedRows: 1, recentAcceptedRows: 0, recentRejectedRows: 1,
+    rejectedReasons: { status_credited_locked: 1 }, recentRejectedReasons: { status_credited_locked: 1 },
+    latestObservedTimestamp: timestamp, latestAcceptedTimestamp: null,
+    latestRejectedAtByReason: { status_credited_locked: timestamp } };
+  mocks.scanBinance.mockResolvedValue({ configured: true, complete: false, pages: 5, deposits: [], diagnostics,
+    continuation: { until: timestamp, offset: 1_000, fingerprint: "private-provider-cursor" } });
+  const clock = vi.spyOn(Date, "now").mockReturnValue(timestamp);
+  try {
+    const result = await service.scan(timestamp + 60_000);
+    expect(result).toMatchObject({ pendingCheckouts: 1, verified: 0, complete: false });
+    expect("providerHealth" in result && JSON.parse(result.providerHealth).BINANCE_DEPOSITS.diagnostics).toEqual(diagnostics);
+    expect(JSON.stringify(result)).not.toContain("private-provider-cursor");
+    expect((await service.state("seller")).status).not.toBe("paid");
+    expect(mocks.binance).not.toHaveBeenCalled();
+  } finally {
+    clock.mockRestore();
+  }
+});
 it.each(["TRC20", "BEP20"] as const)("automatically settles a full 40 USDT net receipt on %s once, after finality, without charging the sender's fee again", async (network) => {
   const initial = globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb;
   initial.commissionRecords = [{ ...initial.commissionRecords[0], commissionAmount: 40, paymentExpectedAmount: 40.000001 }];

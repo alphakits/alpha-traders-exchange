@@ -46,6 +46,29 @@ describe("commission scheduler", () => {
     expect(mocks.recoverEmails).toHaveBeenCalledWith({ limit: 2, maxDurationMs: 8_000 });
     expect(body.emailRecovery).toMatchObject({ checked: 1, queued: 1, errors: 0 });
   });
+  it("reports why receiving-account rows were excluded without submitting them as payments", async () => {
+    const timestamp = Date.now() - 1_000;
+    const diagnostics = { observedAt: Date.now(), recentWindowMs: 900_000,
+      observedRows: 1, acceptedRows: 0, rejectedRows: 1,
+      recentObservedRows: 1, recentAcceptedRows: 0, recentRejectedRows: 1,
+      rejectedReasons: { destination_mismatch: 1 }, recentRejectedReasons: { destination_mismatch: 1 },
+      latestObservedTimestamp: timestamp, latestAcceptedTimestamp: null,
+      latestRejectedAtByReason: { destination_mismatch: timestamp } };
+    mocks.binance.mockResolvedValue(scan([], { diagnostics }));
+    const logged = vi.spyOn(console, "info").mockImplementation(() => undefined);
+    try {
+      const response = await GET(request());
+      const body = await response.json();
+      expect(response.status).toBe(200);
+      expect(body.autoReconciliation.providers.BINANCE_DEPOSITS.diagnostics).toEqual(diagnostics);
+      expect(body.autoReconciliation.verified).toBe(0);
+      expect(mocks.submit).not.toHaveBeenCalled();
+      const summary = logged.mock.calls.find(([, entry]) => entry?.event === "commission_payment_verification_cron")?.[1];
+      expect(JSON.parse(summary?.metadata.providerHealth).BINANCE_DEPOSITS.diagnostics).toEqual(diagnostics);
+    } finally {
+      logged.mockRestore();
+    }
+  });
   it("reports confirmation recovery failure while preserving the successful payment result", async () => {
     mocks.tron.mockResolvedValue(scan([deposit()]));
     mocks.recoverEmails.mockRejectedValue(new Error("private database connection detail"));

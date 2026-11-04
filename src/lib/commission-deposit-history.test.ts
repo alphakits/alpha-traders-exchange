@@ -18,6 +18,22 @@ beforeEach(async () => { db = new PGlite(); await db.exec("CREATE SCHEMA alpha_e
 afterEach(async () => { vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.unstubAllEnvs(); await db.close(); });
 
 describe("durable receiving history", () => {
+  it("retains rejection diagnostics when a complete provider response contains no eligible deposits", async () => {
+    const diagnostics = { observedAt: 200_000, recentWindowMs: 900_000,
+      observedRows: 1, acceptedRows: 0, rejectedRows: 1,
+      recentObservedRows: 1, recentAcceptedRows: 0, recentRejectedRows: 1,
+      rejectedReasons: { unsupported_network: 1 }, recentRejectedReasons: { unsupported_network: 1 },
+      latestObservedTimestamp: 150_000, latestAcceptedTimestamp: null,
+      latestRejectedAtByReason: { unsupported_network: 150_000 } };
+    const historyStore = store();
+    const result = await discoverCommissionHistory({ scope: "checkout", since: 1, now: 200_000,
+      networks: ["BEP20"], store: historyStore,
+      scanners: { TRC20: unavailable, BEP20: unavailable,
+        BINANCE_DEPOSITS: async () => ({ configured: true, complete: true, pages: 1, deposits: [], diagnostics }) } });
+    expect(result).toMatchObject({ complete: true, deposits: [], scanned: 0,
+      providers: { BINANCE_DEPOSITS: { diagnostics } } });
+    expect((await historyStore.load("checkout"))?.state.providers.BINANCE_DEPOSITS?.diagnostics).toEqual(diagnostics);
+  });
   it.each([false, true])("retains the safe BEP20 block failure while requiring complete fallback coverage: %s", async (fallbackComplete) => {
     vi.stubEnv("ALPHA_EXCHANGE_ETHERSCAN_API_KEY", "index-key");
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ status: "0", message: "NOTOK",
