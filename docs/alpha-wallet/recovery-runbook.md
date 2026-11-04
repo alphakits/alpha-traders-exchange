@@ -82,7 +82,7 @@ Mixed inspection validates both engines, all original results/hashes, the exact 
 
 Use `createVersionedSimulationPayoutWorker` for an already-upgraded fake-provider fixture. It retains the original recovery policy, including lookup of inherited uncertain payouts while paused and no resubmission after an empty lookup. It never upgrades a store or registers a worker. The migration's old-wallet-writer fence does not stop another source database, fence production marketplace writers or reconcile an external provider; the incident procedure still applies.
 
-The separately executable [native v2 drill](../../scripts/alpha-wallet/postgres-versioned-ledger.ts) checks migration rollback, inherited settlement, concurrent proposal retries, mixed restore and lookup-only recovery on fresh disposable PostgreSQL databases. Its actual result belongs in the exact-source verification report. See the [v2 continuation contract](ledger-v2-continuation-design.md) for the command and compatibility boundaries.
+The separately executable [native v2 drill](../../scripts/alpha-wallet/postgres-versioned-ledger.ts) checks migration rollback, inherited settlement, concurrent proposal retries, mixed restore and lookup-only recovery on fresh disposable PostgreSQL databases. [Exact-source verification at `08fb7fa`](ledger-v2-verification-2026-11-05.md) passed all nine native checks, preserving 450 remaining principal plus 3 separate fee revenue after paused restore and making zero submissions during uncertain-payout recovery. See the [v2 continuation contract](ledger-v2-continuation-design.md) for the command and compatibility boundaries.
 
 ## Guarded local backup CLI
 

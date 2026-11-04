@@ -1,12 +1,12 @@
 # Alpha Wallet — development and launch preparation
 
-Date: 4 November 2026. Scope: architecture and **offline development only**.
+Date: 5 November 2026 (Asia/Jerusalem). Scope: architecture and **offline development only**.
 Base: `0b11b21fc0de3d04e4325a748ea2de62ade4f317` (the existing marketplace main branch when this work began).
 Working branch: `feature/alpha-wallet-dev-20261104`.
 
 **Development resumed at the user's request on 4 November 2026.** The [saved pause checkpoint](PAUSED-2026-11-04.md) records the earlier handoff. The no-live-launch restriction remains in force; unfinished verification and integration are tracked in [launch-readiness.md](launch-readiness.md).
 
-Latest verified source: `44ac6c4`. [Marketplace groundwork verification](marketplace-groundwork-verification-2026-11-04.md) records **800 passing wallet/authentication/marketplace tests**, full-project TypeScript, three native PostgreSQL drills and actual English/Arabic Chromium checks. This is a development checkpoint, not launch approval.
+Latest verified source: `08fb7fa`. [Versioned ledger verification](ledger-v2-verification-2026-11-05.md) records **879 passing wallet/authentication/marketplace tests**, full-project TypeScript, four native PostgreSQL drills and actual English/Arabic Chromium checks. This is a development checkpoint, not launch approval.
 
 This is an executable specification connected to an isolated, durable simulation repository and an offline provider fixture. It is not a live wallet, a testnet deployment, a custody provider, or a production-ready financial service. There are no real deposit addresses, keys, signing functions, RPC requests, public routes, scheduled workers, or applied production migrations in this change.
 
@@ -223,7 +223,7 @@ Current acceptance evidence, open gates and owner decisions are tracked in [laun
 | 2. Durable development repository | Connected transactional commands/journal/outbox, immutable evidence, replay, fake-provider recovery — implemented for simulation | Current durable verification report; native concurrency execution and backup/restore evidence tracked separately |
 | 2a. Recovery, access and rehearsal | Quarantined logical restore, separate-process backup CLI, trusted-user gateway, fixture receipt decoders and local bilingual UI — implemented for simulation | [Phase-three verification](phase3-verification-2026-11-04.md): 468 tests, actual native restore and Chromium English/Arabic flows passed |
 | 2a extension. Marketplace transaction groundwork | Pure canonical acceptance planner, frozen v1 history and actual focused SQL participant — implemented for simulation | [Groundwork verification](marketplace-groundwork-verification-2026-11-04.md): 800 tests and all three native PostgreSQL drills passed |
-| 2a extension. Versioned ledger | Explicit continuation/migration, synthetic enrollment, delta-only corrections, receipts, inherited recovery and mixed backup — implemented for simulation | Focused verification and a separate native PostgreSQL continuation/restore drill; the real marketplace coordinator remains a later gate |
+| 2a extension. Versioned ledger | Explicit continuation/migration, synthetic enrollment, delta-only corrections, receipts, inherited recovery and mixed backup — implemented for simulation | [Versioned verification](ledger-v2-verification-2026-11-05.md): 879 tests, four native drills and the retained browser rehearsal passed; the real marketplace coordinator remains a later gate |
 | 2b. Production repository design | Auth-derived identities, production role design, version migration, checkpointing/scaling, backup/restore and operational recovery | Reviewed permissions, fault-injection evidence, restore/reconciliation exercise, realistic load tests |
 | 3. Testnet adapters | Exact chain allowlists; deposit address assignment; confirmed receipt observers; cursor recovery; chosen signer/custody sandbox; gas handling | Wrong-token, finality, provider outage, timeout, duplicate webhook, and ambiguous-broadcast recovery tests |
 | 4. Private integrated flow | Seller deposit/withdraw screens; funded listings; existing trade UI; Arabic/English mobile behavior; payment-verification and dispute resolution interfaces | End-to-end tests using synthetic/testnet funds; existing marketplace/commission/review/receipt regressions |
@@ -236,6 +236,7 @@ Additional implementation contracts:
 - [Executed recovery and browser evidence](phase3-verification-2026-11-04.md)
 - [Platform session integration verification](platform-verification-2026-11-04.md)
 - [Marketplace transaction groundwork verification](marketplace-groundwork-verification-2026-11-04.md)
+- [Versioned ledger continuation and recovery verification](ledger-v2-verification-2026-11-05.md)
 - [Recovery runbook](recovery-runbook.md)
 - [Access and existing-platform integration](access-and-integration.md)
 - [Atomic marketplace terms integration design](transaction-integration-design.md)

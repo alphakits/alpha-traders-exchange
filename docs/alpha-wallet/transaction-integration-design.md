@@ -2,7 +2,7 @@
 
 **Status: preliminary planner, frozen v1 evidence, focused repository participant and separate v2 ledger continuation/resize implemented for simulation; the actual marketplace coordinator and enrolled-writer cutover remain unfinished.** Original source review: 4 November 2026, development baseline `23ee55f`. The current wallet remains an isolated simulation. This document does not connect a production route, migrate a production database, authorize a provider, or establish launch readiness.
 
-The preliminary stage passed [exact-source verification at `44ac6c4`](marketplace-groundwork-verification-2026-11-04.md): 800 tests, full-project TypeScript, three native PostgreSQL drills and the browser rehearsal. The separate [v2 continuation contract](ledger-v2-continuation-design.md) now describes the implemented development ledger version/migration/backup boundary. Its new commands consume trusted synthetic planner evidence; they do not implement the marketplace transaction described below.
+The preliminary stage passed [exact-source verification at `44ac6c4`](marketplace-groundwork-verification-2026-11-04.md): 800 tests, full-project TypeScript, three native PostgreSQL drills and the browser rehearsal. The separate [v2 continuation contract](ledger-v2-continuation-design.md) is now [verified at `08fb7fa`](ledger-v2-verification-2026-11-05.md): 879 tests and four native drills, including explicit ledger migration, correction and mixed restore. Its new commands consume trusted synthetic planner evidence; they do not implement the marketplace transaction described below.
 
 ## Decision and smallest next stage
 

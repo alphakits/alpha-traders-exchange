@@ -1,12 +1,12 @@
 # Alpha Wallet launch readiness
 
-Date: 4 November 2026. Decision: **not ready to accept live funds or deploy**.
+Date: 5 November 2026 (Asia/Jerusalem). Decision: **not ready to accept live funds or deploy**.
 
 **Development resumed at the user's request on 4 November 2026.** The [saved checkpoint](PAUSED-2026-11-04.md) records the prior pause and unfinished verification. Resumption authorizes development and isolated checks; it does not authorize a live launch.
 
 The user authorized continued development, isolated testing and saving the wallet development branch. Live launch remains withheld. A passing development suite does not change that instruction.
 
-Latest verified source: `44ac6c4`, with **800 passing tests across the wallet and targeted platform authentication/marketplace suites**, full-project TypeScript, three successful native PostgreSQL drills and the Chromium rehearsal. [Exact evidence and limits](marketplace-groundwork-verification-2026-11-04.md) are retained separately from this readiness decision.
+Latest verified source: `08fb7fa`, with **879 passing tests across the wallet and targeted platform authentication/marketplace suites**, full-project TypeScript, four successful native PostgreSQL drills and the Chromium rehearsal. [Exact evidence and limits](ledger-v2-verification-2026-11-05.md) are retained separately from this readiness decision.
 
 ## Accepted behavior
 
@@ -26,7 +26,7 @@ These rules are executable in the isolated development model. Existing marketpla
 | --- | --- | --- |
 | Accounting and reservations | Exact raw units, balanced journals, conservation, full-principal allocation, partial trades and separate fee accounting | Production permissions, migrations, realistic load/checkpoint design and full platform consistency |
 | Durable commands | Strict v1/v2 replay, explicit atomic development continuation, immutable SQL projections, deduplicated commands and payouts, original historical retries and old-wallet-writer fencing | Reviewed production roles/migrations, checkpointing and ongoing integrity monitoring |
-| Recovery | Lost-response lookup, separate provider state, logical backup validation, atomic pause on restore, explicit backup CLI; native PostgreSQL rollback/restore drill passed | Fenced production writers, provider/chain reconciliation, signed-off recovery exercise and controlled resume/adjudication |
+| Recovery | Lost-response lookup, separate provider state, pure-v1 and mixed-v2 backup validation, atomic migration/restore/pause, inherited payout recovery and explicit v1 backup CLI; both native restore drills passed | Fenced production writers, provider/chain reconciliation, signed-off recovery exercise and controlled resume/adjudication |
 | Access control | Development web/mobile adapters use actual stored session metadata and strict canonical reads; gateway enforces participant privacy, canonical seller status and exact withdrawal-proof terms | Production wallet routes/configuration, real step-up issuer, atomic revocation/rate-limit contract and review of privileged identities |
 | Chain evidence | Strict pure BSC/TRON receipt validation against explicit fixture context and supplied canonical ancestry | Exact real/test asset registry, owned deposit addresses, authenticated independent RPC/finality sources, durable scan coverage and reorg handling |
 | Custody and signing | Immutable payout contract and fake-provider acceptance/lookup/finality tests | Owner-selected custody/signing model, isolated provider test environment, tested keys/policies/recovery and account-specific asset availability |
@@ -54,6 +54,7 @@ The current ledger rebuilds all historical commands and serializes the whole wal
 - [468-test access, recovery and actual browser verification](phase3-verification-2026-11-04.md)
 - [578-test platform session and wallet verification](platform-verification-2026-11-04.md)
 - [800-test marketplace transaction groundwork verification](marketplace-groundwork-verification-2026-11-04.md)
+- [879-test versioned ledger and recovery verification](ledger-v2-verification-2026-11-05.md)
 - [Access/platform integration contract](access-and-integration.md)
 - [Atomic marketplace terms integration design](transaction-integration-design.md)
 - [Versioned ledger continuation contract](ledger-v2-continuation-design.md)
@@ -61,4 +62,4 @@ The current ledger rebuilds all historical commands and serializes the whole wal
 - [Chain adapter contract](chain-adapter-contract.md)
 - [Rehearsal guide](rehearsal.md)
 
-The phase-three report identifies the exact tested commit and successful native PostgreSQL/Chromium run. Subsequent integration work requires separate evidence; a passing isolated simulation does not close the remaining live-launch gates.
+Each verification report identifies its exact tested commit and executed native PostgreSQL/Chromium results. Subsequent integration work requires separate evidence; a passing isolated simulation does not close the remaining live-launch gates.

@@ -2,7 +2,7 @@
 
 Status: **implemented for the isolated development ledger; production marketplace integration remains unfinished**. This extends the [shared-transaction groundwork](transaction-integration-design.md). It does not activate a marketplace cohort, register an application migration, connect a public route or authorize deployment.
 
-The original design was reviewed against development commit `44ac6c4` and the frozen v1 fixtures. The implementation adds separate v2 files; it leaves the original v1 engine, command parser, durable repository, schema, backup and frozen history unchanged. Native verification must be recorded for the exact source commit; focused local tests alone are not native PostgreSQL evidence.
+The original design was reviewed against development commit `44ac6c4` and the frozen v1 fixtures. The implementation adds separate v2 files; it leaves the original v1 engine, command parser, durable repository, schema, backup and frozen history unchanged. [Exact-source verification at `08fb7fa`](ledger-v2-verification-2026-11-05.md) passed 879 tests, full-project TypeScript, four native PostgreSQL drills and the retained browser rehearsal. The new native v2 drill passed all nine checks; focused local tests alone are not the basis for that result.
 
 ## Explicit version boundary
 
