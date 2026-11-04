@@ -45,6 +45,7 @@ import {
   tradeActionConfirmationKey,
 } from "@/lib/trade-room-actions";
 import { clearTradeRoomCache, readTradeRoomCache, writeTradeRoomCache } from "@/lib/trade-room-client";
+import { matchesTradeRoomRoute } from "@/lib/trade-room-route-match";
 import { postTradeReview, TradeReviewTimeoutError } from "@/lib/trade-review-client";
 import { fetchClientJson, runClientRequest } from "@/lib/client-request-deadline";
 import { isBankDetailsDisclosureStage, isBankTransferPaymentMethod, isCardlessAtmPaymentMethod, isCashTradePaymentMethod, isCashTradeUsdtSentConfirmationAvailable, isFaceToFacePaymentMethod, isSellerTradeCompletionAvailable, isSellerEvidenceRequiredForPaymentMethod, normalizeMarketplacePaymentMethod } from "@/lib/marketplace-payment-methods";
@@ -1483,7 +1484,7 @@ function TradeRoomPageSession({
   const backgroundRefreshInFlightRef = useRef(false);
   const applyChatReceipts = useCallback((receipts: TradeChatReceipt[]) => {
     const current = roomRef.current;
-    if (!current || current.request.id !== requestId || !receipts.length) return;
+    if (!current || !matchesTradeRoomRoute(current.request, requestId) || !receipts.length) return;
     const byId = new Map(receipts.map(receipt => [receipt.id, receipt]));
     const next = { ...current, messages: current.messages.map(message => {
       const receipt = byId.get(message.id);
@@ -1606,7 +1607,7 @@ function TradeRoomPageSession({
       return;
     }
     const cachedCandidate = readTradeRoomCache<TradeRoomData>(requestId, actor.id);
-    const cached = cachedCandidate?.request?.id === requestId ? cachedCandidate : null;
+    const cached = cachedCandidate?.request && matchesTradeRoomRoute(cachedCandidate.request, requestId) ? cachedCandidate : null;
     if (cachedCandidate && !cached) clearTradeRoomCache(requestId, actor.id);
     if (cached) {
       roomRef.current = cached;
@@ -2355,7 +2356,7 @@ function TradeRoomPageSession({
     event?.preventDefault();
     if (chatMessageInFlightRef.current) return false;
     const currentRoom = roomRef.current ?? room;
-    if (!currentRoom || currentRoom.request.id !== requestId || !isTradeChatOpen(currentRoom.request)) return false;
+    if (!currentRoom || !matchesTradeRoomRoute(currentRoom.request, requestId) || !isTradeChatOpen(currentRoom.request)) return false;
     if (location && (!canShareTradeLocation(currentRoom.request)
       || (actor.id !== currentRoom.request.buyerId && actor.id !== currentRoom.request.sellerId))) return false;
     const attachment = location ? null : chatImage;

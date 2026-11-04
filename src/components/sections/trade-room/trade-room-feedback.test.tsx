@@ -1159,3 +1159,51 @@ describe("Face-to-Face location integration", () => {
     expect(current.request.usdtAmount).toBe("100"); expect(current.request.status).toBe("accepted");
   });
 });
+
+
+describe("meeting location release: supported Trade Room URL aliases", () => {
+  it.each(["feedback-request", "purchase-feedback-request", "feedback-trade", "purchase-feedback-trade"])("sends normal text and location through %s using the canonical request", async routeId => {
+    const current = room("Face-to-Face", "accepted");
+    const posts: Array<{ url: string; body: Record<string, unknown> }> = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.endsWith("/messages") && init?.method === "POST") {
+        const body = JSON.parse(String(init.body)); posts.push({ url, body });
+        return Response.json({ message: { id: `alias-message-${posts.length}`, purchaseRequestId: current.request.id,
+          clientMessageId: body.clientMessageId, kind: "user", senderUserId: buyer.id, senderRole: buyer.role,
+          message: body.location ? "Meeting location shared." : body.message, location: body.location,
+          createdAt: new Date().toISOString(), readByUserIds: [buyer.id] }, created: true });
+      }
+      return Response.json(current);
+    }));
+    render(<TradeRoomPage locale="en" requestId={routeId} actor={buyer} />);
+    await screen.findByTestId("trade-location-composer");
+    fireEvent.change(screen.getByPlaceholderText("Type a message..."), { target: { value: "Meet by the entrance." } });
+    fireEvent.click(screen.getByRole("button", { name: "Send Message" }));
+    await waitFor(() => expect(posts).toHaveLength(1));
+    await waitFor(() => expect(document.querySelector('[data-trade-message-id="alias-message-1"]')).not.toBeNull());
+    fireEvent.click(screen.getByRole("button", { name: "Share meeting location" }));
+    fireEvent.change(screen.getByLabelText("Latitude"), { target: { value: "32.123456" } });
+    fireEvent.change(screen.getByLabelText("Longitude"), { target: { value: "35.654321" } });
+    fireEvent.click(screen.getByRole("button", { name: "Preview meeting point" }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirm and send location" }));
+    await waitFor(() => expect(posts).toHaveLength(2));
+    await waitFor(() => expect(document.querySelector('[data-trade-message-id="alias-message-2"]')).not.toBeNull());
+    expect(posts.map(item => item.url)).toEqual(Array(2).fill("/api/alpha-exchange/purchase-requests/feedback-request/messages"));
+    expect(posts[0].body.message).toBe("Meet by the entrance.");
+    expect(posts[1].body.location).toEqual({ version: 1, latitude: 32.123456, longitude: 35.654321, source: "meeting_point" });
+    expect(current.request.status).toBe("accepted"); expect(current.request.usdtAmount).toBe("100");
+  });
+  it("refuses to send a stale room's draft after the route switches to an unrelated trade", async () => {
+    const current = room("Face-to-Face", "accepted");
+    const posts: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method === "POST" && url.endsWith("/messages")) posts.push(url);
+      return Response.json(current);
+    }));
+    render(<TradeRoomPage locale="en" requestId="unrelated-trade" actor={buyer} />);
+    await screen.findByTestId("trade-chat-messages");
+    fireEvent.change(screen.getByPlaceholderText("Type a message..."), { target: { value: "Do not send to another trade." } });
+    fireEvent.click(screen.getByRole("button", { name: "Send Message" }));
+    expect(posts).toHaveLength(0);
+  });
+});
