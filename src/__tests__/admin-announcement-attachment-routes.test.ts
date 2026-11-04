@@ -102,7 +102,7 @@ describe("owner PDF announcement routes", () => {
     if (contentLength !== undefined) headers.set("Content-Length", contentLength);
     const oversizedRequest = new NextRequest("https://www.alphatraders.co.il/api/alpha-exchange/admin/announcements", {
       method: "POST", headers, body: stream, duplex: "half",
-    } as RequestInit);
+    });
 
     const response = await handler(oversizedRequest);
 
