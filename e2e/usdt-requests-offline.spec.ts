@@ -1184,8 +1184,12 @@ for (const role of ["buyer", "seller"] as const) {
       const landscapeToggle = page.locator('summary[aria-label="Open menu"]');
       await landscapeToggle.click();
       const landscapeEntry = landscapeToggle.locator("..").getByRole("link", { name: "Buy Requests", exact: true });
+      const landscapePanel = landscapeToggle.locator("+ div");
+      // Wait for the opened panel to be stable before caching wheel coordinates.
+      // A landscape resize can otherwise leave the pointer outside the panel.
+      await landscapePanel.hover();
       const [panel, item] = await Promise.all([
-        landscapeToggle.locator("+ div").boundingBox(),
+        landscapePanel.boundingBox(),
         landscapeEntry.boundingBox(),
       ]);
       if (!panel || !item) throw new Error("The open menu and its Buy Requests link must have visible bounds.");
