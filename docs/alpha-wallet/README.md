@@ -39,6 +39,7 @@ This is an executable specification connected to an isolated, durable simulation
 | Recovery worker | Persist claim before submission; retain uncertain funds; look up original reference; exact final receipt; tolerate late matching reports | Explicit single offline step with file-backed fake provider; no registered service or cron |
 | Backup and restore | Verified logical history; explicit local CLI; fresh-target restore; pause committed atomically with restored funds | Development stores only; old writers must be fenced and provider history reconciled before any later resumption |
 | User access boundary | Actual web/mobile session-source adapters for development; strict stored expiry/canonical evidence; participant privacy; exact-terms withdrawal approvals; privileged service commands excluded | Isolated fixtures verify the adapters; no production wallet route, actual MFA issuer or atomic authentication/financial commit |
+| Marketplace groundwork | Pure accepted-amount planner using actual contract rules; frozen 41-command v1 history; actual focused repository SQL can participate in one owned simulation transaction | No durable resize, enrollment, acceptance receipt, lifecycle coordinator or protection of every enrolled legacy writer yet |
 | Chain evidence | Strict BSC/TRON receipt decoding, event identity, exact units, execution status and supplied canonical ancestry | Pure fixture consistency; no live RPC, consensus proof, authoritative finality source or automatic credit |
 | Interactive rehearsal | Persistent loopback app with English/Arabic flows, partial trades, fee accounting and fault recovery | Explicit synthetic role switcher; not real account authentication or a deployed product |
 | SQL proof | Connected `durable-schema.sql` plus retained historical `schema-draft.sql` | Neither file is registered as an application migration |
@@ -139,12 +140,12 @@ Disputes opened before dispatch stop the outgoing action. A dispute opened after
 | --- | --- |
 | `createMarketplaceListing` and owner review in `alpha-exchange-store.ts` | Add funded-principal eligibility while retaining owner approval |
 | `createPurchaseRequest` / accepted trade transitions | Bind chain/token/recipient and reserve principal atomically |
-| `updateTradeTerms` | Resize reservations atomically within current pre-payment adjustment rules; invalidate changed authorizations |
+| `updateTradeTerms` | Pure planner now preserves existing pre-payment consent/quote rules; versioned durable resize and acceptance receipt still need atomic integration |
 | Current `funds_received` | Do not use as wallet authority; face-to-face presently allows a buyer-originated transition |
 | Current `usdt_sent` / owner completion | Do not infer a blockchain transfer from a manual status change |
 | Cancellations and disputes | Preserve reservation until safely cancellable; freeze unsent intents; distinguish in-flight outcomes |
 | Completion and receipts | Derive financial completion from payout confirmation; apply benefits/history/fees once |
-| `alpha-exchange-repository.ts` | Use dedicated transactional wallet commands; avoid generic snapshot replacement for ledger state |
+| `alpha-exchange-repository.ts` | Focused read/persistence now has a guarded shared-transaction development participant; lifecycle extraction and enrolled-writer guards remain |
 | Mobile auth route matching | Explicitly apply phone, age, session, and role checks to wallet routes; current route regex alone does not include them |
 
 No production integration in this table has been performed in this milestone.
@@ -184,6 +185,16 @@ NODE_ENV=test node --import tsx scripts/alpha-wallet/postgres-concurrency.ts \
 ```
 
 The harness refuses existing application schemas and never drops data. It requires two independent worker processes/backend connections to establish overlapping snapshots, checks that a whole-transaction serialization retry occurred, and exercises duplicate credit, overselling, dispatch claims, receipt deduplication, and commit-acknowledgment recovery. Its fixed fixture credentials are not production credentials.
+
+The focused marketplace participant has a separate native fixture using the actual repository read/write statements and a fresh database:
+
+```bash
+NODE_ENV=test node --conditions=react-server --import tsx scripts/alpha-wallet/postgres-marketplace-transaction.ts \
+  --fresh-simulation-database \
+  --connection-string 'postgresql://wallet_fixture:simulation-only@127.0.0.1:5432/alpha_wallet_dev_marketplace'
+```
+
+It pairs trade-note updates with synthetic wallet commands to check shared commit, rollback even after a swallowed callback error, stale-snapshot retry and original-identity recovery. It does not perform business acceptance or resize. The `react-server` condition permits the repository's existing server-only imports in this explicit Node fixture.
 
 The test runner sets a test environment. The demo explicitly opts into local development. The factory rejects production and recognized hosted runtimes, refuses mainnet/signing flags, and rechecks those conditions for mutations. The SQL draft also requires an explicit simulation-only setting before it can create its isolated schema. These are development guards, not substitutes for production security design.
 

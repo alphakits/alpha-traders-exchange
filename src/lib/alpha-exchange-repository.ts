@@ -18,6 +18,7 @@ import { ALPHA_EXCHANGE_OWNER_EMAIL } from "@/lib/alpha-exchange-identity";
 import { compactSnapshotIdentities, setSnapshotIdentityDirectory, type SnapshotIdentity } from "@/lib/alpha-exchange-identity-directory";
 import { listingCommissionRequiredMessage } from "@/lib/listing-commission-policy";
 import { decodeWiseStorage, serializeWiseStorageJson, WiseStorageError } from "@/lib/wise-storage-crypto";
+import { assertSimulationRuntime } from "@/lib/alpha-wallet/runtime";
 import type {
   AlphaExchangeDb,
   MarketplaceEnforcementAuditEntry,
@@ -48,6 +49,11 @@ import type {
 } from "@/types/alpha-exchange";
 
 type Queryable = Pool | PoolClient;
+
+/** Internal repository statements only; transaction ownership stays with the caller. */
+type RepositorySql = {
+  query<Row extends Record<string, unknown> = Record<string, unknown>>(sql: string, values?: unknown[]): Promise<{ rows: Row[] }>;
+};
 
 // This final bootstrap object avoids repeating runtime DDL. It does not prove
 // the table contract is intact: enabling Buy Requests checks the actual catalog.
@@ -521,13 +527,15 @@ type RepoTable<T> = {
   name: string;
   selectSql: string;
   values: (db: AlphaExchangeDb) => T[];
-  insert: (tx: PoolClient, rows: T[], context: SaveContext) => Promise<void>;
+  insert: (tx: RepositorySql, rows: T[], context: SaveContext) => Promise<void>;
 };
 
 type SaveContext = {
   evidenceContentById: Map<string, Buffer | null>;
   evidenceOverrides?: EvidenceWriteMap;
   rowSortIndexes?: ReadonlyMap<string, number>;
+  /** The development shared transaction cannot overwrite a retained event ID. */
+  appendOnlyEvents?: boolean;
 };
 
 const SNAPSHOT_TABLE_NAMES = [
@@ -732,7 +740,7 @@ function cloneSnapshot<T>(value: T): T {
   return structuredClone(value);
 }
 
-async function bulkInsert(tx: PoolClient, sql: string, columnArrays: unknown[][]): Promise<void> {
+async function bulkInsert(tx: RepositorySql, sql: string, columnArrays: unknown[][]): Promise<void> {
   if (!columnArrays[0]?.length) return;
   await tx.query(sql, columnArrays);
 }
@@ -974,7 +982,7 @@ WHERE alpha_exchange.purchase_requests.trade_id IS DISTINCT FROM excluded.trade_
 SELECT id, user_id, category, is_read::boolean, created_at::timestamptz, sort_index::int, payload::jsonb
 FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[],$7::text[])
   AS t(id,user_id,category,is_read,created_at,sort_index,payload)
-ON CONFLICT (id) DO UPDATE SET
+${context.appendOnlyEvents ? "" : `ON CONFLICT (id) DO UPDATE SET
   user_id = excluded.user_id,
   category = excluded.category,
   is_read = excluded.is_read,
@@ -986,7 +994,7 @@ WHERE alpha_exchange.notifications.user_id IS DISTINCT FROM excluded.user_id
    OR alpha_exchange.notifications.is_read IS DISTINCT FROM excluded.is_read
    OR alpha_exchange.notifications.created_at IS DISTINCT FROM excluded.created_at
    OR alpha_exchange.notifications.sort_index IS DISTINCT FROM excluded.sort_index
-   OR alpha_exchange.notifications.payload IS DISTINCT FROM excluded.payload`, [
+   OR alpha_exchange.notifications.payload IS DISTINCT FROM excluded.payload`}`, [
         rows.map(r => r.id),
         rows.map(r => r.userId),
         rows.map(r => r.category),
@@ -1050,7 +1058,7 @@ WHERE alpha_exchange.commissions.purchase_request_id IS DISTINCT FROM excluded.p
 SELECT id, action, actor_user_id, target_user_id, listing_id, purchase_request_id, created_at::timestamptz, sort_index::int, payload::jsonb
 FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[],$7::text[],$8::text[],$9::text[])
   AS t(id,action,actor_user_id,target_user_id,listing_id,purchase_request_id,created_at,sort_index,payload)
-ON CONFLICT (id) DO UPDATE SET
+${context.appendOnlyEvents ? "" : `ON CONFLICT (id) DO UPDATE SET
   action = excluded.action,
   actor_user_id = excluded.actor_user_id,
   target_user_id = excluded.target_user_id,
@@ -1066,7 +1074,7 @@ WHERE alpha_exchange.audit_logs.action IS DISTINCT FROM excluded.action
    OR alpha_exchange.audit_logs.purchase_request_id IS DISTINCT FROM excluded.purchase_request_id
    OR alpha_exchange.audit_logs.created_at IS DISTINCT FROM excluded.created_at
    OR alpha_exchange.audit_logs.sort_index IS DISTINCT FROM excluded.sort_index
-   OR alpha_exchange.audit_logs.payload IS DISTINCT FROM excluded.payload`, [
+   OR alpha_exchange.audit_logs.payload IS DISTINCT FROM excluded.payload`}`, [
         rows.map(r => r.id),
         rows.map(r => r.action),
         rows.map(r => r.actorUserId),
@@ -2432,6 +2440,210 @@ async function queryReadWithRetry<T extends QueryResultRow>(
   throw new Error("Database read retry exhausted.");
 }
 
+type FocusedTradeRead = {
+  snapshot: AlphaExchangeDb;
+  before: PurchaseRequest;
+  beforeJson: string;
+  targetId: string;
+};
+
+/** The same canonical focused read is used by both transaction owners below. */
+async function readFocusedTrade(client: RepositorySql, requestId: string): Promise<FocusedTradeRead> {
+  const result = await client.query<{ payload: AlphaExchangeDb; target_id: string }>(`
+    select r.id as target_id, jsonb_build_object(
+      'purchaseRequests', (select coalesce(jsonb_agg(p.payload), '[]'::jsonb) from alpha_exchange.purchase_requests p where p.seller_id = r.seller_id),
+      'users', (select coalesce(jsonb_agg(u.payload), '[]'::jsonb) from alpha_exchange.users u where u.id in (r.buyer_id, r.seller_id)),
+      'marketplaceListings', (select coalesce(jsonb_agg(l.payload), '[]'::jsonb) from alpha_exchange.listings l where l.seller_id = r.seller_id),
+      'commissionRecords', (select coalesce(jsonb_agg(c.payload), '[]'::jsonb) from alpha_exchange.commissions c where c.seller_id = r.seller_id),
+      'trustSnapshots', (select coalesce(jsonb_agg(t.payload), '[]'::jsonb) from alpha_exchange.trust_snapshots t where t.seller_id = r.seller_id),
+      'tradeEvidenceFiles', (select coalesce(jsonb_agg(e.payload), '[]'::jsonb) from alpha_exchange.evidence e where e.purchase_request_id = r.id),
+      'disputes', (select coalesce(jsonb_agg(d.payload), '[]'::jsonb) from alpha_exchange.disputes d where d.purchase_request_id = r.id)
+    ) as payload
+    from alpha_exchange.purchase_requests r where r.id = $1 or r.trade_id = $1 limit 1`, [requestId]);
+  const row = result.rows[0];
+  if (!row) throw new Error("Trade not found.");
+  const snapshot = { ...emptySnapshotCollections(), ...decodeWiseStorage(row.payload) };
+  const before = structuredClone(snapshot.purchaseRequests.find((request) => request.id === row.target_id)!);
+  return { snapshot, before, beforeJson: JSON.stringify(before), targetId: row.target_id };
+}
+
+/** Does not connect, commit, retry, release, publish, or modify unrelated rows. */
+async function persistFocusedTrade(
+  client: RepositorySql,
+  focused: FocusedTradeRead,
+  next: AlphaExchangeDb,
+  appendOnlyEvents = false,
+): Promise<boolean> {
+  const { before, beforeJson, targetId } = focused;
+  const updated = next.purchaseRequests.find((request) => request.id === targetId);
+  if (!updated || updated.status !== before.status || updated.buyerId !== before.buyerId || updated.sellerId !== before.sellerId || updated.listingId !== before.listingId) {
+    throw new Error("Focused trade updates cannot change lifecycle or participants.");
+  }
+  const changed = JSON.stringify(updated) !== beforeJson;
+  if (changed) {
+    await client.query("update alpha_exchange.purchase_requests set payload = $2::jsonb, updated_at = $3::timestamptz where id = $1", [updated.id, json(updated), updated.updatedAt]);
+    if (updated.buyerReview && !before.buyerReview) {
+      // Preserve the existing recipient/request-scoped review cleanup.
+      await client.query(`update alpha_exchange.notifications
+        set is_read = true, payload = payload || jsonb_build_object('isRead', true, 'state', 'read', 'updatedAt', $3::text)
+        where user_id = $1 and payload->>'relatedRequestId' = $2 and is_read = false
+          and coalesce(payload->>'state', 'unread') <> 'archived'
+          and (lower(payload->>'title') like '%action required%'
+            or lower(payload->>'title') like '%confirm usdt receipt%'
+            or lower(payload->>'message') like '%confirm that you received your usdt%')`,
+      [updated.buyerId, updated.id, updated.updatedAt]);
+    }
+    for (const name of ["notifications", "audit_logs", "activity_logs"] as const) {
+      const table = getTable(name);
+      await table.insert(client, table.values(next), { evidenceContentById: new Map(), appendOnlyEvents });
+    }
+    await client.query("update alpha_exchange.runtime_meta set version = version + 1, updated_at = now() where singleton = true");
+  }
+  return changed;
+}
+
+function assertDevelopmentFocusedWriteSet(baseline: AlphaExchangeDb, focused: FocusedTradeRead, next: AlphaExchangeDb) {
+  if (!next || typeof next !== "object" || Array.isArray(next)) throw new Error("Focused trade mutation requires a complete canonical snapshot.");
+  const writable = new Set(["purchaseRequests", "notifications", "auditLogs"]);
+  const beforeFields = baseline as unknown as Record<string, unknown>;
+  const nextFields = next as unknown as Record<string, unknown>;
+  for (const key of new Set([...Object.keys(beforeFields), ...Object.keys(nextFields)])) {
+    if (!writable.has(key) && (!Object.hasOwn(beforeFields, key) || !Object.hasOwn(nextFields, key) || !isDeepStrictEqual(beforeFields[key], nextFields[key]))) {
+      throw new Error(`Focused shared transaction cannot change read-only collection ${key}.`);
+    }
+  }
+  if (!Array.isArray(next.purchaseRequests) || next.purchaseRequests.length !== baseline.purchaseRequests.length
+    || next.purchaseRequests.some((request, index) => !request || request.id !== baseline.purchaseRequests[index]?.id
+      || (request.id !== focused.targetId && !isDeepStrictEqual(request, baseline.purchaseRequests[index])))
+    || next.purchaseRequests.filter(request => request.id === focused.targetId).length !== 1) {
+    throw new Error("Focused shared transaction cannot add, remove, reorder, or change another trade.");
+  }
+  const updated = next.purchaseRequests.find(request => request.id === focused.targetId)!;
+  // An explicit list keeps newly introduced server-owned evidence/identity
+  // fields immutable by default. Financial terms here are persistence mechanics
+  // only: their authorization/reservation coupling needs a future coordinator.
+  const mutable = new Set<keyof PurchaseRequest>([
+    "buyerNotes", "usdtAmount", "fiatAmount", "pricePerUsdt", "priceMode", "priceOfferDiscount", "priceOfferAcceptedAt",
+    "amountAdjustmentCount", "counterPrices", "firstSellerResponseAt", "termsProposal", "timeline", "messages",
+    "buyerReview", "sellerBuyerReview", "sellerResponse", "pokeState", "actionReminderState", "updatedAt",
+  ]);
+  if ([...new Set([...Object.keys(focused.before), ...Object.keys(updated)])].some(key =>
+    !mutable.has(key as keyof PurchaseRequest)
+    && !isDeepStrictEqual(updated[key as keyof PurchaseRequest], focused.before[key as keyof PurchaseRequest]))) {
+    throw new Error("Focused shared transaction cannot change immutable trade identity, payment binding, or lifecycle evidence.");
+  }
+  const parties = new Set([focused.before.buyerId, focused.before.sellerId]);
+  const uniqueIds = (rows: unknown, collection: string) => {
+    if (!Array.isArray(rows) || rows.some(row => !row || typeof row.id !== "string" || !row.id || row.id.length > 200 || /[\0-\x1f]/.test(row.id))
+      || new Set(rows.map(row => row.id)).size !== rows.length) throw new Error(`Focused shared transaction requires unique ${collection} event identities.`);
+  };
+  uniqueIds(next.notifications, "notification");
+  uniqueIds(next.auditLogs, "audit");
+  if (next.notifications.some(event => event.relatedRequestId !== focused.targetId || !parties.has(event.userId)
+    || (event.relatedTradeId !== undefined && event.relatedTradeId !== focused.before.tradeId)
+    || (event.relatedListingId !== undefined && event.relatedListingId !== focused.before.listingId))) {
+    throw new Error("Focused shared transaction notifications must belong to this trade and its participants.");
+  }
+  if (next.auditLogs.some(event => event.purchaseRequestId !== focused.targetId || !parties.has(event.actorUserId)
+    || (event.listingId !== undefined && event.listingId !== focused.before.listingId)
+    || (event.targetUserId !== undefined && !parties.has(event.targetUserId)))) {
+    throw new Error("Focused shared transaction audit records must belong to this trade and its participants.");
+  }
+  if (JSON.stringify(updated) === focused.beforeJson && (next.notifications.length || next.auditLogs.length)) {
+    throw new Error("Focused shared transaction cannot append events without a target mutation.");
+  }
+}
+
+/**
+ * Internal development participant for an ALREADY OWNED WalletStore transaction.
+ * No connection discovery, bootstrap, nested transaction, retry or publication.
+ * The owner must await this entire operation and every financial operation in
+ * apply. Only the owner commits; the returned snapshot is not a commit receipt.
+ * This is groundwork, not an enrolled-trade coordinator or a resize command.
+ */
+export async function mutateDevelopmentFocusedTradeInTransaction(
+  options: { mode: "simulation-only"; tx: RepositorySql; requestId: string },
+  apply: (snapshot: AlphaExchangeDb) => AlphaExchangeDb | Promise<AlphaExchangeDb>,
+): Promise<AlphaExchangeDb> {
+  const { mode, tx, requestId } = options;
+  assertSimulationRuntime(mode);
+  if (typeof requestId !== "string" || !requestId || requestId.length > 200 || /[\0-\x1f]/.test(requestId)) {
+    throw new Error("Focused shared transaction requires an explicit request identity.");
+  }
+  type Context = { isolation: string; read_only: string; development_mode: string | null; transaction_id: string };
+  let active = true, certified = false;
+  let transactionId: string | undefined;
+  const permitted = () => {
+    assertSimulationRuntime(mode);
+    if (!active) throw new Error("Focused shared transaction participant is no longer active.");
+  };
+  const context = async (requireContract = true) => {
+    permitted();
+    const result = await tx.query<Context>(`select current_setting('transaction_isolation') as isolation,
+      current_setting('transaction_read_only') as read_only,
+      current_setting('alpha_wallet.development_schema', true) as development_mode,
+      txid_current()::text as transaction_id`);
+    permitted();
+    const current = result.rows[0];
+    if (!current || typeof current.transaction_id !== "string" || !/^[1-9][0-9]*$/.test(current.transaction_id)
+      || (requireContract && (current.isolation !== "serializable" || current.read_only !== "off" || current.development_mode !== "simulation-only"))) {
+      throw new Error("Focused shared transaction requires an explicit writable SERIALIZABLE simulation transaction.");
+    }
+    if (transactionId !== undefined && current.transaction_id !== transactionId) {
+      throw new Error("Focused shared transaction identity changed or ended.");
+    }
+    return current.transaction_id;
+  };
+  const scoped: RepositorySql = {
+    async query<Row extends Record<string, unknown>>(statement: string, values?: unknown[]) {
+      await context();
+      const result = await tx.query<Row>(statement, values);
+      await context();
+      return result;
+    },
+  };
+  try {
+    transactionId = await context();
+    // An autocommit query also has a transaction ID. A second round trip must
+    // retain it before any advisory lock, authoritative read or row write.
+    await context();
+    certified = true;
+    await scoped.query("select pg_advisory_xact_lock(61422919, hashtext($1))", [requestId]);
+    await scoped.query("select pg_advisory_xact_lock(61422917)");
+    // The advisory-lock SELECT may have fixed a SERIALIZABLE snapshot before
+    // waiting. Existing writers update this row; locking a changed version must
+    // fail and let the outer owner retry the entire business decision.
+    const fence = await scoped.query<{ version: string }>("select version::text as version from alpha_exchange.runtime_meta where singleton = true for update");
+    if (fence.rows.length !== 1 || !/^[0-9]+$/.test(fence.rows[0].version)) throw new Error("Focused shared transaction runtime fence is missing or invalid.");
+    const focused = await readFocusedTrade(scoped, requestId);
+    if (!focused.before || focused.snapshot.purchaseRequests.filter(request => request.id === focused.targetId).length !== 1) {
+      throw new Error("Focused shared transaction canonical target is invalid.");
+    }
+    const baseline = structuredClone(focused.snapshot);
+    // The callback may retain its input or result. Seal the entire write set
+    // before validation so a later task cannot swap event recipients or mutate
+    // a previously validated trade while awaited persistence is in progress.
+    const next = structuredClone(await apply(focused.snapshot));
+    await context();
+    assertDevelopmentFocusedWriteSet(baseline, focused, next);
+    await persistFocusedTrade(scoped, focused, next, true);
+    await context();
+    return structuredClone(next);
+  } catch (error) {
+    // A caller that catches a semantic failure must not commit an earlier wallet
+    // write alone. Poison only the certified, still-identical transaction, even
+    // if its local guard was disabled by the callback. SQL failures already
+    // abort it; a changed/unknown transaction identity is never touched.
+    if (certified) {
+      try { await context(false); await tx.query("select 1 / 0 /* abort failed focused simulation participant */"); }
+      catch { /* Preserve the original failure; the outer owner must roll back. */ }
+    }
+    throw error;
+  } finally {
+    active = false;
+  }
+}
+
 export class AlphaExchangeRepository {
   private readonly pool: Pool | null;
   private usesMemoryFallback: boolean;
@@ -2856,48 +3068,11 @@ export class AlphaExchangeRepository {
       // Keep the same lock/version protocol as snapshot writers. A later stale
       // snapshot must rebase rather than erase this review or amount adjustment.
       await client.query("select pg_advisory_xact_lock(61422917)");
-      const result = await client.query<{ payload: AlphaExchangeDb; target_id: string }>(`
-        select r.id as target_id, jsonb_build_object(
-          'purchaseRequests', (select coalesce(jsonb_agg(p.payload), '[]'::jsonb) from alpha_exchange.purchase_requests p where p.seller_id = r.seller_id),
-          'users', (select coalesce(jsonb_agg(u.payload), '[]'::jsonb) from alpha_exchange.users u where u.id in (r.buyer_id, r.seller_id)),
-          'marketplaceListings', (select coalesce(jsonb_agg(l.payload), '[]'::jsonb) from alpha_exchange.listings l where l.seller_id = r.seller_id),
-          'commissionRecords', (select coalesce(jsonb_agg(c.payload), '[]'::jsonb) from alpha_exchange.commissions c where c.seller_id = r.seller_id),
-          'trustSnapshots', (select coalesce(jsonb_agg(t.payload), '[]'::jsonb) from alpha_exchange.trust_snapshots t where t.seller_id = r.seller_id),
-          'tradeEvidenceFiles', (select coalesce(jsonb_agg(e.payload), '[]'::jsonb) from alpha_exchange.evidence e where e.purchase_request_id = r.id),
-          'disputes', (select coalesce(jsonb_agg(d.payload), '[]'::jsonb) from alpha_exchange.disputes d where d.purchase_request_id = r.id)
-        ) as payload
-        from alpha_exchange.purchase_requests r where r.id = $1 or r.trade_id = $1 limit 1`, [requestId]);
-      const row = result.rows[0];
-      if (!row) throw new Error("Trade not found.");
-      const snapshot = { ...emptySnapshotCollections(), ...decodeWiseStorage(row.payload) };
-      const before = structuredClone(snapshot.purchaseRequests.find((request) => request.id === row.target_id)!);
-      const beforeJson = JSON.stringify(before);
-      const next = await apply(snapshot);
-      const updated = next.purchaseRequests.find((request) => request.id === row.target_id);
-      if (!updated || updated.status !== before.status || updated.buyerId !== before.buyerId || updated.sellerId !== before.sellerId || updated.listingId !== before.listingId) {
-        throw new Error("Focused trade updates cannot change lifecycle or participants.");
-      }
-      const changed = JSON.stringify(updated) !== beforeJson;
-      if (changed) {
-        await client.query("update alpha_exchange.purchase_requests set payload = $2::jsonb, updated_at = $3::timestamptz where id = $1", [updated.id, json(updated), updated.updatedAt]);
-        if (updated.buyerReview && !before.buyerReview) {
-          // One recipient/request-scoped update replaces the post-review client
-          // burst of full snapshot reads and individual notification writes.
-          await client.query(`update alpha_exchange.notifications
-            set is_read = true, payload = payload || jsonb_build_object('isRead', true, 'state', 'read', 'updatedAt', $3::text)
-            where user_id = $1 and payload->>'relatedRequestId' = $2 and is_read = false
-              and coalesce(payload->>'state', 'unread') <> 'archived'
-              and (lower(payload->>'title') like '%action required%'
-                or lower(payload->>'title') like '%confirm usdt receipt%'
-                or lower(payload->>'message') like '%confirm that you received your usdt%')`,
-          [updated.buyerId, updated.id, updated.updatedAt]);
-        }
-        for (const name of ["notifications", "audit_logs", "activity_logs"] as const) {
-          const table = getTable(name);
-          await table.insert(client, table.values(next), { evidenceContentById: new Map() });
-        }
-        await client.query("update alpha_exchange.runtime_meta set version = version + 1, updated_at = now() where singleton = true");
-      }
+      const focused = await readFocusedTrade(client, requestId);
+      const next = await apply(focused.snapshot);
+      // Legacy callers normalize their read-only snapshot collections; preserve
+      // that behavior and the existing event upserts at this old entry point.
+      await persistFocusedTrade(client, focused, next);
       await client.query("commit");
       return next;
     } catch (error) {

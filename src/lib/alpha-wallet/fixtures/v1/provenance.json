@@ -1,0 +1,71 @@
+{
+  "purpose": "Frozen synthetic v1 compatibility evidence. Do not regenerate to make a changed engine pass.",
+  "sourceCommit": "f3422f9267562522da93285193d21dc604f8f40e",
+  "sourceTree": "488e5c2dd1b431ca516cabe8a86a7f92eea0f0a7",
+  "checkoutAtCapture": "dfe8f1a504b7e3a473e8e26de97fe79488ee4bd3",
+  "captureDate": "2026-11-04",
+  "engineVersion": "alpha-wallet-simulation-v1",
+  "backupFormatVersion": 1,
+  "clock": {
+    "initialMs": 1793793600000,
+    "commandStepMs": 1000,
+    "firstCommandAtMs": 1793793601000,
+    "exportedAtMs": 1793793642000
+  },
+  "checkpoint": {
+    "revision": 41,
+    "eventHash": "3ccf341413beead90cd64c72a81a5c5cf0538b191b99f589b3c2827db9771c7d",
+    "stateHash": "808ef429e451d1cdb2a71b25c0e8667ba54293bc9e6f3871d514bf804b1a8d1c",
+    "lastCommandAtMs": 1793793641000
+  },
+  "backupChecksum": "6d2f70f7380772432c5ce63bcd3c662f3d23c969ec2e30f4d47d0a1f6d2c4308",
+  "files": {
+    "settlement-and-held-withdrawal.backup.json": {
+      "bytes": 67534,
+      "sha256": "c4ee709415d1c129e9db31c1f90222cceffb4a2cfda2efc495cb6a974204e7ee"
+    },
+    "settlement-and-held-withdrawal.state.json": {
+      "bytes": 57701,
+      "sha256": "cbbbb90b83b8846f01e1ef46643ae42962ba7961cd189dc7e45736c229a3aada"
+    }
+  },
+  "sourceSha256": {
+    "src/lib/alpha-wallet/amounts.ts": "b24d8fea56a0c2c7f7948f2aaa73bcf31d1da0bbbc8a2e892e1798ec09f10011",
+    "src/lib/alpha-wallet/backup.ts": "8de50d3242914c775970134b13f489f73a0396529669826ee14b32975f583715",
+    "src/lib/alpha-wallet/commands.ts": "ede87aecd79de462b8e713babdcb1744a703e9039042abcd1e7d896dcd8dc877",
+    "src/lib/alpha-wallet/durable-store.ts": "cf4dde3e05cb260973e57bafcb53d9f529614a82045e6067b4cee96b7835fd8b",
+    "src/lib/alpha-wallet/durable.ts": "ca07f0f696e272ad10da09ba463860b9aabe42b11aeb009e593a29fa315f5a35",
+    "src/lib/alpha-wallet/ledger.ts": "a84d72d3d0a534d71b3a0993d570eda97b5894603254566c9ea74ca2e4082a64",
+    "src/lib/alpha-wallet/runtime.ts": "ec3c10b23bac049df9b86bb451193e6ead1f1cbae1a336b02e85f546307bf1de",
+    "src/lib/alpha-wallet/sandbox.ts": "ca00563a69feee6086c4113f8c3072dfbd82c3522a59f2d200b2421645b2547d",
+    "src/lib/alpha-wallet/types.ts": "c6584047e00afd8d436e970529ac60429bf9071050418fbe2122a6b9dbf0bed7",
+    "docs/alpha-wallet/durable-schema.sql": "1a170370b07cb81d168ed347eca3e9c60adee8832f7b3248c267829857772914"
+  },
+  "facts": {
+    "commands": 41,
+    "tron": {
+      "fundedPrincipal": "500",
+      "deliveredPrincipal": "200",
+      "heldTradePrincipal": "300",
+      "separatelyFundedAndRecognizedFees": "4",
+      "custody": "304"
+    },
+    "bsc": {
+      "fundedPrincipal": "9007199254740993.123456789012345678",
+      "deliveredPrincipal": "1.00005",
+      "buyerFee": "0.010001",
+      "sellerFee": "0.010001",
+      "separatelyFundedAndRecognizedFees": "0.020002",
+      "availableRaw": "1",
+      "heldWithdrawalRaw": "9007199254740992123406789012345677",
+      "heldWithdrawal": "9007199254740992.123406789012345677",
+      "custodyRaw": "9007199254740992143408789012345678",
+      "withdrawalState": "submission_unknown"
+    }
+  },
+  "limitations": [
+    "Synthetic assets, parties, fiat evidence and receipts; no chain/provider/signing calls.",
+    "The open trade and uncertain withdrawal are intentional historical states, not launch-ready operations.",
+    "Fixtures protect captured v1 semantics, not every possible historical command or a future version migration design."
+  ]
+}

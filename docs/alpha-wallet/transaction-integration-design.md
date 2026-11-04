@@ -1,19 +1,31 @@
 # Alpha Wallet: atomic marketplace terms integration
 
-**Status: design for review, not implemented.** Source review: 4 November 2026, development baseline `23ee55f`. The current wallet remains an isolated simulation. This document does not connect a production route, migrate a database, authorize a provider, or establish launch readiness.
+**Status: preliminary planner, frozen v1 evidence and focused repository participant implemented for simulation; full coordinator and resize remain design work.** Original source review: 4 November 2026, development baseline `23ee55f`. The current wallet remains an isolated simulation. This document does not connect a production route, migrate a database, authorize a provider, or establish launch readiness.
 
 ## Decision and smallest next stage
 
 Use one database transaction to accept marketplace terms and adjust the corresponding wallet reservation. Two independently committed calls, including a wallet call inside today's marketplace callback, cannot provide that guarantee.
 
-The next bounded stage can implement a pure accepted-terms planner, immutable v1 replay fixtures, and transaction-scoped repository participants. It can reuse existing quote, proposal and payment-lock rules. A working durable resize additionally requires a reviewed command/version extension, explicit marketplace-to-wallet bindings and protection against independent legacy financial writes. Do not present the preliminary stage as completed integration.
+The preliminary stage now contains a pure accepted-terms planner, immutable v1 replay fixtures and one transaction-scoped focused repository participant. It reuses existing quote, proposal and payment-lock rules. A working durable resize additionally requires a reviewed command/version extension, explicit marketplace-to-wallet bindings and protection against independent legacy financial writes. The preliminary stage is not completed integration.
+
+## Implemented preliminary stage
+
+`src/lib/alpha-wallet/accepted-terms.ts` derives buyer acceptance of a stored seller amount correction from canonical request/listing/evidence/dispute data, verified wallet state and an explicit development binding. It returns immutable prior/accepted terms, exact principal and fee units, stable proposal identity, source digests and one of no reservation, increase, decrease or unchanged reservation. It has `executionAuthority: false`, writes nothing and does not create an enrollment or acceptance receipt. Its structural inputs do not prove authentication, source completeness or transaction freshness; those remain coordinator duties.
+
+The supported cohort is current-policy ILS with exact synthetic asset/destination mapping and unchanged locked request price. Ordinary pending requests stay unreserved; accepted requests require the exact clean existing reservation. Pending demand/buyer-offer quantities stay fixed. Payment/evidence/dispute/disclosure locks, submitted-proposal limits, exact frozen payment instructions and inventory consistency are enforced. A listing's normal acceptance inventory lock is permitted; it is distinct from irreversible request progress. Existing v1 reservations must also match the immutable wallet listing price, since v1 does not store a separate trade unit price.
+
+`src/lib/alpha-wallet/fixtures/v1` freezes 41 committed commands from verified source `f3422f9`, their original results and hashes, the complete encoded final state and provenance. The compatibility tests replay every original hash, restore/reopen the rows unchanged with a new pause command, retain original business results and reject renewed dispatch authority. A future engine change must preserve these fixtures instead of regenerating expectations.
+
+`mutateDevelopmentFocusedTradeInTransaction` in `alpha-exchange-repository.ts` reuses the actual focused reader, encoders and persistence statements. It accepts one already-owned writable SERIALIZABLE simulation transaction, checks a stable transaction ID, acquires request/global locks, fences `runtime_meta` and reads the canonical context. It rejects unrelated collection changes and identity/lifecycle edits, scopes new events to the trade, and uses insert-only new notification/audit identities. It never connects, begins, commits, retries, releases or publishes. A semantic failure after wallet writes explicitly aborts the certified transaction, so a caller swallowing the error cannot commit only the wallet side. Existing `mutateFocusedTrade` continues to own its original transaction and retains its normalization/upsert behavior.
+
+The disposable PostgreSQL harness `scripts/alpha-wallet/postgres-marketplace-transaction.ts` invokes these actual repository statements, deliberately pairing harmless trade-note changes with synthetic wallet commands. It tests joint commit/rollback, an actual waiting-writer stale-snapshot retry, injected lost-commit-reply reconciliation and reopen/conservation. This proves transaction mechanics; it does not apply the planner, resize a reservation, enroll a real trade or prove the unfinished business races below. The minimal fixture tables reproduce the columns used by those real statements and are created only in a fresh local simulation database.
 
 ## Current source boundaries
 
 | Source | Observed behavior and implication |
 | --- | --- |
 | `src/lib/alpha-exchange-store.ts`: `updateTradeTerms`, `commitFocusedTradeMutation` | Amount corrections use seller proposal → buyer acceptance. The preferred write path calls `repository.mutateFocusedTrade`; the fallback uses `writeDb` with canonical rebasing. Neither supplies a shared wallet transaction. |
-| `src/lib/alpha-exchange-repository.ts`: `mutateFocusedTrade` | Opens its own client and plain `BEGIN`, takes financial advisory lock `61422917`, loads canonical dependencies, writes a focused delta, increments `runtime_meta.version` and commits. Its callback receives a snapshot, not the client. It forbids lifecycle/participant/listing-ID changes. |
+| `src/lib/alpha-exchange-repository.ts`: `mutateFocusedTrade` | Still owns its original client and plain `BEGIN`, financial advisory lock `61422917`, focused delta, version increment and commit. Its actual read/persist statements now also serve the guarded development participant; existing callers retain their behavior. |
 | `src/lib/alpha-exchange-store.ts`: `updatePurchaseRequestStatus`, `acceptedCounterQuote` | Counter-price acceptance uses the lifecycle path and `acceptCounterOfferId`, not `accept_amount`. |
 | `src/lib/alpha-exchange-repository.ts`: `beginCanonicalTradeTransaction`, `TradeLifecycleTransaction` | Lifecycle persistence also owns its commit. Some status commands take request lock `(61422919, hashtext(requestId))` before `61422917`. Both persistence paths need shared transaction participants. |
 | `src/lib/alpha-wallet/durable.ts`, `durable-store.ts` | Wallet execution owns a SERIALIZABLE transaction, updates the wallet head before reading history, verifies semantic replay and immutable projections, then appends a command and its projections. |
@@ -65,7 +77,7 @@ The latest `termsProposal` field is insufficient recovery evidence: a later prop
 
 ## One transaction owner
 
-Extract internal transaction-scoped marketplace operations to read focused/lifecycle contexts and persist their deltas. They receive a trusted, lifetime-bound SQL context and never connect, begin, commit, retry or release independently. Existing repository entry points can wrap those operations to retain their present behavior. The financial coordinator supplies the same context to the wallet participant.
+The focused participant has been extracted; lifecycle persistence still needs the equivalent extraction. These operations receive a trusted, lifetime-bound SQL context and never connect, begin, commit, retry or release independently. Existing repository entry points retain their present behavior. The future financial coordinator must supply the same context to the wallet participant.
 
 For an enrolled financial action:
 
@@ -100,7 +112,7 @@ An explicit binding table plus centralized guarded persistence and appropriate d
 
 `commands.ts` accepts the fixed `alpha-wallet-simulation-v1` engine. `durable.ts` replays every recorded command and verifies its result, full state and hash chain. `backup.ts` also accepts one fixed engine version. Preserve that evidence.
 
-- Capture fixed command histories and expected hashes from the current engine before changing it. Regenerating both history and expectations with the new implementation does not establish compatibility.
+- Preserve the captured fixed v1 command history and expected hashes. Regenerating both history and expectations with a changed implementation does not establish compatibility.
 - Do not add default fields or empty maps to historical v1 state/results, change rounding, or rewrite stored commands/hashes. Even present `undefined` fields differ from absent fields in `walletJson`.
 - Choose an explicit versioned resize/continuation design, retaining the v1 parser and semantics. Preserve the original prefix and old idempotency results. Any new state shape needs a verifiable transition boundary.
 - Update backup manifest/read/restore rules deliberately for new or mixed histories while retaining v1 backup support. Reject unknown versions. SQL storage `format_version` and command engine version are distinct; changing a constant is not a migration.
@@ -129,7 +141,7 @@ Cancel-and-reserve changes trade identity and uses listing price; it cannot subs
 
 ## Implementation boundary
 
-A pure planner and shared-transaction groundwork are provider-independent work that can proceed offline with synthetic data. An isolated test using a substitute marketplace table proves only that fixture's SQL atomicity. To claim actual integration, exercise the extracted real repository participants and the enrolled-writer guards, with native PostgreSQL concurrency and failure injection.
+A pure planner and shared-transaction groundwork are provider-independent work implemented offline with synthetic data. The harness now exercises the extracted real focused repository statements against minimal disposable marketplace tables. To claim actual business integration, connect the planner, versioned transitions, durable bindings/receipts and every enrolled-writer guard, then prove the corresponding native PostgreSQL business races and failure paths.
 
 Durable resizing remains incomplete until the command/version/backup decision, binding migration and all enrolled financial writers are implemented and verified. Production routes, deployments and real funds remain outside this stage.
 

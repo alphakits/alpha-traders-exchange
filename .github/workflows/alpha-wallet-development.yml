@@ -88,6 +88,18 @@ jobs:
             --outputFile.json=test-results/alpha-wallet/platform-auth-results.json \
             2>&1 | tee test-results/alpha-wallet/platform-auth-tests.log
 
+      - name: Verify retained marketplace transaction and storage contracts
+        run: |
+          set -euo pipefail
+          node ./node_modules/vitest/vitest.mjs run \
+            src/__tests__/alpha-exchange-repository.test.ts \
+            src/__tests__/targeted-transaction-recovery.test.ts \
+            src/__tests__/wise-storage-postgres.test.ts \
+            src/__tests__/owner-completed-trade-history.test.ts \
+            --reporter=default --reporter=json \
+            --outputFile.json=test-results/alpha-wallet/marketplace-regression-results.json \
+            2>&1 | tee test-results/alpha-wallet/marketplace-regression-tests.log
+
       - name: Run the existing offline wallet simulation
         run: |
           set -euo pipefail
@@ -104,7 +116,7 @@ jobs:
             2>test-results/alpha-wallet/postgres-concurrency.stderr.log \
             | tee test-results/alpha-wallet/postgres-concurrency.json
 
-      - name: Prepare two empty disposable recovery databases
+      - name: Prepare empty disposable recovery and marketplace databases
         run: |
           node --input-type=module <<'NODE'
           import pg from 'pg';
@@ -113,6 +125,7 @@ jobs:
           try {
             await connection.query('CREATE DATABASE alpha_wallet_dev_backup_source');
             await connection.query('CREATE DATABASE alpha_wallet_dev_restore_target');
+            await connection.query('CREATE DATABASE alpha_wallet_dev_marketplace');
           } finally { await connection.end(); }
           NODE
 
@@ -125,6 +138,15 @@ jobs:
             --target-connection-string 'postgresql://wallet_fixture:simulation-only@127.0.0.1:5432/alpha_wallet_dev_restore_target' \
             2>test-results/alpha-wallet/postgres-backup.stderr.log \
             | tee test-results/alpha-wallet/postgres-backup.json
+
+      - name: Verify actual marketplace SQL and wallet commands in one transaction
+        run: |
+          set -euo pipefail
+          node --conditions=react-server --import tsx scripts/alpha-wallet/postgres-marketplace-transaction.ts \
+            --fresh-simulation-database \
+            --connection-string 'postgresql://wallet_fixture:simulation-only@127.0.0.1:5432/alpha_wallet_dev_marketplace' \
+            2>test-results/alpha-wallet/postgres-marketplace-transaction.stderr.log \
+            | tee test-results/alpha-wallet/postgres-marketplace-transaction.json
 
       - name: Install the locked Playwright Chromium browser
         run: node ./node_modules/playwright/cli.js install --with-deps chromium

@@ -65,7 +65,7 @@ The tests execute actual repository combined/account SQL through isolated PGlite
 
 No `src/app` wallet route is connected to these entry points. These tests do not establish deployed login configuration or atomic revocation across authentication storage and a financial commit. Mobile token and account reads remain separate; the tested rereads detect those races without replacing the future transaction-level authorization contract. Real withdrawal step-up issuance, CSRF/rate limits, HTTP private-cache policy and the production adapter rollout remain unfinished.
 
-The separate [atomic marketplace terms design](transaction-integration-design.md) identifies the actual transaction owners, pending-versus-reserved distinction, required bindings, protected writer cohort and historical-version constraints. It is a design for review, not an implemented reservation resize.
+The separate [atomic marketplace terms design](transaction-integration-design.md) identifies the actual transaction owners, pending-versus-reserved distinction, required bindings, protected writer cohort and historical-version constraints. Its preliminary stage now implements a pure canonical acceptance planner, frozen historical v1 fixtures and an actual focused repository participant that can share one owned simulation transaction with wallet commands. Durable resize, enrollment/acceptance receipts, lifecycle participants and all enrolled-writer protections remain unfinished. No production wallet route calls this participant or planner.
 
 ## Rules for the private integrated stage
 

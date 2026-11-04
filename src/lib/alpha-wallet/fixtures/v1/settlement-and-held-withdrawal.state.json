@@ -1,0 +1,1802 @@
+{
+  "accounts": {
+    "$walletType": "map",
+    "entries": [
+      [
+        "tron-sim-usdt|external",
+        {
+          "$walletType": "bigint",
+          "value": "-304000000"
+        }
+      ],
+      [
+        "tron-sim-usdt|available:v1-seller",
+        {
+          "$walletType": "bigint",
+          "value": "0"
+        }
+      ],
+      [
+        "tron-sim-usdt|listing:v1-tron-listing",
+        {
+          "$walletType": "bigint",
+          "value": "0"
+        }
+      ],
+      [
+        "tron-sim-usdt|trade:v1-tron-trade-200",
+        {
+          "$walletType": "bigint",
+          "value": "0"
+        }
+      ],
+      [
+        "tron-sim-usdt|trade:v1-tron-trade-300",
+        {
+          "$walletType": "bigint",
+          "value": "300000000"
+        }
+      ],
+      [
+        "tron-sim-usdt|payout:trade-v1-tron-trade-200",
+        {
+          "$walletType": "bigint",
+          "value": "0"
+        }
+      ],
+      [
+        "tron-sim-usdt|commission:v1-seller",
+        {
+          "$walletType": "bigint",
+          "value": "0"
+        }
+      ],
+      [
+        "tron-sim-usdt|platform-revenue",
+        {
+          "$walletType": "bigint",
+          "value": "4000000"
+        }
+      ],
+      [
+        "bsc-sim-binance-peg-usdt|external",
+        {
+          "$walletType": "bigint",
+          "value": "-9007199254740992143408789012345678"
+        }
+      ],
+      [
+        "bsc-sim-binance-peg-usdt|available:v1-seller",
+        {
+          "$walletType": "bigint",
+          "value": "1"
+        }
+      ],
+      [
+        "bsc-sim-binance-peg-usdt|listing:v1-bsc-listing",
+        {
+          "$walletType": "bigint",
+          "value": "0"
+        }
+      ],
+      [
+        "bsc-sim-binance-peg-usdt|trade:v1-bsc-trade",
+        {
+          "$walletType": "bigint",
+          "value": "0"
+        }
+      ],
+      [
+        "bsc-sim-binance-peg-usdt|payout:trade-v1-bsc-trade",
+        {
+          "$walletType": "bigint",
+          "value": "0"
+        }
+      ],
+      [
+        "bsc-sim-binance-peg-usdt|commission:v1-seller",
+        {
+          "$walletType": "bigint",
+          "value": "0"
+        }
+      ],
+      [
+        "bsc-sim-binance-peg-usdt|platform-revenue",
+        {
+          "$walletType": "bigint",
+          "value": "20002000000000000"
+        }
+      ],
+      [
+        "bsc-sim-binance-peg-usdt|payout:withdrawal-v1-bsc-withdrawal",
+        {
+          "$walletType": "bigint",
+          "value": "9007199254740992123406789012345677"
+        }
+      ]
+    ]
+  },
+  "commissions": {
+    "$walletType": "map",
+    "entries": [
+      [
+        "v1-tron-trade-200",
+        {
+          "amountRaw": {
+            "$walletType": "bigint",
+            "value": "4000000"
+          },
+          "assetId": "tron-sim-usdt",
+          "paid": true,
+          "sellerId": "v1-seller",
+          "tradeId": "v1-tron-trade-200"
+        }
+      ],
+      [
+        "v1-bsc-trade",
+        {
+          "amountRaw": {
+            "$walletType": "bigint",
+            "value": "20002000000000000"
+          },
+          "assetId": "bsc-sim-binance-peg-usdt",
+          "paid": true,
+          "sellerId": "v1-seller",
+          "tradeId": "v1-bsc-trade"
+        }
+      ]
+    ]
+  },
+  "depositIntents": {
+    "$walletType": "map",
+    "entries": [
+      [
+        "v1-tron-principal",
+        {
+          "assetId": "tron-sim-usdt",
+          "destination": "sim://tron-sim-usdt/deposit/v1-tron-principal",
+          "id": "v1-tron-principal",
+          "purpose": "principal",
+          "sellerId": "v1-seller"
+        }
+      ],
+      [
+        "v1-tron-commission",
+        {
+          "assetId": "tron-sim-usdt",
+          "destination": "sim://tron-sim-usdt/deposit/v1-tron-commission",
+          "id": "v1-tron-commission",
+          "purpose": "commission",
+          "sellerId": "v1-seller"
+        }
+      ],
+      [
+        "v1-bsc-principal",
+        {
+          "assetId": "bsc-sim-binance-peg-usdt",
+          "destination": "sim://bsc-sim-binance-peg-usdt/deposit/v1-bsc-principal",
+          "id": "v1-bsc-principal",
+          "purpose": "principal",
+          "sellerId": "v1-seller"
+        }
+      ],
+      [
+        "v1-bsc-commission",
+        {
+          "assetId": "bsc-sim-binance-peg-usdt",
+          "destination": "sim://bsc-sim-binance-peg-usdt/deposit/v1-bsc-commission",
+          "id": "v1-bsc-commission",
+          "purpose": "commission",
+          "sellerId": "v1-seller"
+        }
+      ]
+    ]
+  },
+  "deposits": {
+    "$walletType": "map",
+    "entries": [
+      [
+        "[\"tron-simulation\",\"sim-token-tron-usdt\",\"sim-tx-v1-tron-principal\",2]",
+        {
+          "amountRaw": "500000000",
+          "assetId": "tron-sim-usdt",
+          "blockHash": "sim-block-v1-tron-principal",
+          "credited": true,
+          "destination": "sim://tron-sim-usdt/deposit/v1-tron-principal",
+          "eventIndex": 2,
+          "finalized": true,
+          "intentId": "v1-tron-principal",
+          "network": "tron-simulation",
+          "successful": true,
+          "token": "sim-token-tron-usdt",
+          "transactionId": "sim-tx-v1-tron-principal"
+        }
+      ],
+      [
+        "[\"tron-simulation\",\"sim-token-tron-usdt\",\"sim-tx-v1-tron-commission\",2]",
+        {
+          "amountRaw": "4000000",
+          "assetId": "tron-sim-usdt",
+          "blockHash": "sim-block-v1-tron-commission",
+          "credited": true,
+          "destination": "sim://tron-sim-usdt/deposit/v1-tron-commission",
+          "eventIndex": 2,
+          "finalized": true,
+          "intentId": "v1-tron-commission",
+          "network": "tron-simulation",
+          "successful": true,
+          "token": "sim-token-tron-usdt",
+          "transactionId": "sim-tx-v1-tron-commission"
+        }
+      ],
+      [
+        "[\"bsc-simulation\",\"sim-token-bsc-binance-peg-usdt\",\"sim-tx-v1-bsc-principal\",2]",
+        {
+          "amountRaw": "9007199254740993123456789012345678",
+          "assetId": "bsc-sim-binance-peg-usdt",
+          "blockHash": "sim-block-v1-bsc-principal",
+          "credited": true,
+          "destination": "sim://bsc-sim-binance-peg-usdt/deposit/v1-bsc-principal",
+          "eventIndex": 2,
+          "finalized": true,
+          "intentId": "v1-bsc-principal",
+          "network": "bsc-simulation",
+          "successful": true,
+          "token": "sim-token-bsc-binance-peg-usdt",
+          "transactionId": "sim-tx-v1-bsc-principal"
+        }
+      ],
+      [
+        "[\"bsc-simulation\",\"sim-token-bsc-binance-peg-usdt\",\"sim-tx-v1-bsc-commission\",2]",
+        {
+          "amountRaw": "20002000000000000",
+          "assetId": "bsc-sim-binance-peg-usdt",
+          "blockHash": "sim-block-v1-bsc-commission",
+          "credited": true,
+          "destination": "sim://bsc-sim-binance-peg-usdt/deposit/v1-bsc-commission",
+          "eventIndex": 2,
+          "finalized": true,
+          "intentId": "v1-bsc-commission",
+          "network": "bsc-simulation",
+          "successful": true,
+          "token": "sim-token-bsc-binance-peg-usdt",
+          "transactionId": "sim-tx-v1-bsc-commission"
+        }
+      ]
+    ]
+  },
+  "evidenceOwners": {
+    "$walletType": "map",
+    "entries": [
+      [
+        "sim-evidence-v1-tron-trade-200",
+        "v1-tron-trade-200"
+      ],
+      [
+        "sim-evidence-v1-bsc-trade",
+        "v1-bsc-trade"
+      ]
+    ]
+  },
+  "gasReady": {
+    "$walletType": "set",
+    "values": [
+      "tron-sim-usdt",
+      "bsc-sim-binance-peg-usdt"
+    ]
+  },
+  "haltReason": null,
+  "idempotency": {
+    "$walletType": "map",
+    "entries": [
+      [
+        "seller:v1-seller:create-listing:tron-listing-create",
+        {
+          "fingerprint": "{\"amount\":\"500\",\"assetId\":\"tron-sim-usdt\",\"currency\":\"ILS\",\"id\":\"v1-tron-listing\",\"price\":\"3.20\"}",
+          "result": {
+            "amountRaw": {
+              "$walletType": "bigint",
+              "value": "500000000"
+            },
+            "approved": false,
+            "assetId": "tron-sim-usdt",
+            "closed": false,
+            "currency": "ILS",
+            "funded": false,
+            "id": "v1-tron-listing",
+            "price": "3.20",
+            "sellerId": "v1-seller"
+          }
+        }
+      ],
+      [
+        "seller:v1-seller:deposit-intent:v1-tron-principal-intent",
+        {
+          "fingerprint": "{\"assetId\":\"tron-sim-usdt\",\"id\":\"v1-tron-principal\",\"purpose\":\"principal\"}",
+          "result": {
+            "assetId": "tron-sim-usdt",
+            "destination": "sim://tron-sim-usdt/deposit/v1-tron-principal",
+            "id": "v1-tron-principal",
+            "purpose": "principal",
+            "sellerId": "v1-seller"
+          }
+        }
+      ],
+      [
+        "verifier:v1-verifier:deposit-observation:v1-tron-principal-pending",
+        {
+          "fingerprint": "{\"amountRaw\":\"500000000\",\"assetId\":\"tron-sim-usdt\",\"blockHash\":\"sim-block-v1-tron-principal\",\"destination\":\"sim://tron-sim-usdt/deposit/v1-tron-principal\",\"eventIndex\":2,\"finalized\":false,\"intentId\":\"v1-tron-principal\",\"network\":\"tron-simulation\",\"successful\":true,\"token\":\"sim-token-tron-usdt\",\"transactionId\":\"sim-tx-v1-tron-principal\"}",
+          "result": {
+            "credited": false,
+            "duplicate": false,
+            "halted": false
+          }
+        }
+      ],
+      [
+        "verifier:v1-verifier:deposit-observation:v1-tron-principal-final",
+        {
+          "fingerprint": "{\"amountRaw\":\"500000000\",\"assetId\":\"tron-sim-usdt\",\"blockHash\":\"sim-block-v1-tron-principal\",\"destination\":\"sim://tron-sim-usdt/deposit/v1-tron-principal\",\"eventIndex\":2,\"finalized\":true,\"intentId\":\"v1-tron-principal\",\"network\":\"tron-simulation\",\"successful\":true,\"token\":\"sim-token-tron-usdt\",\"transactionId\":\"sim-tx-v1-tron-principal\"}",
+          "result": {
+            "credited": true,
+            "duplicate": false,
+            "halted": false
+          }
+        }
+      ],
+      [
+        "verifier:v1-verifier:deposit-observation:tron-principal-duplicate",
+        {
+          "fingerprint": "{\"amountRaw\":\"500000000\",\"assetId\":\"tron-sim-usdt\",\"blockHash\":\"sim-block-v1-tron-principal\",\"destination\":\"sim://tron-sim-usdt/deposit/v1-tron-principal\",\"eventIndex\":2,\"finalized\":true,\"intentId\":\"v1-tron-principal\",\"network\":\"tron-simulation\",\"successful\":true,\"token\":\"sim-token-tron-usdt\",\"transactionId\":\"sim-tx-v1-tron-principal\"}",
+          "result": {
+            "credited": false,
+            "duplicate": true,
+            "halted": false
+          }
+        }
+      ],
+      [
+        "operator:v1-operator:approve-listing:tron-listing-approve",
+        {
+          "fingerprint": "{\"listingId\":\"v1-tron-listing\"}",
+          "result": {
+            "amountRaw": {
+              "$walletType": "bigint",
+              "value": "500000000"
+            },
+            "approved": true,
+            "assetId": "tron-sim-usdt",
+            "closed": false,
+            "currency": "ILS",
+            "funded": true,
+            "id": "v1-tron-listing",
+            "price": "3.20",
+            "sellerId": "v1-seller"
+          }
+        }
+      ],
+      [
+        "buyer:v1-buyer-a:reserve-trade:tron-reserve-200",
+        {
+          "fingerprint": "{\"amount\":\"200\",\"destination\":\"sim://tron-sim-usdt/recipient/v1-buyer-a\",\"id\":\"v1-tron-trade-200\",\"listingId\":\"v1-tron-listing\"}",
+          "result": {
+            "amountRaw": {
+              "$walletType": "bigint",
+              "value": "200000000"
+            },
+            "assetId": "tron-sim-usdt",
+            "buyerFeeRaw": {
+              "$walletType": "bigint",
+              "value": "2000000"
+            },
+            "buyerId": "v1-buyer-a",
+            "currency": "ILS",
+            "destination": "sim://tron-sim-usdt/recipient/v1-buyer-a",
+            "disputed": false,
+            "fiatTotalMinor": {
+              "$walletType": "bigint",
+              "value": "64640"
+            },
+            "id": "v1-tron-trade-200",
+            "listingId": "v1-tron-listing",
+            "sellerFeeRaw": {
+              "$walletType": "bigint",
+              "value": "2000000"
+            },
+            "sellerId": "v1-seller",
+            "status": "reserved",
+            "totalFeeRaw": {
+              "$walletType": "bigint",
+              "value": "4000000"
+            }
+          }
+        }
+      ],
+      [
+        "buyer:v1-buyer-b:reserve-trade:tron-reserve-300",
+        {
+          "fingerprint": "{\"amount\":\"300\",\"destination\":\"sim://tron-sim-usdt/recipient/v1-buyer-b\",\"id\":\"v1-tron-trade-300\",\"listingId\":\"v1-tron-listing\"}",
+          "result": {
+            "amountRaw": {
+              "$walletType": "bigint",
+              "value": "300000000"
+            },
+            "assetId": "tron-sim-usdt",
+            "buyerFeeRaw": {
+              "$walletType": "bigint",
+              "value": "3000000"
+            },
+            "buyerId": "v1-buyer-b",
+            "currency": "ILS",
+            "destination": "sim://tron-sim-usdt/recipient/v1-buyer-b",
+            "disputed": false,
+            "fiatTotalMinor": {
+              "$walletType": "bigint",
+              "value": "96960"
+            },
+            "id": "v1-tron-trade-300",
+            "listingId": "v1-tron-listing",
+            "sellerFeeRaw": {
+              "$walletType": "bigint",
+              "value": "3000000"
+            },
+            "sellerId": "v1-seller",
+            "status": "reserved",
+            "totalFeeRaw": {
+              "$walletType": "bigint",
+              "value": "6000000"
+            }
+          }
+        }
+      ],
+      [
+        "buyer:v1-buyer-a:buyer-reported-payment:v1-tron-trade-200-paid",
+        {
+          "fingerprint": "{\"tradeId\":\"v1-tron-trade-200\"}",
+          "result": {
+            "amountRaw": {
+              "$walletType": "bigint",
+              "value": "200000000"
+            },
+            "assetId": "tron-sim-usdt",
+            "buyerFeeRaw": {
+              "$walletType": "bigint",
+              "value": "2000000"
+            },
+            "buyerId": "v1-buyer-a",
+            "currency": "ILS",
+            "destination": "sim://tron-sim-usdt/recipient/v1-buyer-a",
+            "disputed": false,
+            "fiatTotalMinor": {
+              "$walletType": "bigint",
+              "value": "64640"
+            },
+            "id": "v1-tron-trade-200",
+            "listingId": "v1-tron-listing",
+            "sellerFeeRaw": {
+              "$walletType": "bigint",
+              "value": "2000000"
+            },
+            "sellerId": "v1-seller",
+            "status": "payment_reported",
+            "totalFeeRaw": {
+              "$walletType": "bigint",
+              "value": "4000000"
+            }
+          }
+        }
+      ],
+      [
+        "verifier:v1-verifier:verify-fiat:v1-tron-trade-200-verified",
+        {
+          "fingerprint": "{\"evidence\":{\"amountMinor\":\"64640\",\"currency\":\"ILS\",\"kind\":\"simulated-bank-credit\",\"reference\":\"sim-evidence-v1-tron-trade-200\"},\"tradeId\":\"v1-tron-trade-200\"}",
+          "result": {
+            "amountRaw": {
+              "$walletType": "bigint",
+              "value": "200000000"
+            },
+            "assetId": "tron-sim-usdt",
+            "buyerFeeRaw": {
+              "$walletType": "bigint",
+              "value": "2000000"
+            },
+            "buyerId": "v1-buyer-a",
+            "currency": "ILS",
+            "destination": "sim://tron-sim-usdt/recipient/v1-buyer-a",
+            "disputed": false,
+            "evidence": {
+              "amountMinor": "64640",
+              "currency": "ILS",
+              "kind": "simulated-bank-credit",
+              "reference": "sim-evidence-v1-tron-trade-200"
+            },
+            "fiatTotalMinor": {
+              "$walletType": "bigint",
+              "value": "64640"
+            },
+            "id": "v1-tron-trade-200",
+            "listingId": "v1-tron-listing",
+            "sellerFeeRaw": {
+              "$walletType": "bigint",
+              "value": "2000000"
+            },
+            "sellerId": "v1-seller",
+            "status": "payment_verified",
+            "totalFeeRaw": {
+              "$walletType": "bigint",
+              "value": "4000000"
+            }
+          }
+        }
+      ],
+      [
+        "seller:v1-seller:authorize-release:v1-tron-trade-200-authorized",
+        {
+          "fingerprint": "{\"tradeId\":\"v1-tron-trade-200\"}",
+          "result": {
+            "amountRaw": {
+              "$walletType": "bigint",
+              "value": "200000000"
+            },
+            "assetId": "tron-sim-usdt",
+            "authorization": {
+              "amountRaw": {
+                "$walletType": "bigint",
+                "value": "200000000"
+              },
+              "destination": "sim://tron-sim-usdt/recipient/v1-buyer-a",
+              "evidenceReference": "sim-evidence-v1-tron-trade-200",
+              "sellerId": "v1-seller"
+            },
+            "buyerFeeRaw": {
+              "$walletType": "bigint",
+              "value": "2000000"
+            },
+            "buyerId": "v1-buyer-a",
+            "currency": "ILS",
+            "destination": "sim://tron-sim-usdt/recipient/v1-buyer-a",
+            "disputed": false,
+            "evidence": {
+              "amountMinor": "64640",
+              "currency": "ILS",
+              "kind": "simulated-bank-credit",
+              "reference": "sim-evidence-v1-tron-trade-200"
+            },
+            "fiatTotalMinor": {
+              "$walletType": "bigint",
+              "value": "64640"
+            },
+            "id": "v1-tron-trade-200",
+            "listingId": "v1-tron-listing",
+            "sellerFeeRaw": {
+              "$walletType": "bigint",
+              "value": "2000000"
+            },
+            "sellerId": "v1-seller",
+            "status": "release_authorized",
+            "totalFeeRaw": {
+              "$walletType": "bigint",
+              "value": "4000000"
+            }
+          }
+        }
+      ],
+      [
+        "verifier:v1-verifier:reconcile:v1-tron-trade-200-reconcile",
+        {
+          "fingerprint": "{\"assetId\":\"tron-sim-usdt\",\"complete\":true,\"observedRaw\":\"500000000\"}",
+          "result": {
+            "halted": false,
+            "matched": true
+          }
+        }
+      ],
+      [
+        "operator:v1-operator:native-fee-readiness:v1-tron-trade-200-gas",
+        {
+          "fingerprint": "{\"assetId\":\"tron-sim-usdt\",\"ready\":true}",
+          "result": {
+            "ready": true
+          }
+        }
+      ],
+      [
+        "dispatcher:v1-dispatcher:queue-release:v1-tron-trade-200-queue",
+        {
+          "fingerprint": "{\"tradeId\":\"v1-tron-trade-200\"}",
+          "result": {
+            "amountRaw": {
+              "$walletType": "bigint",
+              "value": "200000000"
+            },
+            "assetId": "tron-sim-usdt",
+            "destination": "sim://tron-sim-usdt/recipient/v1-buyer-a",
+            "dispatchCount": 0,
+            "id": "trade-v1-tron-trade-200",
+            "kind": "trade",
+            "providerReference": "sim-payout-trade-v1-tron-trade-200",
+            "sellerId": "v1-seller",
+            "state": "queued",
+            "tradeId": "v1-tron-trade-200"
+          }
+        }
+      ],
+      [
+        "dispatcher:v1-dispatcher:begin-dispatch:v1-tron-trade-200-dispatch",
+        {
+          "fingerprint": "{\"payoutId\":\"trade-v1-tron-trade-200\"}",
+          "result": {
+            "amountRaw": {
+              "$walletType": "bigint",
+              "value": "200000000"
+            },
+            "assetId": "tron-sim-usdt",
+            "destination": "sim://tron-sim-usdt/recipient/v1-buyer-a",
+            "dispatchCount": 1,
+            "id": "trade-v1-tron-trade-200",
+            "kind": "trade",
+            "providerReference": "sim-payout-trade-v1-tron-trade-200",
+            "sellerId": "v1-seller",
+            "state": "submitting",
+            "tradeId": "v1-tron-trade-200"
+          }
+        }
+      ],
+      [
+        "dispatcher:v1-dispatcher:submission-result:v1-tron-trade-200-unknown",
+        {
+          "fingerprint": "{\"outcome\":\"unknown\",\"payoutId\":\"trade-v1-tron-trade-200\"}",
+          "result": {
+            "amountRaw": {
+              "$walletType": "bigint",
+              "value": "200000000"
+            },
+            "assetId": "tron-sim-usdt",
+            "destination": "sim://tron-sim-usdt/recipient/v1-buyer-a",
+            "dispatchCount": 1,
+            "id": "trade-v1-tron-trade-200",
+            "kind": "trade",
+            "providerReference": "sim-payout-trade-v1-tron-trade-200",
+            "sellerId": "v1-seller",
+            "state": "submission_unknown",
+            "tradeId": "v1-tron-trade-200"
+          }
+        }
+      ],
+      [
+        "dispatcher:v1-dispatcher:submission-result:v1-tron-trade-200-broadcast",
+        {
+          "fingerprint": "{\"outcome\":\"broadcast\",\"payoutId\":\"trade-v1-tron-trade-200\",\"transactionId\":\"sim-tx-v1-tron-trade-200-payout\"}",
+          "result": {
+            "amountRaw": {
+              "$walletType": "bigint",
+              "value": "200000000"
+            },
+            "assetId": "tron-sim-usdt",
+            "destination": "sim://tron-sim-usdt/recipient/v1-buyer-a",
+            "dispatchCount": 1,
+            "id": "trade-v1-tron-trade-200",
+            "kind": "trade",
+            "providerReference": "sim-payout-trade-v1-tron-trade-200",
+            "sellerId": "v1-seller",
+            "state": "broadcast",
+            "tradeId": "v1-tron-trade-200",
+            "transactionId": "sim-tx-v1-tron-trade-200-payout"
+          }
+        }
+      ],
+      [
+        "verifier:v1-verifier:payout-receipt:v1-tron-trade-200-confirmed",
+        {
+          "fingerprint": "{\"amountRaw\":\"200000000\",\"assetId\":\"tron-sim-usdt\",\"destination\":\"sim://tron-sim-usdt/recipient/v1-buyer-a\",\"eventIndex\":3,\"finalized\":true,\"network\":\"tron-simulation\",\"payoutId\":\"trade-v1-tron-trade-200\",\"providerReference\":\"sim-payout-trade-v1-tron-trade-200\",\"successful\":true,\"token\":\"sim-token-tron-usdt\",\"transactionId\":\"sim-tx-v1-tron-trade-200-payout\"}",
+          "result": {
+            "amountRaw": {
+              "$walletType": "bigint",
+              "value": "200000000"
+            },
+            "assetId": "tron-sim-usdt",
+            "destination": "sim://tron-sim-usdt/recipient/v1-buyer-a",
+            "dispatchCount": 1,
+            "id": "trade-v1-tron-trade-200",
+            "kind": "trade",
+            "providerReference": "sim-payout-trade-v1-tron-trade-200",
+            "sellerId": "v1-seller",
+            "state": "confirmed",
+            "tradeId": "v1-tron-trade-200",
+            "transactionId": "sim-tx-v1-tron-trade-200-payout"
+          }
+        }
+      ],
+      [
+        "seller:v1-seller:deposit-intent:v1-tron-commission-intent",
+        {
+          "fingerprint": "{\"assetId\":\"tron-sim-usdt\",\"id\":\"v1-tron-commission\",\"purpose\":\"commission\"}",
+          "result": {
+            "assetId": "tron-sim-usdt",
+            "destination": "sim://tron-sim-usdt/deposit/v1-tron-commission",
+            "id": "v1-tron-commission",
+            "purpose": "commission",
+            "sellerId": "v1-seller"
+          }
+        }
+      ],
+      [
+        "verifier:v1-verifier:deposit-observation:v1-tron-commission-final",
+        {
+          "fingerprint": "{\"amountRaw\":\"4000000\",\"assetId\":\"tron-sim-usdt\",\"blockHash\":\"sim-block-v1-tron-commission\",\"destination\":\"sim://tron-sim-usdt/deposit/v1-tron-commission\",\"eventIndex\":2,\"finalized\":true,\"intentId\":\"v1-tron-commission\",\"network\":\"tron-simulation\",\"successful\":true,\"token\":\"sim-token-tron-usdt\",\"transactionId\":\"sim-tx-v1-tron-commission\"}",
+          "result": {
+            "credited": true,
+            "duplicate": false,
+            "halted": false
+          }
+        }
+      ],
+      [
+        "seller:v1-seller:deposit-intent:v1-bsc-principal-intent",
+        {
+          "fingerprint": "{\"assetId\":\"bsc-sim-binance-peg-usdt\",\"id\":\"v1-bsc-principal\",\"purpose\":\"principal\"}",
+          "result": {
+            "assetId": "bsc-sim-binance-peg-usdt",
+            "destination": "sim://bsc-sim-binance-peg-usdt/deposit/v1-bsc-principal",
+            "id": "v1-bsc-principal",
+            "purpose": "principal",
+            "sellerId": "v1-seller"
+          }
+        }
+      ],
+      [
+        "verifier:v1-verifier:deposit-observation:v1-bsc-principal-final",
+        {
+          "fingerprint": "{\"amountRaw\":\"9007199254740993123456789012345678\",\"assetId\":\"bsc-sim-binance-peg-usdt\",\"blockHash\":\"sim-block-v1-bsc-principal\",\"destination\":\"sim://bsc-sim-binance-peg-usdt/deposit/v1-bsc-principal\",\"eventIndex\":2,\"finalized\":true,\"intentId\":\"v1-bsc-principal\",\"network\":\"bsc-simulation\",\"successful\":true,\"token\":\"sim-token-bsc-binance-peg-usdt\",\"transactionId\":\"sim-tx-v1-bsc-principal\"}",
+          "result": {
+            "credited": true,
+            "duplicate": false,
+            "halted": false
+          }
+        }
+      ],
+      [
+        "seller:v1-seller:create-listing:bsc-listing-create",
+        {
+          "fingerprint": "{\"amount\":\"1.00005\",\"assetId\":\"bsc-sim-binance-peg-usdt\",\"currency\":\"ILS\",\"id\":\"v1-bsc-listing\",\"price\":\"3.20\"}",
+          "result": {
+            "amountRaw": {
+              "$walletType": "bigint",
+              "value": "1000050000000000000"
+            },
+            "approved": false,
+            "assetId": "bsc-sim-binance-peg-usdt",
+            "closed": false,
+            "currency": "ILS",
+            "funded": true,
+            "id": "v1-bsc-listing",
+            "price": "3.20",
+            "sellerId": "v1-seller"
+          }
+        }
+      ],
+      [
+        "operator:v1-operator:approve-listing:bsc-listing-approve",
+        {
+          "fingerprint": "{\"listingId\":\"v1-bsc-listing\"}",
+          "result": {
+            "amountRaw": {
+              "$walletType": "bigint",
+              "value": "1000050000000000000"
+            },
+            "approved": true,
+            "assetId": "bsc-sim-binance-peg-usdt",
+            "closed": false,
+            "currency": "ILS",
+            "funded": true,
+            "id": "v1-bsc-listing",
+            "price": "3.20",
+            "sellerId": "v1-seller"
+          }
+        }
+      ],
+      [
+        "buyer:v1-buyer-a:reserve-trade:bsc-reserve-rounding",
+        {
+          "fingerprint": "{\"amount\":\"1.00005\",\"destination\":\"sim://bsc-sim-binance-peg-usdt/recipient/v1-buyer-a\",\"id\":\"v1-bsc-trade\",\"listingId\":\"v1-bsc-listing\"}",
+          "result": {
+            "amountRaw": {
+              "$walletType": "bigint",
+              "value": "1000050000000000000"
+            },
+            "assetId": "bsc-sim-binance-peg-usdt",
+            "buyerFeeRaw": {
+              "$walletType": "bigint",
+              "value": "10001000000000000"
+            },
+            "buyerId": "v1-buyer-a",
+            "currency": "ILS",
+            "destination": "sim://bsc-sim-binance-peg-usdt/recipient/v1-buyer-a",
+            "disputed": false,
+            "fiatTotalMinor": {
+              "$walletType": "bigint",
+              "value": "323"
+            },
+            "id": "v1-bsc-trade",
+            "listingId": "v1-bsc-listing",
+            "sellerFeeRaw": {
+              "$walletType": "bigint",
+              "value": "10001000000000000"
+            },
+            "sellerId": "v1-seller",
+            "status": "reserved",
+            "totalFeeRaw": {
+              "$walletType": "bigint",
+              "value": "20002000000000000"
+            }
+          }
+        }
+      ],
+      [
+        "buyer:v1-buyer-a:buyer-reported-payment:v1-bsc-trade-paid",
+        {
+          "fingerprint": "{\"tradeId\":\"v1-bsc-trade\"}",
+          "result": {
+            "amountRaw": {
+              "$walletType": "bigint",
+              "value": "1000050000000000000"
+            },
+            "assetId": "bsc-sim-binance-peg-usdt",
+            "buyerFeeRaw": {
+              "$walletType": "bigint",
+              "value": "10001000000000000"
+            },
+            "buyerId": "v1-buyer-a",
+            "currency": "ILS",
+            "destination": "sim://bsc-sim-binance-peg-usdt/recipient/v1-buyer-a",
+            "disputed": false,
+            "fiatTotalMinor": {
+              "$walletType": "bigint",
+              "value": "323"
+            },
+            "id": "v1-bsc-trade",
+            "listingId": "v1-bsc-listing",
+            "sellerFeeRaw": {
+              "$walletType": "bigint",
+              "value": "10001000000000000"
+            },
+            "sellerId": "v1-seller",
+            "status": "payment_reported",
+            "totalFeeRaw": {
+              "$walletType": "bigint",
+              "value": "20002000000000000"
+            }
+          }
+        }
+      ],
+      [
+        "verifier:v1-verifier:verify-fiat:v1-bsc-trade-verified",
+        {
+          "fingerprint": "{\"evidence\":{\"amountMinor\":\"323\",\"currency\":\"ILS\",\"kind\":\"simulated-cash-receipt\",\"reference\":\"sim-evidence-v1-bsc-trade\"},\"tradeId\":\"v1-bsc-trade\"}",
+          "result": {
+            "amountRaw": {
+              "$walletType": "bigint",
+              "value": "1000050000000000000"
+            },
+            "assetId": "bsc-sim-binance-peg-usdt",
+            "buyerFeeRaw": {
+              "$walletType": "bigint",
+              "value": "10001000000000000"
+            },
+            "buyerId": "v1-buyer-a",
+            "currency": "ILS",
+            "destination": "sim://bsc-sim-binance-peg-usdt/recipient/v1-buyer-a",
+            "disputed": false,
+            "evidence": {
+              "amountMinor": "323",
+              "currency": "ILS",
+              "kind": "simulated-cash-receipt",
+              "reference": "sim-evidence-v1-bsc-trade"
+            },
+            "fiatTotalMinor": {
+              "$walletType": "bigint",
+              "value": "323"
+            },
+            "id": "v1-bsc-trade",
+            "listingId": "v1-bsc-listing",
+            "sellerFeeRaw": {
+              "$walletType": "bigint",
+              "value": "10001000000000000"
+            },
+            "sellerId": "v1-seller",
+            "status": "payment_verified",
+            "totalFeeRaw": {
+              "$walletType": "bigint",
+              "value": "20002000000000000"
+            }
+          }
+        }
+      ],
+      [
+        "seller:v1-seller:authorize-release:v1-bsc-trade-authorized",
+        {
+          "fingerprint": "{\"tradeId\":\"v1-bsc-trade\"}",
+          "result": {
+            "amountRaw": {
+              "$walletType": "bigint",
+              "value": "1000050000000000000"
+            },
+            "assetId": "bsc-sim-binance-peg-usdt",
+            "authorization": {
+              "amountRaw": {
+                "$walletType": "bigint",
+                "value": "1000050000000000000"
+              },
+              "destination": "sim://bsc-sim-binance-peg-usdt/recipient/v1-buyer-a",
+              "evidenceReference": "sim-evidence-v1-bsc-trade",
+              "sellerId": "v1-seller"
+            },
+            "buyerFeeRaw": {
+              "$walletType": "bigint",
+              "value": "10001000000000000"
+            },
+            "buyerId": "v1-buyer-a",
+            "currency": "ILS",
+            "destination": "sim://bsc-sim-binance-peg-usdt/recipient/v1-buyer-a",
+            "disputed": false,
+            "evidence": {
+              "amountMinor": "323",
+              "currency": "ILS",
+              "kind": "simulated-cash-receipt",
+              "reference": "sim-evidence-v1-bsc-trade"
+            },
+            "fiatTotalMinor": {
+              "$walletType": "bigint",
+              "value": "323"
+            },
+            "id": "v1-bsc-trade",
+            "listingId": "v1-bsc-listing",
+            "sellerFeeRaw": {
+              "$walletType": "bigint",
+              "value": "10001000000000000"
+            },
+            "sellerId": "v1-seller",
+            "status": "release_authorized",
+            "totalFeeRaw": {
+              "$walletType": "bigint",
+              "value": "20002000000000000"
+            }
+          }
+        }
+      ],
+      [
+        "verifier:v1-verifier:reconcile:v1-bsc-trade-reconcile",
+        {
+          "fingerprint": "{\"assetId\":\"bsc-sim-binance-peg-usdt\",\"complete\":true,\"observedRaw\":\"9007199254740993123456789012345678\"}",
+          "result": {
+            "halted": false,
+            "matched": true
+          }
+        }
+      ],
+      [
+        "operator:v1-operator:native-fee-readiness:v1-bsc-trade-gas",
+        {
+          "fingerprint": "{\"assetId\":\"bsc-sim-binance-peg-usdt\",\"ready\":true}",
+          "result": {
+            "ready": true
+          }
+        }
+      ],
+      [
+        "dispatcher:v1-dispatcher:queue-release:v1-bsc-trade-queue",
+        {
+          "fingerprint": "{\"tradeId\":\"v1-bsc-trade\"}",
+          "result": {
+            "amountRaw": {
+              "$walletType": "bigint",
+              "value": "1000050000000000000"
+            },
+            "assetId": "bsc-sim-binance-peg-usdt",
+            "destination": "sim://bsc-sim-binance-peg-usdt/recipient/v1-buyer-a",
+            "dispatchCount": 0,
+            "id": "trade-v1-bsc-trade",
+            "kind": "trade",
+            "providerReference": "sim-payout-trade-v1-bsc-trade",
+            "sellerId": "v1-seller",
+            "state": "queued",
+            "tradeId": "v1-bsc-trade"
+          }
+        }
+      ],
+      [
+        "dispatcher:v1-dispatcher:begin-dispatch:v1-bsc-trade-dispatch",
+        {
+          "fingerprint": "{\"payoutId\":\"trade-v1-bsc-trade\"}",
+          "result": {
+            "amountRaw": {
+              "$walletType": "bigint",
+              "value": "1000050000000000000"
+            },
+            "assetId": "bsc-sim-binance-peg-usdt",
+            "destination": "sim://bsc-sim-binance-peg-usdt/recipient/v1-buyer-a",
+            "dispatchCount": 1,
+            "id": "trade-v1-bsc-trade",
+            "kind": "trade",
+            "providerReference": "sim-payout-trade-v1-bsc-trade",
+            "sellerId": "v1-seller",
+            "state": "submitting",
+            "tradeId": "v1-bsc-trade"
+          }
+        }
+      ],
+      [
+        "dispatcher:v1-dispatcher:submission-result:v1-bsc-trade-broadcast",
+        {
+          "fingerprint": "{\"outcome\":\"broadcast\",\"payoutId\":\"trade-v1-bsc-trade\",\"transactionId\":\"sim-tx-v1-bsc-trade-payout\"}",
+          "result": {
+            "amountRaw": {
+              "$walletType": "bigint",
+              "value": "1000050000000000000"
+            },
+            "assetId": "bsc-sim-binance-peg-usdt",
+            "destination": "sim://bsc-sim-binance-peg-usdt/recipient/v1-buyer-a",
+            "dispatchCount": 1,
+            "id": "trade-v1-bsc-trade",
+            "kind": "trade",
+            "providerReference": "sim-payout-trade-v1-bsc-trade",
+            "sellerId": "v1-seller",
+            "state": "broadcast",
+            "tradeId": "v1-bsc-trade",
+            "transactionId": "sim-tx-v1-bsc-trade-payout"
+          }
+        }
+      ],
+      [
+        "verifier:v1-verifier:payout-receipt:v1-bsc-trade-confirmed",
+        {
+          "fingerprint": "{\"amountRaw\":\"1000050000000000000\",\"assetId\":\"bsc-sim-binance-peg-usdt\",\"destination\":\"sim://bsc-sim-binance-peg-usdt/recipient/v1-buyer-a\",\"eventIndex\":3,\"finalized\":true,\"network\":\"bsc-simulation\",\"payoutId\":\"trade-v1-bsc-trade\",\"providerReference\":\"sim-payout-trade-v1-bsc-trade\",\"successful\":true,\"token\":\"sim-token-bsc-binance-peg-usdt\",\"transactionId\":\"sim-tx-v1-bsc-trade-payout\"}",
+          "result": {
+            "amountRaw": {
+              "$walletType": "bigint",
+              "value": "1000050000000000000"
+            },
+            "assetId": "bsc-sim-binance-peg-usdt",
+            "destination": "sim://bsc-sim-binance-peg-usdt/recipient/v1-buyer-a",
+            "dispatchCount": 1,
+            "id": "trade-v1-bsc-trade",
+            "kind": "trade",
+            "providerReference": "sim-payout-trade-v1-bsc-trade",
+            "sellerId": "v1-seller",
+            "state": "confirmed",
+            "tradeId": "v1-bsc-trade",
+            "transactionId": "sim-tx-v1-bsc-trade-payout"
+          }
+        }
+      ],
+      [
+        "seller:v1-seller:deposit-intent:v1-bsc-commission-intent",
+        {
+          "fingerprint": "{\"assetId\":\"bsc-sim-binance-peg-usdt\",\"id\":\"v1-bsc-commission\",\"purpose\":\"commission\"}",
+          "result": {
+            "assetId": "bsc-sim-binance-peg-usdt",
+            "destination": "sim://bsc-sim-binance-peg-usdt/deposit/v1-bsc-commission",
+            "id": "v1-bsc-commission",
+            "purpose": "commission",
+            "sellerId": "v1-seller"
+          }
+        }
+      ],
+      [
+        "verifier:v1-verifier:deposit-observation:v1-bsc-commission-final",
+        {
+          "fingerprint": "{\"amountRaw\":\"20002000000000000\",\"assetId\":\"bsc-sim-binance-peg-usdt\",\"blockHash\":\"sim-block-v1-bsc-commission\",\"destination\":\"sim://bsc-sim-binance-peg-usdt/deposit/v1-bsc-commission\",\"eventIndex\":2,\"finalized\":true,\"intentId\":\"v1-bsc-commission\",\"network\":\"bsc-simulation\",\"successful\":true,\"token\":\"sim-token-bsc-binance-peg-usdt\",\"transactionId\":\"sim-tx-v1-bsc-commission\"}",
+          "result": {
+            "credited": true,
+            "duplicate": false,
+            "halted": false
+          }
+        }
+      ],
+      [
+        "seller:v1-seller:close-listing:bsc-listing-close",
+        {
+          "fingerprint": "{\"listingId\":\"v1-bsc-listing\"}",
+          "result": {
+            "amountRaw": {
+              "$walletType": "bigint",
+              "value": "1000050000000000000"
+            },
+            "approved": true,
+            "assetId": "bsc-sim-binance-peg-usdt",
+            "closed": true,
+            "currency": "ILS",
+            "funded": true,
+            "id": "v1-bsc-listing",
+            "price": "3.20",
+            "sellerId": "v1-seller"
+          }
+        }
+      ],
+      [
+        "verifier:v1-verifier:reconcile:bsc-withdrawal-reconcile",
+        {
+          "fingerprint": "{\"assetId\":\"bsc-sim-binance-peg-usdt\",\"complete\":true,\"observedRaw\":\"9007199254740992143408789012345678\"}",
+          "result": {
+            "halted": false,
+            "matched": true
+          }
+        }
+      ],
+      [
+        "seller:v1-seller:withdrawal:bsc-withdrawal-create",
+        {
+          "fingerprint": "{\"amount\":\"9007199254740992.123406789012345677\",\"assetId\":\"bsc-sim-binance-peg-usdt\",\"destination\":\"sim://bsc-sim-binance-peg-usdt/recipient/v1-seller\",\"id\":\"v1-bsc-withdrawal\",\"stepUpReference\":\"sim-stepup-v1-withdrawal\"}",
+          "result": {
+            "amountRaw": {
+              "$walletType": "bigint",
+              "value": "9007199254740992123406789012345677"
+            },
+            "assetId": "bsc-sim-binance-peg-usdt",
+            "destination": "sim://bsc-sim-binance-peg-usdt/recipient/v1-seller",
+            "dispatchCount": 0,
+            "id": "withdrawal-v1-bsc-withdrawal",
+            "kind": "withdrawal",
+            "providerReference": "sim-payout-withdrawal-v1-bsc-withdrawal",
+            "sellerId": "v1-seller",
+            "state": "queued"
+          }
+        }
+      ],
+      [
+        "dispatcher:v1-dispatcher:begin-dispatch:bsc-withdrawal-dispatch",
+        {
+          "fingerprint": "{\"payoutId\":\"withdrawal-v1-bsc-withdrawal\"}",
+          "result": {
+            "amountRaw": {
+              "$walletType": "bigint",
+              "value": "9007199254740992123406789012345677"
+            },
+            "assetId": "bsc-sim-binance-peg-usdt",
+            "destination": "sim://bsc-sim-binance-peg-usdt/recipient/v1-seller",
+            "dispatchCount": 1,
+            "id": "withdrawal-v1-bsc-withdrawal",
+            "kind": "withdrawal",
+            "providerReference": "sim-payout-withdrawal-v1-bsc-withdrawal",
+            "sellerId": "v1-seller",
+            "state": "submitting"
+          }
+        }
+      ],
+      [
+        "dispatcher:v1-dispatcher:submission-result:bsc-withdrawal-unknown",
+        {
+          "fingerprint": "{\"outcome\":\"unknown\",\"payoutId\":\"withdrawal-v1-bsc-withdrawal\"}",
+          "result": {
+            "amountRaw": {
+              "$walletType": "bigint",
+              "value": "9007199254740992123406789012345677"
+            },
+            "assetId": "bsc-sim-binance-peg-usdt",
+            "destination": "sim://bsc-sim-binance-peg-usdt/recipient/v1-seller",
+            "dispatchCount": 1,
+            "id": "withdrawal-v1-bsc-withdrawal",
+            "kind": "withdrawal",
+            "providerReference": "sim-payout-withdrawal-v1-bsc-withdrawal",
+            "sellerId": "v1-seller",
+            "state": "submission_unknown"
+          }
+        }
+      ]
+    ]
+  },
+  "journal": [
+    {
+      "assetId": "tron-sim-usdt",
+      "entries": [
+        {
+          "account": "external",
+          "delta": {
+            "$walletType": "bigint",
+            "value": "-500000000"
+          }
+        },
+        {
+          "account": "available:v1-seller",
+          "delta": {
+            "$walletType": "bigint",
+            "value": "500000000"
+          }
+        }
+      ],
+      "id": "journal-1",
+      "operation": "verifier:v1-verifier:deposit-observation:v1-tron-principal-final"
+    },
+    {
+      "assetId": "tron-sim-usdt",
+      "entries": [
+        {
+          "account": "available:v1-seller",
+          "delta": {
+            "$walletType": "bigint",
+            "value": "-500000000"
+          }
+        },
+        {
+          "account": "listing:v1-tron-listing",
+          "delta": {
+            "$walletType": "bigint",
+            "value": "500000000"
+          }
+        }
+      ],
+      "id": "journal-2",
+      "operation": "verifier:v1-verifier:deposit-observation:v1-tron-principal-final"
+    },
+    {
+      "assetId": "tron-sim-usdt",
+      "entries": [
+        {
+          "account": "listing:v1-tron-listing",
+          "delta": {
+            "$walletType": "bigint",
+            "value": "-200000000"
+          }
+        },
+        {
+          "account": "trade:v1-tron-trade-200",
+          "delta": {
+            "$walletType": "bigint",
+            "value": "200000000"
+          }
+        }
+      ],
+      "id": "journal-3",
+      "operation": "buyer:v1-buyer-a:reserve-trade:tron-reserve-200"
+    },
+    {
+      "assetId": "tron-sim-usdt",
+      "entries": [
+        {
+          "account": "listing:v1-tron-listing",
+          "delta": {
+            "$walletType": "bigint",
+            "value": "-300000000"
+          }
+        },
+        {
+          "account": "trade:v1-tron-trade-300",
+          "delta": {
+            "$walletType": "bigint",
+            "value": "300000000"
+          }
+        }
+      ],
+      "id": "journal-4",
+      "operation": "buyer:v1-buyer-b:reserve-trade:tron-reserve-300"
+    },
+    {
+      "assetId": "tron-sim-usdt",
+      "entries": [
+        {
+          "account": "trade:v1-tron-trade-200",
+          "delta": {
+            "$walletType": "bigint",
+            "value": "-200000000"
+          }
+        },
+        {
+          "account": "payout:trade-v1-tron-trade-200",
+          "delta": {
+            "$walletType": "bigint",
+            "value": "200000000"
+          }
+        }
+      ],
+      "id": "journal-5",
+      "operation": "dispatcher:v1-dispatcher:queue-release:v1-tron-trade-200-queue"
+    },
+    {
+      "assetId": "tron-sim-usdt",
+      "entries": [
+        {
+          "account": "payout:trade-v1-tron-trade-200",
+          "delta": {
+            "$walletType": "bigint",
+            "value": "-200000000"
+          }
+        },
+        {
+          "account": "external",
+          "delta": {
+            "$walletType": "bigint",
+            "value": "200000000"
+          }
+        }
+      ],
+      "id": "journal-6",
+      "operation": "verifier:v1-verifier:payout-receipt:v1-tron-trade-200-confirmed"
+    },
+    {
+      "assetId": "tron-sim-usdt",
+      "entries": [
+        {
+          "account": "external",
+          "delta": {
+            "$walletType": "bigint",
+            "value": "-4000000"
+          }
+        },
+        {
+          "account": "commission:v1-seller",
+          "delta": {
+            "$walletType": "bigint",
+            "value": "4000000"
+          }
+        }
+      ],
+      "id": "journal-7",
+      "operation": "verifier:v1-verifier:deposit-observation:v1-tron-commission-final"
+    },
+    {
+      "assetId": "tron-sim-usdt",
+      "entries": [
+        {
+          "account": "commission:v1-seller",
+          "delta": {
+            "$walletType": "bigint",
+            "value": "-4000000"
+          }
+        },
+        {
+          "account": "platform-revenue",
+          "delta": {
+            "$walletType": "bigint",
+            "value": "4000000"
+          }
+        }
+      ],
+      "id": "journal-8",
+      "operation": "verifier:v1-verifier:deposit-observation:v1-tron-commission-final"
+    },
+    {
+      "assetId": "bsc-sim-binance-peg-usdt",
+      "entries": [
+        {
+          "account": "external",
+          "delta": {
+            "$walletType": "bigint",
+            "value": "-9007199254740993123456789012345678"
+          }
+        },
+        {
+          "account": "available:v1-seller",
+          "delta": {
+            "$walletType": "bigint",
+            "value": "9007199254740993123456789012345678"
+          }
+        }
+      ],
+      "id": "journal-9",
+      "operation": "verifier:v1-verifier:deposit-observation:v1-bsc-principal-final"
+    },
+    {
+      "assetId": "bsc-sim-binance-peg-usdt",
+      "entries": [
+        {
+          "account": "available:v1-seller",
+          "delta": {
+            "$walletType": "bigint",
+            "value": "-1000050000000000000"
+          }
+        },
+        {
+          "account": "listing:v1-bsc-listing",
+          "delta": {
+            "$walletType": "bigint",
+            "value": "1000050000000000000"
+          }
+        }
+      ],
+      "id": "journal-10",
+      "operation": "seller:v1-seller:create-listing:bsc-listing-create"
+    },
+    {
+      "assetId": "bsc-sim-binance-peg-usdt",
+      "entries": [
+        {
+          "account": "listing:v1-bsc-listing",
+          "delta": {
+            "$walletType": "bigint",
+            "value": "-1000050000000000000"
+          }
+        },
+        {
+          "account": "trade:v1-bsc-trade",
+          "delta": {
+            "$walletType": "bigint",
+            "value": "1000050000000000000"
+          }
+        }
+      ],
+      "id": "journal-11",
+      "operation": "buyer:v1-buyer-a:reserve-trade:bsc-reserve-rounding"
+    },
+    {
+      "assetId": "bsc-sim-binance-peg-usdt",
+      "entries": [
+        {
+          "account": "trade:v1-bsc-trade",
+          "delta": {
+            "$walletType": "bigint",
+            "value": "-1000050000000000000"
+          }
+        },
+        {
+          "account": "payout:trade-v1-bsc-trade",
+          "delta": {
+            "$walletType": "bigint",
+            "value": "1000050000000000000"
+          }
+        }
+      ],
+      "id": "journal-12",
+      "operation": "dispatcher:v1-dispatcher:queue-release:v1-bsc-trade-queue"
+    },
+    {
+      "assetId": "bsc-sim-binance-peg-usdt",
+      "entries": [
+        {
+          "account": "payout:trade-v1-bsc-trade",
+          "delta": {
+            "$walletType": "bigint",
+            "value": "-1000050000000000000"
+          }
+        },
+        {
+          "account": "external",
+          "delta": {
+            "$walletType": "bigint",
+            "value": "1000050000000000000"
+          }
+        }
+      ],
+      "id": "journal-13",
+      "operation": "verifier:v1-verifier:payout-receipt:v1-bsc-trade-confirmed"
+    },
+    {
+      "assetId": "bsc-sim-binance-peg-usdt",
+      "entries": [
+        {
+          "account": "external",
+          "delta": {
+            "$walletType": "bigint",
+            "value": "-20002000000000000"
+          }
+        },
+        {
+          "account": "commission:v1-seller",
+          "delta": {
+            "$walletType": "bigint",
+            "value": "20002000000000000"
+          }
+        }
+      ],
+      "id": "journal-14",
+      "operation": "verifier:v1-verifier:deposit-observation:v1-bsc-commission-final"
+    },
+    {
+      "assetId": "bsc-sim-binance-peg-usdt",
+      "entries": [
+        {
+          "account": "commission:v1-seller",
+          "delta": {
+            "$walletType": "bigint",
+            "value": "-20002000000000000"
+          }
+        },
+        {
+          "account": "platform-revenue",
+          "delta": {
+            "$walletType": "bigint",
+            "value": "20002000000000000"
+          }
+        }
+      ],
+      "id": "journal-15",
+      "operation": "verifier:v1-verifier:deposit-observation:v1-bsc-commission-final"
+    },
+    {
+      "assetId": "bsc-sim-binance-peg-usdt",
+      "entries": [
+        {
+          "account": "available:v1-seller",
+          "delta": {
+            "$walletType": "bigint",
+            "value": "-9007199254740992123406789012345677"
+          }
+        },
+        {
+          "account": "payout:withdrawal-v1-bsc-withdrawal",
+          "delta": {
+            "$walletType": "bigint",
+            "value": "9007199254740992123406789012345677"
+          }
+        }
+      ],
+      "id": "journal-16",
+      "operation": "seller:v1-seller:withdrawal:bsc-withdrawal-create"
+    }
+  ],
+  "listings": {
+    "$walletType": "map",
+    "entries": [
+      [
+        "v1-tron-listing",
+        {
+          "amountRaw": {
+            "$walletType": "bigint",
+            "value": "500000000"
+          },
+          "approved": true,
+          "assetId": "tron-sim-usdt",
+          "closed": false,
+          "currency": "ILS",
+          "funded": true,
+          "id": "v1-tron-listing",
+          "price": "3.20",
+          "sellerId": "v1-seller"
+        }
+      ],
+      [
+        "v1-bsc-listing",
+        {
+          "amountRaw": {
+            "$walletType": "bigint",
+            "value": "1000050000000000000"
+          },
+          "approved": true,
+          "assetId": "bsc-sim-binance-peg-usdt",
+          "closed": true,
+          "currency": "ILS",
+          "funded": true,
+          "id": "v1-bsc-listing",
+          "price": "3.20",
+          "sellerId": "v1-seller"
+        }
+      ]
+    ]
+  },
+  "payouts": {
+    "$walletType": "map",
+    "entries": [
+      [
+        "trade-v1-tron-trade-200",
+        {
+          "amountRaw": {
+            "$walletType": "bigint",
+            "value": "200000000"
+          },
+          "assetId": "tron-sim-usdt",
+          "destination": "sim://tron-sim-usdt/recipient/v1-buyer-a",
+          "dispatchCount": 1,
+          "id": "trade-v1-tron-trade-200",
+          "kind": "trade",
+          "providerReference": "sim-payout-trade-v1-tron-trade-200",
+          "sellerId": "v1-seller",
+          "state": "confirmed",
+          "tradeId": "v1-tron-trade-200",
+          "transactionId": "sim-tx-v1-tron-trade-200-payout"
+        }
+      ],
+      [
+        "trade-v1-bsc-trade",
+        {
+          "amountRaw": {
+            "$walletType": "bigint",
+            "value": "1000050000000000000"
+          },
+          "assetId": "bsc-sim-binance-peg-usdt",
+          "destination": "sim://bsc-sim-binance-peg-usdt/recipient/v1-buyer-a",
+          "dispatchCount": 1,
+          "id": "trade-v1-bsc-trade",
+          "kind": "trade",
+          "providerReference": "sim-payout-trade-v1-bsc-trade",
+          "sellerId": "v1-seller",
+          "state": "confirmed",
+          "tradeId": "v1-bsc-trade",
+          "transactionId": "sim-tx-v1-bsc-trade-payout"
+        }
+      ],
+      [
+        "withdrawal-v1-bsc-withdrawal",
+        {
+          "amountRaw": {
+            "$walletType": "bigint",
+            "value": "9007199254740992123406789012345677"
+          },
+          "assetId": "bsc-sim-binance-peg-usdt",
+          "destination": "sim://bsc-sim-binance-peg-usdt/recipient/v1-seller",
+          "dispatchCount": 1,
+          "id": "withdrawal-v1-bsc-withdrawal",
+          "kind": "withdrawal",
+          "providerReference": "sim-payout-withdrawal-v1-bsc-withdrawal",
+          "sellerId": "v1-seller",
+          "state": "submission_unknown"
+        }
+      ]
+    ]
+  },
+  "receipts": {
+    "$walletType": "map",
+    "entries": [
+      [
+        "[\"tron-simulation\",\"sim-token-tron-usdt\",\"sim-tx-v1-tron-trade-200-payout\",3]",
+        "trade-v1-tron-trade-200"
+      ],
+      [
+        "[\"bsc-simulation\",\"sim-token-bsc-binance-peg-usdt\",\"sim-tx-v1-bsc-trade-payout\",3]",
+        "trade-v1-bsc-trade"
+      ]
+    ]
+  },
+  "reconciliations": {
+    "$walletType": "map",
+    "entries": [
+      [
+        "tron-sim-usdt",
+        {
+          "at": 1793793612000,
+          "expectedRaw": {
+            "$walletType": "bigint",
+            "value": "500000000"
+          }
+        }
+      ],
+      [
+        "bsc-sim-binance-peg-usdt",
+        {
+          "at": 1793793638000,
+          "expectedRaw": {
+            "$walletType": "bigint",
+            "value": "9007199254740992143408789012345678"
+          }
+        }
+      ]
+    ]
+  },
+  "trades": {
+    "$walletType": "map",
+    "entries": [
+      [
+        "v1-tron-trade-200",
+        {
+          "amountRaw": {
+            "$walletType": "bigint",
+            "value": "200000000"
+          },
+          "assetId": "tron-sim-usdt",
+          "authorization": {
+            "amountRaw": {
+              "$walletType": "bigint",
+              "value": "200000000"
+            },
+            "destination": "sim://tron-sim-usdt/recipient/v1-buyer-a",
+            "evidenceReference": "sim-evidence-v1-tron-trade-200",
+            "sellerId": "v1-seller"
+          },
+          "buyerFeeRaw": {
+            "$walletType": "bigint",
+            "value": "2000000"
+          },
+          "buyerId": "v1-buyer-a",
+          "currency": "ILS",
+          "destination": "sim://tron-sim-usdt/recipient/v1-buyer-a",
+          "disputed": false,
+          "evidence": {
+            "amountMinor": "64640",
+            "currency": "ILS",
+            "kind": "simulated-bank-credit",
+            "reference": "sim-evidence-v1-tron-trade-200"
+          },
+          "fiatTotalMinor": {
+            "$walletType": "bigint",
+            "value": "64640"
+          },
+          "id": "v1-tron-trade-200",
+          "listingId": "v1-tron-listing",
+          "payoutId": "trade-v1-tron-trade-200",
+          "sellerFeeRaw": {
+            "$walletType": "bigint",
+            "value": "2000000"
+          },
+          "sellerId": "v1-seller",
+          "status": "completed",
+          "totalFeeRaw": {
+            "$walletType": "bigint",
+            "value": "4000000"
+          }
+        }
+      ],
+      [
+        "v1-tron-trade-300",
+        {
+          "amountRaw": {
+            "$walletType": "bigint",
+            "value": "300000000"
+          },
+          "assetId": "tron-sim-usdt",
+          "buyerFeeRaw": {
+            "$walletType": "bigint",
+            "value": "3000000"
+          },
+          "buyerId": "v1-buyer-b",
+          "currency": "ILS",
+          "destination": "sim://tron-sim-usdt/recipient/v1-buyer-b",
+          "disputed": false,
+          "fiatTotalMinor": {
+            "$walletType": "bigint",
+            "value": "96960"
+          },
+          "id": "v1-tron-trade-300",
+          "listingId": "v1-tron-listing",
+          "sellerFeeRaw": {
+            "$walletType": "bigint",
+            "value": "3000000"
+          },
+          "sellerId": "v1-seller",
+          "status": "reserved",
+          "totalFeeRaw": {
+            "$walletType": "bigint",
+            "value": "6000000"
+          }
+        }
+      ],
+      [
+        "v1-bsc-trade",
+        {
+          "amountRaw": {
+            "$walletType": "bigint",
+            "value": "1000050000000000000"
+          },
+          "assetId": "bsc-sim-binance-peg-usdt",
+          "authorization": {
+            "amountRaw": {
+              "$walletType": "bigint",
+              "value": "1000050000000000000"
+            },
+            "destination": "sim://bsc-sim-binance-peg-usdt/recipient/v1-buyer-a",
+            "evidenceReference": "sim-evidence-v1-bsc-trade",
+            "sellerId": "v1-seller"
+          },
+          "buyerFeeRaw": {
+            "$walletType": "bigint",
+            "value": "10001000000000000"
+          },
+          "buyerId": "v1-buyer-a",
+          "currency": "ILS",
+          "destination": "sim://bsc-sim-binance-peg-usdt/recipient/v1-buyer-a",
+          "disputed": false,
+          "evidence": {
+            "amountMinor": "323",
+            "currency": "ILS",
+            "kind": "simulated-cash-receipt",
+            "reference": "sim-evidence-v1-bsc-trade"
+          },
+          "fiatTotalMinor": {
+            "$walletType": "bigint",
+            "value": "323"
+          },
+          "id": "v1-bsc-trade",
+          "listingId": "v1-bsc-listing",
+          "payoutId": "trade-v1-bsc-trade",
+          "sellerFeeRaw": {
+            "$walletType": "bigint",
+            "value": "10001000000000000"
+          },
+          "sellerId": "v1-seller",
+          "status": "completed",
+          "totalFeeRaw": {
+            "$walletType": "bigint",
+            "value": "20002000000000000"
+          }
+        }
+      ]
+    ]
+  }
+}
