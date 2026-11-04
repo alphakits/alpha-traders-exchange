@@ -2,6 +2,8 @@
 
 **Status: preliminary planner, frozen v1 evidence and focused repository participant implemented for simulation; full coordinator and resize remain design work.** Original source review: 4 November 2026, development baseline `23ee55f`. The current wallet remains an isolated simulation. This document does not connect a production route, migrate a database, authorize a provider, or establish launch readiness.
 
+The preliminary stage passed [exact-source verification at `44ac6c4`](marketplace-groundwork-verification-2026-11-04.md): 800 tests, full-project TypeScript, three native PostgreSQL drills and the browser rehearsal. The [v2 continuation handoff](ledger-v2-continuation-design.md) specifies the proposed next version/migration/backup boundary; that behavior is not yet implemented.
+
 ## Decision and smallest next stage
 
 Use one database transaction to accept marketplace terms and adjust the corresponding wallet reservation. Two independently committed calls, including a wallet call inside today's marketplace callback, cannot provide that guarantee.

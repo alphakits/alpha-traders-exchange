@@ -6,7 +6,7 @@ Date: 4 November 2026. Decision: **not ready to accept live funds or deploy**.
 
 The user authorized continued development, isolated testing and saving the wallet development branch. Live launch remains withheld. A passing development suite does not change that instruction.
 
-Latest verified source: `f3422f9`, with **578 passing tests across the wallet and targeted platform authentication suites**, full-project TypeScript and successful native PostgreSQL/Chromium drills. [Exact evidence and limits](platform-verification-2026-11-04.md) are retained separately from this readiness decision.
+Latest verified source: `44ac6c4`, with **800 passing tests across the wallet and targeted platform authentication/marketplace suites**, full-project TypeScript, three successful native PostgreSQL drills and the Chromium rehearsal. [Exact evidence and limits](marketplace-groundwork-verification-2026-11-04.md) are retained separately from this readiness decision.
 
 ## Accepted behavior
 
@@ -42,7 +42,7 @@ The current ledger rebuilds all historical commands and serializes the whole wal
 
 1. **Choose the custody/signing direction and test environment.** The reviewable options and acceptance requirements are in [custody-decision.md](custody-decision.md). Account eligibility, commercial cost, key control and recovery ownership cannot be inferred from public API documentation.
 2. **Approve a concrete fiat verification policy.** Bank and cash payments need a defined trusted authority and evidence. Neither the buyer's paid button nor a manual marketplace completion flag provides that evidence.
-3. **Build the private integrated transaction boundary.** Choose one database transaction/outbox design for accepted trade terms, reservation changes and confirmed completion. Preserve existing two-proposal consent, payment-method constraints, reviews, ranks, benefits and fee behavior. Do not connect two independent writes and call them atomic.
+3. **Complete the private integrated transaction boundary.** The focused SQL participant and pure planner are verified groundwork. Implement the [versioned ledger continuation](ledger-v2-continuation-design.md), durable resize, bindings/acceptance receipts, lifecycle participants and enrolled-writer guards under one transaction/outbox design. Preserve existing two-proposal consent, payment-method constraints, buyer eligibility/reviews, ranks, benefits and fee behavior.
 4. **Complete actual provider/testnet drills.** Confirm deposit attribution, wrong-token rejection, finality, duplicate webhooks, gas resources, payout policy, uncertain submission, worker restart, stale backup and signer recovery using the selected environment.
 5. **Finish operations and independent review.** Review real permissions and signing policy, recovery and limits, user-facing acceptance and deployment plan. Record unresolved findings explicitly; this development review is not an independent security audit.
 6. **Present the exact release for launch authorization.** No automatic threshold, green test result or broad development approval authorizes mainnet funding, signing, production migration, deployment or real transfers.
@@ -53,8 +53,10 @@ The current ledger rebuilds all historical commands and serializes the whole wal
 - [Durable repository and native PostgreSQL verification](durable-verification-2026-11-04.md)
 - [468-test access, recovery and actual browser verification](phase3-verification-2026-11-04.md)
 - [578-test platform session and wallet verification](platform-verification-2026-11-04.md)
+- [800-test marketplace transaction groundwork verification](marketplace-groundwork-verification-2026-11-04.md)
 - [Access/platform integration contract](access-and-integration.md)
 - [Atomic marketplace terms integration design](transaction-integration-design.md)
+- [Proposed versioned ledger continuation](ledger-v2-continuation-design.md)
 - [Recovery runbook](recovery-runbook.md)
 - [Chain adapter contract](chain-adapter-contract.md)
 - [Rehearsal guide](rehearsal.md)
