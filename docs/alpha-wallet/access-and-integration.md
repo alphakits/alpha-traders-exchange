@@ -50,6 +50,17 @@ This does **not** issue or verify a real passkey, SMS code or MFA credential. Be
 
 No existing source in this table was changed by the development access gateway. These mappings identify real remaining integration work and prevent a passing isolated simulation from being mistaken for a completed live-platform integration.
 
+## Session metadata required for the next integrated stage
+
+A bounded source review after resuming development found the following concrete gaps. These are implementation requirements, not claims that authentication is already connected:
+
+- **Web expiry is available in storage but discarded by current public helpers.** `getAuthenticatedUserBySessionToken` loads the session, account and seller-application context through `loadAuthenticatedSessionSnapshot`, validates the stored session expiry, then returns only the user. `requireApiUser` therefore cannot supply the gateway's `sessionExpiresAtMs` directly. Expose the actual `AuthSession.expiresAt` alongside the canonical account through an explicitly uncached server lookup. Preserve existing user-only caller behavior and disabled-account handling. Do not invent a TTL or call a separate session lookup and describe the two reads as one coherent snapshot.
+- **Request memoization is not a fresh authorization read.** The Next auth wrapper uses React `cache`. Repeating that wrapper is not evidence that canonical account/session state was reread after asynchronous work. The wallet resolver must use the reviewed uncached boundary, including replays and post-commit private-response checks.
+- **Mobile access expiry exists before the wrapper drops it.** `MobileAuthService.validateAccessToken` returns a validated, device-bound session with `accessExpiresAt`. `requireMobileApiUser` resolves the current account but returns no expiry metadata. Retain the validated access expiry, use a trusted account loader that can be isolated in tests, and explicitly apply wallet phone/age gates. Refresh-token expiry and client-provided metadata cannot replace access-session expiry.
+- **Use concrete verification evidence.** Map email with `emailVerified === true`, phone with `hasVerifiedPhone` or the existing exact account-ID/email exemption, and age with `hasAdultConfirmation`. The broader `isVerified` helper can accept a development photo-verification bypass and is not sufficient wallet evidence. Map legacy optional `disabled` consistently with the canonical account semantics, then pass an explicit boolean to the strict gateway.
+
+Local tests can establish token/device binding, expiry deadlines, revocation, canonical suspension, actual verification helpers, loader failures and fresh rereads using isolated stores. They cannot establish atomic revocation across a separate financial transaction or prove a real deployment's authentication configuration. No production auth helper or route was modified by this review.
+
 ## Rules for the private integrated stage
 
 1. Keep production routes disabled and production deployments blocked while adding the explicit web/mobile session adapter.

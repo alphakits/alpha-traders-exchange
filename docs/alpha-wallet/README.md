@@ -197,7 +197,7 @@ Current acceptance evidence, open gates and owner decisions are tracked in [laun
 | --- | --- | --- |
 | 1. Offline foundation | Domain engine, historical SQL proof, adversarial tests, executable demo — implemented | Historical phase-one verification report |
 | 2. Durable development repository | Connected transactional commands/journal/outbox, immutable evidence, replay, fake-provider recovery — implemented for simulation | Current durable verification report; native concurrency execution and backup/restore evidence tracked separately |
-| 2a. Recovery, access and rehearsal | Quarantined logical restore, separate-process backup CLI, trusted-user gateway, fixture receipt decoders and local bilingual UI — implemented for simulation | Phase-three verification report and actual browser/restore evidence |
+| 2a. Recovery, access and rehearsal | Quarantined logical restore, separate-process backup CLI, trusted-user gateway, fixture receipt decoders and local bilingual UI — implemented for simulation | [Phase-three verification](phase3-verification-2026-11-04.md): 468 tests, actual native restore and Chromium English/Arabic flows passed |
 | 2b. Production repository design | Auth-derived identities, production role design, version migration, checkpointing/scaling, backup/restore and operational recovery | Reviewed permissions, fault-injection evidence, restore/reconciliation exercise, realistic load tests |
 | 3. Testnet adapters | Exact chain allowlists; deposit address assignment; confirmed receipt observers; cursor recovery; chosen signer/custody sandbox; gas handling | Wrong-token, finality, provider outage, timeout, duplicate webhook, and ambiguous-broadcast recovery tests |
 | 4. Private integrated flow | Seller deposit/withdraw screens; funded listings; existing trade UI; Arabic/English mobile behavior; payment-verification and dispute resolution interfaces | End-to-end tests using synthetic/testnet funds; existing marketplace/commission/review/receipt regressions |
@@ -207,6 +207,7 @@ Open decisions that do not block this development milestone: custody provider ve
 
 Additional implementation contracts:
 
+- [Executed recovery and browser evidence](phase3-verification-2026-11-04.md)
 - [Recovery runbook](recovery-runbook.md)
 - [Access and existing-platform integration](access-and-integration.md)
 - [Chain evidence adapter contract](chain-adapter-contract.md)

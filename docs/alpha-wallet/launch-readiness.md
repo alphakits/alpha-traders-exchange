@@ -24,11 +24,11 @@ These rules are executable in the isolated development model. Existing marketpla
 | --- | --- | --- |
 | Accounting and reservations | Exact raw units, balanced journals, conservation, full-principal allocation, partial trades and separate fee accounting | Production permissions, migrations, realistic load/checkpoint design and full platform consistency |
 | Durable commands | Versioned replay, immutable SQL projections, deduplicated commands and payouts, independent-process PostgreSQL contention checks | Reviewed production roles, migration/version policy and ongoing integrity monitoring |
-| Recovery | Lost-response lookup, separate provider state, logical backup validation, atomic pause on restore, explicit backup CLI | Fenced production writers, provider/chain reconciliation, signed-off recovery exercise and controlled resume/adjudication |
+| Recovery | Lost-response lookup, separate provider state, logical backup validation, atomic pause on restore, explicit backup CLI; native PostgreSQL rollback/restore drill passed | Fenced production writers, provider/chain reconciliation, signed-off recovery exercise and controlled resume/adjudication |
 | Access control | Trusted-resolver gateway, fresh identity checks, canonical seller status, participant projections and exact withdrawal-proof terms | Actual web/mobile adapters, real step-up issuer, revocation/rate-limit contract and review of privileged identities |
 | Chain evidence | Strict pure BSC/TRON receipt validation against explicit fixture context and supplied canonical ancestry | Exact real/test asset registry, owned deposit addresses, authenticated independent RPC/finality sources, durable scan coverage and reorg handling |
 | Custody and signing | Immutable payout contract and fake-provider acceptance/lookup/finality tests | Owner-selected custody/signing model, isolated provider test environment, tested keys/policies/recovery and account-specific asset availability |
-| Seller/buyer interface | Persistent English/Arabic local rehearsal with funding, approval, partial trades, fees and failure recovery | Integration into actual website/mobile account, trade and receipt screens; user-facing accessibility and product acceptance |
+| Seller/buyer interface | Persistent English/Arabic local rehearsal; actual Chromium desktop/mobile funding, approval, partial trades, fee and response-loss flows passed | Integration into actual website/mobile account, trade and receipt screens; user-facing accessibility and product acceptance |
 | Marketplace integration | Existing source boundaries inspected and mapped in the integration contract | Atomic listing/reservation/completion integration; proposal/acceptance reservation resizing; current buyer eligibility/reviews; benefits/ranks/receipts/notifications exactly once |
 | Payment verification | Fixture evidence distinct from buyer claim and seller release | Owner-approved bank/cash evidence authority, audit trail and exception/dispute handling |
 | Operations | Pause and conservative recovery behavior; draft runbooks and verified isolation | Monitoring/alerts, on-call ownership, asset/gas reconciliation, limits, incident and refund process, independent security review |
@@ -49,9 +49,10 @@ The current ledger rebuilds all historical commands and serializes the whole wal
 
 - [Initial offline verification](verification-2026-11-04.md)
 - [Durable repository and native PostgreSQL verification](durable-verification-2026-11-04.md)
+- [468-test access, recovery and actual browser verification](phase3-verification-2026-11-04.md)
 - [Access/platform integration contract](access-and-integration.md)
 - [Recovery runbook](recovery-runbook.md)
 - [Chain adapter contract](chain-adapter-contract.md)
 - [Rehearsal guide](rehearsal.md)
 
-New test counts and browser/restore execution outcomes belong in the phase-three verification report after the checks actually complete. An implemented check is not a passed check.
+The phase-three report identifies the exact tested commit and successful native PostgreSQL/Chromium run. Subsequent integration work requires separate evidence; a passing isolated simulation does not close the remaining live-launch gates.
