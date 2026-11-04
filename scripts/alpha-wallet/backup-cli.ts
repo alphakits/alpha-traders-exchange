@@ -4,7 +4,7 @@ import { open, lstat, readdir, link, unlink } from "node:fs/promises";
 import { dirname, isAbsolute, join, parse, resolve, sep } from "node:path";
 import { randomUUID } from "node:crypto";
 import { exportWalletBackup, inspectWalletBackup, restoreWalletBackup, MAX_WALLET_BACKUP_BYTES, WalletBackupError } from "../../src/lib/alpha-wallet/backup";
-import { createFileWalletStore } from "../../src/lib/alpha-wallet/durable-store";
+import { CommitOutcomeUnknownError, createFileWalletStore } from "../../src/lib/alpha-wallet/durable-store";
 import { WalletIntegrityError } from "../../src/lib/alpha-wallet/durable";
 import { assertSimulationRuntime } from "../../src/lib/alpha-wallet/runtime";
 
@@ -186,7 +186,9 @@ async function main() {
 void main().catch(error => {
   // Filesystem and parser errors may contain supplied paths or private values.
   // Print only deliberate diagnostic messages, never history or raw arguments.
-  const message = error instanceof BackupCliError || error instanceof WalletBackupError || error instanceof WalletIntegrityError
+  const message = error instanceof CommitOutcomeUnknownError
+    ? `${error.code}: Commit acknowledgement was lost; an error does not prove rollback. Keep old writers stopped and verify the SAME wallet directory through the recovery runbook using the original backup/checkpoint. Do not delete the target, overwrite an output, or create a replacement restore to resolve this uncertainty.`
+    : error instanceof BackupCliError || error instanceof WalletBackupError || error instanceof WalletIntegrityError
     ? error.message : "Backup command failed; no successful backup or restore was reported";
   console.error(`Alpha Wallet backup: ${message}`);
   process.exitCode = 1;

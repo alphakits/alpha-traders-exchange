@@ -8,7 +8,7 @@ import { parseUnits, type AssetId } from "./amounts";
 import { exportWalletBackup, inspectWalletBackup, restoreWalletBackup } from "./backup";
 import { walletDigest } from "./commands";
 import { createDurableWallet, initializeDurableWallet, walletCommand } from "./durable";
-import { createFileWalletStore, type WalletSql, type WalletStore } from "./durable-store";
+import { CommitOutcomeUnknownError, createFileWalletStore, type WalletSql, type WalletStore } from "./durable-store";
 import { createFileFakeProvider, type FileFakeProvider } from "./fake-provider";
 import { assertLedgerInvariants, balance, expectedCustody } from "./ledger";
 import { createSimulationPayoutWorker } from "./payout-worker";
@@ -255,6 +255,40 @@ describe("logical backup and mandatory quarantined restore", () => {
     expect(recovered.revision).toBe(3);
     expect(expectedCustody(recovered.state, TRON)).toBe(parseUnits("500", 6));
     expect(recovered.state.haltReason).toBe("Operator emergency pause");
+  }, TIMEOUT);
+
+  it("preserves a committed paused restore after acknowledgement loss and requires inspecting the same target", async () => {
+    const source = await connected("source"), payout = await queuedWithdrawal(source);
+    const original = await source.wallet.snapshot();
+    const originalRows = await rows(source.store);
+    const serialized = await backup(source.store);
+    const target = await connected("target", false, () => FIXTURE_TIME + 1_000);
+    let completedTransactions = 0;
+    const lostReply: WalletStore = {
+      async transaction(work) {
+        // The real storage transaction commits; only its returned acknowledgement
+        // is then lost. This is synthetic response loss, not a network partition.
+        await target.store.transaction(work);
+        completedTransactions++;
+        throw new CommitOutcomeUnknownError(new Error("Synthetic restore acknowledgement loss"));
+      },
+      close: () => target.store.close(),
+    };
+    await expect(restore(lostReply, serialized)).rejects.toMatchObject({ code: "ALPHA_WALLET_COMMIT_OUTCOME_UNKNOWN" });
+    expect(completedTransactions).toBe(1);
+    await target.store.close();
+    const reopened = await connected("target", true, () => FIXTURE_TIME + 1_000);
+    const recovered = await reopened.wallet.snapshot();
+    expect(recovered.revision).toBe(original.revision + 1);
+    expect(recovered.state.haltReason).toBe("Operator emergency pause");
+    expect((await rows(reopened.store)).slice(0, -1)).toEqual(originalRows);
+    expect(balance(recovered.state, TRON, `payout:${payout.id}`)).toBe(parseUnits("200", 6));
+    expect(expectedCustody(recovered.state, TRON)).toBe(parseUnits("500", 6));
+    // Repeating restore does not erase or replace the already committed target.
+    await expect(restore(reopened.store, serialized)).rejects.toThrow(/no committed wallet commands/);
+    await expect(reopened.wallet.execute(walletCommand("beginDispatch", DISPATCHER, "after-unknown-restore", payout.id)))
+      .rejects.toThrow(/Wallet paused/);
+    expect(await reopened.wallet.snapshot()).toEqual(recovered);
   }, TIMEOUT);
 
   it("requires fresh-target acknowledgment and a valid nondecreasing restore clock before any target writes", async () => {

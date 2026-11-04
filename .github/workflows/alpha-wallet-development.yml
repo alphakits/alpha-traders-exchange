@@ -91,9 +91,6 @@ jobs:
             2>test-results/alpha-wallet/postgres-concurrency.stderr.log \
             | tee test-results/alpha-wallet/postgres-concurrency.json
 
-      - name: Install the locked Playwright Chromium browser
-        run: node ./node_modules/playwright/cli.js install --with-deps chromium
-
       - name: Prepare two empty disposable recovery databases
         run: |
           node --input-type=module <<'NODE'
@@ -115,6 +112,9 @@ jobs:
             --target-connection-string 'postgresql://wallet_fixture:simulation-only@127.0.0.1:5432/alpha_wallet_dev_restore_target' \
             2>test-results/alpha-wallet/postgres-backup.stderr.log \
             | tee test-results/alpha-wallet/postgres-backup.json
+
+      - name: Install the locked Playwright Chromium browser
+        run: node ./node_modules/playwright/cli.js install --with-deps chromium
 
       - name: Rehearse the English desktop and Arabic mobile wallet in Chromium
         run: |

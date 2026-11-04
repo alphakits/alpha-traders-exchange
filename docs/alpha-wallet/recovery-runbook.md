@@ -124,6 +124,8 @@ node node_modules/vitest/vitest.mjs run src/lib/alpha-wallet/backup-cli.test.ts
 
 A connection failure while acknowledging commit does not establish whether the transaction committed. Do not interpret an exception as an empty destination, switch immediately to a second active copy, or bypass the fresh-target guard.
 
+The backup CLI reports `ALPHA_WALLET_COMMIT_OUTCOME_UNKNOWN` explicitly when the storage adapter detects this condition. It exits unsuccessfully without claiming rollback and instructs the operator to preserve and inspect the same wallet directory. A generic nonzero exit code alone is never evidence that a restore target is empty.
+
 Close the failed store, reopen that **same target**, and inspect it through the verified repository. If the target is still empty, a fresh restore can be retried after confirming that no prior writers remain. If history exists, verify that it consists of the expected original checkpoint followed by the quarantine pause and that the wallet remains halted. The pause identity is deterministic: operator `backup-recovery`, request ID `restore-<backup checksum>`. Preserve the original backup and expected checkpoint while checking this outcome.
 
 Calling restore again against a committed target rejects it as nonempty. That rejection is not a reason to erase the target. If the observed state is partial, unpaused, inconsistent, or different from the expected backup plus pause, keep the target isolated and investigate. Do not treat a manually observed row count alone as verification; use replay, hashes, and projection checks.
@@ -161,6 +163,21 @@ Run the bounded recovery suite from the development checkout:
 node node_modules/vitest/vitest.mjs run src/lib/alpha-wallet/backup.test.ts
 ```
 
-The tests use real local PGlite files and separate source/target directories. They cover exact integer/hash/timestamp preservation; close/reopen quarantine; a stale queued backup whose original provider accepted and finalized a transfer; submitting/unknown/broadcast lookup-only recovery; tamper, truncation, version, checksum, and clock rejection before target writes; existing-target refusal; atomic rollback when the pause write fails; source-projection verification; and permanent pause after matching reconciliation.
+The tests use real local PGlite files and separate source/target directories. They cover exact integer/hash/timestamp preservation; close/reopen quarantine; a stale queued backup whose original provider accepted and finalized a transfer; submitting/unknown/broadcast lookup-only recovery; tamper, truncation, version, checksum, and clock rejection before target writes; existing-target refusal; atomic rollback when the pause write fails; source-projection verification; and permanent pause after matching reconciliation. An acknowledgement-loss regression lets a real restore transaction commit, then injects a synthetic lost response and verifies the same reopened target remains paused and cannot be restored over or dispatched. This does not simulate an actual network partition.
 
 These tests do not establish production backup retention, encryption, authenticated provenance, point-in-time recovery, real chain completeness, power-loss durability, production RPO/RTO, or an independent audit. Native PostgreSQL integration and process-failure tests are separate evidence. Keep those boundaries explicit when reporting recovery readiness.
+
+### Native PostgreSQL recovery fixture
+
+`scripts/alpha-wallet/postgres-backup.ts` accepts two explicit, already-created, empty local development databases. The development-branch workflow provisions them inside its disposable PostgreSQL service. The harness itself never creates or drops a database and never reads an application/environment database URL. It checks both targets for freshness before initializing either; the forced-RLS simulation schema requires a superuser or `BYPASSRLS` fixture role.
+
+```bash
+NODE_ENV=test node --import tsx scripts/alpha-wallet/postgres-backup.ts \
+  --fresh-simulation-databases \
+  --source-connection-string 'postgresql://wallet_fixture:simulation-only@127.0.0.1:5432/alpha_wallet_dev_backup_source' \
+  --target-connection-string 'postgresql://wallet_fixture:simulation-only@127.0.0.1:5432/alpha_wallet_dev_restore_target'
+```
+
+Those credentials are disposable fixture values. Both database names must start with `alpha_wallet_dev_`, and routing is restricted to exact loopback addresses. A nonempty source or target is refused without dropping data.
+
+The fixture exports a 500-USDT history containing an uncertain 200-USDT withdrawal. It rejects a recomputed-but-inconsistent backup before touching the target, injects an actual SQL error at the quarantine insert and verifies complete rollback, then restores successfully. A new connection verifies the original history and the pause, conservation as 300 available plus 200 held, and original-reference lookup with zero provider submissions. The provider in this harness is an explicit no-network stub; other tests exercise file-provider persistence. Running this script is a separate acceptance gate: record its actual result and source commit rather than inferring a native pass from PGlite tests.

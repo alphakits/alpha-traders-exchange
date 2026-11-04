@@ -57,6 +57,7 @@ const MAX_BODY = 4096;
 const SESSION_MS = 60 * 60 * 1000;
 const CONTAINER_MARKER = "alpha-wallet-rehearsal.json";
 const MARKER_CONTENT = '{"kind":"alpha-wallet-local-rehearsal","version":1}\n';
+const CONTAINER_ID = "alpha-wallet-rehearsal-id";
 type Session = { role: Role; csrf: string; expires: number };
 class HttpError extends Error {
   constructor(readonly status: number, readonly code: string, message: string) { super(message); }
@@ -73,7 +74,16 @@ async function rehearsalDirectory(requested?: string) {
     await writeFile(marker, MARKER_CONTENT, { flag: "wx", mode: 0o600 });
   }
   if (!(await lstat(marker)).isFile() || await readFile(marker, "utf8") !== MARKER_CONTENT) throw new Error("Invalid rehearsal directory marker");
-  return resolve(directory);
+  // The origin can be reused for an entirely different temporary wallet. Bind
+  // retained browser operations to this durable container as well as its role.
+  const identity = join(directory, CONTAINER_ID);
+  try { await writeFile(identity, `${randomBytes(32).toString("hex")}\n`, { flag: "wx", mode: 0o600 }); }
+  catch (error) { if (!(error && typeof error === "object" && "code" in error && error.code === "EEXIST")) throw error; }
+  const identityInfo = await lstat(identity);
+  if (!identityInfo.isFile() || identityInfo.size !== 65) throw new Error("Invalid rehearsal directory identity");
+  const savedIdentity = await readFile(identity, "utf8");
+  if (!/^[a-f0-9]{64}\n$/.test(savedIdentity)) throw new Error("Invalid rehearsal directory identity");
+  return { directory: resolve(directory), rehearsalId: savedIdentity.slice(0, -1) };
 }
 
 function readBody(req: IncomingMessage): Promise<Record<string, unknown>> {
@@ -116,7 +126,7 @@ export async function createRehearsalServer(options: { mode: "simulation-only"; 
   assertSimulationRuntime(options.mode);
   const port = options.port ?? 0;
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error("Invalid rehearsal port");
-  const dataDir = await rehearsalDirectory(options.dataDir);
+  const { directory: dataDir, rehearsalId } = await rehearsalDirectory(options.dataDir);
   const store = await createFileWalletStore({ mode: options.mode, dataDir: join(dataDir, "wallet") });
   try { await initializeDurableWallet(store); } catch (error) { await store.close(); throw error; }
   let provider: FileFakeProvider;
@@ -167,7 +177,7 @@ export async function createRehearsalServer(options: { mode: "simulation-only"; 
         commissionAvailable: units(asset.id, balance(state, asset.id, `commission:${ACTORS.seller.id}`)), commissionDue: units(asset.id, due), revenue: units(asset.id, balance(state, asset.id, "platform-revenue")),
         gasReady: state.gasReady.has(asset.id), reconciliationFresh: Boolean(reconciliation && Date.now() >= reconciliation.at && Date.now() - reconciliation.at <= 60_000 && reconciliation.expectedRaw === expectedCustody(state, asset.id)) };
     });
-    return { mode: "simulation-only", role: current.role, roles: ROLES, csrf: current.csrf, revision: saved.revision, paused: state.haltReason, assets,
+    return { mode: "simulation-only", rehearsalId, role: current.role, roles: ROLES, csrf: current.csrf, revision: saved.revision, paused: state.haltReason, assets,
       listings: [...state.listings.values()].map(listing => ({ id: listing.id, assetId: listing.assetId, amount: units(listing.assetId, listing.amountRaw), available: units(listing.assetId, balance(state, listing.assetId, `listing:${listing.id}`)),
         price: listing.price, approved: listing.approved, funded: listing.funded, closed: listing.closed, status: listing.closed ? "closed" : !listing.approved ? "awaiting_owner" : !listing.funded ? "awaiting_funding" : balance(state, listing.assetId, `listing:${listing.id}`) > BigInt(0) ? "active" : "fully_reserved" })),
       funding: [...state.depositIntents.values()].map(intent => { const observation = [...state.deposits.values()].find(item => item.intentId === intent.id);
@@ -272,6 +282,9 @@ export async function createRehearsalServer(options: { mode: "simulation-only"; 
         const csrf = req.headers["x-alpha-rehearsal-csrf"];
         if (typeof csrf !== "string" || !/^[a-f0-9]{64}$/.test(csrf) || !timingSafeEqual(Buffer.from(csrf), Buffer.from(current.csrf))) {
           throw new HttpError(403, "CSRF_REQUIRED", "Refresh the rehearsal session before this action");
+        }
+        if (req.headers["x-alpha-rehearsal-id"] !== rehearsalId) {
+          throw new HttpError(409, "REHEARSAL_CONTEXT_CHANGED", "This operation belongs to a different local rehearsal. Reopen its original data directory before recovery.");
         }
         const body = await readBody(req);
         if (req.url === "/api/session/role") {

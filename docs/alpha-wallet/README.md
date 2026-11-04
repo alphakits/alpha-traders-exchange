@@ -4,7 +4,7 @@ Date: 4 November 2026. Scope: architecture and **offline development only**.
 Base: `0b11b21fc0de3d04e4325a748ea2de62ade4f317` (the existing marketplace main branch when this work began).
 Working branch: `feature/alpha-wallet-dev-20261104`.
 
-**Paused at the user's request.** See [the saved pause checkpoint](PAUSED-2026-11-04.md) for completed checks and unfinished work. Resume only after the user says continue; this checkpoint is not ready for live launch.
+**Development resumed at the user's request on 4 November 2026.** The [saved pause checkpoint](PAUSED-2026-11-04.md) records the earlier handoff. The no-live-launch restriction remains in force; unfinished verification and integration are tracked in [launch-readiness.md](launch-readiness.md).
 
 This is an executable specification connected to an isolated, durable simulation repository and an offline provider fixture. It is not a live wallet, a testnet deployment, a custody provider, or a production-ready financial service. There are no real deposit addresses, keys, signing functions, RPC requests, public routes, scheduled workers, or applied production migrations in this change.
 

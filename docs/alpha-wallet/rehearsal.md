@@ -24,6 +24,8 @@ NODE_ENV=development node --import tsx scripts/alpha-wallet/rehearsal-server.ts 
 
 The directory must be empty on first use or already carry this rehearsal's valid marker. An unrelated nonempty directory is refused. Restart with the same directory to reconstruct the wallet from committed commands and reuse the same fake-provider evidence. Session cookies and selected fixture roles are intentionally kept in process memory and reset on restart.
 
+The marked container also stores a random rehearsal ID. It stays the same across restarts of that directory and appears in the server's state response. Browser operations retain that ID and send it in the mutation header. Reusing the same local port for a different temporary directory cannot make an old uncertain request execute against the new ledger. Malformed or symlinked identity files are refused; a new request cannot bypass a mismatch by changing its fixture role.
+
 Stop with Ctrl+C. Files are preserved for reopening; the server does not delete them. To start a different scenario, choose a new empty directory. The current model has no automatic unpause, dispute resolution, or final-failure refund.
 
 ## What the roles mean
@@ -80,6 +82,12 @@ The buyer's ILS quote includes its 1% fee. The seller settles both 1% fee portio
 
 ## Recovery and held states
 
+**HTTP response lost after commit.** Before sending any mutation, the page saves its exact route, fields, request ID, fixture role and rehearsal ID in session storage. A missing, truncated or otherwise unconfirmed response leaves that original operation held, including after reload. New operations and role changes stay disabled until the original receives a confirmed response. Balance refresh does not clear the hold. Retry uses the identical request, and after a same-directory server restart it restores the original fixture role first.
+
+A definite rejection before any mutation may be dismissed explicitly. Once an earlier attempt is uncertain, a later pre-action rejection cannot establish that the earlier attempt failed, so the hold remains. A failed state projection after an actual commit is reported as unknown, not rollback. Legacy or malformed retained records stay held for inspection without deleting their evidence. If the origin now serves a different rehearsal ID, reopen the original data directory before recovery.
+
+The page validates input and requires working session storage before sending. Invalid decimal strings and unavailable storage produce a controlled message without an HTTP mutation. These client controls supplement durable command idempotency; they do not replace it or implement real-user authentication.
+
 **Response lost after acceptance.** “Accept, then lose response” makes the offline provider publish the immutable accepted transfer and then throw a simulated response-loss error. The wallet records an unknown outcome and keeps the payout hold. Recovery looks up the existing reference. No replacement transfer is sent.
 
 **Interruption before submission.** “Interrupt before submission” commits the dispatch claim but never calls the provider. Recovery finds no provider evidence and remains held. Not-found evidence is not proof that sending again is safe. The interface shows the hold, original reference, held amount, and dispatch count; it has no resend override.
@@ -101,6 +109,7 @@ The boundary includes:
 - Actual `NODE_ENV=test` or `development` and the shared simulation runtime guard at construction and on every request.
 - A hard-coded IPv4 loopback listener, exact Host validation, and loopback peer validation.
 - Exact Origin and per-session CSRF checks for mutations, with an HttpOnly, SameSite=Strict fixture-session cookie.
+- Exact durable rehearsal-ID matching on every mutation, including fixture role changes, before any action executes.
 - Strict action-specific JSON schemas, a 4096-byte request limit, and rejection of browser-supplied actors, identities, raw commands, or destinations.
 - Nonce-based script/style CSP, no external resources, no cross-origin response grants, no framing, and no caching of session/state responses.
 - Fixed synthetic actors, assets, destinations, and evidence identities; no keys, provider credentials, environment database URL, scheduler, or production connection.
@@ -115,7 +124,9 @@ HTTP tests exercise the actual loopback server and persistent file store:
 node ./node_modules/vitest/vitest.mjs run src/lib/alpha-wallet/rehearsal.test.ts
 ```
 
-The tests cover Host/Origin/CSRF/session guards, strict role and body handling, CSP and executable script syntax, runtime rejection, full principal and separate commission settlement, provider-response recovery, a crash-before-submission hold, and close/reopen persistence.
+The tests cover Host/Origin/CSRF/session/ledger-ID guards, strict role and body handling, CSP and executable script syntax, runtime rejection, full principal and separate commission settlement, provider-response recovery, a crash-before-submission hold, and close/reopen persistence.
+
+The same suite executes the delivered page script in jsdom against the real loopback server. It discards an actual successful response after a reservation or withdrawal commits, reloads the page, and proves that replay preserves the exact request and creates no second operation. It also covers a later rejection after an unknown attempt, session-role reset on same-directory restart, a different funded ledger at the same origin, a state-projection failure after a real commit, invalid input, unavailable storage, and legacy retained records. This verifies page behavior and persistence; jsdom provides no screenshot or visual-layout evidence.
 
 The optional Chromium check drives rendered controls through the full workflow:
 
@@ -125,7 +136,9 @@ NODE_ENV=test node --import tsx scripts/alpha-wallet/rehearsal-browser-check.ts
 
 It creates its own temporary local server, accepts no external URL or host, rejects browser network requests outside that server, and closes both server and browser afterward. An installed Playwright-compatible Chromium browser is required; the script does not install or download one.
 
-When successful, it writes a JSON report and full-page screenshots under `test-results/alpha-wallet/rehearsal/` for English desktop and Arabic at 390 pixels. It checks horizontal overflow, browser/page errors, the lost-response state, finality versus settlement, and the exact 500-principal/10-fee outcome. A successful browser run is distinct from the HTTP and domain test results.
+When successful, it writes a JSON report, full-page inspection screenshots, and viewport-only final-state screenshots under `test-results/alpha-wallet/rehearsal/` for English desktop and Arabic at 390 pixels. The report includes the actual browser version. It checks horizontal overflow, browser/page errors, the lost-provider-response state, finality versus settlement, and the exact 500-principal/10-fee outcome.
+
+Two browser recovery checks separately let the actual server commit a reservation or withdrawal, then deliberately deliver truncated success-response JSON to the page. After reload, the helper retries the original retained envelope and proves unchanged revision and allocations. The fixture fault is recorded explicitly in the report; page and console errors are not globally suppressed. A successful browser run is distinct from the HTTP/domain test results and is claimed only after Chromium actually executes the helper.
 
 ## Remaining boundaries before any live integration
 
