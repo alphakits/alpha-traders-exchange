@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { createHash } from "node:crypto";
 import {
   buildAdminAnnouncementEmail,
   composeAdminAnnouncementEmailContent,
@@ -16,6 +17,16 @@ import {
 } from "@/lib/alpha-exchange-store";
 import type { AdminAnnouncementRecipient, AlphaExchangeUser, UserRole } from "@/types/alpha-exchange";
 import { createTestSellerApprovalVerification } from "@/test-utils/seller-verification";
+import type { AdminAnnouncementAttachment } from "@/lib/admin-announcement-attachment";
+
+const syntheticPdf = Buffer.from("%PDF-1.4\nSynthetic attachment test only.\n%%EOF\n");
+const attachment: AdminAnnouncementAttachment = {
+  filename: "Seller-Guide-and-Rules.pdf",
+  contentType: "application/pdf",
+  contentBase64: syntheticPdf.toString("base64"),
+  sizeBytes: syntheticPdf.length,
+  sha256: createHash("sha256").update(syntheticPdf).digest("hex"),
+};
 
 const content: AdminAnnouncementEmailContent = composeAdminAnnouncementEmailContent({
   ar: {
@@ -349,5 +360,95 @@ describe("admin announcement audiences", () => {
     expect(selectAdminAnnouncementRecipients(users, "buyers").map((recipient) => recipient.userId)).toEqual(["buyer"]);
     expect(selectAdminAnnouncementRecipients(users, "approved_sellers").map((recipient) => recipient.userId)).toEqual(["seller"]);
     expect(selectAdminAnnouncementRecipients(users, "administrators").map((recipient) => recipient.userId)).toEqual(["admin", "owner"]);
+  });
+
+  it("uses the attachment audience filter without changing normal announcement counts", () => {
+    const eligible = user({ id: "public-seller", email: "seller@alphatraders.co.il", role: "approved_seller", sellerStatus: "approved_seller", sellerApprovalVerification: createTestSellerApprovalVerification() });
+    const internal = user({ id: "internal-seller", email: "seller@staff.local", role: "approved_seller", sellerStatus: "approved_seller", sellerApprovalVerification: createTestSellerApprovalVerification() });
+    const extended = [...users, eligible, internal];
+    expect(selectAdminAnnouncementRecipients(extended, "approved_sellers")).toHaveLength(3);
+    expect(selectAdminAnnouncementRecipients(extended, "approved_sellers", { attachment: true }).map(item => item.userId)).toEqual(["public-seller"]);
+    expect(() => selectAdminAnnouncementRecipients(extended, "all_verified_users", { attachment: true })).toThrow("only be sent to approved sellers");
+  });
+});
+
+describe("admin announcement PDF delivery", () => {
+  function configure() {
+    vi.stubEnv("RESEND_API_KEY", "test-api-key");
+    vi.stubEnv("EMAIL_FROM", "Alpha Exchange <news@example.com>");
+  }
+
+  it("sends exactly one private PDF message through the site's single-email endpoint", async () => {
+    configure();
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ id: "pdf-email-1" }) });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(sendAdminAnnouncementBatch({ ...content, attachment, recipients: [{ userId: "seller-a", email: "seller@alphatraders.co.il" }], idempotencyKey: "pdf-run-batch-0" }))
+      .resolves.toMatchObject({ ok: true, deliveries: [{ userId: "seller-a", providerEmailId: "pdf-email-1" }] });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith("https://api.resend.com/emails", expect.anything());
+    const request = fetchMock.mock.calls[0][1] as RequestInit;
+    const body = JSON.parse(String(request.body));
+    expect(body).toMatchObject({
+      from: "Alpha Traders Academy & Exchange <news@example.com>",
+      to: ["seller@alphatraders.co.il"],
+      subject: content.subject,
+      attachments: [{ filename: attachment.filename, content: attachment.contentBase64, content_type: "application/pdf" }],
+    });
+    expect(body).not.toHaveProperty("cc");
+    expect(body).not.toHaveProperty("bcc");
+    expect(body.attachments[0]).not.toHaveProperty("path");
+    expect(Buffer.from(body.attachments[0].content, "base64")).toEqual(syntheticPdf);
+    expect(request.headers).toMatchObject({ "Idempotency-Key": "pdf-run-batch-0" });
+  });
+
+  it("refuses to send a PDF to several recipients under a shared batch key", async () => {
+    configure();
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(sendAdminAnnouncementBatch({
+      ...content, attachment, idempotencyKey: "unsafe-group", recipients: [
+        { userId: "seller-a", email: "seller-a@alphatraders.co.il" },
+        { userId: "seller-b", email: "seller-b@alphatraders.co.il" },
+      ],
+    })).rejects.toThrow("one recipient at a time");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps the same PDF payload and recipient key on a rate-limit retry", async () => {
+    configure();
+    vi.useFakeTimers();
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({ ok: false, status: 429, headers: new Headers({ "Retry-After": "1" }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ id: "pdf-retried" }) });
+    vi.stubGlobal("fetch", fetchMock);
+    const result = sendAdminAnnouncementEmail({ ...content, attachment, to: "seller@alphatraders.co.il", idempotencyKey: "stable-pdf-recipient" });
+    await vi.runAllTimersAsync();
+    await expect(result).resolves.toMatchObject({ ok: true, providerEmailId: "pdf-retried", attempts: 2 });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const requests = fetchMock.mock.calls.map(([, request]) => request as RequestInit);
+    expect(requests[0].body).toBe(requests[1].body);
+    expect(requests.map(request => (request.headers as Record<string, string>)["Idempotency-Key"]))
+      .toEqual(["stable-pdf-recipient", "stable-pdf-recipient"]);
+  });
+
+  it.each([null, {}, { data: [{ id: "wrong-batch-shape" }] }, { id: "" }])("does not claim delivery or inline-retry an ambiguous individual response: %j", async payload => {
+    configure();
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => payload });
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(sendAdminAnnouncementEmail({ ...content, attachment, to: "seller@alphatraders.co.il", idempotencyKey: "pdf-ambiguous" }))
+      .resolves.toMatchObject({ ok: false, reason: "resend_invalid_response", attempts: 1 });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("preserves preview recipient protection for PDF messages", async () => {
+    configure();
+    vi.stubEnv("VERCEL_ENV", "preview");
+    vi.stubEnv("ALPHA_EMAIL_STAGING_ALLOWLIST", "authorized@alphatraders.co.il");
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(sendAdminAnnouncementEmail({ ...content, attachment, to: "other@alphatraders.co.il", idempotencyKey: "pdf-preview" }))
+      .resolves.toMatchObject({ ok: false, reason: "email_preview_recipient_blocked" });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

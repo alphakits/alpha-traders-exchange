@@ -5,7 +5,7 @@ import { ActionFeedback, useActionFeedbackState } from "@/components/ui/action-f
 import { useCallback, useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import { useLocale } from "next-intl";
-import { AlertTriangle, Bold, CheckCircle2, Italic, Link2, List, Loader2, Mail, Play, Send } from "lucide-react";
+import { AlertTriangle, Bold, CheckCircle2, Italic, Link2, List, Loader2, Mail, Paperclip, Play, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -13,6 +13,10 @@ import type { AdminAnnouncementAudience, AdminAnnouncementStatus } from "@/types
 import { BRAND_NAME } from "@/lib/brand";
 import { composeAdminAnnouncementEmailContent } from "@/lib/admin-announcement-email";
 import { MentorshipEmailAudit } from "@/components/admin/mentorship-email-audit";
+import type { AdminAnnouncementAttachment } from "@/lib/admin-announcement-attachment";
+
+type PdfUpload = Pick<AdminAnnouncementAttachment, "filename" | "contentType" | "contentBase64" | "sizeBytes">;
+const MAX_PDF_UPLOAD_BYTES = 2 * 1024 * 1024;
 
 const DEFAULT_SUBJECT_AR = "🚀 أصبح Alpha Exchange متاحًا رسميًا – تجربة تداول أسرع وأكثر ذكاءً";
 const DEFAULT_TITLE_AR = "أصبح Alpha Exchange v1.0.1 متاحًا رسميًا";
@@ -78,6 +82,7 @@ type RunSummary = {
   finishedAt?: string;
   createdAt: string;
   updatedAt: string;
+  attachment?: Pick<AdminAnnouncementAttachment, "filename" | "sizeBytes" | "sha256">;
 };
 
 type ApiErrorPayload = { error?: string };
@@ -120,16 +125,20 @@ export function AdminAnnouncementsPanel({ isOwner = false }: { isOwner?: boolean
   const [testing, setTesting] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [testEmail, setTestEmail] = useState("");
+  const [attachment, setAttachment] = useState<PdfUpload | null>(null);
+  const [readingAttachment, setReadingAttachment] = useState(false);
+  const hasAttachment = Boolean(attachment);
   const [message, setMessage, messageFeedbackKey] = useActionFeedbackState<{ type: "success" | "error"; text: string } | null>(null);
   const [progress, setProgress] = useState<{ sent: number; failed: number; retries: number; total: number } | null>(null);
   const contentArRef = useRef<HTMLTextAreaElement>(null);
   const contentEnRef = useRef<HTMLTextAreaElement>(null);
   const requestKeyRef = useRef<string | null>(null);
+  const attachmentInputRef = useRef<HTMLInputElement>(null);
 
   const loadOverview = useCallback(async () => {
     setLoadingCount(true);
     try {
-      const response = await fetch(`/api/alpha-exchange/admin/announcements?audience=${audience}`, {
+      const response = await fetch(`/api/alpha-exchange/admin/announcements?audience=${audience}${hasAttachment ? "&attachment=pdf" : ""}`, {
         cache: "no-store",
       });
       const payload = await parseResponse<{ recipientCount: number; runs: RunSummary[] }>(response, isArabic);
@@ -140,11 +149,44 @@ export function AdminAnnouncementsPanel({ isOwner = false }: { isOwner?: boolean
     } finally {
       setLoadingCount(false);
     }
-  }, [audience, isArabic, setMessage]);
+  }, [audience, hasAttachment, isArabic, setMessage]);
 
   useEffect(() => {
     void loadOverview();
   }, [loadOverview]);
+
+  async function selectAttachment(file?: File) {
+    if (!file) return;
+    setAttachment(null);
+    setMessage(null);
+    if (!file.name.toLowerCase().endsWith(".pdf") || file.size === 0 || file.size > MAX_PDF_UPLOAD_BYTES) {
+      setMessage({ type: "error", text: t("Choose a PDF no larger than 2 MB.", "اختر ملف PDF لا يتجاوز حجمه 2 ميغابايت.") });
+      if (attachmentInputRef.current) attachmentInputRef.current.value = "";
+      return;
+    }
+    setReadingAttachment(true);
+    try {
+      const contentBase64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result).split(",", 2)[1] ?? "");
+        reader.onerror = () => reject(new Error("Could not read the PDF."));
+        reader.readAsDataURL(file);
+      });
+      setLoadingCount(true);
+      setAttachment({ filename: file.name, contentType: "application/pdf", contentBase64, sizeBytes: file.size });
+    } catch {
+      setMessage({ type: "error", text: t("Could not read the PDF. Please choose it again.", "تعذّرت قراءة ملف PDF. يرجى اختياره مجددًا.") });
+      if (attachmentInputRef.current) attachmentInputRef.current.value = "";
+    } finally {
+      setReadingAttachment(false);
+    }
+  }
+
+  function removeAttachment() {
+    setLoadingCount(true);
+    setAttachment(null);
+    if (attachmentInputRef.current) attachmentInputRef.current.value = "";
+  }
 
   const insertFormatting = useCallback((language: "ar" | "en", before: string, after = before, placeholder = "text") => {
     const textarea = language === "ar" ? contentArRef.current : contentEnRef.current;
@@ -223,7 +265,7 @@ export function AdminAnnouncementsPanel({ isOwner = false }: { isOwner?: boolean
       const response = await fetch("/api/alpha-exchange/admin/announcements", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ requestKey, audience, expectedRecipientCount: recipientCount, ...emailPayload }),
+        body: JSON.stringify({ requestKey, audience, expectedRecipientCount: recipientCount, ...emailPayload, ...(attachment ? { attachment } : {}) }),
       });
       const payload = await parseResponse<{ run: RunSummary }>(response, isArabic);
       await deliverRun(payload.run.id);
@@ -257,7 +299,7 @@ export function AdminAnnouncementsPanel({ isOwner = false }: { isOwner?: boolean
       const response = await fetch("/api/alpha-exchange/admin/announcements/test", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ recipientEmail: testEmail, ...emailPayload }),
+        body: JSON.stringify({ recipientEmail: testEmail, ...emailPayload, ...(attachment ? { attachment } : {}) }),
       });
       await parseResponse<{ sent: true }>(response, isArabic);
       setMessage({ type: "success", text: t(`Test announcement sent to ${testEmail.trim()}.`, `تم إرسال إعلان تجريبي إلى ${testEmail.trim()}.`) });
@@ -299,8 +341,12 @@ export function AdminAnnouncementsPanel({ isOwner = false }: { isOwner?: boolean
               <span>{t("Recipients", "المستلمون")}</span>
               <select
                 value={audience}
-                onChange={(event) => setAudience(event.target.value as AdminAnnouncementAudience)}
-                disabled={sending}
+                onChange={(event) => {
+                  setAudience(event.target.value as AdminAnnouncementAudience);
+                  setAttachment(null);
+                  setLoadingCount(true);
+                }}
+                disabled={sending || testing || readingAttachment}
                 className="h-11 w-full rounded-xl border border-white/10 bg-black/40 px-3 text-sm text-white outline-none focus:border-[#C9A227]/60"
               >
                 {Object.entries(AUDIENCE_LABELS).map(([value, label]) => (
@@ -308,6 +354,29 @@ export function AdminAnnouncementsPanel({ isOwner = false }: { isOwner?: boolean
                 ))}
               </select>
             </label>
+            {isOwner && audience === "approved_sellers" ? (
+              <div className="space-y-3 rounded-xl border border-[#C9A227]/25 bg-[#C9A227]/5 p-4">
+                <label className="block space-y-2 text-sm text-[#D1D5DB]">
+                  <span className="flex items-center gap-2"><Paperclip className="h-4 w-4" />{t("PDF attachment", "مرفق PDF")}</span>
+                  <input
+                    ref={attachmentInputRef}
+                    type="file"
+                    accept="application/pdf,.pdf"
+                    disabled={sending || testing || readingAttachment}
+                    onChange={(event) => void selectAttachment(event.target.files?.[0])}
+                    className="block w-full min-w-0 rounded-lg border border-white/10 bg-black/30 p-2 text-sm file:me-3 file:rounded-md file:border-0 file:bg-[#C9A227] file:px-3 file:py-2 file:font-medium file:text-black"
+                  />
+                </label>
+                <p className="text-xs leading-5 text-[#9CA3AF]">{t("One PDF, up to 2 MB. Sent privately as an email attachment to approved sellers. Internal test addresses are excluded.", "ملف PDF واحد، حتى 2 ميغابايت. يُرسل كمرفق خاص بالبريد إلى البائعين المعتمدين. تُستبعد عناوين الاختبار الداخلية.")}</p>
+                {readingAttachment ? <p role="status" className="text-sm text-[#D6B84C]">{t("Reading PDF…", "جارٍ قراءة الملف…")}</p> : null}
+                {attachment ? (
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-white">
+                    <span dir="auto" className="break-all">{attachment.filename} · {Math.ceil(attachment.sizeBytes / 1024)} KB</span>
+                    <Button type="button" size="sm" variant="secondary" disabled={sending || testing} onClick={removeAttachment}>{t("Remove PDF", "إزالة الملف")}</Button>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
             <div className="space-y-4 rounded-2xl border border-[#C9A227]/25 bg-[#C9A227]/5 p-4" dir="rtl" lang="ar">
               <div>
                 <p className="font-semibold text-white">{t("Arabic version", "النسخة العربية")}</p>
@@ -386,16 +455,18 @@ export function AdminAnnouncementsPanel({ isOwner = false }: { isOwner?: boolean
                   aria-label={t("Verified test account email", "بريد حساب تجريبي موثّق")}
                   disabled={testing || sending}
                 />
-                <Button type="button" variant="secondary" disabled={testing || sending || !testEmail.trim()} onClick={() => void sendTest()}>
+                <Button type="button" variant="secondary" disabled={testing || sending || readingAttachment || !testEmail.trim()} onClick={() => void sendTest()}>
                   {testing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                   {t("Send Test", "إرسال نسخة تجريبية")}
                 </Button>
               </div>
-              <p className="mt-2 text-xs text-[#6B7280]">{t("Test delivery is restricted to an active, verified registered user.", "يُسمح بالإرسال التجريبي فقط إلى مستخدم مسجّل وموثّق ونشط.")}</p>
+              <p className="mt-2 text-xs text-[#6B7280]">{attachment
+                ? t("A PDF test can only be sent to an active, verified approved seller.", "يمكن إرسال اختبار المرفق فقط إلى بائع معتمد وموثّق ونشط.")
+                : t("Test delivery is restricted to an active, verified registered user.", "يُسمح بالإرسال التجريبي فقط إلى مستخدم مسجّل وموثّق ونشط.")}</p>
             </div>
             <Button
               type="button"
-              disabled={sending || loadingCount || !recipientCount}
+              disabled={sending || testing || readingAttachment || loadingCount || !recipientCount}
               onClick={() => setConfirmOpen(true)}
               className="w-full sm:w-auto"
             >
@@ -434,6 +505,7 @@ export function AdminAnnouncementsPanel({ isOwner = false }: { isOwner?: boolean
 
           <div>
             <p className="mb-2 text-sm font-medium text-[#D1D5DB]">{t("Bilingual email preview", "معاينة البريد ثنائي اللغة")}</p>
+            {attachment ? <p className="mb-3 flex items-center gap-2 break-all rounded-xl border border-[#C9A227]/25 p-3 text-sm text-[#D6B84C]"><Paperclip className="h-4 w-4 shrink-0" /><span dir="auto">{attachment.filename} · {Math.ceil(attachment.sizeBytes / 1024)} KB</span></p> : null}
             <div className="overflow-hidden rounded-2xl border border-[#4A3D16] bg-[#101010] shadow-2xl">
               <div className="border-b border-[#4A3D16] bg-[#171308] px-5 py-6 text-center">
                 <Image src="/images/brand/alpha-traders-logo.webp" alt={BRAND_NAME} width={88} height={88} className="mx-auto rounded-2xl object-cover" />
@@ -475,6 +547,7 @@ export function AdminAnnouncementsPanel({ isOwner = false }: { isOwner?: boolean
                 <div key={run.id} className="flex flex-col gap-3 rounded-xl border border-white/10 bg-black/20 p-4 lg:flex-row lg:items-center lg:justify-between">
                   <div className="min-w-0">
                     <p className="truncate font-medium text-white">{run.subject}</p>
+                    {run.attachment ? <p dir="auto" className="mt-1 break-all text-xs text-[#D6B84C]">PDF · {run.attachment.filename} · {Math.ceil(run.attachment.sizeBytes / 1024)} KB</p> : null}
                     <p className="mt-1 text-xs text-[#9CA3AF]">
                       {isArabic ? AUDIENCE_LABELS[run.audience].ar : AUDIENCE_LABELS[run.audience].en}
                       {t(` · Started ${formatDate(run.startedAt, locale)}`, ` · بدأ ${formatDate(run.startedAt, locale)}`)}
@@ -513,6 +586,7 @@ export function AdminAnnouncementsPanel({ isOwner = false }: { isOwner?: boolean
               <div lang="en" dir="ltr" className="mt-1 font-medium text-white">{subjectEn}</div>
               <div lang="ar" dir="rtl" className="mt-2">{titleAr}</div>
               <div lang="en" dir="ltr" className="mt-1">{titleEn}</div>
+              {attachment ? <p className="mt-3 break-all text-[#D6B84C]">{t("Attached PDF:", "الملف المرفق:")} <span dir="auto">{attachment.filename} · {Math.ceil(attachment.sizeBytes / 1024)} KB</span></p> : null}
             </div>
             <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
               <Button type="button" variant="secondary" onClick={() => setConfirmOpen(false)}>{t("Cancel", "إلغاء")}</Button>

@@ -1,6 +1,7 @@
 import { getSiteUrl } from "@/lib/site-url";
 import { emailDisplayHtml, emailDisplayText, escapeHtml } from "@/lib/email-display-text";
 import { previewEmailRecipientFailure, previewEmailSubject } from "./email-preview-safety";
+import type { AdminAnnouncementAttachment } from "@/lib/admin-announcement-attachment";
 import {
   BRAND_EMAIL_LOGO_URL,
   BRAND_NAME,
@@ -323,6 +324,7 @@ export function buildAdminAnnouncementEmail(input: AdminAnnouncementEmailContent
 export async function sendAdminAnnouncementBatch(input: AdminAnnouncementEmailContent & {
   recipients: Array<{ userId: string; email: string }>;
   idempotencyKey: string;
+  attachment?: AdminAnnouncementAttachment;
 }) {
   const apiKey = process.env.RESEND_API_KEY?.trim() ?? "";
   const from = getBrandedEmailFrom(process.env.EMAIL_FROM ?? "");
@@ -332,8 +334,15 @@ export async function sendAdminAnnouncementBatch(input: AdminAnnouncementEmailCo
   if (input.recipients.length === 0 || input.recipients.length > 100) {
     throw new Error("Announcement batches must contain between 1 and 100 recipients.");
   }
+  if (input.attachment && input.recipients.length !== 1) {
+    throw new Error("Announcements with a PDF must be delivered to one recipient at a time.");
+  }
 
   const email = buildAdminAnnouncementEmail(input);
+  // Resend's batch endpoint does not support attachments. Attached campaigns
+  // persist one recipient per batch and use the same retry/idempotency contract.
+  const endpoint = input.attachment ? "https://api.resend.com/emails" : "https://api.resend.com/emails/batch";
+  const invalidResponseReason = input.attachment ? "resend_invalid_response" as const : "resend_invalid_batch_response" as const;
   let lastRetryAfterMs = 0;
   for (let attempt = 1; attempt <= RESEND_MAX_ATTEMPTS; attempt += 1) {
     const previewFailure = previewEmailRecipientFailure(input.recipients.map(recipient => recipient.email));
@@ -341,24 +350,32 @@ export async function sendAdminAnnouncementBatch(input: AdminAnnouncementEmailCo
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), RESEND_REQUEST_TIMEOUT_MS);
     try {
-      const response = await fetch("https://api.resend.com/emails/batch", {
+      const messages = input.recipients.map((recipient) => ({
+        from,
+        to: [recipient.email],
+        subject: previewEmailSubject(email.subject),
+        html: email.html,
+        text: email.text,
+        headers: buildBrandedEmailHeaders(),
+        tags: [
+          { name: "campaign", value: input.idempotencyKey.replace(/[^a-zA-Z0-9_-]/g, "-").slice(0, 256) },
+        ],
+        ...(input.attachment ? {
+          attachments: [{
+            filename: input.attachment.filename,
+            content: input.attachment.contentBase64,
+            content_type: input.attachment.contentType,
+          }],
+        } : {}),
+      }));
+      const response = await fetch(endpoint, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${apiKey}`,
           "Content-Type": "application/json",
           "Idempotency-Key": input.idempotencyKey,
         },
-        body: JSON.stringify(input.recipients.map((recipient) => ({
-          from,
-          to: [recipient.email],
-          subject: previewEmailSubject(email.subject),
-          html: email.html,
-          text: email.text,
-          headers: buildBrandedEmailHeaders(),
-          tags: [
-            { name: "campaign", value: input.idempotencyKey.replace(/[^a-zA-Z0-9_-]/g, "-").slice(0, 256) },
-          ],
-        }))),
+        body: JSON.stringify(input.attachment ? messages[0] : messages),
         signal: controller.signal,
       });
       clearTimeout(timeout);
@@ -366,11 +383,12 @@ export async function sendAdminAnnouncementBatch(input: AdminAnnouncementEmailCo
       if (response.ok) {
         let responseBody: { data?: Array<{ id?: unknown }> };
         try {
-          responseBody = await response.json() as { data?: Array<{ id?: unknown }> };
+          const payload = await response.json() as { id?: unknown; data?: Array<{ id?: unknown }> } | null;
+          responseBody = input.attachment ? { data: [{ id: payload?.id }] } : (payload ?? {});
         } catch {
           return {
             ok: false as const,
-            reason: "resend_invalid_batch_response" as const,
+            reason: invalidResponseReason,
             attempts: attempt,
             retryCount: attempt - 1,
             retryAfterMs: lastRetryAfterMs,
@@ -384,7 +402,7 @@ export async function sendAdminAnnouncementBatch(input: AdminAnnouncementEmailCo
         ) {
           return {
             ok: false as const,
-            reason: "resend_invalid_batch_response" as const,
+            reason: invalidResponseReason,
             attempts: attempt,
             retryCount: attempt - 1,
             retryAfterMs: lastRetryAfterMs,
@@ -466,6 +484,7 @@ export async function sendAdminAnnouncementBatch(input: AdminAnnouncementEmailCo
 export async function sendAdminAnnouncementEmail(input: AdminAnnouncementEmailContent & {
   to: string;
   idempotencyKey: string;
+  attachment?: AdminAnnouncementAttachment;
 }) {
   const result = await sendAdminAnnouncementBatch({
     ...input,
