@@ -2,7 +2,7 @@
 
 Date: 5 November 2026 (Asia/Jerusalem). Decision: **not ready to accept live funds or deploy**.
 
-**Development resumed at the user's request on 4 November 2026.** The [saved checkpoint](PAUSED-2026-11-04.md) records the prior pause and unfinished verification. Resumption authorizes development and isolated checks; it does not authorize a live launch.
+**Development paused at the user's request on 5 November 2026.** The [current saved checkpoint](PAUSED-2026-11-05.md) records the completed verification and next development step. Wait for the user to explicitly say to continue; the approximate one-to-two-hour break is not an automatic restart. Any later development resumption does not authorize a live launch. The [earlier checkpoint](PAUSED-2026-11-04.md) remains historical.
 
 The user authorized continued development, isolated testing and saving the wallet development branch. Live launch remains withheld. A passing development suite does not change that instruction.
 
