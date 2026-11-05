@@ -252,12 +252,13 @@ async function run(urls: ReturnType<typeof argumentsOf>) {
   }
 }
 
-try {
+async function main() {
   assertSimulationRuntime(MODE);
   const report = await run(argumentsOf(process.argv.slice(2)));
   process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
-} catch (error) {
+}
+void main().catch(error => {
   process.stderr.write(`${JSON.stringify({ status: "failed", stage,
     error: error instanceof Error ? error.message : "Unknown development recovery failure" })}\n`);
   process.exitCode = 1;
-}
+});

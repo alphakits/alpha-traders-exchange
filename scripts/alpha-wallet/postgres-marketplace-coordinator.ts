@@ -517,7 +517,7 @@ async function verify(urls: ReturnType<typeof argumentsOf>) {
         "Only web sessions are coordinated; no live route, mobile bridge, payout, new proposal, cancellation, release or settlement is enabled.",
         "Publication intent is durable but no external notification/realtime delivery runs.",
         "Lost reply is injected after a real commit; no real network partition or provider is used.",
-        "A combined marketplace/wallet backup is not implemented; wallet-only export is rejected after enrollment."] }, null, 2));
+        "Wallet-only export is rejected after enrollment; the separate combined recovery drill verifies paused fresh-target restoration."] }, null, 2));
   } finally {
     const closed = await Promise.allSettled(stores.map(store => store.close()));
     for (const result of closed) if (result.status === "rejected") throw result.reason;
