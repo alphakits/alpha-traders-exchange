@@ -6,8 +6,10 @@ import { z } from "zod";
 
 const require = createRequire(import.meta.url);
 const expoRoot = path.dirname(require.resolve("@expo/cli/package.json"));
-const schema = require(path.join(expoRoot, "build/src/start/server/DevToolsPlugin.schema.js"));
-const { createMCPDevToolsExtensionSchema } = require(path.join(expoRoot, "build/src/start/server/createMCPDevToolsExtensionSchema.js"));
+const expoRequire = createRequire(path.join(expoRoot, "package.json"));
+const { validate, ValidationError } = expoRequire("@expo/schema-utils");
+const schema = require(path.join(expoRoot, "build/src/start/server/devtools/DevToolsPlugin.schema.js"));
+const { createMCPDevToolsExtensionSchema } = require(path.join(expoRoot, "build/src/start/server/mcp/createMCPDevToolsExtensionSchema.js"));
 
 test("all affected consumers resolve the patched validator", () => {
   for (const entry of [null, "@expo/cli", "@vercel/cli-config"]) {
@@ -30,22 +32,24 @@ test("Expo plugin and output validators retain supported and rejected inputs", (
     description: "Demo", entryPoint: "index.js", commands: [{ name: "inspect", title: "Inspect", environments: ["cli", "mcp"],
       parameters: [{ name: "count", type: "number" }, { name: "label", type: "text" }, { name: "confirm", type: "confirm" }] }],
   } };
-  const parsed = schema.PluginSchema.parse(valid);
-  assert.equal(Object.isFrozen(parsed.cliExtensions.commands[0].environments), true);
-  const command = createMCPDevToolsExtensionSchema(valid);
+  // Expo now uses JSON Schema validation without Zod's readonly transform.
+  const unchanged = structuredClone(valid);
+  assert.doesNotThrow(() => validate(schema.PluginSchema, valid));
+  assert.deepEqual(valid, unchanged);
+  const command = createMCPDevToolsExtensionSchema(valid, z);
   assert.equal(command.safeParse({ command: "inspect", count: 3 }).success, true);
   assert.equal(command.safeParse({ command: "unknown" }).success, false);
   assert.equal(command.safeParse({ command: "inspect", count: "3" }).success, false);
   assert.equal(command.safeParse({ command: "inspect", extra: true }).success, false);
   assert.equal(command.safeParse({ command: "inspect", label: "Example", confirm: true }).success, true);
   assert.equal(command.safeParse({ command: "inspect", label: 3, confirm: "yes" }).success, false);
-  assert.equal(schema.PluginSchema.safeParse({ ...valid, packageRoot: "" }).success, false);
-  assert.equal(schema.DevToolsPluginOutputSchema.safeParse([{ type: "text", text: "Ready", level: "info" }]).success, true);
-  assert.equal(schema.DevToolsPluginOutputSchema.safeParse([{ type: "text", text: "Ready", level: "invalid" }]).success, false);
-  assert.equal(schema.DevToolsPluginOutputSchema.safeParse([{ type: "image", url: "https://example.test/image.png" }, { type: "audio", url: "https://example.test/clip.wav" }]).success, true);
-  assert.equal(schema.DevToolsPluginOutputSchema.safeParse([{ type: "image", url: "not-a-url" }]).success, false);
-  assert.equal(schema.PluginSchema.safeParse({ ...valid, cliExtensions: { ...valid.cliExtensions,
-    commands: [{ name: "inspect", title: "Inspect", environments: ["invalid"] }] } }).success, false);
+  assert.throws(() => validate(schema.PluginSchema, { ...valid, packageRoot: "" }), ValidationError);
+  assert.doesNotThrow(() => validate(schema.DevToolsPluginOutputSchema, [{ type: "text", text: "Ready", level: "info" }]));
+  assert.throws(() => validate(schema.DevToolsPluginOutputSchema, [{ type: "text", text: "Ready", level: "invalid" }]), ValidationError);
+  assert.doesNotThrow(() => validate(schema.DevToolsPluginOutputSchema, [{ type: "image", url: "https://example.test/image.png" }, { type: "audio", url: "https://example.test/clip.wav" }]));
+  assert.throws(() => validate(schema.DevToolsPluginOutputSchema, [{ type: "image", url: "not-a-url" }]), ValidationError);
+  assert.throws(() => validate(schema.PluginSchema, { ...valid, cliExtensions: { ...valid.cliExtensions,
+    commands: [{ name: "inspect", title: "Inspect", environments: ["invalid"] }] } }), ValidationError);
 });
 
 test("Vercel config validators still accept valid data and reject invalid values", () => {

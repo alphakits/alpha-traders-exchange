@@ -9,7 +9,7 @@ import { materializeCommissionShortfalls } from "./commission-shortfall-ledger";
 import type { BankTransferProvider, WiseUsdAccount, WiseUsdAccountSnapshot } from "@/types/wise";
 import { parseWiseUsdAccountDetails, maskWiseUsdAccount, createWiseUsdAccountSnapshot, getWiseUsdAccountFingerprint } from "@/lib/wise-bank-transfer";
 import { assertWisePaymentsRuntime, assertWiseListingShape, getReviewedWiseAccount, wiseAccountHasActiveUsage, assertWiseTradeSnapshotCurrent } from "@/lib/wise-store-policy";
-import { calculateTradeTermsQuote, isSellerCounterPrice, submittedCounterPrices, isNegotiatingQuantityFixed, isTradeChatOpen, isTradeWalletMessage, tradeWalletShareError, TRADE_CHAT_MESSAGE_MAX_LENGTH, OWNER_TRADE_CHAT_MESSAGE_MAX_LENGTH } from "@alpha-traders/contracts";
+import { calculateTradeTermsQuote, CARDLESS_COUNTER_CALCULATION_POLICY, isSellerCounterPrice, submittedCounterPrices, isNegotiatingQuantityFixed, isTradeChatOpen, isTradeWalletMessage, tradeWalletShareError, TRADE_CHAT_MESSAGE_MAX_LENGTH, OWNER_TRADE_CHAT_MESSAGE_MAX_LENGTH } from "@alpha-traders/contracts";
 import { requireManualCommissionOperationId } from "@/lib/manual-commission-operation";
 import { priceAlertSchema, priceAlertMatchesListing, readMarketplacePriceAlert, type MarketplacePriceAlert } from "@/lib/marketplace-price-alert";
 import { accountSessionId, presentAccountSession } from "@/lib/account-session-presentation";
@@ -9641,6 +9641,9 @@ function resolveSellerListingBankAccount(
 }
 
 function canRevealTradeBankDetailsToActor(request: PurchaseRequest, actorUserId: string, actorRole: UserRole) {
+  // Participants must settle the displayed proposal before receiving payment
+  // instructions. Preserve the existing elevated inspection path for support.
+  if (request.termsProposal?.status === "pending" && actorRole !== "admin" && actorRole !== "owner") return false;
   const participant = request.buyerId === actorUserId || request.sellerId === actorUserId;
   if (request.bankTransferProvider === "wise") {
     if (request.status === "pending" && !isWisePaymentsEnabled()) return false;
@@ -10941,11 +10944,22 @@ export async function getWorkspaceBootstrapData(input: {
 function acceptedCounterQuote(request: PurchaseRequest, listing?: MarketplaceListing) {
   const proposed = request.termsProposal;
   const method = normalizeMarketplacePaymentMethod(request.paymentMethod) || request.paymentMethod;
-  const quote = proposed && calculateTradeTermsQuote({ ...request, paymentMethod: method }, "counter_offer", proposed.pricePerUsdt);
+  let quote = proposed && calculateTradeTermsQuote({ ...request, paymentMethod: method }, "counter_offer", proposed.pricePerUsdt);
+  const matchesProposal = (candidate: typeof quote) => Boolean(candidate && proposed
+    && canonicalizeTradeAmount(proposed.usdtAmount) === candidate.usdtAmount
+    && canonicalizeTradeAmount(proposed.fiatAmount) === canonicalizeTradeAmount(candidate.fiatAmount));
+  if (proposed && proposed.calculationPolicy === undefined && isCardlessAtmPaymentMethod(method) && !matchesProposal(quote)) {
+    // Honour a valid proposal already shown before the fixed-cash policy was
+    // restored. Never silently reinterpret its quantity or cash at acceptance.
+    // Newly marked proposals cannot fall back to this legacy calculation.
+    const legacyQuote = calculateTradeTermsQuote({ ...request, paymentMethod: "Bank Transfer" }, "counter_offer", proposed.pricePerUsdt);
+    if (legacyQuote && matchesProposal(legacyQuote)
+      && validateCardlessIlsAmount(legacyQuote.fiatAmount, legacyQuote.fiatAmount)) quote = legacyQuote;
+  }
   if (!listing || proposed?.kind !== "counter_offer" || !quote
+    || (proposed.calculationPolicy !== undefined && (proposed.calculationPolicy !== CARDLESS_COUNTER_CALCULATION_POLICY || !isCardlessAtmPaymentMethod(method)))
     || !isSellerCounterPrice(request.pricePerUsdt, request.listingPriceAtRequest || listing.price, proposed.pricePerUsdt, listing.price)
-    || canonicalizeTradeAmount(proposed.usdtAmount) !== quote.usdtAmount
-    || canonicalizeTradeAmount(proposed.fiatAmount) !== canonicalizeTradeAmount(quote.fiatAmount)
+    || !matchesProposal(quote)
     || Number(quote.usdtAmount) < getPurchaseMinimumTrade(listing.minimumTrade, isCardlessAtmPaymentMethod(method))
     || Number(quote.usdtAmount) > Number(listing.maximumTrade || listing.availableAmount)) {
     throw new TradeBlockedError("stale-counter-offer", "This price or quantity no longer matches the request. Withdraw or decline the counter-offer.", request.id);
@@ -11016,7 +11030,8 @@ export async function updateTradeTerms(input: {
       if (counter) request.counterPrices = [...submittedCounterPrices(request), price];
       request.amountAdjustmentCount = getTradeAmountAdjustmentCount(request) + 1;
       request.firstSellerResponseAt ??= request.termsProposal?.createdAt ?? now;
-      request.termsProposal = { id: randomUUID(), kind: counter ? "counter_offer" : "amount_correction", status: "pending", pricePerUsdt: price, usdtAmount: amount, fiatAmount: fiat, createdAt: now };
+      request.termsProposal = { id: randomUUID(), kind: counter ? "counter_offer" : "amount_correction", status: "pending", pricePerUsdt: price, usdtAmount: amount, fiatAmount: fiat, createdAt: now,
+        ...(counter && isCardlessAtmPaymentMethod(request.paymentMethod) ? { calculationPolicy: CARDLESS_COUNTER_CALCULATION_POLICY } : {}) };
       if (counter && isFaceToFacePaymentMethod(request.paymentMethod)) request.sellerSafetyAcknowledged = true;
       message = `Seller proposed ${amount} USDT for ${request.currency} ${fiat} at ${price} per USDT. Buyer confirmation required.`;
     } else {
@@ -12459,6 +12474,9 @@ export async function getTradeRoomBankDetails(input: {
     // prevent the stale request from receiving the account number.
     assertTradeParticipantOrAdmin(request, input.actorUserId, input.actorRole);
     if (!canRevealTradeBankDetailsToActor(request, input.actorUserId, input.actorRole)) {
+      if (request.termsProposal?.status === "pending") {
+        throw new Error("Bank details are available only after the proposed terms are accepted, declined, or withdrawn.");
+      }
       throw new Error("Bank details are available only for an active Bank Transfer request.");
     }
 
@@ -14809,6 +14827,7 @@ async function updatePurchaseRequestStatusAttempt(
     if (acceptingCounter && (areTradeAmountsLocked(request) || hasIrreversibleTradeProgress(db, request))) throw new TradeBlockedError("trade-terms-invalid", "Trade amounts and price are locked at this stage.", request.id);
     if (acceptingCounter && request.termsProposal) {
       const quote = acceptedCounterQuote(request, listing);
+      next.usdtAmount = quote.usdtAmount;
       next.fiatAmount = quote.fiatAmount;
       next.pricePerUsdt = quote.pricePerUsdt;
       if (isAtmTrade && Number(next.fiatAmount) !== Number(request.fiatAmount)) {

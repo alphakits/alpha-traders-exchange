@@ -2,9 +2,11 @@ import { createRequire } from "node:module";
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
+import type { JSONSchema } from "@expo/schema-utils";
 
 const require = createRequire(import.meta.url);
 const expoRequire = createRequire(require.resolve("@expo/cli/package.json"));
+const schemaUtils: typeof import("@expo/schema-utils") = expoRequire("@expo/schema-utils");
 const vercelRequire = createRequire(require.resolve("@vercel/cli-config"));
 
 describe("Zod dependency security and integration compatibility", () => {
@@ -43,9 +45,9 @@ describe("Zod dependency security and integration compatibility", () => {
   });
 
   it("preserves Expo plugin configuration validation and typed MCP arguments", () => {
-    const { PluginSchema } = expoRequire("./build/src/start/server/DevToolsPlugin.schema.js") as { PluginSchema: z.ZodType };
-    const { createMCPDevToolsExtensionSchema } = expoRequire("./build/src/start/server/createMCPDevToolsExtensionSchema.js") as {
-      createMCPDevToolsExtensionSchema: (plugin: unknown) => z.ZodType;
+    const { PluginSchema } = expoRequire("./build/src/start/server/devtools/DevToolsPlugin.schema.js") as { PluginSchema: JSONSchema };
+    const { createMCPDevToolsExtensionSchema } = expoRequire("./build/src/start/server/mcp/createMCPDevToolsExtensionSchema.js") as {
+      createMCPDevToolsExtensionSchema: (plugin: unknown, validator: typeof z) => z.ZodType;
     };
     const plugin = {
       packageName: "audit-synthetic-plugin", packageRoot: "/synthetic/plugin",
@@ -55,29 +57,36 @@ describe("Zod dependency security and integration compatibility", () => {
         ],
       }] },
     };
-    const parsed = PluginSchema.parse(plugin);
-    const command = createMCPDevToolsExtensionSchema(parsed);
+    // Expo's JSON Schema validator checks the input without transforming it.
+    const unchanged = structuredClone(plugin);
+    expect(() => schemaUtils.validate(PluginSchema, plugin)).not.toThrow();
+    expect(plugin).toEqual(unchanged);
+    const command = createMCPDevToolsExtensionSchema(plugin, z);
     const input = { command: "inspect", label: "sample", count: 2, confirm: true };
     expect(command.parse(input)).toEqual(input);
     expect(command.safeParse({ ...input, count: "2" }).success).toBe(false);
     expect(command.safeParse({ ...input, command: "unknown" }).success).toBe(false);
     expect(command.safeParse({ ...input, extra: true }).success).toBe(false);
-    expect(PluginSchema.safeParse({ ...plugin, packageRoot: "" }).success).toBe(false);
+    expect(() => schemaUtils.validate(PluginSchema, { ...plugin, packageRoot: "" })).toThrow(schemaUtils.ValidationError);
     expect(z.toJSONSchema(command)).toMatchObject({ type: "object", additionalProperties: false });
   });
 
   it("preserves Expo text, image and audio output validation and issue reporting", () => {
-    const { DevToolsPluginOutputSchema } = expoRequire("./build/src/start/server/DevToolsPlugin.schema.js") as {
-      DevToolsPluginOutputSchema: z.ZodType;
+    const { DevToolsPluginOutputSchema } = expoRequire("./build/src/start/server/devtools/DevToolsPlugin.schema.js") as {
+      DevToolsPluginOutputSchema: JSONSchema;
     };
     const output = [
       { type: "text", text: "Synthetic result", level: "info" },
       { type: "image", url: "https://example.invalid/image.png" },
       { type: "audio", url: "https://example.invalid/audio.wav" },
     ];
-    expect(DevToolsPluginOutputSchema.parse(output)).toEqual(output);
-    const invalid = DevToolsPluginOutputSchema.safeParse([{ type: "image", url: "invalid" }]);
-    expect(invalid.success).toBe(false);
-    if (!invalid.success) expect(invalid.error.issues.map(issue => issue.message).join(", ")).toBeTruthy();
+    const unchanged = structuredClone(output);
+    expect(() => schemaUtils.validate(DevToolsPluginOutputSchema, output)).not.toThrow();
+    expect(output).toEqual(unchanged);
+    let invalid: unknown;
+    try { schemaUtils.validate(DevToolsPluginOutputSchema, [{ type: "image", url: "invalid" }]); }
+    catch (error) { invalid = error; }
+    expect(invalid).toBeInstanceOf(schemaUtils.ValidationError);
+    if (invalid instanceof schemaUtils.ValidationError) expect(invalid.errors.map(issue => issue.message).join(", ")).toBeTruthy();
   });
 });

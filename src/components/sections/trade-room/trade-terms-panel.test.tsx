@@ -190,16 +190,52 @@ it.each(["Bank Transfer", "Face-to-Face (Meet in Person)", "Cardless ATM Withdra
   render(<TradeTermsPanel request={{ ...base, paymentMethod, feePolicyVersion: "buyer_seller_1pct_v1", pricePerUsdt: "3.09", usdtAmount: cardless ? "416.546509" : "420", fiatAmount: cardless ? "1300.00" : "1310.78" }} actorId="seller" isAr={false} onUpdated={vi.fn()} />);
   fireEvent.click(screen.getByRole("button", { name: "Make a counter-offer" }));
   fireEvent.change(screen.getByLabelText("Counter price in ILS per USDT"), { target: { value: "3.10" } });
-  if (cardless) {
-    expect(screen.queryByTestId("trade-adjustment-preview")).toBeNull();
-    expect(screen.getByRole("status").textContent).toContain("fixed quantity");
-    return;
-  }
   const preview = screen.getByTestId("trade-adjustment-preview");
-  expect(preview.textContent).toContain("420 USDT");
-  expect(preview.textContent).toContain("1,315.02");
+  expect(preview.textContent).toContain(cardless ? "416.546509 → 415.202811 USDT" : "420 → 420 USDT");
+  expect(preview.textContent).toContain(cardless ? "1,300.00" : "1,315.02");
   expect(preview.textContent).toContain("1% fee");
+  if (cardless) {
+    expect(preview.textContent).toContain("ATM cash amount stays the same");
+    expect((screen.getByRole("button", { name: "Send counter-offer" }) as HTMLButtonElement).disabled).toBe(false);
+  }
   fireEvent.change(screen.getByLabelText("Counter price in ILS per USDT"), { target: { value: "3.101" } });
   expect(screen.queryByTestId("trade-adjustment-preview")).toBeNull();
   expect((screen.getByRole("button", { name: "Send counter-offer" }) as HTMLButtonElement).disabled).toBe(true);
+});
+
+it.each([false, true])("submits the screenshot ATM counter without changing cash, Arabic=%s", async isAr => {
+  const request = { ...base, paymentMethod: "Cardless ATM Withdrawal", feePolicyVersion: "buyer_seller_1pct_v1" as const, usdtAmount: "92.821782", fiatAmount: "300.00", pricePerUsdt: "3.20" };
+  const proposed = { ...request, termsProposal: { id: "atm-counter", kind: "counter_offer" as const, status: "pending" as const, calculationPolicy: "cardless_fixed_cash_v1" as const, usdtAmount: "90.009001", fiatAmount: "300.00", pricePerUsdt: "3.30", createdAt: base.updatedAt } };
+  let finish!: (response: Response) => void;
+  const fetch = vi.fn(() => new Promise<Response>(resolve => { finish = resolve; }));
+  vi.stubGlobal("fetch", fetch);
+  const updated = vi.fn();
+  render(<TradeTermsPanel request={request} actorId="seller" isAr={isAr} onUpdated={updated} />);
+  const counter = screen.getByRole("button", { name: isAr ? "تقديم عرض مقابل" : "Make a counter-offer" });
+  fireEvent.click(counter);
+  expect(counter.getAttribute("aria-expanded")).toBe("true");
+  const input = screen.getByLabelText(isAr ? "السعر المقابل بالشيكل لكل USDT" : "Counter price in ILS per USDT") as HTMLInputElement;
+  fireEvent.change(input, { target: { value: "3.30" } });
+  const preview = screen.getByTestId("trade-adjustment-preview");
+  expect(preview.textContent).toContain("92.821782 → 90.009001 USDT");
+  expect(preview.textContent).toContain("3.20 → 3.30");
+  expect(preview.textContent).toContain("ILS 300.00 → ILS 300.00");
+  const submit = screen.getByRole("button", { name: isAr ? "إرسال عرض مقابل" : "Send counter-offer" });
+  fireEvent.click(submit);
+  fireEvent.click(submit);
+  expect(input.disabled).toBe(true);
+  expect(submit.getAttribute("aria-busy")).toBe("true");
+  expect(fetch).toHaveBeenCalledOnce();
+  expect(JSON.parse((fetch.mock.calls[0] as unknown as [string, RequestInit])[1].body as string)).toMatchObject({ action: "counter_offer", value: "3.30", expectedUpdatedAt: request.updatedAt });
+  await act(async () => { finish(Response.json({ request: proposed })); });
+  expect(updated).toHaveBeenCalledWith(proposed);
+  expect(screen.queryByLabelText(isAr ? "السعر المقابل بالشيكل لكل USDT" : "Counter price in ILS per USDT")).toBeNull();
+});
+
+it.each(["300.00", "400.00"])("discloses the exact pending ATM cash terms (%s) before approval", fiatAmount => {
+  const request = { ...base, paymentMethod: "Cardless ATM Withdrawal", usdtAmount: "92.821782", fiatAmount: "300.00", pricePerUsdt: "3.20", termsProposal: { id: "review-counter", kind: "counter_offer" as const, status: "pending" as const, usdtAmount: "90.009001", fiatAmount, pricePerUsdt: "3.30", createdAt: base.updatedAt } };
+  render(<TradeTermsPanel request={request} actorId="buyer" isAr={false} onUpdated={vi.fn()} />);
+  expect(screen.getByTestId("trade-amount-action").textContent).toContain(`ILS 300.00 → ILS ${fiatAmount}`);
+  expect(screen.getByText(fiatAmount === "300.00" ? /ATM cash amount stays the same/ : /new withdrawal code must match/)).toBeTruthy();
+  expect((screen.getByRole("button", { name: "Accept these terms" }) as HTMLButtonElement).disabled).toBe(false);
 });

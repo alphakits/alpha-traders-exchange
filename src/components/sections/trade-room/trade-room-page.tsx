@@ -1340,6 +1340,7 @@ export function getTradeRoomSessionKey(actorUserId: string, requestId: string) {
 export function canRevealTradeRoomBankDetails(request: PurchaseRequest | null, isSeller: boolean) {
   return Boolean(
     request
+    && request.termsProposal?.status !== "pending"
     && (!isSeller || request.bankTransferProvider === "wise")
     && (Boolean(request.sellerBankAccountId) || request.bankTransferProvider === "wise")
     && isBankTransferPaymentMethod(request.paymentMethod)
@@ -3460,7 +3461,7 @@ function TradeRoomPageSession({
                       </div>
                     )}
                   </div>
-                ) : !isSeller && request.status === "pending" && isBankTransferPaymentMethod(requestPaymentMethod) ? (
+                ) : !isSeller && !hasPendingTradeTerms && request.status === "pending" && isBankTransferPaymentMethod(requestPaymentMethod) ? (
                   <div className="rounded-xl border border-white/10 bg-black/20 p-3 text-sm text-[#9CA3AF]">
                     {request.priceMode === "buyer_offer"
                       ? (isAr ? "عرض السعر بانتظار قرار البائع. يجب ربط تفاصيل البنك قبل متابعة التحويل." : "Your price offer is waiting for the seller. The seller must link bank details before this Bank Transfer can proceed.")

@@ -119,6 +119,25 @@ describe("Trade Room client stability helpers", () => {
     expect(canRevealTradeRoomBankDetails({ ...wiseTrade, paymentMethod: "Face-to-Face (Meet in Person)" }, true)).toBe(false);
   });
 
+  it.each(["counter_offer", "amount_correction"] as const)("hides bank instructions while a %s is awaiting buyer approval", kind => {
+    const trade = {
+      ...room({ status: kind === "counter_offer" ? "pending" : "accepted" }).request,
+      buyerId: "buyer-1", sellerId: "seller-1",
+      paymentMethod: "Bank Transfer", sellerBankAccountId: "bank-1",
+      termsProposal: { id: "proposal-1", kind, status: "pending" as const,
+        usdtAmount: "250", fiatAmount: "950.00", pricePerUsdt: "3.80", createdAt: "2026-11-05T12:00:00.000Z" },
+    } as PurchaseRequest;
+
+    expect(canRevealTradeRoomBankDetails(trade, false)).toBe(false);
+    expect(getPrimaryAction(trade, trade.buyerId, false, true)).toBeNull();
+    for (const status of ["accepted", "declined", "withdrawn"] as const) {
+      expect(canRevealTradeRoomBankDetails({ ...trade, termsProposal: { ...trade.termsProposal!, status } }, false)).toBe(true);
+    }
+    const wise = { ...trade, bankTransferProvider: "wise" as const, currency: "USD" };
+    expect(canRevealTradeRoomBankDetails(wise, true)).toBe(false);
+    expect(canRevealTradeRoomBankDetails(wise, false)).toBe(false);
+  });
+
   it("guides Face-to-Face through cash receipt and explicit seller delivery completion", () => {
     const acceptedFaceToFace = {
       ...room({ status: "accepted" }).request,

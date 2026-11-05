@@ -377,8 +377,19 @@ test.describe("Forms required treatment", () => {
   test("Buy USDT: aria-invalid toggles red->green; required asterisks present", async ({ page }) => {
     await login(page.request, buyer!.email, buyer!.password);
     await gotoMarketplace(page);
-    await page.getByRole("button", { name: /Buy USDT from/i }).first().click();
+    // This validation exercises editable USDT on the owned bank-transfer listing.
+    const card = cardFor(page, ids.lUrgent);
+    const more = page.getByRole("button", { name: "Load More Listings", exact: true });
+    while (await card.count() === 0 && await more.isVisible()) {
+      const cards = page.locator("#buyer-marketplace-listings .seller-listing-shell");
+      const before = await cards.count();
+      await more.click();
+      await expect.poll(() => cards.count()).toBeGreaterThan(before);
+    }
+    await expect(card).toBeVisible();
+    await card.getByRole("button", { name: /Buy USDT from/i }).click();
     const amount = page.getByLabel(/USDT Amount/i);
+    await expect(amount).toBeEditable();
     await amount.fill("1");
     await expect(amount).toHaveAttribute("aria-invalid", "true");
     const dialogText = await page.getByRole("dialog").first().innerText();
