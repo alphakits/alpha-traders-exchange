@@ -19,6 +19,10 @@ import { compactSnapshotIdentities, setSnapshotIdentityDirectory, type SnapshotI
 import { listingCommissionRequiredMessage } from "@/lib/listing-commission-policy";
 import { decodeWiseStorage, serializeWiseStorageJson, WiseStorageError } from "@/lib/wise-storage-crypto";
 import { assertSimulationRuntime } from "@/lib/alpha-wallet/runtime";
+import { parseUnits as parseInitialAcceptanceUnits } from "@/lib/alpha-wallet/amounts";
+import { describeDevelopmentTradeTerms } from "@/lib/alpha-wallet/accepted-terms";
+import { isDemandReservedTrade } from "@/lib/usdt-demand-policy";
+import { hasSellerOperationalAccess } from "@/lib/seller-approval-verification";
 import type {
   AlphaExchangeDb,
   MarketplaceEnforcementAuditEntry,
@@ -2635,13 +2639,422 @@ export async function mutateDevelopmentFocusedTradeInTransaction(
     // if its local guard was disabled by the callback. SQL failures already
     // abort it; a changed/unknown transaction identity is never touched.
     if (certified) {
-      try { await context(false); await tx.query("select 1 / 0 /* abort failed focused simulation participant */"); }
+      try {
+        // Runtime/contract rejection must reach the owner's SQL guard instead
+        // of failing again before it can mark this transaction as failed.
+        const current = (await tx.query<{ transaction_id: string }>("SELECT txid_current()::text AS transaction_id")).rows[0];
+        if (current?.transaction_id === transactionId) await tx.query("select 1 / 0 /* abort failed focused simulation participant */");
+      }
       catch { /* Preserve the original failure; the outer owner must roll back. */ }
     }
     throw error;
   } finally {
     active = false;
   }
+}
+
+export type DevelopmentInitialAcceptanceMarketplace = Pick<AlphaExchangeDb,
+  "users" | "marketplaceListings" | "purchaseRequests" | "commissionRecords" | "sellerReviews" | "tradeEvidenceFiles" | "disputes"
+> & { marketplaceEnforcementRecords: MarketplaceEnforcementRecord[] };
+
+/** A mechanical decision from a trusted caller, never proof of an authenticated seller. */
+export type DevelopmentInitialAcceptanceDecision = Readonly<{
+  requestId: string;
+  actorUserId: string;
+  /** The buyer submission already allocated this identity; it cannot be replaced. */
+  tradeId: string;
+  acceptedAtMs: number;
+  safetyAcknowledged?: true;
+}>;
+
+export type DevelopmentInitialAcceptanceResult = {
+  request: PurchaseRequest;
+  listing: MarketplaceListing;
+  trade: { id: string; purchaseRequestId: string; listingId: string; sellerId: string; buyerId: string;
+    status: "accepted"; createdAt: string; updatedAt: string; timeline: PurchaseRequest["timeline"] };
+  notifications: AlphaExchangeNotification[];
+  auditLogs: AuditLogEntry[];
+};
+
+type InitialAcceptanceRow = Record<string, unknown> & { payload: Record<string, unknown> };
+type InitialAcceptanceRows = Record<"requests" | "listings" | "users" | "commissions" | "enforcements" | "evidence" | "disputes" | "trades", InitialAcceptanceRow[]>;
+type InitialAcceptanceRead = { rows: InitialAcceptanceRows; marketplace: DevelopmentInitialAcceptanceMarketplace;
+  request: PurchaseRequest; listing: MarketplaceListing };
+
+function initialAcceptanceCheck(condition: unknown, message: string): asserts condition {
+  if (!condition) throw new Error(`Initial acceptance ${message}.`);
+}
+
+function initialAcceptanceId(value: unknown): value is string {
+  return typeof value === "string" && /^[A-Za-z0-9_-]{1,200}$/.test(value);
+}
+
+async function requireUnactivatedInitialAcceptance(client: RepositorySql) {
+  const row = (await client.query<{ present: boolean }>(`SELECT to_regnamespace('alpha_wallet_marketplace_simulation') IS NOT NULL AS present
+    /* initial acceptance: refuse existing cohort and recovery */`)).rows[0];
+  initialAcceptanceCheck(row?.present === false, "cannot run inside the existing coordinated or recovered marketplace cohort");
+}
+
+/**
+ * Request identities are exact, never trade-ID aliases. The buyer history is
+ * deliberately independent of the target seller. Both normalized and payload
+ * links select candidates; disagreement cannot hide a blocking row from checks.
+ * No bootstrap, normalization, legacy repair or credential lookup is performed.
+ */
+async function readInitialAcceptance(client: RepositorySql, requestId: string): Promise<InitialAcceptanceRead> {
+  const selected = await client.query<{ payload_text: string }>(`
+    /* initial acceptance: authoritative read */
+    WITH target AS MATERIALIZED (SELECT * FROM alpha_exchange.purchase_requests WHERE id=$1),
+    requests AS MATERIALIZED (
+      SELECT p.* FROM alpha_exchange.purchase_requests p, target t
+      WHERE p.id=t.id OR p.payload->>'id'=t.id OR p.seller_id=t.seller_id OR p.payload->>'sellerId'=t.seller_id
+        OR p.buyer_id=t.buyer_id OR p.payload->>'buyerId'=t.buyer_id
+        OR p.listing_id=t.listing_id OR p.payload->>'listingId'=t.listing_id
+        OR p.trade_id=t.trade_id OR p.payload->>'tradeId'=t.trade_id
+      ORDER BY p.sort_index,p.id
+    ), listings AS MATERIALIZED (
+      SELECT l.* FROM alpha_exchange.listings l, target t
+      WHERE l.seller_id=t.seller_id OR l.payload->>'sellerId'=t.seller_id
+        OR l.id IN (SELECT listing_id FROM requests UNION SELECT payload->>'listingId' FROM requests)
+        OR l.payload->>'id' IN (SELECT listing_id FROM requests UNION SELECT payload->>'listingId' FROM requests)
+      ORDER BY l.sort_index,l.id
+    ), users AS MATERIALIZED (
+      SELECT u.* FROM alpha_exchange.users u WHERE u.id IN (
+        SELECT seller_id FROM requests UNION SELECT buyer_id FROM requests
+        UNION SELECT payload->>'sellerId' FROM requests UNION SELECT payload->>'buyerId' FROM requests)
+        OR u.payload->>'id' IN (SELECT seller_id FROM requests UNION SELECT buyer_id FROM requests)
+      ORDER BY u.sort_index,u.id
+    ), commissions AS MATERIALIZED (
+      SELECT c.* FROM alpha_exchange.commissions c,target t
+      WHERE c.seller_id IN (t.seller_id,t.buyer_id) OR c.payload->>'sellerId' IN (t.seller_id,t.buyer_id)
+        OR c.purchase_request_id=t.id OR c.payload->>'purchaseRequestId'=t.id OR c.payload->>'tradeId'=t.trade_id
+      ORDER BY c.sort_index,c.id
+    ), enforcements AS MATERIALIZED (
+      SELECT e.* FROM alpha_exchange.marketplace_enforcement_records e,target t
+      WHERE e.seller_id IN (t.seller_id,t.buyer_id) OR e.payload->>'sellerId' IN (t.seller_id,t.buyer_id)
+      ORDER BY e.sort_index,e.id
+    ), evidence AS MATERIALIZED (
+      SELECT e.* FROM alpha_exchange.evidence e,target t
+      WHERE e.purchase_request_id=t.id OR e.payload->>'purchaseRequestId'=t.id ORDER BY e.sort_index,e.id
+    ), disputes AS MATERIALIZED (
+      SELECT d.* FROM alpha_exchange.disputes d,target t
+      WHERE d.purchase_request_id=t.id OR d.payload->>'purchaseRequestId'=t.id
+        OR d.trade_id=t.trade_id OR d.payload->>'tradeId'=t.trade_id ORDER BY d.sort_index,d.id
+    ), trades AS MATERIALIZED (
+      SELECT tr.* FROM alpha_exchange.trades tr,target t WHERE tr.id=t.trade_id OR tr.payload->>'id'=t.trade_id
+        OR tr.purchase_request_id=t.id OR tr.payload->>'purchaseRequestId'=t.id ORDER BY tr.sort_index,tr.id
+    ) SELECT jsonb_build_object(
+      'requests',(SELECT coalesce(jsonb_agg(to_jsonb(r)),'[]'::jsonb) FROM requests r),
+      'listings',(SELECT coalesce(jsonb_agg(to_jsonb(r)),'[]'::jsonb) FROM listings r),
+      'users',(SELECT coalesce(jsonb_agg(to_jsonb(r)),'[]'::jsonb) FROM users r),
+      'commissions',(SELECT coalesce(jsonb_agg(to_jsonb(r)),'[]'::jsonb) FROM commissions r),
+      'enforcements',(SELECT coalesce(jsonb_agg(to_jsonb(r)),'[]'::jsonb) FROM enforcements r),
+      'evidence',(SELECT coalesce(jsonb_agg(to_jsonb(r)-'content'),'[]'::jsonb) FROM evidence r),
+      'disputes',(SELECT coalesce(jsonb_agg(to_jsonb(r)),'[]'::jsonb) FROM disputes r),
+      'trades',(SELECT coalesce(jsonb_agg(to_jsonb(r)),'[]'::jsonb) FROM trades r)
+    )::text AS payload_text FROM target`, [requestId]);
+  initialAcceptanceCheck(selected.rows.length === 1 && typeof selected.rows[0].payload_text === "string", "requires one exact canonical request");
+  const text = selected.rows[0].payload_text;
+  initialAcceptanceCheck(Buffer.byteLength(text, "utf8") <= 8 * 1024 * 1024, "canonical read exceeds its bounded development scope");
+  const rows = JSON.parse(text) as InitialAcceptanceRows;
+  // PostgreSQL keeps arbitrary-precision JSON numbers. Reject a lossy JS parse
+  // before exposing a decision basis or re-encoding any persisted payload.
+  initialAcceptanceCheck((await client.query<{ exact: boolean }>(
+    "SELECT $1::jsonb=$2::jsonb AS exact /* initial acceptance: lossless canonical JSON */", [text, JSON.stringify(rows)])).rows[0]?.exact === true,
+  "canonical JSON cannot be represented without losing precision");
+  let total = 0;
+  const record = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value);
+  const scalar = (row: InitialAcceptanceRow, column: string, field: string, optional = false) => {
+    const value = row.payload[field];
+    initialAcceptanceCheck((optional && row[column] === null && value === undefined)
+      || (typeof value === "string" && value.length > 0 && row[column] === value), "normalized identity or state differs from its payload");
+  };
+  const time = (row: InitialAcceptanceRow, column: string, field: string, optional = false) => {
+    const value = row.payload[field];
+    if (optional && row[column] === null && value === undefined) return;
+    // Date.parse discards PostgreSQL microseconds; a nonzero discarded digit
+    // would otherwise make different canonical timestamps appear identical.
+    const normalized = row[column];
+    const submillisecond = typeof normalized === "string" ? /\.\d{3}(\d+)/.exec(normalized)?.[1] : undefined;
+    initialAcceptanceCheck(typeof value === "string" && Number.isFinite(Date.parse(value))
+      && new Date(value).toISOString() === value && typeof normalized === "string"
+      && (!submillisecond || !/[1-9]/.test(submillisecond))
+      && Date.parse(normalized) === Date.parse(value), "normalized timestamp differs from its payload");
+  };
+  for (const name of ["requests", "listings", "users", "commissions", "enforcements", "evidence", "disputes", "trades"] as const) {
+    const collection = rows[name];
+    initialAcceptanceCheck(Array.isArray(collection) && (total += collection.length) <= 10000, "canonical read exceeds its row limit");
+    const seen = new Set<string>();
+    for (const row of collection) {
+      initialAcceptanceCheck(record(row) && record(row.payload) && initialAcceptanceId(row.id)
+        && !seen.has(row.id) && Number.isSafeInteger(row.sort_index), "canonical row identity or ordering is invalid");
+      seen.add(row.id);
+      scalar(row, "id", "id");
+      if (name !== "evidence") { time(row, "created_at", "createdAt"); time(row, "updated_at", "updatedAt"); }
+      if (["requests", "listings", "commissions", "enforcements", "disputes", "trades"].includes(name)) scalar(row, "seller_id", "sellerId");
+      if (["requests", "disputes", "trades"].includes(name)) {
+        scalar(row, "buyer_id", "buyerId");
+        if (name !== "disputes") scalar(row, "listing_id", "listingId");
+      }
+      if (["requests", "listings", "enforcements", "disputes", "trades"].includes(name)) scalar(row, "status", "status");
+      if (name === "requests") {
+        scalar(row, "trade_id", "tradeId", true); time(row, "timed_out_at", "timedOutAt", true); time(row, "completed_at", "completedAt", true);
+        for (const field of ["usdtAmount"] as const) initialAcceptanceCheck(parseInitialAcceptanceUnits(row.payload[field] as string, 6) > BigInt(0), "request quantity must be positive");
+        initialAcceptanceCheck(parseInitialAcceptanceUnits(row.payload.fiatAmount as string, 2) > BigInt(0), "request fiat must be positive");
+        for (const field of ["pricePerUsdt", "listingPriceAtRequest"] as const) if (row.payload[field] !== undefined) {
+          initialAcceptanceCheck(parseInitialAcceptanceUnits(row.payload[field] as string, 2) > BigInt(0), "request price must be positive");
+        }
+      } else if (name === "listings") {
+        scalar(row, "active_trade_request_id", "activeTradeRequestId", true); time(row, "expires_at", "expiresAt", true);
+        for (const field of ["originalAmount", "availableAmount", "minimumTrade", "maximumTrade"] as const) parseInitialAcceptanceUnits(row.payload[field] as string, 6);
+        initialAcceptanceCheck(parseInitialAcceptanceUnits(row.payload.price as string, 2) > BigInt(0), "listing price must be positive");
+      } else if (name === "users") {
+        for (const [column, field] of [["email", "email"], ["role", "role"], ["seller_status", "sellerStatus"],
+          ["availability_status", "availabilityStatus"], ["online_status", "onlineStatus"]]) scalar(row, column, field);
+      } else if (name === "commissions") {
+        scalar(row, "purchase_request_id", "purchaseRequestId", true); scalar(row, "listing_id", "listingId", true);
+        scalar(row, "buyer_id", "buyerId", true); scalar(row, "payment_status", "paymentStatus"); time(row, "due_at", "dueAt", true);
+      } else if (name === "enforcements") {
+        initialAcceptanceCheck(row.violation_number === row.payload.violationNumber, "normalized enforcement number differs from its payload");
+        time(row, "issued_at", "issuedAt"); time(row, "due_at", "dueAt", true);
+      } else if (name === "evidence") {
+        for (const [column, field] of [["purchase_request_id", "purchaseRequestId"], ["side", "side"],
+          ["uploaded_by_user_id", "uploadedByUserId"], ["mime_type", "mimeType"], ["file_name", "fileName"]]) scalar(row, column, field);
+        initialAcceptanceCheck(row.size_bytes === row.payload.sizeBytes, "normalized evidence size differs from its payload");
+        time(row, "uploaded_at", "uploadedAt");
+      } else if (name === "disputes") { scalar(row, "trade_id", "tradeId"); scalar(row, "purchase_request_id", "purchaseRequestId"); }
+      else if (name === "trades") { scalar(row, "purchase_request_id", "purchaseRequestId"); time(row, "completed_at", "completedAt", true); }
+    }
+  }
+  const marketplace: DevelopmentInitialAcceptanceMarketplace = {
+    purchaseRequests: rows.requests.map(row => row.payload as unknown as PurchaseRequest),
+    marketplaceListings: rows.listings.map(row => row.payload as unknown as MarketplaceListing),
+    users: rows.users.map(row => row.payload as unknown as AlphaExchangeUser),
+    commissionRecords: rows.commissions.map(row => row.payload as unknown as CommissionRecord),
+    marketplaceEnforcementRecords: rows.enforcements.map(row => row.payload as unknown as MarketplaceEnforcementRecord),
+    tradeEvidenceFiles: rows.evidence.map(row => row.payload as unknown as TradeEvidenceFile),
+    disputes: rows.disputes.map(row => row.payload as unknown as TradeDisputeCase),
+    // The canonical repository stores reviews in request payloads; its separate
+    // legacy in-memory review collection is not an authoritative SQL table.
+    sellerReviews: [],
+  };
+  const request = marketplace.purchaseRequests.find(row => row.id === requestId);
+  initialAcceptanceCheck(request && rows.requests.filter(row => row.id === requestId).length === 1, "canonical target is missing or duplicated");
+  const tradeIds = marketplace.purchaseRequests.flatMap(row => row.tradeId === undefined ? [] : [row.tradeId]);
+  initialAcceptanceCheck(tradeIds.every(initialAcceptanceId) && new Set(tradeIds).size === tradeIds.length,
+    "canonical request trade identities are invalid or duplicated");
+  const listing = marketplace.marketplaceListings.find(row => row.id === request.listingId);
+  initialAcceptanceCheck(listing && listing.sellerId === request.sellerId && request.buyerId !== request.sellerId
+    && marketplace.users.some(user => user.id === request.buyerId) && marketplace.users.some(user => user.id === request.sellerId), "canonical parties or listing disagree");
+  return { rows, marketplace, request, listing };
+}
+
+function buildInitialAcceptance(read: InitialAcceptanceRead, decision: DevelopmentInitialAcceptanceDecision): DevelopmentInitialAcceptanceResult {
+  const { request: before, listing: beforeListing, marketplace } = read;
+  initialAcceptanceCheck(decision && typeof decision === "object" && !Array.isArray(decision)
+    && Object.keys(decision).every(key => ["requestId", "actorUserId", "tradeId", "acceptedAtMs", "safetyAcknowledged"].includes(key))
+    && decision.requestId === before.id && decision.actorUserId === before.sellerId && initialAcceptanceId(decision.tradeId)
+    && decision.tradeId === before.tradeId && (decision.safetyAcknowledged === undefined || decision.safetyAcknowledged === true), "requires its narrow retained seller decision");
+  initialAcceptanceCheck(Number.isSafeInteger(decision.acceptedAtMs) && decision.acceptedAtMs > Date.parse(before.updatedAt)
+    && decision.acceptedAtMs > Date.parse(beforeListing.updatedAt) && decision.acceptedAtMs <= 8_640_000_000_000_000,
+  "requires a strictly later explicit clock value");
+  const at = new Date(decision.acceptedAtMs).toISOString();
+  const excluded: (keyof PurchaseRequest)[] = ["tradeCreatedAt", "usdtDemandId", "usdtDemandOfferId", "termsProposal", "priceOfferAcceptedAt",
+    "firstSellerResponseAt",
+    "paymentSentAt", "sensitivePaymentSharedAt", "sensitivePaymentKind", "fundsReceivedAt", "usdtReleaseStartedAt", "usdtReleaseDeadlineAt",
+    "usdtSentAt", "completedAt", "timedOutAt", "timeoutReason", "buyerConfirmationArchivedAt", "lockedAt", "reviewUnlockedAt",
+    "buyerEvidence", "sellerEvidence", "buyerReview", "sellerBuyerReview", "sellerResponse", "closedAt", "closedByUserId", "closeReason",
+    "closeExplanation", "completionReceipt", "historicalCompletion", "buyerVolumeCredit", "trustReconciliation", "actionReminderState", "inactivityWarningSentAt",
+    "sellerWiseAccountId", "buyerWiseAccountId", "sellerWiseAccountSnapshot", "buyerWiseAccountSnapshot"];
+  initialAcceptanceCheck(before.status === "pending" && before.priceMode === "listing_price"
+    && before.feePolicyVersion === "buyer_seller_1pct_v1" && before.commissionCalculationVersion === "usdt_6dp_v2"
+    && (before.amountAdjustmentCount === undefined || before.amountAdjustmentCount === 0)
+    && (!before.counterPrices || before.counterPrices.length === 0) && before.cardlessCodeAwaitingBuyerConfirmation !== true
+    && excluded.every(key => before[key] === undefined) && before.currency === "ILS"
+    && ["Bank Transfer", "Face-to-Face", "Face-to-Face (Meet in Person)"].includes(before.paymentMethod)
+    && before.bankTransferProvider !== "wise" && !marketplace.tradeEvidenceFiles.length && !marketplace.disputes.length,
+  "requires a clean ordinary pending request without lifecycle progress");
+  const expectedPendingProjection = getTable("trades").values({ ...emptySnapshotCollections(), purchaseRequests: [before] })[0];
+  initialAcceptanceCheck(read.rows.trades.length <= 1 && read.rows.trades.every(row =>
+    row.id === before.tradeId && row.purchase_request_id === before.id && row.status === "pending"
+      && isDeepStrictEqual(row.payload, JSON.parse(json(expectedPendingProjection)))),
+  "existing trade projection differs from the exact retained pending request");
+  const submissions = Array.isArray(before.timeline) ? before.timeline.filter(row => row.type === "request_submitted") : [];
+  initialAcceptanceCheck(submissions.length === 1 && before.timeline.length === 1 && submissions[0].actorUserId === before.buyerId
+    && ["buyer", "approved_seller", "admin", "owner"].includes(submissions[0].actorRole) && submissions[0].createdAt === before.createdAt
+    && before.timeline.every(row => row.type === "request_submitted"
+      && initialAcceptanceId(row.id) && Date.parse(row.createdAt) >= Date.parse(before.createdAt)
+      && Date.parse(row.createdAt) <= Date.parse(before.updatedAt))
+    && new Set(before.timeline.map(row => row.id)).size === before.timeline.length, "requires retained buyer submission provenance");
+  const seller = marketplace.users.find(user => user.id === before.sellerId)!;
+  const buyer = marketplace.users.find(user => user.id === before.buyerId)!;
+  initialAcceptanceCheck(hasSellerOperationalAccess(seller) && seller.disabled !== true && seller.isProfileHidden !== true
+    && seller.availabilityStatus !== "vacation" && buyer.disabled !== true && buyer.emailVerified === true
+    && !(seller.blockedUserIds ?? []).includes(buyer.id) && !(buyer.blockedUserIds ?? []).includes(seller.id)
+    && !marketplace.marketplaceEnforcementRecords.some(row => row.sellerId === seller.id && row.status === "active")
+    && !marketplace.commissionRecords.some(row => [seller.id, buyer.id].includes(row.sellerId) && row.paymentStatus !== "paid")
+    && !marketplace.commissionRecords.some(row => row.purchaseRequestId === before.id || row.tradeId === before.tradeId),
+  "parties have a blocking canonical eligibility record");
+  initialAcceptanceCheck(beforeListing.approvalStatus === "approved" && ["active", "matched", "in_trade"].includes(beforeListing.status)
+    && beforeListing.currency === "ILS" && beforeListing.network === before.network && beforeListing.bankTransferProvider !== "wise"
+    && !beforeListing.wiseAccountId && !beforeListing.newRequestBlockReason && !beforeListing.blockingReason
+    && !beforeListing.closedAt && !beforeListing.expiredAt && !beforeListing.cancelledAt && !beforeListing.completedAt
+    && (!beforeListing.expiresAt || Date.parse(beforeListing.expiresAt) > decision.acceptedAtMs), "listing is outside the ordinary acceptance scope");
+  const existing = marketplace.purchaseRequests.filter(row => row.id !== before.id && isDemandReservedTrade(row));
+  initialAcceptanceCheck(!marketplace.purchaseRequests.some(row => row.buyerId === before.buyerId && row.buyerConfirmationArchivedAt !== undefined),
+    "buyer archived history requires a separate lifecycle cohort");
+  initialAcceptanceCheck(!existing.some(row => row.buyerId === before.buyerId), "buyer already has another active reservation");
+  initialAcceptanceCheck(!marketplace.purchaseRequests.some(row => row.id !== before.id && row.buyerId === before.buyerId
+    && ["completed", "review_open", "locked"].includes(row.status) && !row.buyerReview), "buyer has outstanding feedback");
+  initialAcceptanceCheck(existing.filter(row => row.sellerId === before.sellerId).length < 3, "seller reservation limit is reached");
+  const listingReservations = existing.filter(row => row.listingId === before.listingId);
+  initialAcceptanceCheck(marketplace.purchaseRequests.filter(row => row.listingId === before.listingId).every(row => row.sellerId === seller.id)
+    && (listingReservations.length === 0 ? beforeListing.status === "active" && beforeListing.activeTradeRequestId === undefined
+      : listingReservations.some(row => row.id === beforeListing.activeTradeRequestId)
+        && beforeListing.status === (listingReservations.some(row => row.status !== "accepted" && row.status !== "pending") ? "in_trade" : "matched")),
+  "listing lock does not represent its complete canonical inventory");
+  const remaining = parseInitialAcceptanceUnits(beforeListing.availableAmount, 6)
+    - listingReservations.reduce((sum, row) => sum + parseInitialAcceptanceUnits(row.usdtAmount, 6), BigInt(0));
+  const principal = parseInitialAcceptanceUnits(before.usdtAmount, 6);
+  initialAcceptanceCheck(principal <= remaining && principal >= parseInitialAcceptanceUnits(beforeListing.minimumTrade, 6)
+    && principal <= parseInitialAcceptanceUnits(beforeListing.maximumTrade, 6), "listing inventory cannot cover this retained request");
+  const faceToFace = before.paymentMethod !== "Bank Transfer";
+  initialAcceptanceCheck(before.buyerSafetyAcknowledged === true && (!faceToFace || decision.safetyAcknowledged === true),
+    "requires retained buyer consent and explicit seller cash-meeting consent");
+  initialAcceptanceCheck(before.network === "TRC20" || before.network === "BEP20", "network is outside the initial simulation mapping");
+  const terms = describeDevelopmentTradeTerms({ mode: "simulation-only", request: before,
+    assetId: before.network === "TRC20" ? "tron-sim-usdt" : "bsc-sim-binance-peg-usdt", walletListingId: beforeListing.id });
+  initialAcceptanceCheck(terms.terms.listingPriceAtRequest !== null && terms.terms.listingPriceAtRequest === terms.terms.pricePerUsdt,
+    "requires the retained ordinary listing-price quote");
+  if (!faceToFace) {
+    const bank = before.sellerBankAccountSnapshot;
+    initialAcceptanceCheck(bank && /^\d+$/.test(bank.branchNumber) && /^\d+$/.test(bank.accountNumber)
+      && bank.accountLast4 === bank.accountNumber.slice(-4), "requires complete frozen bank instructions");
+  }
+  const suffix = createHash("sha256").update(JSON.stringify(["initial_seller_acceptance", before.id, before.tradeId])).digest("hex");
+  const timeline = [...before.timeline, { id: `initial-acceptance-event-${suffix}`, type: "request_accepted" as const,
+    actorUserId: seller.id, actorRole: seller.role, message: "Seller accepted request", createdAt: at }];
+  const request: PurchaseRequest = { ...structuredClone(before), status: "accepted", tradeCreatedAt: at, updatedAt: at,
+    cardlessCodeAwaitingBuyerConfirmation: false, timeline, ...(faceToFace ? { sellerSafetyAcknowledged: true } : {}) };
+  const active = marketplace.purchaseRequests.map(row => row.id === request.id ? request : row)
+    .filter(row => row.listingId === beforeListing.id && row.sellerId === beforeListing.sellerId && isDemandReservedTrade(row));
+  const listing: MarketplaceListing = { ...structuredClone(beforeListing),
+    status: active.some(row => row.status !== "accepted" && row.status !== "pending") ? "in_trade" : "matched",
+    activeTradeRequestId: active[0].id, lockedAt: beforeListing.lockedAt ?? at, updatedAt: at };
+  const trade: DevelopmentInitialAcceptanceResult["trade"] = { id: decision.tradeId, purchaseRequestId: request.id, listingId: request.listingId,
+    sellerId: request.sellerId, buyerId: request.buyerId, status: "accepted", createdAt: at, updatedAt: at, timeline: structuredClone(timeline) };
+  const notifications: AlphaExchangeNotification[] = [{ id: `initial-acceptance-notification-${suffix}`, userId: request.buyerId,
+    category: "trade", title: "Trade request accepted", message: "Seller accepted this development trade request.", isRead: false,
+    relatedRequestId: request.id, relatedTradeId: trade.id, relatedListingId: listing.id, createdAt: at }];
+  const auditLogs: AuditLogEntry[] = [{ id: `initial-acceptance-audit-${suffix}`, action: "listing_matched", actorUserId: seller.id,
+    targetUserId: seller.id, listingId: listing.id, purchaseRequestId: request.id,
+    details: "Initial seller acceptance persisted in an isolated development transaction.", createdAt: at }];
+  return { request, listing, trade, notifications, auditLogs };
+}
+
+/**
+ * Separate INITIAL seller-acceptance persistence groundwork. The callback may
+ * await independently authorized synthetic wallet work in this SAME transaction;
+ * this function supplies no authenticated actor, buyer command, wallet reserve,
+ * idempotency receipt, cohort activation, recovery support or external delivery.
+ * The caller owns the SERIALIZABLE transaction and every retry/commit decision.
+ * Existing focused write allowlist and production lifecycle methods stay unchanged.
+ */
+export async function mutateDevelopmentInitialAcceptanceInTransaction(
+  options: { mode: "simulation-only"; tx: RepositorySql; requestId: string },
+  decide: (marketplace: DevelopmentInitialAcceptanceMarketplace) => DevelopmentInitialAcceptanceDecision | Promise<DevelopmentInitialAcceptanceDecision>,
+): Promise<DevelopmentInitialAcceptanceResult> {
+  const { mode, tx, requestId } = options;
+  assertSimulationRuntime(mode);
+  type Context = { isolation: string; read_only: string; development_mode: string | null; transaction_id: string };
+  let active = true, certified = false;
+  let transactionId: string | undefined;
+  const context = async (requireContract = true) => {
+    assertSimulationRuntime(mode);
+    initialAcceptanceCheck(active, "participant is no longer active");
+    const result = await tx.query<Context>(`SELECT current_setting('transaction_isolation') AS isolation,
+      current_setting('transaction_read_only') AS read_only, current_setting('alpha_wallet.development_schema',true) AS development_mode,
+      txid_current()::text AS transaction_id`);
+    assertSimulationRuntime(mode);
+    const current = result.rows[0];
+    initialAcceptanceCheck(current && typeof current.transaction_id === "string" && /^[1-9][0-9]*$/.test(current.transaction_id)
+      && (!requireContract || (current.isolation === "serializable" && current.read_only === "off" && current.development_mode === mode)),
+    "requires an explicit writable SERIALIZABLE simulation transaction");
+    initialAcceptanceCheck(transactionId === undefined || current.transaction_id === transactionId, "transaction identity changed or ended");
+    return current.transaction_id;
+  };
+  const scoped: RepositorySql = { async query<Row extends Record<string, unknown>>(sql: string, values?: unknown[]) {
+    await context(); const result = await tx.query<Row>(sql, values); await context(); return result;
+  } };
+  try {
+    transactionId = await context(); await context(); certified = true;
+    initialAcceptanceCheck(initialAcceptanceId(requestId), "requires an exact canonical request identity");
+    await requireUnactivatedInitialAcceptance(scoped);
+    await scoped.query("SELECT pg_advisory_xact_lock(61422919,hashtext($1))", [requestId]);
+    await scoped.query("SELECT pg_advisory_xact_lock(61422917)");
+    const fence = await scoped.query<{ version: string }>("SELECT version::text AS version FROM alpha_exchange.runtime_meta WHERE singleton=true FOR UPDATE");
+    initialAcceptanceCheck(fence.rows.length === 1 && /^[0-9]+$/.test(fence.rows[0].version), "runtime fence is missing or invalid");
+    // A physical listing lock also conflicts with a cooperating legacy writer
+    // that versions this listing without taking the shared advisory lock.
+    await scoped.query(`SELECT l.id FROM alpha_exchange.listings l JOIN alpha_exchange.purchase_requests r ON r.listing_id=l.id
+      WHERE r.id=$1 ORDER BY l.id FOR UPDATE OF l /* initial acceptance: listing fence */`, [requestId]);
+    const read = await readInitialAcceptance(scoped, requestId);
+    const decision = structuredClone(await decide(structuredClone(read.marketplace)));
+    await context();
+    await requireUnactivatedInitialAcceptance(scoped);
+    initialAcceptanceCheck(isDeepStrictEqual((await readInitialAcceptance(scoped, requestId)).rows, read.rows),
+      "canonical decision basis changed inside the caller-owned transaction");
+    const next = buildInitialAcceptance(read, decision);
+    // Exact UPDATE statements preserve every unrelated normalized column and
+    // ordering value. The new physical projection uses the existing encoder.
+    const request = next.request;
+    const updated = await scoped.query<{ id: string }>(`UPDATE alpha_exchange.purchase_requests SET status=$2,updated_at=$3::timestamptz,payload=$4::jsonb
+      WHERE id=$1 AND status='pending' AND trade_id=$5 RETURNING id /* initial acceptance: request persistence */`,
+    [request.id, request.status, request.updatedAt, json(request), decision.tradeId]);
+    initialAcceptanceCheck(updated.rows.length === 1 && updated.rows[0].id === request.id, "target update did not affect exactly one pending request");
+    if (read.rows.trades.length === 0) {
+      const trades = getTable("trades");
+      const projection = { ...emptySnapshotCollections(), purchaseRequests: [request] };
+      await trades.insert(scoped, trades.values(projection), { evidenceContentById: new Map() });
+    } else {
+      // A full repository snapshot may already have materialized the pending
+      // projection. Its identity/order stay fixed; creation time now means the
+      // actual acceptance, matching the existing canonical trades encoder.
+      const changedTrade = await scoped.query<{ id: string }>(`UPDATE alpha_exchange.trades SET status='accepted',
+        created_at=$3::timestamptz,updated_at=$3::timestamptz,payload=$4::jsonb
+        WHERE id=$1 AND purchase_request_id=$2 AND status='pending' RETURNING id /* initial acceptance: trade persistence */`,
+      [decision.tradeId, request.id, request.tradeCreatedAt, json(next.trade)]);
+      initialAcceptanceCheck(changedTrade.rows.length === 1 && changedTrade.rows[0].id === decision.tradeId,
+        "projection update did not affect exactly one retained pending trade");
+    }
+    const listing = next.listing;
+    const changedListing = await scoped.query<{ id: string }>(`UPDATE alpha_exchange.listings SET status=$2,active_trade_request_id=$3,
+      updated_at=$4::timestamptz,payload=$5::jsonb WHERE id=$1 RETURNING id /* initial acceptance: listing persistence */`,
+    [listing.id, listing.status, listing.activeTradeRequestId, listing.updatedAt, json(listing)]);
+    initialAcceptanceCheck(changedListing.rows.length === 1 && changedListing.rows[0].id === listing.id, "listing update did not affect exactly one row");
+    const events = { ...emptySnapshotCollections(), notifications: next.notifications, auditLogs: next.auditLogs };
+    for (const name of ["notifications", "audit_logs"] as const) {
+      const table = getTable(name);
+      await table.insert(scoped, table.values(events), { evidenceContentById: new Map(), appendOnlyEvents: true });
+    }
+    await scoped.query("UPDATE alpha_exchange.runtime_meta SET version=version+1,updated_at=now() WHERE singleton=true");
+    await requireUnactivatedInitialAcceptance(scoped); await context();
+    return structuredClone(next);
+  } catch (error) {
+    // Swallowing a semantic failure cannot commit a companion wallet write.
+    // Never poison an unknown or replaced physical transaction.
+    if (certified) {
+      try {
+        // Cleanup checks only the physical identity. Runtime/contract failures
+        // are themselves reasons to abort, never permission to commit an earlier
+        // companion write. The transaction owner's SQL guard remains in force.
+        const current = (await tx.query<{ transaction_id: string }>("SELECT txid_current()::text AS transaction_id")).rows[0];
+        if (current?.transaction_id === transactionId) await tx.query("SELECT 1 / 0 /* abort failed initial acceptance participant */");
+      }
+      catch { /* Preserve the original error; the owner must roll back. */ }
+    }
+    throw error;
+  } finally { active = false; }
 }
 
 export class AlphaExchangeRepository {

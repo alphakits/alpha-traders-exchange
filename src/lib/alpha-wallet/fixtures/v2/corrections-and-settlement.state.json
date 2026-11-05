@@ -1,0 +1,2155 @@
+{
+  "acceptanceReceipts": {
+    "$walletType": "map",
+    "entries": [
+      [
+        "7a7428655bd664bc1c28aecdc52ce97d5e5e66fb87bd189f00425263d28d9972",
+        {
+          "acceptanceKey": "7a7428655bd664bc1c28aecdc52ce97d5e5e66fb87bd189f00425263d28d9972",
+          "acceptedAtMs": 1793880018000,
+          "acceptedTermsDigest": "5d98428b531d7da969333491955957e047ef66e77f7f3efed7a33d192bffe22f",
+          "actorUserId": "frozen-v2-buyer",
+          "bindingRevision": 1,
+          "commandKey": "[\"buyer\",\"frozen-v2-buyer\",\"acceptAmountCorrection\",\"frozen-v2-accept-increase\"]",
+          "commandRevision": 18,
+          "inputDigest": "2494220a0598fbbe5695953b6c81e4bf9ccc644cba874cc0c5221cc84f66dd19",
+          "plannerInputDigest": "1259707fc24d8fc4956d73f17caee2ce5b1311ab6567274e5b712f71ac14a0b4",
+          "platformRequestId": "frozen-v2-request-tron",
+          "principalDeltaRaw": "100000000",
+          "priorTermsDigest": "2c894ee6a77fef40d0fc6e9f7189fc5b00a1fcda4093ac7c7bd6808d8a29acb8",
+          "proposalId": "frozen-v2-proposal-increase",
+          "terms": {
+            "assetId": "tron-sim-usdt",
+            "buyerFeeRaw": "3000000",
+            "buyerId": "frozen-v2-buyer",
+            "commissionCalculationVersion": "usdt_6dp_v2",
+            "currency": "ILS",
+            "destination": "sim://tron-sim-usdt/recipient/frozen-v2-buyer",
+            "feePolicyVersion": "buyer_seller_1pct_v1",
+            "fiatAmount": "969.60",
+            "fiatTotalMinor": "96960",
+            "listingPriceAtRequest": "3.20",
+            "paymentInstructionsDigest": "e11ecec0ffbc9620e9d78cca4581392555f3a31f72de45a0c2b589118028a348",
+            "paymentMethod": "Bank Transfer",
+            "platformListingId": "frozen-v2-platform-tron",
+            "platformRequestId": "frozen-v2-request-tron",
+            "platformTradeId": "v2-platform-ec35e327eec5327ec1db",
+            "priceMode": "listing_price",
+            "pricePerUsdt": "3.20",
+            "principalRaw": "300000000",
+            "receivingNetwork": "TRC20",
+            "sellerFeeRaw": "3000000",
+            "sellerId": "frozen-v2-seller",
+            "totalFeeRaw": "6000000",
+            "usdtAmount": "300",
+            "walletListingId": "frozen-v2-tron-listing"
+          },
+          "transferAmountRaw": "100000000",
+          "walletTradeId": "frozen-v2-tron-trade"
+        }
+      ],
+      [
+        "3d39290f76bf3dcf383d491933fc0c28d4ddcc8e4756a198733fb41d0b9efd94",
+        {
+          "acceptanceKey": "3d39290f76bf3dcf383d491933fc0c28d4ddcc8e4756a198733fb41d0b9efd94",
+          "acceptedAtMs": 1793880019000,
+          "acceptedTermsDigest": "eb742d619b9f6f15fb9eb131a6a90554bdcf28423dd4318fc55d5d2f9380ffa8",
+          "actorUserId": "frozen-v2-buyer",
+          "bindingRevision": 2,
+          "commandKey": "[\"buyer\",\"frozen-v2-buyer\",\"acceptAmountCorrection\",\"frozen-v2-accept-decrease\"]",
+          "commandRevision": 19,
+          "inputDigest": "1fbe0d8519fa3b02057a2a55718b3a27f53e5a2e35c076f9fa5ce88c74f9c4fb",
+          "plannerInputDigest": "ce9205fe222f3d7b76caf115fa5e26e7ed3240b2c4dfabd097144f54ab311793",
+          "platformRequestId": "frozen-v2-request-tron",
+          "principalDeltaRaw": "-50000000",
+          "priorTermsDigest": "5d98428b531d7da969333491955957e047ef66e77f7f3efed7a33d192bffe22f",
+          "proposalId": "frozen-v2-proposal-decrease",
+          "terms": {
+            "assetId": "tron-sim-usdt",
+            "buyerFeeRaw": "2500000",
+            "buyerId": "frozen-v2-buyer",
+            "commissionCalculationVersion": "usdt_6dp_v2",
+            "currency": "ILS",
+            "destination": "sim://tron-sim-usdt/recipient/frozen-v2-buyer",
+            "feePolicyVersion": "buyer_seller_1pct_v1",
+            "fiatAmount": "808.00",
+            "fiatTotalMinor": "80800",
+            "listingPriceAtRequest": "3.20",
+            "paymentInstructionsDigest": "e11ecec0ffbc9620e9d78cca4581392555f3a31f72de45a0c2b589118028a348",
+            "paymentMethod": "Bank Transfer",
+            "platformListingId": "frozen-v2-platform-tron",
+            "platformRequestId": "frozen-v2-request-tron",
+            "platformTradeId": "v2-platform-ec35e327eec5327ec1db",
+            "priceMode": "listing_price",
+            "pricePerUsdt": "3.20",
+            "principalRaw": "250000000",
+            "receivingNetwork": "TRC20",
+            "sellerFeeRaw": "2500000",
+            "sellerId": "frozen-v2-seller",
+            "totalFeeRaw": "5000000",
+            "usdtAmount": "250",
+            "walletListingId": "frozen-v2-tron-listing"
+          },
+          "transferAmountRaw": "50000000",
+          "walletTradeId": "frozen-v2-tron-trade"
+        }
+      ],
+      [
+        "b9320a7a231bd47d47badc61c1b7897a52b4cdbf4a852568e649980a0f283fae",
+        {
+          "acceptanceKey": "b9320a7a231bd47d47badc61c1b7897a52b4cdbf4a852568e649980a0f283fae",
+          "acceptedAtMs": 1793880021000,
+          "acceptedTermsDigest": "87dabf88d3d29fa8f96358df0f773f9cbebffec3721a76f921cc92d1bf8d6e4c",
+          "actorUserId": "frozen-v2-buyer",
+          "bindingRevision": 1,
+          "commandKey": "[\"buyer\",\"frozen-v2-buyer\",\"acceptAmountCorrection\",\"frozen-v2-accept-zero\"]",
+          "commandRevision": 21,
+          "inputDigest": "32d44fe1bf9214095597cb22edea24deac317faacc9b17a50aa57efea6e17580",
+          "plannerInputDigest": "6037fcb7df81d33ed7d820af8e80c31fda2430f9913dcee9951286b255573ee7",
+          "platformRequestId": "frozen-v2-request-bsc",
+          "principalDeltaRaw": "0",
+          "priorTermsDigest": "87dabf88d3d29fa8f96358df0f773f9cbebffec3721a76f921cc92d1bf8d6e4c",
+          "proposalId": "frozen-v2-proposal-zero",
+          "terms": {
+            "assetId": "bsc-sim-binance-peg-usdt",
+            "buyerFeeRaw": "10001000000000000",
+            "buyerId": "frozen-v2-buyer",
+            "commissionCalculationVersion": "usdt_6dp_v2",
+            "currency": "ILS",
+            "destination": "sim://bsc-sim-binance-peg-usdt/recipient/frozen-v2-buyer",
+            "feePolicyVersion": "buyer_seller_1pct_v1",
+            "fiatAmount": "3.23",
+            "fiatTotalMinor": "323",
+            "listingPriceAtRequest": "3.20",
+            "paymentInstructionsDigest": "e11ecec0ffbc9620e9d78cca4581392555f3a31f72de45a0c2b589118028a348",
+            "paymentMethod": "Bank Transfer",
+            "platformListingId": "frozen-v2-platform-bsc",
+            "platformRequestId": "frozen-v2-request-bsc",
+            "platformTradeId": "v2-platform-e74bf2ad94682e546604",
+            "priceMode": "listing_price",
+            "pricePerUsdt": "3.20",
+            "principalRaw": "1000050000000000000",
+            "receivingNetwork": "BEP20",
+            "sellerFeeRaw": "10001000000000000",
+            "sellerId": "frozen-v2-seller",
+            "totalFeeRaw": "20002000000000000",
+            "usdtAmount": "1.00005",
+            "walletListingId": "frozen-v2-bsc-listing"
+          },
+          "transferAmountRaw": "0",
+          "walletTradeId": "frozen-v2-bsc-trade"
+        }
+      ]
+    ]
+  },
+  "accounts": {
+    "$walletType": "map",
+    "entries": [
+      [
+        "tron-sim-usdt|external",
+        {
+          "$walletType": "bigint",
+          "value": "-355000000"
+        }
+      ],
+      [
+        "tron-sim-usdt|available:frozen-v2-seller",
+        {
+          "$walletType": "bigint",
+          "value": "75000000"
+        }
+      ],
+      [
+        "tron-sim-usdt|listing:frozen-v2-tron-listing",
+        {
+          "$walletType": "bigint",
+          "value": "250000000"
+        }
+      ],
+      [
+        "tron-sim-usdt|trade:frozen-v2-tron-trade",
+        {
+          "$walletType": "bigint",
+          "value": "0"
+        }
+      ],
+      [
+        "bsc-sim-binance-peg-usdt|external",
+        {
+          "$walletType": "bigint",
+          "value": "-9019952000000000000"
+        }
+      ],
+      [
+        "bsc-sim-binance-peg-usdt|available:frozen-v2-seller",
+        {
+          "$walletType": "bigint",
+          "value": "0"
+        }
+      ],
+      [
+        "bsc-sim-binance-peg-usdt|listing:frozen-v2-bsc-listing",
+        {
+          "$walletType": "bigint",
+          "value": "8999950000000000000"
+        }
+      ],
+      [
+        "bsc-sim-binance-peg-usdt|trade:frozen-v2-bsc-trade",
+        {
+          "$walletType": "bigint",
+          "value": "0"
+        }
+      ],
+      [
+        "tron-sim-usdt|payout:withdrawal-frozen-v2-held-withdrawal",
+        {
+          "$walletType": "bigint",
+          "value": "25000000"
+        }
+      ],
+      [
+        "tron-sim-usdt|payout:trade-frozen-v2-tron-trade",
+        {
+          "$walletType": "bigint",
+          "value": "0"
+        }
+      ],
+      [
+        "tron-sim-usdt|commission:frozen-v2-seller",
+        {
+          "$walletType": "bigint",
+          "value": "0"
+        }
+      ],
+      [
+        "tron-sim-usdt|platform-revenue",
+        {
+          "$walletType": "bigint",
+          "value": "5000000"
+        }
+      ],
+      [
+        "bsc-sim-binance-peg-usdt|payout:trade-frozen-v2-bsc-trade",
+        {
+          "$walletType": "bigint",
+          "value": "0"
+        }
+      ],
+      [
+        "bsc-sim-binance-peg-usdt|commission:frozen-v2-seller",
+        {
+          "$walletType": "bigint",
+          "value": "0"
+        }
+      ],
+      [
+        "bsc-sim-binance-peg-usdt|platform-revenue",
+        {
+          "$walletType": "bigint",
+          "value": "20002000000000000"
+        }
+      ]
+    ]
+  },
+  "commissions": {
+    "$walletType": "map",
+    "entries": [
+      [
+        "frozen-v2-tron-trade",
+        {
+          "amountRaw": {
+            "$walletType": "bigint",
+            "value": "5000000"
+          },
+          "assetId": "tron-sim-usdt",
+          "paid": true,
+          "sellerId": "frozen-v2-seller",
+          "tradeId": "frozen-v2-tron-trade"
+        }
+      ],
+      [
+        "frozen-v2-bsc-trade",
+        {
+          "amountRaw": {
+            "$walletType": "bigint",
+            "value": "20002000000000000"
+          },
+          "assetId": "bsc-sim-binance-peg-usdt",
+          "paid": true,
+          "sellerId": "frozen-v2-seller",
+          "tradeId": "frozen-v2-bsc-trade"
+        }
+      ]
+    ]
+  },
+  "continuation": {
+    "checkpoint": {
+      "eventHash": "71ef75dd8498606f247595324f7d1c807870037fce406f707a01a21f3d502f9f",
+      "lastCommandAtMs": 1793880015000,
+      "revision": 15,
+      "stateHash": "aa48c56140ceb668c1330685f4ffb695edaeb714e2a6dc8c3cd7d58a434d75c8"
+    },
+    "commandKey": "[\"operator\",\"frozen-v2-owner\",\"continueFromV1\",\"frozen-v2-continuation\"]",
+    "commandRevision": 16
+  },
+  "depositIntents": {
+    "$walletType": "map",
+    "entries": [
+      [
+        "frozen-v2-tron-funding",
+        {
+          "assetId": "tron-sim-usdt",
+          "destination": "sim://tron-sim-usdt/deposit/frozen-v2-tron-funding",
+          "id": "frozen-v2-tron-funding",
+          "purpose": "principal",
+          "sellerId": "frozen-v2-seller"
+        }
+      ],
+      [
+        "frozen-v2-bsc-funding",
+        {
+          "assetId": "bsc-sim-binance-peg-usdt",
+          "destination": "sim://bsc-sim-binance-peg-usdt/deposit/frozen-v2-bsc-funding",
+          "id": "frozen-v2-bsc-funding",
+          "purpose": "principal",
+          "sellerId": "frozen-v2-seller"
+        }
+      ],
+      [
+        "frozen-v2-tron-fees",
+        {
+          "assetId": "tron-sim-usdt",
+          "destination": "sim://tron-sim-usdt/deposit/frozen-v2-tron-fees",
+          "id": "frozen-v2-tron-fees",
+          "purpose": "commission",
+          "sellerId": "frozen-v2-seller"
+        }
+      ],
+      [
+        "frozen-v2-bsc-fees",
+        {
+          "assetId": "bsc-sim-binance-peg-usdt",
+          "destination": "sim://bsc-sim-binance-peg-usdt/deposit/frozen-v2-bsc-fees",
+          "id": "frozen-v2-bsc-fees",
+          "purpose": "commission",
+          "sellerId": "frozen-v2-seller"
+        }
+      ]
+    ]
+  },
+  "deposits": {
+    "$walletType": "map",
+    "entries": [
+      [
+        "[\"tron-simulation\",\"sim-token-tron-usdt\",\"sim-tx-frozen-v2-tron-funding\",0]",
+        {
+          "amountRaw": "600000000",
+          "assetId": "tron-sim-usdt",
+          "blockHash": "sim-block-frozen-v2",
+          "credited": true,
+          "destination": "sim://tron-sim-usdt/deposit/frozen-v2-tron-funding",
+          "eventIndex": 0,
+          "finalized": true,
+          "intentId": "frozen-v2-tron-funding",
+          "network": "tron-simulation",
+          "successful": true,
+          "token": "sim-token-tron-usdt",
+          "transactionId": "sim-tx-frozen-v2-tron-funding"
+        }
+      ],
+      [
+        "[\"bsc-simulation\",\"sim-token-bsc-binance-peg-usdt\",\"sim-tx-frozen-v2-bsc-funding\",0]",
+        {
+          "amountRaw": "10000000000000000000",
+          "assetId": "bsc-sim-binance-peg-usdt",
+          "blockHash": "sim-block-frozen-v2",
+          "credited": true,
+          "destination": "sim://bsc-sim-binance-peg-usdt/deposit/frozen-v2-bsc-funding",
+          "eventIndex": 0,
+          "finalized": true,
+          "intentId": "frozen-v2-bsc-funding",
+          "network": "bsc-simulation",
+          "successful": true,
+          "token": "sim-token-bsc-binance-peg-usdt",
+          "transactionId": "sim-tx-frozen-v2-bsc-funding"
+        }
+      ],
+      [
+        "[\"tron-simulation\",\"sim-token-tron-usdt\",\"sim-tx-frozen-v2-tron-fees\",0]",
+        {
+          "amountRaw": "5000000",
+          "assetId": "tron-sim-usdt",
+          "blockHash": "sim-block-frozen-v2",
+          "credited": true,
+          "destination": "sim://tron-sim-usdt/deposit/frozen-v2-tron-fees",
+          "eventIndex": 0,
+          "finalized": true,
+          "intentId": "frozen-v2-tron-fees",
+          "network": "tron-simulation",
+          "successful": true,
+          "token": "sim-token-tron-usdt",
+          "transactionId": "sim-tx-frozen-v2-tron-fees"
+        }
+      ],
+      [
+        "[\"bsc-simulation\",\"sim-token-bsc-binance-peg-usdt\",\"sim-tx-frozen-v2-bsc-fees\",0]",
+        {
+          "amountRaw": "20002000000000000",
+          "assetId": "bsc-sim-binance-peg-usdt",
+          "blockHash": "sim-block-frozen-v2",
+          "credited": true,
+          "destination": "sim://bsc-sim-binance-peg-usdt/deposit/frozen-v2-bsc-fees",
+          "eventIndex": 0,
+          "finalized": true,
+          "intentId": "frozen-v2-bsc-fees",
+          "network": "bsc-simulation",
+          "successful": true,
+          "token": "sim-token-bsc-binance-peg-usdt",
+          "transactionId": "sim-tx-frozen-v2-bsc-fees"
+        }
+      ]
+    ]
+  },
+  "engineVersion": "alpha-wallet-simulation-v2",
+  "evidenceOwners": {
+    "$walletType": "map",
+    "entries": [
+      [
+        "sim-evidence-frozen-v2-tron",
+        "frozen-v2-tron-trade"
+      ],
+      [
+        "sim-evidence-frozen-v2-bsc",
+        "frozen-v2-bsc-trade"
+      ]
+    ]
+  },
+  "gasReady": {
+    "$walletType": "set",
+    "values": [
+      "tron-sim-usdt",
+      "bsc-sim-binance-peg-usdt"
+    ]
+  },
+  "haltReason": null,
+  "idempotency": {
+    "$walletType": "map",
+    "entries": [
+      [
+        "seller:frozen-v2-seller:deposit-intent:frozen-v2-tron-funding-intent",
+        {
+          "fingerprint": "{\"assetId\":\"tron-sim-usdt\",\"id\":\"frozen-v2-tron-funding\",\"purpose\":\"principal\"}",
+          "result": {
+            "assetId": "tron-sim-usdt",
+            "destination": "sim://tron-sim-usdt/deposit/frozen-v2-tron-funding",
+            "id": "frozen-v2-tron-funding",
+            "purpose": "principal",
+            "sellerId": "frozen-v2-seller"
+          }
+        }
+      ],
+      [
+        "verifier:frozen-v2-verifier:deposit-observation:frozen-v2-tron-funding-credit",
+        {
+          "fingerprint": "{\"amountRaw\":\"600000000\",\"assetId\":\"tron-sim-usdt\",\"blockHash\":\"sim-block-frozen-v2\",\"destination\":\"sim://tron-sim-usdt/deposit/frozen-v2-tron-funding\",\"eventIndex\":0,\"finalized\":true,\"intentId\":\"frozen-v2-tron-funding\",\"network\":\"tron-simulation\",\"successful\":true,\"token\":\"sim-token-tron-usdt\",\"transactionId\":\"sim-tx-frozen-v2-tron-funding\"}",
+          "result": {
+            "credited": true,
+            "duplicate": false,
+            "halted": false
+          }
+        }
+      ],
+      [
+        "seller:frozen-v2-seller:create-listing:frozen-v2-tron-create",
+        {
+          "fingerprint": "{\"amount\":\"500\",\"assetId\":\"tron-sim-usdt\",\"currency\":\"ILS\",\"id\":\"frozen-v2-tron-listing\",\"price\":\"3.20\"}",
+          "result": {
+            "amountRaw": {
+              "$walletType": "bigint",
+              "value": "500000000"
+            },
+            "approved": false,
+            "assetId": "tron-sim-usdt",
+            "closed": false,
+            "currency": "ILS",
+            "funded": true,
+            "id": "frozen-v2-tron-listing",
+            "price": "3.20",
+            "sellerId": "frozen-v2-seller"
+          }
+        }
+      ],
+      [
+        "operator:frozen-v2-owner:approve-listing:frozen-v2-tron-approve",
+        {
+          "fingerprint": "{\"listingId\":\"frozen-v2-tron-listing\"}",
+          "result": {
+            "amountRaw": {
+              "$walletType": "bigint",
+              "value": "500000000"
+            },
+            "approved": true,
+            "assetId": "tron-sim-usdt",
+            "closed": false,
+            "currency": "ILS",
+            "funded": true,
+            "id": "frozen-v2-tron-listing",
+            "price": "3.20",
+            "sellerId": "frozen-v2-seller"
+          }
+        }
+      ],
+      [
+        "buyer:frozen-v2-buyer:reserve-trade:frozen-v2-tron-original-reserve",
+        {
+          "fingerprint": "{\"amount\":\"200\",\"destination\":\"sim://tron-sim-usdt/recipient/frozen-v2-buyer\",\"id\":\"frozen-v2-tron-trade\",\"listingId\":\"frozen-v2-tron-listing\"}",
+          "result": {
+            "amountRaw": {
+              "$walletType": "bigint",
+              "value": "200000000"
+            },
+            "assetId": "tron-sim-usdt",
+            "buyerFeeRaw": {
+              "$walletType": "bigint",
+              "value": "2000000"
+            },
+            "buyerId": "frozen-v2-buyer",
+            "currency": "ILS",
+            "destination": "sim://tron-sim-usdt/recipient/frozen-v2-buyer",
+            "disputed": false,
+            "fiatTotalMinor": {
+              "$walletType": "bigint",
+              "value": "64640"
+            },
+            "id": "frozen-v2-tron-trade",
+            "listingId": "frozen-v2-tron-listing",
+            "sellerFeeRaw": {
+              "$walletType": "bigint",
+              "value": "2000000"
+            },
+            "sellerId": "frozen-v2-seller",
+            "status": "reserved",
+            "totalFeeRaw": {
+              "$walletType": "bigint",
+              "value": "4000000"
+            }
+          }
+        }
+      ],
+      [
+        "seller:frozen-v2-seller:deposit-intent:frozen-v2-bsc-funding-intent",
+        {
+          "fingerprint": "{\"assetId\":\"bsc-sim-binance-peg-usdt\",\"id\":\"frozen-v2-bsc-funding\",\"purpose\":\"principal\"}",
+          "result": {
+            "assetId": "bsc-sim-binance-peg-usdt",
+            "destination": "sim://bsc-sim-binance-peg-usdt/deposit/frozen-v2-bsc-funding",
+            "id": "frozen-v2-bsc-funding",
+            "purpose": "principal",
+            "sellerId": "frozen-v2-seller"
+          }
+        }
+      ],
+      [
+        "verifier:frozen-v2-verifier:deposit-observation:frozen-v2-bsc-funding-credit",
+        {
+          "fingerprint": "{\"amountRaw\":\"10000000000000000000\",\"assetId\":\"bsc-sim-binance-peg-usdt\",\"blockHash\":\"sim-block-frozen-v2\",\"destination\":\"sim://bsc-sim-binance-peg-usdt/deposit/frozen-v2-bsc-funding\",\"eventIndex\":0,\"finalized\":true,\"intentId\":\"frozen-v2-bsc-funding\",\"network\":\"bsc-simulation\",\"successful\":true,\"token\":\"sim-token-bsc-binance-peg-usdt\",\"transactionId\":\"sim-tx-frozen-v2-bsc-funding\"}",
+          "result": {
+            "credited": true,
+            "duplicate": false,
+            "halted": false
+          }
+        }
+      ],
+      [
+        "seller:frozen-v2-seller:create-listing:frozen-v2-bsc-create",
+        {
+          "fingerprint": "{\"amount\":\"10\",\"assetId\":\"bsc-sim-binance-peg-usdt\",\"currency\":\"ILS\",\"id\":\"frozen-v2-bsc-listing\",\"price\":\"3.20\"}",
+          "result": {
+            "amountRaw": {
+              "$walletType": "bigint",
+              "value": "10000000000000000000"
+            },
+            "approved": false,
+            "assetId": "bsc-sim-binance-peg-usdt",
+            "closed": false,
+            "currency": "ILS",
+            "funded": true,
+            "id": "frozen-v2-bsc-listing",
+            "price": "3.20",
+            "sellerId": "frozen-v2-seller"
+          }
+        }
+      ],
+      [
+        "operator:frozen-v2-owner:approve-listing:frozen-v2-bsc-approve",
+        {
+          "fingerprint": "{\"listingId\":\"frozen-v2-bsc-listing\"}",
+          "result": {
+            "amountRaw": {
+              "$walletType": "bigint",
+              "value": "10000000000000000000"
+            },
+            "approved": true,
+            "assetId": "bsc-sim-binance-peg-usdt",
+            "closed": false,
+            "currency": "ILS",
+            "funded": true,
+            "id": "frozen-v2-bsc-listing",
+            "price": "3.20",
+            "sellerId": "frozen-v2-seller"
+          }
+        }
+      ],
+      [
+        "buyer:frozen-v2-buyer:reserve-trade:frozen-v2-bsc-original-reserve",
+        {
+          "fingerprint": "{\"amount\":\"1.00005\",\"destination\":\"sim://bsc-sim-binance-peg-usdt/recipient/frozen-v2-buyer\",\"id\":\"frozen-v2-bsc-trade\",\"listingId\":\"frozen-v2-bsc-listing\"}",
+          "result": {
+            "amountRaw": {
+              "$walletType": "bigint",
+              "value": "1000050000000000000"
+            },
+            "assetId": "bsc-sim-binance-peg-usdt",
+            "buyerFeeRaw": {
+              "$walletType": "bigint",
+              "value": "10001000000000000"
+            },
+            "buyerId": "frozen-v2-buyer",
+            "currency": "ILS",
+            "destination": "sim://bsc-sim-binance-peg-usdt/recipient/frozen-v2-buyer",
+            "disputed": false,
+            "fiatTotalMinor": {
+              "$walletType": "bigint",
+              "value": "323"
+            },
+            "id": "frozen-v2-bsc-trade",
+            "listingId": "frozen-v2-bsc-listing",
+            "sellerFeeRaw": {
+              "$walletType": "bigint",
+              "value": "10001000000000000"
+            },
+            "sellerId": "frozen-v2-seller",
+            "status": "reserved",
+            "totalFeeRaw": {
+              "$walletType": "bigint",
+              "value": "20002000000000000"
+            }
+          }
+        }
+      ],
+      [
+        "verifier:frozen-v2-verifier:reconcile:frozen-v2-tron-original-reconcile",
+        {
+          "fingerprint": "{\"assetId\":\"tron-sim-usdt\",\"complete\":true,\"observedRaw\":\"600000000\"}",
+          "result": {
+            "halted": false,
+            "matched": true
+          }
+        }
+      ],
+      [
+        "operator:frozen-v2-owner:native-fee-readiness:frozen-v2-tron-original-gas",
+        {
+          "fingerprint": "{\"assetId\":\"tron-sim-usdt\",\"ready\":true}",
+          "result": {
+            "ready": true
+          }
+        }
+      ],
+      [
+        "seller:frozen-v2-seller:withdrawal:frozen-v2-original-withdrawal",
+        {
+          "fingerprint": "{\"amount\":\"25\",\"assetId\":\"tron-sim-usdt\",\"destination\":\"sim://tron-sim-usdt/recipient/frozen-v2-seller\",\"id\":\"frozen-v2-held-withdrawal\",\"stepUpReference\":\"sim-stepup-frozen-v2\"}",
+          "result": {
+            "amountRaw": {
+              "$walletType": "bigint",
+              "value": "25000000"
+            },
+            "assetId": "tron-sim-usdt",
+            "destination": "sim://tron-sim-usdt/recipient/frozen-v2-seller",
+            "dispatchCount": 0,
+            "id": "withdrawal-frozen-v2-held-withdrawal",
+            "kind": "withdrawal",
+            "providerReference": "sim-payout-withdrawal-frozen-v2-held-withdrawal",
+            "sellerId": "frozen-v2-seller",
+            "state": "queued"
+          }
+        }
+      ],
+      [
+        "dispatcher:frozen-v2-dispatcher:begin-dispatch:frozen-v2-original-dispatch",
+        {
+          "fingerprint": "{\"payoutId\":\"withdrawal-frozen-v2-held-withdrawal\"}",
+          "result": {
+            "amountRaw": {
+              "$walletType": "bigint",
+              "value": "25000000"
+            },
+            "assetId": "tron-sim-usdt",
+            "destination": "sim://tron-sim-usdt/recipient/frozen-v2-seller",
+            "dispatchCount": 1,
+            "id": "withdrawal-frozen-v2-held-withdrawal",
+            "kind": "withdrawal",
+            "providerReference": "sim-payout-withdrawal-frozen-v2-held-withdrawal",
+            "sellerId": "frozen-v2-seller",
+            "state": "submitting"
+          }
+        }
+      ],
+      [
+        "dispatcher:frozen-v2-dispatcher:submission-result:frozen-v2-original-unknown",
+        {
+          "fingerprint": "{\"outcome\":\"unknown\",\"payoutId\":\"withdrawal-frozen-v2-held-withdrawal\"}",
+          "result": {
+            "amountRaw": {
+              "$walletType": "bigint",
+              "value": "25000000"
+            },
+            "assetId": "tron-sim-usdt",
+            "destination": "sim://tron-sim-usdt/recipient/frozen-v2-seller",
+            "dispatchCount": 1,
+            "id": "withdrawal-frozen-v2-held-withdrawal",
+            "kind": "withdrawal",
+            "providerReference": "sim-payout-withdrawal-frozen-v2-held-withdrawal",
+            "sellerId": "frozen-v2-seller",
+            "state": "submission_unknown"
+          }
+        }
+      ],
+      [
+        "v2:[\"operator\",\"frozen-v2-owner\",\"continueFromV1\",\"frozen-v2-continuation\"]",
+        {
+          "fingerprint": "98020e38e2a72607154ab6af487861a29d55ea3357bea8b7fec17717525a030d",
+          "result": {
+            "checkpoint": {
+              "eventHash": "71ef75dd8498606f247595324f7d1c807870037fce406f707a01a21f3d502f9f",
+              "lastCommandAtMs": 1793880015000,
+              "revision": 15,
+              "stateHash": "aa48c56140ceb668c1330685f4ffb695edaeb714e2a6dc8c3cd7d58a434d75c8"
+            },
+            "commandKey": "[\"operator\",\"frozen-v2-owner\",\"continueFromV1\",\"frozen-v2-continuation\"]",
+            "commandRevision": 16
+          }
+        }
+      ],
+      [
+        "v2:[\"operator\",\"frozen-v2-owner\",\"enrollReservedTrade\",\"frozen-v2-enroll-increase\"]",
+        {
+          "fingerprint": "d143c1f67a4a2e5bd66ff531bd3ea0f5b39f4e941de7e5beabf97934fc4eedab",
+          "result": {
+            "assetId": "tron-sim-usdt",
+            "enrollmentCommandKey": "[\"operator\",\"frozen-v2-owner\",\"enrollReservedTrade\",\"frozen-v2-enroll-increase\"]",
+            "enrollmentCommandRevision": 17,
+            "enrollmentTermsDigest": "2c894ee6a77fef40d0fc6e9f7189fc5b00a1fcda4093ac7c7bd6808d8a29acb8",
+            "lastCommandKey": "[\"operator\",\"frozen-v2-owner\",\"enrollReservedTrade\",\"frozen-v2-enroll-increase\"]",
+            "lastCommandRevision": 17,
+            "lastSubmittedAdjustmentCount": 0,
+            "platformListingId": "frozen-v2-platform-tron",
+            "platformRequestId": "frozen-v2-request-tron",
+            "revision": 0,
+            "terms": {
+              "assetId": "tron-sim-usdt",
+              "buyerFeeRaw": "2000000",
+              "buyerId": "frozen-v2-buyer",
+              "commissionCalculationVersion": "usdt_6dp_v2",
+              "currency": "ILS",
+              "destination": "sim://tron-sim-usdt/recipient/frozen-v2-buyer",
+              "feePolicyVersion": "buyer_seller_1pct_v1",
+              "fiatAmount": "646.40",
+              "fiatTotalMinor": "64640",
+              "listingPriceAtRequest": "3.20",
+              "paymentInstructionsDigest": "e11ecec0ffbc9620e9d78cca4581392555f3a31f72de45a0c2b589118028a348",
+              "paymentMethod": "Bank Transfer",
+              "platformListingId": "frozen-v2-platform-tron",
+              "platformRequestId": "frozen-v2-request-tron",
+              "platformTradeId": "v2-platform-ec35e327eec5327ec1db",
+              "priceMode": "listing_price",
+              "pricePerUsdt": "3.20",
+              "principalRaw": "200000000",
+              "receivingNetwork": "TRC20",
+              "sellerFeeRaw": "2000000",
+              "sellerId": "frozen-v2-seller",
+              "totalFeeRaw": "4000000",
+              "usdtAmount": "200",
+              "walletListingId": "frozen-v2-tron-listing"
+            },
+            "termsDigest": "2c894ee6a77fef40d0fc6e9f7189fc5b00a1fcda4093ac7c7bd6808d8a29acb8",
+            "walletListingId": "frozen-v2-tron-listing",
+            "walletTradeDigest": "d645830a89f55d9e6364ad0f9f4b14c7f055804f10ec27db9a82501c6cf32b84",
+            "walletTradeId": "frozen-v2-tron-trade"
+          }
+        }
+      ],
+      [
+        "v2:[\"buyer\",\"frozen-v2-buyer\",\"acceptAmountCorrection\",\"frozen-v2-accept-increase\"]",
+        {
+          "fingerprint": "26e6d4cb4af24c342ced5b1662e07e4a22334da9fce1b3240821204ae1fb599a",
+          "result": {
+            "acceptanceKey": "7a7428655bd664bc1c28aecdc52ce97d5e5e66fb87bd189f00425263d28d9972",
+            "acceptedAtMs": 1793880018000,
+            "acceptedTermsDigest": "5d98428b531d7da969333491955957e047ef66e77f7f3efed7a33d192bffe22f",
+            "actorUserId": "frozen-v2-buyer",
+            "bindingRevision": 1,
+            "commandKey": "[\"buyer\",\"frozen-v2-buyer\",\"acceptAmountCorrection\",\"frozen-v2-accept-increase\"]",
+            "commandRevision": 18,
+            "inputDigest": "2494220a0598fbbe5695953b6c81e4bf9ccc644cba874cc0c5221cc84f66dd19",
+            "plannerInputDigest": "1259707fc24d8fc4956d73f17caee2ce5b1311ab6567274e5b712f71ac14a0b4",
+            "platformRequestId": "frozen-v2-request-tron",
+            "principalDeltaRaw": "100000000",
+            "priorTermsDigest": "2c894ee6a77fef40d0fc6e9f7189fc5b00a1fcda4093ac7c7bd6808d8a29acb8",
+            "proposalId": "frozen-v2-proposal-increase",
+            "terms": {
+              "assetId": "tron-sim-usdt",
+              "buyerFeeRaw": "3000000",
+              "buyerId": "frozen-v2-buyer",
+              "commissionCalculationVersion": "usdt_6dp_v2",
+              "currency": "ILS",
+              "destination": "sim://tron-sim-usdt/recipient/frozen-v2-buyer",
+              "feePolicyVersion": "buyer_seller_1pct_v1",
+              "fiatAmount": "969.60",
+              "fiatTotalMinor": "96960",
+              "listingPriceAtRequest": "3.20",
+              "paymentInstructionsDigest": "e11ecec0ffbc9620e9d78cca4581392555f3a31f72de45a0c2b589118028a348",
+              "paymentMethod": "Bank Transfer",
+              "platformListingId": "frozen-v2-platform-tron",
+              "platformRequestId": "frozen-v2-request-tron",
+              "platformTradeId": "v2-platform-ec35e327eec5327ec1db",
+              "priceMode": "listing_price",
+              "pricePerUsdt": "3.20",
+              "principalRaw": "300000000",
+              "receivingNetwork": "TRC20",
+              "sellerFeeRaw": "3000000",
+              "sellerId": "frozen-v2-seller",
+              "totalFeeRaw": "6000000",
+              "usdtAmount": "300",
+              "walletListingId": "frozen-v2-tron-listing"
+            },
+            "transferAmountRaw": "100000000",
+            "walletTradeId": "frozen-v2-tron-trade"
+          }
+        }
+      ],
+      [
+        "v2:[\"buyer\",\"frozen-v2-buyer\",\"acceptAmountCorrection\",\"frozen-v2-accept-decrease\"]",
+        {
+          "fingerprint": "3fe11990942cc7ed68c0d296b4d4d0e0596b241b270eb226894c5a56f952447e",
+          "result": {
+            "acceptanceKey": "3d39290f76bf3dcf383d491933fc0c28d4ddcc8e4756a198733fb41d0b9efd94",
+            "acceptedAtMs": 1793880019000,
+            "acceptedTermsDigest": "eb742d619b9f6f15fb9eb131a6a90554bdcf28423dd4318fc55d5d2f9380ffa8",
+            "actorUserId": "frozen-v2-buyer",
+            "bindingRevision": 2,
+            "commandKey": "[\"buyer\",\"frozen-v2-buyer\",\"acceptAmountCorrection\",\"frozen-v2-accept-decrease\"]",
+            "commandRevision": 19,
+            "inputDigest": "1fbe0d8519fa3b02057a2a55718b3a27f53e5a2e35c076f9fa5ce88c74f9c4fb",
+            "plannerInputDigest": "ce9205fe222f3d7b76caf115fa5e26e7ed3240b2c4dfabd097144f54ab311793",
+            "platformRequestId": "frozen-v2-request-tron",
+            "principalDeltaRaw": "-50000000",
+            "priorTermsDigest": "5d98428b531d7da969333491955957e047ef66e77f7f3efed7a33d192bffe22f",
+            "proposalId": "frozen-v2-proposal-decrease",
+            "terms": {
+              "assetId": "tron-sim-usdt",
+              "buyerFeeRaw": "2500000",
+              "buyerId": "frozen-v2-buyer",
+              "commissionCalculationVersion": "usdt_6dp_v2",
+              "currency": "ILS",
+              "destination": "sim://tron-sim-usdt/recipient/frozen-v2-buyer",
+              "feePolicyVersion": "buyer_seller_1pct_v1",
+              "fiatAmount": "808.00",
+              "fiatTotalMinor": "80800",
+              "listingPriceAtRequest": "3.20",
+              "paymentInstructionsDigest": "e11ecec0ffbc9620e9d78cca4581392555f3a31f72de45a0c2b589118028a348",
+              "paymentMethod": "Bank Transfer",
+              "platformListingId": "frozen-v2-platform-tron",
+              "platformRequestId": "frozen-v2-request-tron",
+              "platformTradeId": "v2-platform-ec35e327eec5327ec1db",
+              "priceMode": "listing_price",
+              "pricePerUsdt": "3.20",
+              "principalRaw": "250000000",
+              "receivingNetwork": "TRC20",
+              "sellerFeeRaw": "2500000",
+              "sellerId": "frozen-v2-seller",
+              "totalFeeRaw": "5000000",
+              "usdtAmount": "250",
+              "walletListingId": "frozen-v2-tron-listing"
+            },
+            "transferAmountRaw": "50000000",
+            "walletTradeId": "frozen-v2-tron-trade"
+          }
+        }
+      ],
+      [
+        "v2:[\"operator\",\"frozen-v2-owner\",\"enrollReservedTrade\",\"frozen-v2-enroll-zero\"]",
+        {
+          "fingerprint": "6a2dc5fb51ce0cf16d063ae94aea53ccb897cdfde5367ed33951afb9f7d3594b",
+          "result": {
+            "assetId": "bsc-sim-binance-peg-usdt",
+            "enrollmentCommandKey": "[\"operator\",\"frozen-v2-owner\",\"enrollReservedTrade\",\"frozen-v2-enroll-zero\"]",
+            "enrollmentCommandRevision": 20,
+            "enrollmentTermsDigest": "87dabf88d3d29fa8f96358df0f773f9cbebffec3721a76f921cc92d1bf8d6e4c",
+            "lastCommandKey": "[\"operator\",\"frozen-v2-owner\",\"enrollReservedTrade\",\"frozen-v2-enroll-zero\"]",
+            "lastCommandRevision": 20,
+            "lastSubmittedAdjustmentCount": 0,
+            "platformListingId": "frozen-v2-platform-bsc",
+            "platformRequestId": "frozen-v2-request-bsc",
+            "revision": 0,
+            "terms": {
+              "assetId": "bsc-sim-binance-peg-usdt",
+              "buyerFeeRaw": "10001000000000000",
+              "buyerId": "frozen-v2-buyer",
+              "commissionCalculationVersion": "usdt_6dp_v2",
+              "currency": "ILS",
+              "destination": "sim://bsc-sim-binance-peg-usdt/recipient/frozen-v2-buyer",
+              "feePolicyVersion": "buyer_seller_1pct_v1",
+              "fiatAmount": "3.23",
+              "fiatTotalMinor": "323",
+              "listingPriceAtRequest": "3.20",
+              "paymentInstructionsDigest": "e11ecec0ffbc9620e9d78cca4581392555f3a31f72de45a0c2b589118028a348",
+              "paymentMethod": "Bank Transfer",
+              "platformListingId": "frozen-v2-platform-bsc",
+              "platformRequestId": "frozen-v2-request-bsc",
+              "platformTradeId": "v2-platform-e74bf2ad94682e546604",
+              "priceMode": "listing_price",
+              "pricePerUsdt": "3.20",
+              "principalRaw": "1000050000000000000",
+              "receivingNetwork": "BEP20",
+              "sellerFeeRaw": "10001000000000000",
+              "sellerId": "frozen-v2-seller",
+              "totalFeeRaw": "20002000000000000",
+              "usdtAmount": "1.00005",
+              "walletListingId": "frozen-v2-bsc-listing"
+            },
+            "termsDigest": "87dabf88d3d29fa8f96358df0f773f9cbebffec3721a76f921cc92d1bf8d6e4c",
+            "walletListingId": "frozen-v2-bsc-listing",
+            "walletTradeDigest": "9e344d04f4ba147d86f7ee209da502971f96ea4aeee1b55d89b25f4bd132114c",
+            "walletTradeId": "frozen-v2-bsc-trade"
+          }
+        }
+      ],
+      [
+        "v2:[\"buyer\",\"frozen-v2-buyer\",\"acceptAmountCorrection\",\"frozen-v2-accept-zero\"]",
+        {
+          "fingerprint": "04470dbed129b5bb5ea5063e5f3c539cabbe24eb6bef61a7ec7b7b0f887f34bf",
+          "result": {
+            "acceptanceKey": "b9320a7a231bd47d47badc61c1b7897a52b4cdbf4a852568e649980a0f283fae",
+            "acceptedAtMs": 1793880021000,
+            "acceptedTermsDigest": "87dabf88d3d29fa8f96358df0f773f9cbebffec3721a76f921cc92d1bf8d6e4c",
+            "actorUserId": "frozen-v2-buyer",
+            "bindingRevision": 1,
+            "commandKey": "[\"buyer\",\"frozen-v2-buyer\",\"acceptAmountCorrection\",\"frozen-v2-accept-zero\"]",
+            "commandRevision": 21,
+            "inputDigest": "32d44fe1bf9214095597cb22edea24deac317faacc9b17a50aa57efea6e17580",
+            "plannerInputDigest": "6037fcb7df81d33ed7d820af8e80c31fda2430f9913dcee9951286b255573ee7",
+            "platformRequestId": "frozen-v2-request-bsc",
+            "principalDeltaRaw": "0",
+            "priorTermsDigest": "87dabf88d3d29fa8f96358df0f773f9cbebffec3721a76f921cc92d1bf8d6e4c",
+            "proposalId": "frozen-v2-proposal-zero",
+            "terms": {
+              "assetId": "bsc-sim-binance-peg-usdt",
+              "buyerFeeRaw": "10001000000000000",
+              "buyerId": "frozen-v2-buyer",
+              "commissionCalculationVersion": "usdt_6dp_v2",
+              "currency": "ILS",
+              "destination": "sim://bsc-sim-binance-peg-usdt/recipient/frozen-v2-buyer",
+              "feePolicyVersion": "buyer_seller_1pct_v1",
+              "fiatAmount": "3.23",
+              "fiatTotalMinor": "323",
+              "listingPriceAtRequest": "3.20",
+              "paymentInstructionsDigest": "e11ecec0ffbc9620e9d78cca4581392555f3a31f72de45a0c2b589118028a348",
+              "paymentMethod": "Bank Transfer",
+              "platformListingId": "frozen-v2-platform-bsc",
+              "platformRequestId": "frozen-v2-request-bsc",
+              "platformTradeId": "v2-platform-e74bf2ad94682e546604",
+              "priceMode": "listing_price",
+              "pricePerUsdt": "3.20",
+              "principalRaw": "1000050000000000000",
+              "receivingNetwork": "BEP20",
+              "sellerFeeRaw": "10001000000000000",
+              "sellerId": "frozen-v2-seller",
+              "totalFeeRaw": "20002000000000000",
+              "usdtAmount": "1.00005",
+              "walletListingId": "frozen-v2-bsc-listing"
+            },
+            "transferAmountRaw": "0",
+            "walletTradeId": "frozen-v2-bsc-trade"
+          }
+        }
+      ],
+      [
+        "buyer:frozen-v2-buyer:buyer-reported-payment:frozen-v2-tron-paid",
+        {
+          "fingerprint": "{\"tradeId\":\"frozen-v2-tron-trade\"}",
+          "result": {
+            "amountRaw": {
+              "$walletType": "bigint",
+              "value": "250000000"
+            },
+            "assetId": "tron-sim-usdt",
+            "buyerFeeRaw": {
+              "$walletType": "bigint",
+              "value": "2500000"
+            },
+            "buyerId": "frozen-v2-buyer",
+            "currency": "ILS",
+            "destination": "sim://tron-sim-usdt/recipient/frozen-v2-buyer",
+            "disputed": false,
+            "fiatTotalMinor": {
+              "$walletType": "bigint",
+              "value": "80800"
+            },
+            "id": "frozen-v2-tron-trade",
+            "listingId": "frozen-v2-tron-listing",
+            "sellerFeeRaw": {
+              "$walletType": "bigint",
+              "value": "2500000"
+            },
+            "sellerId": "frozen-v2-seller",
+            "status": "payment_reported",
+            "totalFeeRaw": {
+              "$walletType": "bigint",
+              "value": "5000000"
+            }
+          }
+        }
+      ],
+      [
+        "verifier:frozen-v2-verifier:verify-fiat:frozen-v2-tron-verified",
+        {
+          "fingerprint": "{\"evidence\":{\"amountMinor\":\"80800\",\"currency\":\"ILS\",\"kind\":\"simulated-bank-credit\",\"reference\":\"sim-evidence-frozen-v2-tron\"},\"tradeId\":\"frozen-v2-tron-trade\"}",
+          "result": {
+            "amountRaw": {
+              "$walletType": "bigint",
+              "value": "250000000"
+            },
+            "assetId": "tron-sim-usdt",
+            "buyerFeeRaw": {
+              "$walletType": "bigint",
+              "value": "2500000"
+            },
+            "buyerId": "frozen-v2-buyer",
+            "currency": "ILS",
+            "destination": "sim://tron-sim-usdt/recipient/frozen-v2-buyer",
+            "disputed": false,
+            "evidence": {
+              "amountMinor": "80800",
+              "currency": "ILS",
+              "kind": "simulated-bank-credit",
+              "reference": "sim-evidence-frozen-v2-tron"
+            },
+            "fiatTotalMinor": {
+              "$walletType": "bigint",
+              "value": "80800"
+            },
+            "id": "frozen-v2-tron-trade",
+            "listingId": "frozen-v2-tron-listing",
+            "sellerFeeRaw": {
+              "$walletType": "bigint",
+              "value": "2500000"
+            },
+            "sellerId": "frozen-v2-seller",
+            "status": "payment_verified",
+            "totalFeeRaw": {
+              "$walletType": "bigint",
+              "value": "5000000"
+            }
+          }
+        }
+      ],
+      [
+        "seller:frozen-v2-seller:authorize-release:frozen-v2-tron-authorized",
+        {
+          "fingerprint": "{\"tradeId\":\"frozen-v2-tron-trade\"}",
+          "result": {
+            "amountRaw": {
+              "$walletType": "bigint",
+              "value": "250000000"
+            },
+            "assetId": "tron-sim-usdt",
+            "authorization": {
+              "amountRaw": {
+                "$walletType": "bigint",
+                "value": "250000000"
+              },
+              "destination": "sim://tron-sim-usdt/recipient/frozen-v2-buyer",
+              "evidenceReference": "sim-evidence-frozen-v2-tron",
+              "sellerId": "frozen-v2-seller"
+            },
+            "buyerFeeRaw": {
+              "$walletType": "bigint",
+              "value": "2500000"
+            },
+            "buyerId": "frozen-v2-buyer",
+            "currency": "ILS",
+            "destination": "sim://tron-sim-usdt/recipient/frozen-v2-buyer",
+            "disputed": false,
+            "evidence": {
+              "amountMinor": "80800",
+              "currency": "ILS",
+              "kind": "simulated-bank-credit",
+              "reference": "sim-evidence-frozen-v2-tron"
+            },
+            "fiatTotalMinor": {
+              "$walletType": "bigint",
+              "value": "80800"
+            },
+            "id": "frozen-v2-tron-trade",
+            "listingId": "frozen-v2-tron-listing",
+            "sellerFeeRaw": {
+              "$walletType": "bigint",
+              "value": "2500000"
+            },
+            "sellerId": "frozen-v2-seller",
+            "status": "release_authorized",
+            "totalFeeRaw": {
+              "$walletType": "bigint",
+              "value": "5000000"
+            }
+          }
+        }
+      ],
+      [
+        "verifier:frozen-v2-verifier:reconcile:frozen-v2-tron-reconciled",
+        {
+          "fingerprint": "{\"assetId\":\"tron-sim-usdt\",\"complete\":true,\"observedRaw\":\"600000000\"}",
+          "result": {
+            "halted": false,
+            "matched": true
+          }
+        }
+      ],
+      [
+        "operator:frozen-v2-owner:native-fee-readiness:frozen-v2-tron-gas",
+        {
+          "fingerprint": "{\"assetId\":\"tron-sim-usdt\",\"ready\":true}",
+          "result": {
+            "ready": true
+          }
+        }
+      ],
+      [
+        "dispatcher:frozen-v2-dispatcher:queue-release:frozen-v2-tron-queued",
+        {
+          "fingerprint": "{\"tradeId\":\"frozen-v2-tron-trade\"}",
+          "result": {
+            "amountRaw": {
+              "$walletType": "bigint",
+              "value": "250000000"
+            },
+            "assetId": "tron-sim-usdt",
+            "destination": "sim://tron-sim-usdt/recipient/frozen-v2-buyer",
+            "dispatchCount": 0,
+            "id": "trade-frozen-v2-tron-trade",
+            "kind": "trade",
+            "providerReference": "sim-payout-trade-frozen-v2-tron-trade",
+            "sellerId": "frozen-v2-seller",
+            "state": "queued",
+            "tradeId": "frozen-v2-tron-trade"
+          }
+        }
+      ],
+      [
+        "dispatcher:frozen-v2-dispatcher:begin-dispatch:frozen-v2-tron-claimed",
+        {
+          "fingerprint": "{\"payoutId\":\"trade-frozen-v2-tron-trade\"}",
+          "result": {
+            "amountRaw": {
+              "$walletType": "bigint",
+              "value": "250000000"
+            },
+            "assetId": "tron-sim-usdt",
+            "destination": "sim://tron-sim-usdt/recipient/frozen-v2-buyer",
+            "dispatchCount": 1,
+            "id": "trade-frozen-v2-tron-trade",
+            "kind": "trade",
+            "providerReference": "sim-payout-trade-frozen-v2-tron-trade",
+            "sellerId": "frozen-v2-seller",
+            "state": "submitting",
+            "tradeId": "frozen-v2-tron-trade"
+          }
+        }
+      ],
+      [
+        "verifier:frozen-v2-verifier:payout-receipt:frozen-v2-tron-confirmed",
+        {
+          "fingerprint": "{\"amountRaw\":\"250000000\",\"assetId\":\"tron-sim-usdt\",\"destination\":\"sim://tron-sim-usdt/recipient/frozen-v2-buyer\",\"eventIndex\":0,\"finalized\":true,\"network\":\"tron-simulation\",\"payoutId\":\"trade-frozen-v2-tron-trade\",\"providerReference\":\"sim-payout-trade-frozen-v2-tron-trade\",\"successful\":true,\"token\":\"sim-token-tron-usdt\",\"transactionId\":\"sim-tx-frozen-v2-tron-settled\"}",
+          "result": {
+            "amountRaw": {
+              "$walletType": "bigint",
+              "value": "250000000"
+            },
+            "assetId": "tron-sim-usdt",
+            "destination": "sim://tron-sim-usdt/recipient/frozen-v2-buyer",
+            "dispatchCount": 1,
+            "id": "trade-frozen-v2-tron-trade",
+            "kind": "trade",
+            "providerReference": "sim-payout-trade-frozen-v2-tron-trade",
+            "sellerId": "frozen-v2-seller",
+            "state": "confirmed",
+            "tradeId": "frozen-v2-tron-trade",
+            "transactionId": "sim-tx-frozen-v2-tron-settled"
+          }
+        }
+      ],
+      [
+        "seller:frozen-v2-seller:deposit-intent:frozen-v2-tron-fee-intent",
+        {
+          "fingerprint": "{\"assetId\":\"tron-sim-usdt\",\"id\":\"frozen-v2-tron-fees\",\"purpose\":\"commission\"}",
+          "result": {
+            "assetId": "tron-sim-usdt",
+            "destination": "sim://tron-sim-usdt/deposit/frozen-v2-tron-fees",
+            "id": "frozen-v2-tron-fees",
+            "purpose": "commission",
+            "sellerId": "frozen-v2-seller"
+          }
+        }
+      ],
+      [
+        "verifier:frozen-v2-verifier:deposit-observation:frozen-v2-tron-fee-credit",
+        {
+          "fingerprint": "{\"amountRaw\":\"5000000\",\"assetId\":\"tron-sim-usdt\",\"blockHash\":\"sim-block-frozen-v2\",\"destination\":\"sim://tron-sim-usdt/deposit/frozen-v2-tron-fees\",\"eventIndex\":0,\"finalized\":true,\"intentId\":\"frozen-v2-tron-fees\",\"network\":\"tron-simulation\",\"successful\":true,\"token\":\"sim-token-tron-usdt\",\"transactionId\":\"sim-tx-frozen-v2-tron-fees\"}",
+          "result": {
+            "credited": true,
+            "duplicate": false,
+            "halted": false
+          }
+        }
+      ],
+      [
+        "buyer:frozen-v2-buyer:buyer-reported-payment:frozen-v2-bsc-paid",
+        {
+          "fingerprint": "{\"tradeId\":\"frozen-v2-bsc-trade\"}",
+          "result": {
+            "amountRaw": {
+              "$walletType": "bigint",
+              "value": "1000050000000000000"
+            },
+            "assetId": "bsc-sim-binance-peg-usdt",
+            "buyerFeeRaw": {
+              "$walletType": "bigint",
+              "value": "10001000000000000"
+            },
+            "buyerId": "frozen-v2-buyer",
+            "currency": "ILS",
+            "destination": "sim://bsc-sim-binance-peg-usdt/recipient/frozen-v2-buyer",
+            "disputed": false,
+            "fiatTotalMinor": {
+              "$walletType": "bigint",
+              "value": "323"
+            },
+            "id": "frozen-v2-bsc-trade",
+            "listingId": "frozen-v2-bsc-listing",
+            "sellerFeeRaw": {
+              "$walletType": "bigint",
+              "value": "10001000000000000"
+            },
+            "sellerId": "frozen-v2-seller",
+            "status": "payment_reported",
+            "totalFeeRaw": {
+              "$walletType": "bigint",
+              "value": "20002000000000000"
+            }
+          }
+        }
+      ],
+      [
+        "verifier:frozen-v2-verifier:verify-fiat:frozen-v2-bsc-verified",
+        {
+          "fingerprint": "{\"evidence\":{\"amountMinor\":\"323\",\"currency\":\"ILS\",\"kind\":\"simulated-bank-credit\",\"reference\":\"sim-evidence-frozen-v2-bsc\"},\"tradeId\":\"frozen-v2-bsc-trade\"}",
+          "result": {
+            "amountRaw": {
+              "$walletType": "bigint",
+              "value": "1000050000000000000"
+            },
+            "assetId": "bsc-sim-binance-peg-usdt",
+            "buyerFeeRaw": {
+              "$walletType": "bigint",
+              "value": "10001000000000000"
+            },
+            "buyerId": "frozen-v2-buyer",
+            "currency": "ILS",
+            "destination": "sim://bsc-sim-binance-peg-usdt/recipient/frozen-v2-buyer",
+            "disputed": false,
+            "evidence": {
+              "amountMinor": "323",
+              "currency": "ILS",
+              "kind": "simulated-bank-credit",
+              "reference": "sim-evidence-frozen-v2-bsc"
+            },
+            "fiatTotalMinor": {
+              "$walletType": "bigint",
+              "value": "323"
+            },
+            "id": "frozen-v2-bsc-trade",
+            "listingId": "frozen-v2-bsc-listing",
+            "sellerFeeRaw": {
+              "$walletType": "bigint",
+              "value": "10001000000000000"
+            },
+            "sellerId": "frozen-v2-seller",
+            "status": "payment_verified",
+            "totalFeeRaw": {
+              "$walletType": "bigint",
+              "value": "20002000000000000"
+            }
+          }
+        }
+      ],
+      [
+        "seller:frozen-v2-seller:authorize-release:frozen-v2-bsc-authorized",
+        {
+          "fingerprint": "{\"tradeId\":\"frozen-v2-bsc-trade\"}",
+          "result": {
+            "amountRaw": {
+              "$walletType": "bigint",
+              "value": "1000050000000000000"
+            },
+            "assetId": "bsc-sim-binance-peg-usdt",
+            "authorization": {
+              "amountRaw": {
+                "$walletType": "bigint",
+                "value": "1000050000000000000"
+              },
+              "destination": "sim://bsc-sim-binance-peg-usdt/recipient/frozen-v2-buyer",
+              "evidenceReference": "sim-evidence-frozen-v2-bsc",
+              "sellerId": "frozen-v2-seller"
+            },
+            "buyerFeeRaw": {
+              "$walletType": "bigint",
+              "value": "10001000000000000"
+            },
+            "buyerId": "frozen-v2-buyer",
+            "currency": "ILS",
+            "destination": "sim://bsc-sim-binance-peg-usdt/recipient/frozen-v2-buyer",
+            "disputed": false,
+            "evidence": {
+              "amountMinor": "323",
+              "currency": "ILS",
+              "kind": "simulated-bank-credit",
+              "reference": "sim-evidence-frozen-v2-bsc"
+            },
+            "fiatTotalMinor": {
+              "$walletType": "bigint",
+              "value": "323"
+            },
+            "id": "frozen-v2-bsc-trade",
+            "listingId": "frozen-v2-bsc-listing",
+            "sellerFeeRaw": {
+              "$walletType": "bigint",
+              "value": "10001000000000000"
+            },
+            "sellerId": "frozen-v2-seller",
+            "status": "release_authorized",
+            "totalFeeRaw": {
+              "$walletType": "bigint",
+              "value": "20002000000000000"
+            }
+          }
+        }
+      ],
+      [
+        "verifier:frozen-v2-verifier:reconcile:frozen-v2-bsc-reconciled",
+        {
+          "fingerprint": "{\"assetId\":\"bsc-sim-binance-peg-usdt\",\"complete\":true,\"observedRaw\":\"10000000000000000000\"}",
+          "result": {
+            "halted": false,
+            "matched": true
+          }
+        }
+      ],
+      [
+        "operator:frozen-v2-owner:native-fee-readiness:frozen-v2-bsc-gas",
+        {
+          "fingerprint": "{\"assetId\":\"bsc-sim-binance-peg-usdt\",\"ready\":true}",
+          "result": {
+            "ready": true
+          }
+        }
+      ],
+      [
+        "dispatcher:frozen-v2-dispatcher:queue-release:frozen-v2-bsc-queued",
+        {
+          "fingerprint": "{\"tradeId\":\"frozen-v2-bsc-trade\"}",
+          "result": {
+            "amountRaw": {
+              "$walletType": "bigint",
+              "value": "1000050000000000000"
+            },
+            "assetId": "bsc-sim-binance-peg-usdt",
+            "destination": "sim://bsc-sim-binance-peg-usdt/recipient/frozen-v2-buyer",
+            "dispatchCount": 0,
+            "id": "trade-frozen-v2-bsc-trade",
+            "kind": "trade",
+            "providerReference": "sim-payout-trade-frozen-v2-bsc-trade",
+            "sellerId": "frozen-v2-seller",
+            "state": "queued",
+            "tradeId": "frozen-v2-bsc-trade"
+          }
+        }
+      ],
+      [
+        "dispatcher:frozen-v2-dispatcher:begin-dispatch:frozen-v2-bsc-claimed",
+        {
+          "fingerprint": "{\"payoutId\":\"trade-frozen-v2-bsc-trade\"}",
+          "result": {
+            "amountRaw": {
+              "$walletType": "bigint",
+              "value": "1000050000000000000"
+            },
+            "assetId": "bsc-sim-binance-peg-usdt",
+            "destination": "sim://bsc-sim-binance-peg-usdt/recipient/frozen-v2-buyer",
+            "dispatchCount": 1,
+            "id": "trade-frozen-v2-bsc-trade",
+            "kind": "trade",
+            "providerReference": "sim-payout-trade-frozen-v2-bsc-trade",
+            "sellerId": "frozen-v2-seller",
+            "state": "submitting",
+            "tradeId": "frozen-v2-bsc-trade"
+          }
+        }
+      ],
+      [
+        "verifier:frozen-v2-verifier:payout-receipt:frozen-v2-bsc-confirmed",
+        {
+          "fingerprint": "{\"amountRaw\":\"1000050000000000000\",\"assetId\":\"bsc-sim-binance-peg-usdt\",\"destination\":\"sim://bsc-sim-binance-peg-usdt/recipient/frozen-v2-buyer\",\"eventIndex\":0,\"finalized\":true,\"network\":\"bsc-simulation\",\"payoutId\":\"trade-frozen-v2-bsc-trade\",\"providerReference\":\"sim-payout-trade-frozen-v2-bsc-trade\",\"successful\":true,\"token\":\"sim-token-bsc-binance-peg-usdt\",\"transactionId\":\"sim-tx-frozen-v2-bsc-settled\"}",
+          "result": {
+            "amountRaw": {
+              "$walletType": "bigint",
+              "value": "1000050000000000000"
+            },
+            "assetId": "bsc-sim-binance-peg-usdt",
+            "destination": "sim://bsc-sim-binance-peg-usdt/recipient/frozen-v2-buyer",
+            "dispatchCount": 1,
+            "id": "trade-frozen-v2-bsc-trade",
+            "kind": "trade",
+            "providerReference": "sim-payout-trade-frozen-v2-bsc-trade",
+            "sellerId": "frozen-v2-seller",
+            "state": "confirmed",
+            "tradeId": "frozen-v2-bsc-trade",
+            "transactionId": "sim-tx-frozen-v2-bsc-settled"
+          }
+        }
+      ],
+      [
+        "seller:frozen-v2-seller:deposit-intent:frozen-v2-bsc-fee-intent",
+        {
+          "fingerprint": "{\"assetId\":\"bsc-sim-binance-peg-usdt\",\"id\":\"frozen-v2-bsc-fees\",\"purpose\":\"commission\"}",
+          "result": {
+            "assetId": "bsc-sim-binance-peg-usdt",
+            "destination": "sim://bsc-sim-binance-peg-usdt/deposit/frozen-v2-bsc-fees",
+            "id": "frozen-v2-bsc-fees",
+            "purpose": "commission",
+            "sellerId": "frozen-v2-seller"
+          }
+        }
+      ],
+      [
+        "verifier:frozen-v2-verifier:deposit-observation:frozen-v2-bsc-fee-credit",
+        {
+          "fingerprint": "{\"amountRaw\":\"20002000000000000\",\"assetId\":\"bsc-sim-binance-peg-usdt\",\"blockHash\":\"sim-block-frozen-v2\",\"destination\":\"sim://bsc-sim-binance-peg-usdt/deposit/frozen-v2-bsc-fees\",\"eventIndex\":0,\"finalized\":true,\"intentId\":\"frozen-v2-bsc-fees\",\"network\":\"bsc-simulation\",\"successful\":true,\"token\":\"sim-token-bsc-binance-peg-usdt\",\"transactionId\":\"sim-tx-frozen-v2-bsc-fees\"}",
+          "result": {
+            "credited": true,
+            "duplicate": false,
+            "halted": false
+          }
+        }
+      ]
+    ]
+  },
+  "journal": [
+    {
+      "assetId": "tron-sim-usdt",
+      "entries": [
+        {
+          "account": "external",
+          "delta": {
+            "$walletType": "bigint",
+            "value": "-600000000"
+          }
+        },
+        {
+          "account": "available:frozen-v2-seller",
+          "delta": {
+            "$walletType": "bigint",
+            "value": "600000000"
+          }
+        }
+      ],
+      "id": "journal-1",
+      "operation": "verifier:frozen-v2-verifier:deposit-observation:frozen-v2-tron-funding-credit"
+    },
+    {
+      "assetId": "tron-sim-usdt",
+      "entries": [
+        {
+          "account": "available:frozen-v2-seller",
+          "delta": {
+            "$walletType": "bigint",
+            "value": "-500000000"
+          }
+        },
+        {
+          "account": "listing:frozen-v2-tron-listing",
+          "delta": {
+            "$walletType": "bigint",
+            "value": "500000000"
+          }
+        }
+      ],
+      "id": "journal-2",
+      "operation": "seller:frozen-v2-seller:create-listing:frozen-v2-tron-create"
+    },
+    {
+      "assetId": "tron-sim-usdt",
+      "entries": [
+        {
+          "account": "listing:frozen-v2-tron-listing",
+          "delta": {
+            "$walletType": "bigint",
+            "value": "-200000000"
+          }
+        },
+        {
+          "account": "trade:frozen-v2-tron-trade",
+          "delta": {
+            "$walletType": "bigint",
+            "value": "200000000"
+          }
+        }
+      ],
+      "id": "journal-3",
+      "operation": "buyer:frozen-v2-buyer:reserve-trade:frozen-v2-tron-original-reserve"
+    },
+    {
+      "assetId": "bsc-sim-binance-peg-usdt",
+      "entries": [
+        {
+          "account": "external",
+          "delta": {
+            "$walletType": "bigint",
+            "value": "-10000000000000000000"
+          }
+        },
+        {
+          "account": "available:frozen-v2-seller",
+          "delta": {
+            "$walletType": "bigint",
+            "value": "10000000000000000000"
+          }
+        }
+      ],
+      "id": "journal-4",
+      "operation": "verifier:frozen-v2-verifier:deposit-observation:frozen-v2-bsc-funding-credit"
+    },
+    {
+      "assetId": "bsc-sim-binance-peg-usdt",
+      "entries": [
+        {
+          "account": "available:frozen-v2-seller",
+          "delta": {
+            "$walletType": "bigint",
+            "value": "-10000000000000000000"
+          }
+        },
+        {
+          "account": "listing:frozen-v2-bsc-listing",
+          "delta": {
+            "$walletType": "bigint",
+            "value": "10000000000000000000"
+          }
+        }
+      ],
+      "id": "journal-5",
+      "operation": "seller:frozen-v2-seller:create-listing:frozen-v2-bsc-create"
+    },
+    {
+      "assetId": "bsc-sim-binance-peg-usdt",
+      "entries": [
+        {
+          "account": "listing:frozen-v2-bsc-listing",
+          "delta": {
+            "$walletType": "bigint",
+            "value": "-1000050000000000000"
+          }
+        },
+        {
+          "account": "trade:frozen-v2-bsc-trade",
+          "delta": {
+            "$walletType": "bigint",
+            "value": "1000050000000000000"
+          }
+        }
+      ],
+      "id": "journal-6",
+      "operation": "buyer:frozen-v2-buyer:reserve-trade:frozen-v2-bsc-original-reserve"
+    },
+    {
+      "assetId": "tron-sim-usdt",
+      "entries": [
+        {
+          "account": "available:frozen-v2-seller",
+          "delta": {
+            "$walletType": "bigint",
+            "value": "-25000000"
+          }
+        },
+        {
+          "account": "payout:withdrawal-frozen-v2-held-withdrawal",
+          "delta": {
+            "$walletType": "bigint",
+            "value": "25000000"
+          }
+        }
+      ],
+      "id": "journal-7",
+      "operation": "seller:frozen-v2-seller:withdrawal:frozen-v2-original-withdrawal"
+    },
+    {
+      "assetId": "tron-sim-usdt",
+      "entries": [
+        {
+          "account": "listing:frozen-v2-tron-listing",
+          "delta": {
+            "$walletType": "bigint",
+            "value": "-100000000"
+          }
+        },
+        {
+          "account": "trade:frozen-v2-tron-trade",
+          "delta": {
+            "$walletType": "bigint",
+            "value": "100000000"
+          }
+        }
+      ],
+      "id": "journal-8",
+      "operation": "v2:[\"buyer\",\"frozen-v2-buyer\",\"acceptAmountCorrection\",\"frozen-v2-accept-increase\"]"
+    },
+    {
+      "assetId": "tron-sim-usdt",
+      "entries": [
+        {
+          "account": "trade:frozen-v2-tron-trade",
+          "delta": {
+            "$walletType": "bigint",
+            "value": "-50000000"
+          }
+        },
+        {
+          "account": "listing:frozen-v2-tron-listing",
+          "delta": {
+            "$walletType": "bigint",
+            "value": "50000000"
+          }
+        }
+      ],
+      "id": "journal-9",
+      "operation": "v2:[\"buyer\",\"frozen-v2-buyer\",\"acceptAmountCorrection\",\"frozen-v2-accept-decrease\"]"
+    },
+    {
+      "assetId": "tron-sim-usdt",
+      "entries": [
+        {
+          "account": "trade:frozen-v2-tron-trade",
+          "delta": {
+            "$walletType": "bigint",
+            "value": "-250000000"
+          }
+        },
+        {
+          "account": "payout:trade-frozen-v2-tron-trade",
+          "delta": {
+            "$walletType": "bigint",
+            "value": "250000000"
+          }
+        }
+      ],
+      "id": "journal-10",
+      "operation": "dispatcher:frozen-v2-dispatcher:queue-release:frozen-v2-tron-queued"
+    },
+    {
+      "assetId": "tron-sim-usdt",
+      "entries": [
+        {
+          "account": "payout:trade-frozen-v2-tron-trade",
+          "delta": {
+            "$walletType": "bigint",
+            "value": "-250000000"
+          }
+        },
+        {
+          "account": "external",
+          "delta": {
+            "$walletType": "bigint",
+            "value": "250000000"
+          }
+        }
+      ],
+      "id": "journal-11",
+      "operation": "verifier:frozen-v2-verifier:payout-receipt:frozen-v2-tron-confirmed"
+    },
+    {
+      "assetId": "tron-sim-usdt",
+      "entries": [
+        {
+          "account": "external",
+          "delta": {
+            "$walletType": "bigint",
+            "value": "-5000000"
+          }
+        },
+        {
+          "account": "commission:frozen-v2-seller",
+          "delta": {
+            "$walletType": "bigint",
+            "value": "5000000"
+          }
+        }
+      ],
+      "id": "journal-12",
+      "operation": "verifier:frozen-v2-verifier:deposit-observation:frozen-v2-tron-fee-credit"
+    },
+    {
+      "assetId": "tron-sim-usdt",
+      "entries": [
+        {
+          "account": "commission:frozen-v2-seller",
+          "delta": {
+            "$walletType": "bigint",
+            "value": "-5000000"
+          }
+        },
+        {
+          "account": "platform-revenue",
+          "delta": {
+            "$walletType": "bigint",
+            "value": "5000000"
+          }
+        }
+      ],
+      "id": "journal-13",
+      "operation": "verifier:frozen-v2-verifier:deposit-observation:frozen-v2-tron-fee-credit"
+    },
+    {
+      "assetId": "bsc-sim-binance-peg-usdt",
+      "entries": [
+        {
+          "account": "trade:frozen-v2-bsc-trade",
+          "delta": {
+            "$walletType": "bigint",
+            "value": "-1000050000000000000"
+          }
+        },
+        {
+          "account": "payout:trade-frozen-v2-bsc-trade",
+          "delta": {
+            "$walletType": "bigint",
+            "value": "1000050000000000000"
+          }
+        }
+      ],
+      "id": "journal-14",
+      "operation": "dispatcher:frozen-v2-dispatcher:queue-release:frozen-v2-bsc-queued"
+    },
+    {
+      "assetId": "bsc-sim-binance-peg-usdt",
+      "entries": [
+        {
+          "account": "payout:trade-frozen-v2-bsc-trade",
+          "delta": {
+            "$walletType": "bigint",
+            "value": "-1000050000000000000"
+          }
+        },
+        {
+          "account": "external",
+          "delta": {
+            "$walletType": "bigint",
+            "value": "1000050000000000000"
+          }
+        }
+      ],
+      "id": "journal-15",
+      "operation": "verifier:frozen-v2-verifier:payout-receipt:frozen-v2-bsc-confirmed"
+    },
+    {
+      "assetId": "bsc-sim-binance-peg-usdt",
+      "entries": [
+        {
+          "account": "external",
+          "delta": {
+            "$walletType": "bigint",
+            "value": "-20002000000000000"
+          }
+        },
+        {
+          "account": "commission:frozen-v2-seller",
+          "delta": {
+            "$walletType": "bigint",
+            "value": "20002000000000000"
+          }
+        }
+      ],
+      "id": "journal-16",
+      "operation": "verifier:frozen-v2-verifier:deposit-observation:frozen-v2-bsc-fee-credit"
+    },
+    {
+      "assetId": "bsc-sim-binance-peg-usdt",
+      "entries": [
+        {
+          "account": "commission:frozen-v2-seller",
+          "delta": {
+            "$walletType": "bigint",
+            "value": "-20002000000000000"
+          }
+        },
+        {
+          "account": "platform-revenue",
+          "delta": {
+            "$walletType": "bigint",
+            "value": "20002000000000000"
+          }
+        }
+      ],
+      "id": "journal-17",
+      "operation": "verifier:frozen-v2-verifier:deposit-observation:frozen-v2-bsc-fee-credit"
+    }
+  ],
+  "listings": {
+    "$walletType": "map",
+    "entries": [
+      [
+        "frozen-v2-tron-listing",
+        {
+          "amountRaw": {
+            "$walletType": "bigint",
+            "value": "500000000"
+          },
+          "approved": true,
+          "assetId": "tron-sim-usdt",
+          "closed": false,
+          "currency": "ILS",
+          "funded": true,
+          "id": "frozen-v2-tron-listing",
+          "price": "3.20",
+          "sellerId": "frozen-v2-seller"
+        }
+      ],
+      [
+        "frozen-v2-bsc-listing",
+        {
+          "amountRaw": {
+            "$walletType": "bigint",
+            "value": "10000000000000000000"
+          },
+          "approved": true,
+          "assetId": "bsc-sim-binance-peg-usdt",
+          "closed": false,
+          "currency": "ILS",
+          "funded": true,
+          "id": "frozen-v2-bsc-listing",
+          "price": "3.20",
+          "sellerId": "frozen-v2-seller"
+        }
+      ]
+    ]
+  },
+  "payouts": {
+    "$walletType": "map",
+    "entries": [
+      [
+        "withdrawal-frozen-v2-held-withdrawal",
+        {
+          "amountRaw": {
+            "$walletType": "bigint",
+            "value": "25000000"
+          },
+          "assetId": "tron-sim-usdt",
+          "destination": "sim://tron-sim-usdt/recipient/frozen-v2-seller",
+          "dispatchCount": 1,
+          "id": "withdrawal-frozen-v2-held-withdrawal",
+          "kind": "withdrawal",
+          "providerReference": "sim-payout-withdrawal-frozen-v2-held-withdrawal",
+          "sellerId": "frozen-v2-seller",
+          "state": "submission_unknown"
+        }
+      ],
+      [
+        "trade-frozen-v2-tron-trade",
+        {
+          "amountRaw": {
+            "$walletType": "bigint",
+            "value": "250000000"
+          },
+          "assetId": "tron-sim-usdt",
+          "destination": "sim://tron-sim-usdt/recipient/frozen-v2-buyer",
+          "dispatchCount": 1,
+          "id": "trade-frozen-v2-tron-trade",
+          "kind": "trade",
+          "providerReference": "sim-payout-trade-frozen-v2-tron-trade",
+          "sellerId": "frozen-v2-seller",
+          "state": "confirmed",
+          "tradeId": "frozen-v2-tron-trade",
+          "transactionId": "sim-tx-frozen-v2-tron-settled"
+        }
+      ],
+      [
+        "trade-frozen-v2-bsc-trade",
+        {
+          "amountRaw": {
+            "$walletType": "bigint",
+            "value": "1000050000000000000"
+          },
+          "assetId": "bsc-sim-binance-peg-usdt",
+          "destination": "sim://bsc-sim-binance-peg-usdt/recipient/frozen-v2-buyer",
+          "dispatchCount": 1,
+          "id": "trade-frozen-v2-bsc-trade",
+          "kind": "trade",
+          "providerReference": "sim-payout-trade-frozen-v2-bsc-trade",
+          "sellerId": "frozen-v2-seller",
+          "state": "confirmed",
+          "tradeId": "frozen-v2-bsc-trade",
+          "transactionId": "sim-tx-frozen-v2-bsc-settled"
+        }
+      ]
+    ]
+  },
+  "receipts": {
+    "$walletType": "map",
+    "entries": [
+      [
+        "[\"tron-simulation\",\"sim-token-tron-usdt\",\"sim-tx-frozen-v2-tron-settled\",0]",
+        "trade-frozen-v2-tron-trade"
+      ],
+      [
+        "[\"bsc-simulation\",\"sim-token-bsc-binance-peg-usdt\",\"sim-tx-frozen-v2-bsc-settled\",0]",
+        "trade-frozen-v2-bsc-trade"
+      ]
+    ]
+  },
+  "reconciliations": {
+    "$walletType": "map",
+    "entries": [
+      [
+        "tron-sim-usdt",
+        {
+          "at": 1793880025000,
+          "expectedRaw": {
+            "$walletType": "bigint",
+            "value": "600000000"
+          }
+        }
+      ],
+      [
+        "bsc-sim-binance-peg-usdt",
+        {
+          "at": 1793880035000,
+          "expectedRaw": {
+            "$walletType": "bigint",
+            "value": "10000000000000000000"
+          }
+        }
+      ]
+    ]
+  },
+  "termsBindings": {
+    "$walletType": "map",
+    "entries": [
+      [
+        "frozen-v2-request-tron",
+        {
+          "assetId": "tron-sim-usdt",
+          "enrollmentCommandKey": "[\"operator\",\"frozen-v2-owner\",\"enrollReservedTrade\",\"frozen-v2-enroll-increase\"]",
+          "enrollmentCommandRevision": 17,
+          "enrollmentTermsDigest": "2c894ee6a77fef40d0fc6e9f7189fc5b00a1fcda4093ac7c7bd6808d8a29acb8",
+          "lastCommandKey": "[\"buyer\",\"frozen-v2-buyer\",\"acceptAmountCorrection\",\"frozen-v2-accept-decrease\"]",
+          "lastCommandRevision": 19,
+          "lastSubmittedAdjustmentCount": 2,
+          "platformListingId": "frozen-v2-platform-tron",
+          "platformRequestId": "frozen-v2-request-tron",
+          "revision": 2,
+          "terms": {
+            "assetId": "tron-sim-usdt",
+            "buyerFeeRaw": "2500000",
+            "buyerId": "frozen-v2-buyer",
+            "commissionCalculationVersion": "usdt_6dp_v2",
+            "currency": "ILS",
+            "destination": "sim://tron-sim-usdt/recipient/frozen-v2-buyer",
+            "feePolicyVersion": "buyer_seller_1pct_v1",
+            "fiatAmount": "808.00",
+            "fiatTotalMinor": "80800",
+            "listingPriceAtRequest": "3.20",
+            "paymentInstructionsDigest": "e11ecec0ffbc9620e9d78cca4581392555f3a31f72de45a0c2b589118028a348",
+            "paymentMethod": "Bank Transfer",
+            "platformListingId": "frozen-v2-platform-tron",
+            "platformRequestId": "frozen-v2-request-tron",
+            "platformTradeId": "v2-platform-ec35e327eec5327ec1db",
+            "priceMode": "listing_price",
+            "pricePerUsdt": "3.20",
+            "principalRaw": "250000000",
+            "receivingNetwork": "TRC20",
+            "sellerFeeRaw": "2500000",
+            "sellerId": "frozen-v2-seller",
+            "totalFeeRaw": "5000000",
+            "usdtAmount": "250",
+            "walletListingId": "frozen-v2-tron-listing"
+          },
+          "termsDigest": "eb742d619b9f6f15fb9eb131a6a90554bdcf28423dd4318fc55d5d2f9380ffa8",
+          "walletListingId": "frozen-v2-tron-listing",
+          "walletTradeDigest": "4757c627532f4d243cbd955ccfbff62bafe9af911f39c2776a7074f2994a032e",
+          "walletTradeId": "frozen-v2-tron-trade"
+        }
+      ],
+      [
+        "frozen-v2-request-bsc",
+        {
+          "assetId": "bsc-sim-binance-peg-usdt",
+          "enrollmentCommandKey": "[\"operator\",\"frozen-v2-owner\",\"enrollReservedTrade\",\"frozen-v2-enroll-zero\"]",
+          "enrollmentCommandRevision": 20,
+          "enrollmentTermsDigest": "87dabf88d3d29fa8f96358df0f773f9cbebffec3721a76f921cc92d1bf8d6e4c",
+          "lastCommandKey": "[\"buyer\",\"frozen-v2-buyer\",\"acceptAmountCorrection\",\"frozen-v2-accept-zero\"]",
+          "lastCommandRevision": 21,
+          "lastSubmittedAdjustmentCount": 1,
+          "platformListingId": "frozen-v2-platform-bsc",
+          "platformRequestId": "frozen-v2-request-bsc",
+          "revision": 1,
+          "terms": {
+            "assetId": "bsc-sim-binance-peg-usdt",
+            "buyerFeeRaw": "10001000000000000",
+            "buyerId": "frozen-v2-buyer",
+            "commissionCalculationVersion": "usdt_6dp_v2",
+            "currency": "ILS",
+            "destination": "sim://bsc-sim-binance-peg-usdt/recipient/frozen-v2-buyer",
+            "feePolicyVersion": "buyer_seller_1pct_v1",
+            "fiatAmount": "3.23",
+            "fiatTotalMinor": "323",
+            "listingPriceAtRequest": "3.20",
+            "paymentInstructionsDigest": "e11ecec0ffbc9620e9d78cca4581392555f3a31f72de45a0c2b589118028a348",
+            "paymentMethod": "Bank Transfer",
+            "platformListingId": "frozen-v2-platform-bsc",
+            "platformRequestId": "frozen-v2-request-bsc",
+            "platformTradeId": "v2-platform-e74bf2ad94682e546604",
+            "priceMode": "listing_price",
+            "pricePerUsdt": "3.20",
+            "principalRaw": "1000050000000000000",
+            "receivingNetwork": "BEP20",
+            "sellerFeeRaw": "10001000000000000",
+            "sellerId": "frozen-v2-seller",
+            "totalFeeRaw": "20002000000000000",
+            "usdtAmount": "1.00005",
+            "walletListingId": "frozen-v2-bsc-listing"
+          },
+          "termsDigest": "87dabf88d3d29fa8f96358df0f773f9cbebffec3721a76f921cc92d1bf8d6e4c",
+          "walletListingId": "frozen-v2-bsc-listing",
+          "walletTradeDigest": "9e344d04f4ba147d86f7ee209da502971f96ea4aeee1b55d89b25f4bd132114c",
+          "walletTradeId": "frozen-v2-bsc-trade"
+        }
+      ]
+    ]
+  },
+  "trades": {
+    "$walletType": "map",
+    "entries": [
+      [
+        "frozen-v2-tron-trade",
+        {
+          "amountRaw": {
+            "$walletType": "bigint",
+            "value": "250000000"
+          },
+          "assetId": "tron-sim-usdt",
+          "authorization": {
+            "amountRaw": {
+              "$walletType": "bigint",
+              "value": "250000000"
+            },
+            "destination": "sim://tron-sim-usdt/recipient/frozen-v2-buyer",
+            "evidenceReference": "sim-evidence-frozen-v2-tron",
+            "sellerId": "frozen-v2-seller"
+          },
+          "buyerFeeRaw": {
+            "$walletType": "bigint",
+            "value": "2500000"
+          },
+          "buyerId": "frozen-v2-buyer",
+          "currency": "ILS",
+          "destination": "sim://tron-sim-usdt/recipient/frozen-v2-buyer",
+          "disputed": false,
+          "evidence": {
+            "amountMinor": "80800",
+            "currency": "ILS",
+            "kind": "simulated-bank-credit",
+            "reference": "sim-evidence-frozen-v2-tron"
+          },
+          "fiatTotalMinor": {
+            "$walletType": "bigint",
+            "value": "80800"
+          },
+          "id": "frozen-v2-tron-trade",
+          "listingId": "frozen-v2-tron-listing",
+          "payoutId": "trade-frozen-v2-tron-trade",
+          "sellerFeeRaw": {
+            "$walletType": "bigint",
+            "value": "2500000"
+          },
+          "sellerId": "frozen-v2-seller",
+          "status": "completed",
+          "totalFeeRaw": {
+            "$walletType": "bigint",
+            "value": "5000000"
+          }
+        }
+      ],
+      [
+        "frozen-v2-bsc-trade",
+        {
+          "amountRaw": {
+            "$walletType": "bigint",
+            "value": "1000050000000000000"
+          },
+          "assetId": "bsc-sim-binance-peg-usdt",
+          "authorization": {
+            "amountRaw": {
+              "$walletType": "bigint",
+              "value": "1000050000000000000"
+            },
+            "destination": "sim://bsc-sim-binance-peg-usdt/recipient/frozen-v2-buyer",
+            "evidenceReference": "sim-evidence-frozen-v2-bsc",
+            "sellerId": "frozen-v2-seller"
+          },
+          "buyerFeeRaw": {
+            "$walletType": "bigint",
+            "value": "10001000000000000"
+          },
+          "buyerId": "frozen-v2-buyer",
+          "currency": "ILS",
+          "destination": "sim://bsc-sim-binance-peg-usdt/recipient/frozen-v2-buyer",
+          "disputed": false,
+          "evidence": {
+            "amountMinor": "323",
+            "currency": "ILS",
+            "kind": "simulated-bank-credit",
+            "reference": "sim-evidence-frozen-v2-bsc"
+          },
+          "fiatTotalMinor": {
+            "$walletType": "bigint",
+            "value": "323"
+          },
+          "id": "frozen-v2-bsc-trade",
+          "listingId": "frozen-v2-bsc-listing",
+          "payoutId": "trade-frozen-v2-bsc-trade",
+          "sellerFeeRaw": {
+            "$walletType": "bigint",
+            "value": "10001000000000000"
+          },
+          "sellerId": "frozen-v2-seller",
+          "status": "completed",
+          "totalFeeRaw": {
+            "$walletType": "bigint",
+            "value": "20002000000000000"
+          }
+        }
+      ]
+    ]
+  }
+}

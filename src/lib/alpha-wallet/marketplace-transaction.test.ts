@@ -234,6 +234,31 @@ describe("actual focused marketplace participant in a shared simulation transact
     expect(await footprint()).toEqual(initial);
   }, TIMEOUT);
 
+  it("refuses commit after a swallowed runtime rejection even when the caller restores its environment", async () => {
+    await durableFixture(wallet).fundedListing("500", fixture.listingId);
+    const initial = await footprint();
+    let caught: unknown, reservationPersisted = false;
+    await expect(store.transaction(async tx => {
+      try {
+        await mutateDevelopmentFocusedTradeInTransaction({ mode: "simulation-only", tx, requestId: fixture.requestId }, async snapshot => {
+          await boundWallet(tx).execute(reserve());
+          const current = await boundWallet(tx).snapshot();
+          reservationPersisted = balance(current.state, TRON, `trade:${fixture.tradeId}`) === parseUnits("200", 6);
+          snapshot.notifications.push(notification());
+          note(snapshot);
+          vi.stubEnv("ALPHA_WALLET_MAINNET_ENABLED", "true");
+          return snapshot;
+        });
+      } catch (error) { caught = error; }
+      finally { vi.stubEnv("ALPHA_WALLET_MAINNET_ENABLED", undefined); }
+      return "caller attempted to commit after restoring runtime settings";
+    })).rejects.toThrow("cannot enable mainnet or signing");
+    expect(reservationPersisted).toBe(true);
+    expect(caught).toBeInstanceOf(Error);
+    expect((caught as Error).message).toContain("cannot enable mainnet or signing");
+    expect(await footprint()).toEqual(initial);
+  }, TIMEOUT);
+
   it("freezes canonical identity, lifecycle evidence, other requests and every read-only collection", async () => {
     const initial = await footprint();
     const changes: Array<(snapshot: AlphaExchangeDb) => void> = [
@@ -354,7 +379,9 @@ describe("actual focused marketplace participant in a shared simulation transact
           async query<Row extends Record<string, unknown>>(sql: string, parameters?: unknown[]) {
             statements.push(sql);
             const result = await owner.query<Row>(sql, parameters);
-            if (sql.includes("transaction_isolation") && drift && ++calls > 1) {
+            // Every identity probe, including failure cleanup, must observe the
+            // same simulated physical switch rather than only the full context read.
+            if (sql.includes("txid_current()") && drift && ++calls > 1) {
               return { rows: result.rows.map(row => ({ ...row, transaction_id: "999999999" }) as Row) };
             }
             return result;

@@ -68,13 +68,11 @@ function transactionSql(
   };
   return Object.freeze({
     async query<Row extends Record<string, unknown> = Record<string, unknown>>(sql: string, params?: unknown[]) {
-      permitted();
-      try { return await query<Row>(sql, params); }
+      try { permitted(); return await query<Row>(sql, params); }
       catch (error) { failed(error); throw error; }
     },
     async exec(sql: string) {
-      permitted();
-      try { await exec(sql); }
+      try { permitted(); await exec(sql); }
       catch (error) { failed(error); throw error; }
     },
   });

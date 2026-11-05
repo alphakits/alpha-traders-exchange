@@ -137,6 +137,8 @@ jobs:
             await connection.query('CREATE DATABASE alpha_wallet_dev_mobile_atomic');
             await connection.query('CREATE DATABASE alpha_wallet_dev_mobile_auth');
             await connection.query('CREATE DATABASE alpha_wallet_dev_mobile_restore');
+            await connection.query('CREATE DATABASE alpha_wallet_dev_initial_atomic');
+            await connection.query('CREATE DATABASE alpha_wallet_dev_initial_races');
           } finally { await connection.end(); }
           NODE
 
@@ -201,6 +203,16 @@ jobs:
             --restore-connection-string 'postgresql://wallet_fixture:simulation-only@127.0.0.1:5432/alpha_wallet_dev_mobile_restore' \
             2>test-results/alpha-wallet/postgres-marketplace-mobile.stderr.log \
             | tee test-results/alpha-wallet/postgres-marketplace-mobile.json
+
+      - name: Verify initial acceptance planning and canonical transaction mechanics
+        run: |
+          set -euo pipefail
+          node --conditions=react-server --import tsx scripts/alpha-wallet/postgres-initial-acceptance.ts \
+            --fresh-simulation-databases \
+            --atomic-connection-string 'postgresql://wallet_fixture:simulation-only@127.0.0.1:5432/alpha_wallet_dev_initial_atomic' \
+            --race-connection-string 'postgresql://wallet_fixture:simulation-only@127.0.0.1:5432/alpha_wallet_dev_initial_races' \
+            2>test-results/alpha-wallet/postgres-initial-acceptance.stderr.log \
+            | tee test-results/alpha-wallet/postgres-initial-acceptance.json
 
       - name: Install the locked Playwright Chromium browser
         run: node ./node_modules/playwright/cli.js install --with-deps chromium

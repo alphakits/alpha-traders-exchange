@@ -122,6 +122,31 @@ describe("durable local simulation transport", () => {
     await expect(store.transaction(tx => tx.query("SELECT value FROM fixture_values"))).resolves.toEqual({ rows: [{ value: 3 }] });
   }, 20000);
 
+  it.each(["query", "exec"] as const)("rolls back earlier writes after a swallowed %s runtime refusal even when the callback restores the environment", async method => {
+    const { store, directory } = await fileStore();
+    await store.transaction(tx => tx.exec("CREATE TABLE fixture_runtime_values (value integer NOT NULL)"));
+    let refusal: unknown;
+    const work = vi.fn(async (tx: WalletSql) => {
+      await tx.query("INSERT INTO fixture_runtime_values VALUES (1)");
+      vi.stubEnv("ALPHA_WALLET_SIGNING_ENABLED", "true");
+      try { await tx[method]("INSERT INTO fixture_runtime_values VALUES (2)"); }
+      catch (error) { refusal = error; }
+      finally { vi.stubEnv("ALPHA_WALLET_SIGNING_ENABLED", undefined); }
+      // Restoring the runtime cannot erase a refusal already observed by this transaction.
+      await tx.query("INSERT INTO fixture_runtime_values VALUES (3)");
+      return "claimed success";
+    });
+    const outcome = store.transaction(work);
+    await expect(outcome).rejects.toThrow("cannot enable mainnet or signing");
+    await expect(outcome).rejects.toBe(refusal);
+    expect(work).toHaveBeenCalledTimes(1);
+    await expect(store.transaction(tx => tx.query("SELECT value FROM fixture_runtime_values"))).resolves.toEqual({ rows: [] });
+    await store.transaction(tx => tx.query("INSERT INTO fixture_runtime_values VALUES (4)"));
+    await store.close();
+    const reopened = await fileStore(directory);
+    await expect(reopened.store.transaction(tx => tx.query("SELECT value FROM fixture_runtime_values"))).resolves.toEqual({ rows: [{ value: 4 }] });
+  }, 20000);
+
   it("serializes callbacks in one process and prevents use of an escaped transaction handle", async () => {
     const { store } = await fileStore();
     const entered = deferred();
@@ -387,6 +412,36 @@ describe("PostgreSQL transaction recovery", () => {
     })).rejects.toBe(failure);
     expect(client.query).toHaveBeenCalledWith("ROLLBACK");
     expect(client.query.mock.calls.map(([sql]) => sql)).not.toContain("COMMIT");
+  });
+
+  it.each(["query", "exec"] as const)("rolls PostgreSQL back without retry after a swallowed %s runtime refusal and restored environment", async method => {
+    const client = fixtureClient();
+    pgFixture.connect.mockResolvedValue(client);
+    const store = await postgresStore();
+    let refusal: unknown;
+    const work = vi.fn(async (tx: WalletSql) => {
+      await tx.query("INSERT INTO fixture_runtime_values VALUES (1)");
+      vi.stubEnv("ALPHA_WALLET_MAINNET_ENABLED", "true");
+      try { await tx[method]("INSERT INTO fixture_runtime_values VALUES (2)"); }
+      catch (error) { refusal = error; }
+      finally { vi.stubEnv("ALPHA_WALLET_MAINNET_ENABLED", undefined); }
+      await tx.query("INSERT INTO fixture_runtime_values VALUES (3)");
+      return "claimed success";
+    });
+    const outcome = store.transaction(work);
+    await expect(outcome).rejects.toThrow("cannot enable mainnet or signing");
+    await expect(outcome).rejects.toBe(refusal);
+    expect(work).toHaveBeenCalledTimes(1);
+    expect(pgFixture.connect).toHaveBeenCalledTimes(1);
+    expect(client.query.mock.calls.map(([sql]) => sql)).toEqual([
+      "BEGIN ISOLATION LEVEL SERIALIZABLE", "SET LOCAL alpha_wallet.development_schema = 'simulation-only'",
+      "INSERT INTO fixture_runtime_values VALUES (1)", "INSERT INTO fixture_runtime_values VALUES (3)", "ROLLBACK",
+    ]);
+    expect(client.release).toHaveBeenCalledExactlyOnceWith(false);
+    const healthy = fixtureClient();
+    pgFixture.connect.mockResolvedValueOnce(healthy);
+    await expect(store.transaction(async tx => { await tx.query("SELECT 1"); return "recovered"; })).resolves.toBe("recovered");
+    expect(healthy.query).toHaveBeenCalledWith("COMMIT");
   });
 
   it("waits for outstanding transactions before closing the pool exactly once", async () => {
