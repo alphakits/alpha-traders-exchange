@@ -91,10 +91,12 @@ submission or new commission is created. The canonical listing's retained
 inventory and is preserved; it is not incremented a second time.
 
 The canonical participant cancels the request and physical trade, unlocks the
-listing, clears action reminders, withdraws a pending proposal, archives the
-matching buyer reminders, records trust-reconciliation intent and appends the
+listing, clears action reminders, archives matching buyer reminders, records
+trust-reconciliation intent and appends the
 deterministic timeline event, two notifications and reopen audit. Its complete
-before/after basis is rechecked. Canonical and financial effects, the immutable
+before/after basis is rechecked. The shared planner retains conditional proposal
+withdrawal, but initial admission excludes pending proposals and this successor
+fences later proposal writes. Canonical and financial effects, the immutable
 cross-system receipt and publication intent all commit together.
 
 ## SQL independence and immutable evidence
