@@ -176,9 +176,15 @@ async function staleBuyerHistory(observer: WalletStore, writerStore: WalletStore
   const writer = writerStore.transaction(async tx => {
     await tx.query("SELECT pg_advisory_xact_lock(61422917)");
     writerPid = (await tx.query<{ pid: number }>("SELECT pg_backend_pid() AS pid")).rows[0].pid;
+    const prior = (await tx.query<{ payload: Fixture["initialRequest"] }>(
+      "SELECT payload FROM alpha_exchange.purchase_requests WHERE id=$1", [fixture.buyerHistoryRequestId])).rows[0].payload;
+    const changedAt = new Date(fixture.atMs + 500).toISOString();
+    // A parameter first cast to timestamptz is rendered in the server's time
+    // zone when later reused as text. Preserve canonical ISO payload bytes in
+    // a separate JSON parameter; the strict reader must keep rejecting drift.
+    const changed = { ...prior, status: "accepted", updatedAt: changedAt, tradeCreatedAt: changedAt };
     await tx.query(`UPDATE alpha_exchange.purchase_requests SET status='accepted',updated_at=$2::timestamptz,
-      payload=payload||jsonb_build_object('status','accepted','updatedAt',$2::text,'tradeCreatedAt',$2::text) WHERE id=$1`,
-    [fixture.buyerHistoryRequestId, new Date(fixture.atMs + 500).toISOString()]);
+      payload=$3::jsonb WHERE id=$1`, [fixture.buyerHistoryRequestId, changedAt, JSON.stringify(changed)]);
     await tx.query("UPDATE alpha_exchange.runtime_meta SET version=version+1, updated_at=now() WHERE singleton=true");
     held.resolve();
     await bounded(release.promise, "ordinary writer release");
