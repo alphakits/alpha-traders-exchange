@@ -52,6 +52,14 @@ Development bounds are 1,048,576 JSON characters, 64 nesting levels, 4,096 logs 
 
 The JSON helper is not an HTTP or JSON-RPC transport. Correlating response IDs, rejecting mixed error/result envelopes, status codes, redirects, source authentication, timeout handling, response-byte limits, and retries belong to the future adapter. The receipt decoders reject an envelope passed as a receipt.
 
+## Receiving-wallet preference — 2026-11-05
+
+The owner selected Trust Wallet as the preferred interface for a new receiving wallet. No real receiving address, wallet, key or signing connection has been configured. The implementation remains fixture-only.
+
+Wallet brand does not grant credit authority. An observation from a Trust Wallet data API, wallet history, notification or portfolio remains an external observation until the adapter verifies the configured chain, exact asset, destination ownership assignment, transfer event, raw amount and required finality. Deposit observation is read-only and independent of signing. Trust documents public-address balance queries and single-chain history without requiring a local signing wallet. [Address queries](https://github.com/trustwallet/tw-agent-skills/blob/main/skills/wallet/references/balance.md) · [History and hash lookup](https://github.com/trustwallet/tw-agent-skills/blob/main/skills/wallet/references/history.md)
+
+The receiving-interface choice does not change token identity. A BSC Binance-Peg representation and a Binance exchange receiving account are separate concepts; the exact asset registry below remains required. TRON wallet support likewise does not establish a particular SDK's TRON signing, testnet or automation capabilities. The [custody decision](./custody-decision.md) records the current Trust Wallet capability review and unresolved payout-recovery requirements.
+
 ## Required before a testnet or live integration
 
 No row below is implemented or enabled by these files. Testnet activity, real addresses, provider accounts, keys, signing, funded transactions, and any launch remain separate work under the user's approval.

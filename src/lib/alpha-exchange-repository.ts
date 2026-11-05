@@ -21,6 +21,8 @@ import { decodeWiseStorage, serializeWiseStorageJson, WiseStorageError } from "@
 import { assertSimulationRuntime } from "@/lib/alpha-wallet/runtime";
 import { parseUnits as parseInitialAcceptanceUnits } from "@/lib/alpha-wallet/amounts";
 import { describeDevelopmentTradeTerms } from "@/lib/alpha-wallet/accepted-terms";
+import { planDevelopmentPrepaymentCancellation, type DevelopmentPrepaymentCancellationDecision,
+  type DevelopmentPrepaymentCancellationMarketplace, type DevelopmentPrepaymentCancellationResult } from "@/lib/alpha-wallet/prepayment-cancellation";
 import { isDemandReservedTrade } from "@/lib/usdt-demand-policy";
 import { hasSellerOperationalAccess } from "@/lib/seller-approval-verification";
 import type {
@@ -3187,6 +3189,264 @@ export async function withDevelopmentInitialAcceptanceInTransaction<T>(
     initialAcceptanceCheck(!used || accepted !== undefined, "callback must await its complete canonical acceptance");
     await requireUnactivatedInitialAcceptance(scoped); await context();
     assertInitialParticipantBasis(basis, await readInitialAcceptance(scoped, requestId), accepted);
+    return result;
+  } catch (error) { await abort(); throw error; }
+  finally { active = false; }
+}
+
+export type { DevelopmentPrepaymentCancellationDecision, DevelopmentPrepaymentCancellationMarketplace, DevelopmentPrepaymentCancellationResult };
+
+export type DevelopmentPrepaymentCancellationParticipant = Readonly<{
+  marketplace: DevelopmentPrepaymentCancellationMarketplace;
+  /** Mechanical canonical transition only; the caller owns authentication and financial authority. */
+  cancel(decision: DevelopmentPrepaymentCancellationDecision): Promise<DevelopmentPrepaymentCancellationResult>;
+}>;
+
+type PrepaymentCancellationRead = {
+  canonical: InitialAcceptanceRead;
+  events: Record<"notifications" | "audits", InitialAcceptanceRow[]>;
+  runtime: { version: string; updated_at: string };
+  marketplace: DevelopmentPrepaymentCancellationMarketplace;
+};
+
+function prepaymentCancellationCheck(condition: unknown, message: string): asserts condition {
+  if (!condition) throw new Error(`Prepayment cancellation ${message}.`);
+}
+
+async function requireUncoordinatedPrepaymentCancellation(tx: RepositorySql) {
+  const result = await tx.query<{ present: boolean }>(`SELECT
+    to_regnamespace('alpha_wallet_marketplace_simulation') IS NOT NULL
+    OR to_regnamespace('alpha_wallet_initial_marketplace_simulation') IS NOT NULL AS present
+    /* prepayment cancellation: refuse frozen coordinated cohorts */`);
+  prepaymentCancellationCheck(result.rows.length === 1 && result.rows[0].present === false,
+    "groundwork cannot run inside an existing coordinated or recovered marketplace cohort");
+}
+
+/** Reuse the lossless current-schema reader without weakening the frozen acceptance contract. */
+async function readPrepaymentCancellation(tx: RepositorySql, requestId: string): Promise<PrepaymentCancellationRead> {
+  const canonical = await readInitialAcceptance(tx, requestId);
+  const { request } = canonical;
+  const selected = await tx.query<{ payload_text: string }>(`
+    /* prepayment cancellation: authoritative event read */
+    WITH notifications AS MATERIALIZED (
+      SELECT n.* FROM alpha_exchange.notifications n
+      WHERE n.user_id IN ($2,$3) OR n.payload->>'userId' IN ($2,$3)
+        OR n.payload->>'relatedRequestId'=$1 OR n.payload->>'relatedTradeId'=$4
+        OR n.payload->>'relatedListingId'=$5 ORDER BY n.sort_index,n.id
+    ), audits AS MATERIALIZED (
+      SELECT a.* FROM alpha_exchange.audit_logs a
+      WHERE a.purchase_request_id=$1 OR a.payload->>'purchaseRequestId'=$1
+        OR a.listing_id=$5 OR a.payload->>'listingId'=$5 ORDER BY a.sort_index,a.id
+    ) SELECT jsonb_build_object(
+      'notifications',(SELECT coalesce(jsonb_agg(to_jsonb(n)),'[]'::jsonb) FROM notifications n),
+      'audits',(SELECT coalesce(jsonb_agg(to_jsonb(a)),'[]'::jsonb) FROM audits a),
+      'runtime',(SELECT jsonb_build_object('version',version::text,'updated_at',updated_at::text)
+        FROM alpha_exchange.runtime_meta WHERE singleton=true)
+    )::text AS payload_text`, [request.id, request.buyerId, request.sellerId, request.tradeId, request.listingId]);
+  const text = selected.rows[0]?.payload_text;
+  prepaymentCancellationCheck(selected.rows.length === 1 && typeof text === "string" && Buffer.byteLength(text, "utf8") <= 8 * 1024 * 1024,
+    "event read exceeds its bounded development scope");
+  const parsed = JSON.parse(text) as PrepaymentCancellationRead["events"] & { runtime: PrepaymentCancellationRead["runtime"] };
+  prepaymentCancellationCheck((await tx.query<{ exact: boolean }>(
+    "SELECT $1::jsonb=$2::jsonb AS exact /* prepayment cancellation: lossless event JSON */", [text, JSON.stringify(parsed)])).rows[0]?.exact === true,
+  "event JSON cannot be represented without losing precision");
+  const events = { notifications: parsed.notifications, audits: parsed.audits };
+  prepaymentCancellationCheck(parsed.runtime && typeof parsed.runtime.version === "string" && /^[0-9]+$/.test(parsed.runtime.version)
+    && typeof parsed.runtime.updated_at === "string" && Number.isFinite(Date.parse(parsed.runtime.updated_at)), "runtime fence is invalid");
+  let total = Object.values(canonical.rows).reduce((sum, rows) => sum + rows.length, 0);
+  const scalar = (row: InitialAcceptanceRow, column: string, field: string, optional = false) => {
+    const value = row.payload[field];
+    prepaymentCancellationCheck((optional && row[column] === null && value === undefined)
+      || (typeof value === "string" && value.length > 0 && row[column] === value), "normalized event identity differs from its payload");
+  };
+  for (const [name, rows] of Object.entries(events)) {
+    prepaymentCancellationCheck(Array.isArray(rows) && (total += rows.length) <= 10000, "event read exceeds its row limit");
+    const seen = new Set<string>();
+    for (const row of rows) {
+      prepaymentCancellationCheck(row && typeof row === "object" && row.payload && typeof row.payload === "object"
+        && !Array.isArray(row.payload) && initialAcceptanceId(row.id) && !seen.has(row.id) && Number.isSafeInteger(row.sort_index),
+      "event identity or ordering is invalid");
+      seen.add(row.id); scalar(row, "id", "id");
+      const normalized = row.created_at, value = row.payload.createdAt;
+      const submillisecond = typeof normalized === "string" ? /\.\d{3}(\d+)/.exec(normalized)?.[1] : undefined;
+      prepaymentCancellationCheck(typeof value === "string" && Number.isFinite(Date.parse(value)) && new Date(value).toISOString() === value
+        && typeof normalized === "string" && (!submillisecond || !/[1-9]/.test(submillisecond))
+        && Date.parse(normalized) === Date.parse(value), "normalized event timestamp differs from its payload");
+      if (name === "notifications") {
+        scalar(row, "user_id", "userId"); scalar(row, "category", "category");
+        prepaymentCancellationCheck(typeof row.is_read === "boolean" && row.is_read === row.payload.isRead,
+          "normalized notification read state differs from its payload");
+      } else {
+        scalar(row, "action", "action"); scalar(row, "actor_user_id", "actorUserId");
+        scalar(row, "target_user_id", "targetUserId", true); scalar(row, "listing_id", "listingId", true);
+        scalar(row, "purchase_request_id", "purchaseRequestId", true);
+      }
+    }
+  }
+  const expectedTrade = getTable("trades").values({ ...emptySnapshotCollections(), purchaseRequests: [request] })[0];
+  prepaymentCancellationCheck(canonical.rows.trades.length === 1 && canonical.rows.trades[0].id === request.tradeId
+    && isDeepStrictEqual(canonical.rows.trades[0].payload, JSON.parse(json(expectedTrade))),
+  "requires an exact existing canonical trade projection");
+  return { canonical, events, runtime: parsed.runtime,
+    marketplace: { ...canonical.marketplace, notifications: events.notifications.map(row => row.payload as unknown as AlphaExchangeNotification) } };
+}
+
+function assertPrepaymentCancellationBasis(
+  before: PrepaymentCancellationRead, after: PrepaymentCancellationRead, cancelled?: DevelopmentPrepaymentCancellationResult,
+) {
+  if (!cancelled) {
+    prepaymentCancellationCheck(isDeepStrictEqual(before, after), "canonical decision basis changed inside its transaction");
+    return;
+  }
+  const omit = (row: Record<string, unknown>, keys: string[]) => Object.fromEntries(Object.entries(row).filter(([key]) => !keys.includes(key)));
+  for (const name of ["users", "commissions", "enforcements", "evidence", "disputes"] as const) {
+    prepaymentCancellationCheck(isDeepStrictEqual(before.canonical.rows[name], after.canonical.rows[name]), "a canonical dependency changed after cancellation");
+  }
+  for (const name of ["requests", "listings", "trades"] as const) {
+    const target = name === "requests" ? cancelled.request : name === "listings" ? cancelled.listing : cancelled.trade;
+    const mutable = name === "listings" ? ["status", "active_trade_request_id", "updated_at", "payload"] : ["status", "updated_at", "payload"];
+    const previous = before.canonical.rows[name], current = after.canonical.rows[name];
+    prepaymentCancellationCheck(previous.length === current.length, "canonical inventory changed after cancellation");
+    for (let index = 0; index < previous.length; index++) {
+      const old = previous[index], next = current[index];
+      prepaymentCancellationCheck(old.id === next.id, "canonical inventory ordering changed after cancellation");
+      prepaymentCancellationCheck(old.id === target.id
+        ? isDeepStrictEqual(omit(old, mutable), omit(next, mutable)) && isDeepStrictEqual(next.payload, JSON.parse(json(target)))
+        : isDeepStrictEqual(old, next), "canonical projection differs from the exact cancellation effects");
+    }
+  }
+  for (const name of ["notifications", "audits"] as const) {
+    const additions = name === "notifications" ? cancelled.notifications : cancelled.auditLogs;
+    const updates = name === "notifications" ? cancelled.notificationUpdates : [];
+    const previous = before.events[name], current = after.events[name];
+    prepaymentCancellationCheck(current.length === previous.length + additions.length, "canonical event inventory changed after cancellation");
+    for (const old of previous) {
+      const next = current.find(row => row.id === old.id), update = updates.find(row => row.id === old.id);
+      prepaymentCancellationCheck(next && (update
+        ? isDeepStrictEqual(omit(old, ["is_read", "payload"]), omit(next, ["is_read", "payload"]))
+          && isDeepStrictEqual(next.payload, JSON.parse(json(update)))
+        : isDeepStrictEqual(old, next)), "a retained notification or audit changed outside cancellation effects");
+    }
+    for (const [index, addition] of additions.entries()) {
+      const next = current.find(row => row.id === addition.id);
+      prepaymentCancellationCheck(!previous.some(row => row.id === addition.id) && next && next.sort_index === index
+        && isDeepStrictEqual(next.payload, JSON.parse(json(addition))), "a cancellation event was replaced, removed or changed");
+    }
+  }
+  const runtimeSubmillisecond = /\.\d{3}(\d+)/.exec(after.runtime.updated_at)?.[1];
+  prepaymentCancellationCheck(after.runtime.version === (BigInt(before.runtime.version) + BigInt(1)).toString()
+    && (!runtimeSubmillisecond || !/[1-9]/.test(runtimeSubmillisecond))
+    && Date.parse(after.runtime.updated_at) === Date.parse(cancelled.request.updatedAt), "runtime fence changed outside cancellation effects");
+}
+
+async function persistPrepaymentCancellation(tx: RepositorySql, result: DevelopmentPrepaymentCancellationResult) {
+  const { request, listing, trade } = result;
+  const changedRequest = await tx.query<{ id: string }>(`UPDATE alpha_exchange.purchase_requests SET status='cancelled',
+    updated_at=$3::timestamptz,payload=$4::jsonb WHERE id=$1 AND trade_id=$2 AND status='accepted' RETURNING id
+    /* prepayment cancellation: request persistence */`, [request.id, trade.id, request.updatedAt, json(request)]);
+  prepaymentCancellationCheck(changedRequest.rows.length === 1 && changedRequest.rows[0].id === request.id, "target update did not affect exactly one accepted request");
+  const changedTrade = await tx.query<{ id: string }>(`UPDATE alpha_exchange.trades SET status='cancelled',
+    updated_at=$3::timestamptz,payload=$4::jsonb WHERE id=$1 AND purchase_request_id=$2 AND status='accepted' RETURNING id
+    /* prepayment cancellation: trade persistence */`, [trade.id, request.id, trade.updatedAt, json(trade)]);
+  prepaymentCancellationCheck(changedTrade.rows.length === 1 && changedTrade.rows[0].id === trade.id, "projection update did not affect exactly one accepted trade");
+  const changedListing = await tx.query<{ id: string }>(`UPDATE alpha_exchange.listings SET status='active',active_trade_request_id=NULL,
+    updated_at=$3::timestamptz,payload=$4::jsonb WHERE id=$1 AND active_trade_request_id=$2 AND status='matched' RETURNING id
+    /* prepayment cancellation: listing persistence */`, [listing.id, request.id, listing.updatedAt, json(listing)]);
+  prepaymentCancellationCheck(changedListing.rows.length === 1 && changedListing.rows[0].id === listing.id, "listing update did not affect exactly one representative lock");
+  for (const notification of result.notificationUpdates) {
+    const changed = await tx.query<{ id: string }>(`UPDATE alpha_exchange.notifications SET is_read=true,payload=$3::jsonb
+      WHERE id=$1 AND user_id=$2 RETURNING id /* prepayment cancellation: reminder archive */`,
+    [notification.id, notification.userId, json(notification)]);
+    prepaymentCancellationCheck(changed.rows.length === 1 && changed.rows[0].id === notification.id, "reminder archive did not affect exactly one retained notification");
+  }
+  const events = { ...emptySnapshotCollections(), notifications: result.notifications, auditLogs: result.auditLogs };
+  for (const name of ["notifications", "audit_logs"] as const) {
+    const table = getTable(name);
+    await table.insert(tx, table.values(events), { evidenceContentById: new Map(), appendOnlyEvents: true });
+  }
+  await tx.query("UPDATE alpha_exchange.runtime_meta SET version=version+1,updated_at=$1::timestamptz WHERE singleton=true", [request.updatedAt]);
+}
+
+/**
+ * Uncoordinated development groundwork, not an authenticated wallet operation.
+ * Existing coordinator namespaces are refused; no frozen initial profile or
+ * guard is changed. The owner supplies the one SERIALIZABLE transaction, any
+ * independently authorized companion operation, retries and COMMIT. A future
+ * version needs stored authentication, mapping/receipt and recovery contracts
+ * before using these canonical effects for a real wallet principal return.
+ */
+export async function withDevelopmentPrepaymentCancellationInTransaction<T>(
+  options: { mode: "simulation-only"; tx: RepositorySql; requestId: string },
+  work: (participant: DevelopmentPrepaymentCancellationParticipant) => Promise<T>,
+): Promise<T> {
+  const { mode, tx, requestId } = options;
+  assertSimulationRuntime(mode);
+  let active = true, certified = false, used = false;
+  let transactionId: string | undefined;
+  let cancelled: DevelopmentPrepaymentCancellationResult | undefined;
+  const context = async () => {
+    assertSimulationRuntime(mode);
+    prepaymentCancellationCheck(active, "participant is no longer active");
+    const result = await tx.query<{ transaction_id: string; isolation: string; read_only: string; development_mode: string | null }>(
+      `SELECT txid_current()::text AS transaction_id,current_setting('transaction_isolation') AS isolation,
+        current_setting('transaction_read_only') AS read_only,current_setting('alpha_wallet.development_schema',true) AS development_mode`);
+    assertSimulationRuntime(mode);
+    const row = result.rows[0];
+    prepaymentCancellationCheck(result.rows.length === 1 && typeof row?.transaction_id === "string" && /^[1-9][0-9]*$/.test(row.transaction_id)
+      && row.isolation === "serializable" && row.read_only === "off" && row.development_mode === mode
+      && (transactionId === undefined || transactionId === row.transaction_id), "requires its original writable SERIALIZABLE simulation transaction");
+    return row.transaction_id;
+  };
+  const abort = async () => {
+    if (!certified) return;
+    try {
+      // No runtime check here: a caller restoring a changed runtime must not
+      // rescue a failed companion write. Never poison a replacement transaction.
+      const result = await tx.query<{ transaction_id: string }>("SELECT txid_current()::text AS transaction_id");
+      if (result.rows.length === 1 && result.rows[0].transaction_id === transactionId) {
+        await tx.query("SELECT 1 / 0 /* abort failed prepayment cancellation participant */");
+      }
+    } catch { /* Preserve the initiating error; the original transaction is aborted or unavailable. */ }
+  };
+  const scoped: RepositorySql = { async query<Row extends Record<string, unknown>>(sql: string, values?: unknown[]) {
+    await context(); const result = await tx.query<Row>(sql, values); await context(); return result;
+  } };
+  try {
+    transactionId = await context(); await context(); certified = true;
+    prepaymentCancellationCheck(initialAcceptanceId(requestId), "requires an exact canonical request identity");
+    await requireUncoordinatedPrepaymentCancellation(scoped);
+    await scoped.query("SELECT pg_advisory_xact_lock(61422919,hashtext($1))", [requestId]);
+    await scoped.query("SELECT pg_advisory_xact_lock(61422917)");
+    const fence = await scoped.query<{ version: string }>("SELECT version::text AS version FROM alpha_exchange.runtime_meta WHERE singleton=true FOR UPDATE");
+    prepaymentCancellationCheck(fence.rows.length === 1 && /^[0-9]+$/.test(fence.rows[0].version), "runtime fence is missing or invalid");
+    await scoped.query(`SELECT l.id FROM alpha_exchange.listings l JOIN alpha_exchange.purchase_requests r ON r.listing_id=l.id
+      WHERE r.id=$1 ORDER BY l.id FOR UPDATE OF l /* prepayment cancellation: listing fence */`, [requestId]);
+    const basis = await readPrepaymentCancellation(scoped, requestId);
+    prepaymentCancellationCheck(basis.canonical.request.status === "accepted", "requires an accepted unpaid request; no idempotent receipt is inferred");
+    const participant: DevelopmentPrepaymentCancellationParticipant = Object.freeze({
+      marketplace: structuredClone(basis.marketplace),
+      async cancel(raw: DevelopmentPrepaymentCancellationDecision) {
+        try {
+          prepaymentCancellationCheck(!used, "participant permits one cancellation only"); used = true;
+          // Capture inside the certified failure boundary, synchronously before
+          // the first await, including rejection of non-cloneable decisions.
+          const decision = structuredClone(raw);
+          await context(); await requireUncoordinatedPrepaymentCancellation(scoped);
+          assertPrepaymentCancellationBasis(basis, await readPrepaymentCancellation(scoped, requestId));
+          prepaymentCancellationCheck(decision.requestId === requestId, "decision must identify its retained target request");
+          const next = planDevelopmentPrepaymentCancellation(basis.marketplace, decision);
+          await persistPrepaymentCancellation(scoped, next);
+          await requireUncoordinatedPrepaymentCancellation(scoped); await context();
+          assertPrepaymentCancellationBasis(basis, await readPrepaymentCancellation(scoped, requestId), next);
+          cancelled = structuredClone(next);
+          return structuredClone(next);
+        } catch (error) { await abort(); throw error; }
+      },
+    });
+    const result = await work(participant);
+    prepaymentCancellationCheck(!used || cancelled !== undefined, "callback must await its complete canonical cancellation");
+    await requireUncoordinatedPrepaymentCancellation(scoped); await context();
+    assertPrepaymentCancellationBasis(basis, await readPrepaymentCancellation(scoped, requestId), cancelled);
     return result;
   } catch (error) { await abort(); throw error; }
   finally { active = false; }

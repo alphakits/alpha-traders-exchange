@@ -2,6 +2,8 @@
 
 Date: 5 November 2026 (Asia/Jerusalem). Decision: **not ready to accept live funds or deploy**.
 
+**New groundwork under verification:** the [V4/canonical prepayment cancellation contract](prepayment-cancellation-design.md) preserves the old engines, returns exact reserved principal to its original listing, adds isolated V4 recovery and implements canonical cancellation mechanics. It does not activate cancellation in either existing coordinator. The owner selected Trust Wallet as the preferred receiving interface; no real wallet/address/key or payout signer has been connected. Remaining capability evidence is recorded in [custody-decision.md](custody-decision.md).
+
 **Development resumed at the user's explicit request on 5 November 2026.** The [saved pause checkpoint](PAUSED-2026-11-05.md) and [earlier checkpoint](PAUSED-2026-11-04.md) remain historical. Continued development does not authorize a live launch.
 
 The user authorized continued development, isolated testing and saving the wallet development branch. Live launch remains withheld. A passing development suite does not change that instruction.

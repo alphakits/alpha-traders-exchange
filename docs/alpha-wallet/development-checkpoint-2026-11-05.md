@@ -2,6 +2,14 @@
 
 Updated: **5 November 2026, Asia/Jerusalem**, after the initial combined recovery gate passed.
 
+## Active follow-on work
+
+The owner's follow-up selects Trust Wallet as the receiving-wallet preference and asks development to continue without requiring them to choose routine technical details. [Custody direction](custody-decision.md) now records that choice and current official automation capabilities. No actual wallet, key, signer, account or receiving address has been created.
+
+The [prepayment cancellation groundwork](prepayment-cancellation-design.md) is implemented and undergoing its own exact-source verification: frozen V3 evidence; strict V4 continuation/cancellation/pause; exact principal return and immutable receipt; guarded isolated SQL/storage/backup; and a separate canonical transaction participant preserving ordinary cancellation policy. **The existing initial coordinator/profile and its recovery format remain unchanged.** They still refuse cancellation and V4 standalone access. The next integration must add a successor authenticated coordinator, its writer fences and complete combined recovery; do not bypass the original guards or present synthetic companion-pause evidence as financial integration.
+
+The prior verified source and evidence below remain the baseline until that new gate is recorded.
+
 ## Authorization and saved source
 
 The user explicitly resumed development with: “continue working on alpha wallet till 100% ready lets goo”. Continued implementation, isolated testing and saving the wallet development branch remain authorized. This does not authorize a main merge, production deployment/migration, mainnet funding/signing or a real transfer. Do not send external messages or select/create a custody account on the user's behalf without the corresponding instruction.

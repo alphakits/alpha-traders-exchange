@@ -450,3 +450,20 @@ NODE_ENV=test node --import tsx scripts/alpha-wallet/postgres-backup.ts \
 Those credentials are disposable fixture values. Both database names must start with `alpha_wallet_dev_`, and routing is restricted to exact loopback addresses. A nonempty source or target is refused without dropping data.
 
 The fixture exports a 500-USDT history containing an uncertain 200-USDT withdrawal. It rejects a recomputed-but-inconsistent backup before touching the target, injects an actual SQL error at the quarantine insert and verifies complete rollback, then restores successfully. A new connection verifies the original history and the pause, conservation as 300 available plus 200 held, and original-reference lookup with zero provider submissions. The provider in this harness is an explicit no-network stub; other tests exercise file-provider persistence. Running this script is a separate acceptance gate: record its actual result and source commit rather than inferring a native pass from PGlite tests.
+
+## Isolated V4 cancellation recovery
+
+The [prepayment cancellation groundwork](prepayment-cancellation-design.md) adds a separate format-4 `isolated-v4-ledger` backup. It does not upgrade or recover either activated canonical cohort. An existing correction or initial namespace continues to require its own unchanged combined recovery path above.
+
+The V4 APIs are `exportV4WalletBackup`, `inspectV4WalletBackup`, and `restoreV4WalletBackup` in `src/lib/alpha-wallet/v4-backup.ts`. They require simulation mode, a paused isolated source, exact four-version replay, and a fresh isolated restore target. The envelope retains the V2, initial V3 and cancellation V4 continuations, including the original source pause reason. Original command/result/state/event hashes and initial acceptance/cancellation receipts are never regenerated under a newer reducer.
+
+1. Inspect the source through `createV4DurableWallet` and pause it with an explicit V4 operator command. There is no resume operation.
+2. Export the isolated V4 format and retain its checksum with the original artifact. The source limit leaves room for a mandatory extra quarantine command.
+3. Inspect the backup offline and compare its exact checkpoint, three continuations, initial acceptance count and cancellation count. A valid checksum is consistency evidence, not a signature or authority to transfer funds.
+4. Restore once into an explicitly fresh development target. Restore applies the original upgrades and commands in one writable SERIALIZABLE transaction, then appends one new V4 pause.
+5. If the COMMIT response is lost, inspect that same target before doing anything else. Compare the complete original prefix and the recorded quarantine checkpoint. A retry must refuse an already committed target; it must never overwrite the ledger or create a second active copy.
+6. Recover original acceptance and cancellation receipts without repeating their financial effect. Any inherited submitting, unknown or broadcast payout stays held for lookup of its original reference. A historical dispatch receipt returns `shouldDispatch: false`.
+
+The source and target remain paused. This format carries no signer, real receiving address, provider state, canonical rows or account credentials. A cancellation restores inventory to the original listing; it does not pay the buyer or create a seller withdrawal. Production recovery still needs source fencing, external reconciliation, authenticated/encrypted retention, authority re-entry and a separately reviewed resume procedure.
+
+`postgres-v4-ledger.ts` exercises native cancellation contention and competing fresh-target restores with a lost COMMIT response. `postgres-prepayment-cancellation.ts` separately exercises canonical transaction mechanics with a synthetic pause companion. Neither script is an authenticated cancellation coordinator or a live-wallet recovery drill.

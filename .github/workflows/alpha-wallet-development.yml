@@ -22,7 +22,7 @@ jobs:
     name: Wallet, recovery and browser verification with synthetic funds
     if: ${{ github.ref == 'refs/heads/feature/alpha-wallet-dev-20261104' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     defaults:
       run:
         shell: bash
@@ -151,6 +151,11 @@ jobs:
             await connection.query('CREATE DATABASE alpha_wallet_dev_initial_backup_activated');
             await connection.query('CREATE DATABASE alpha_wallet_dev_initial_backup_target');
             await connection.query('CREATE DATABASE alpha_wallet_dev_initial_backup_races');
+            await connection.query('CREATE DATABASE alpha_wallet_dev_v4_source');
+            await connection.query('CREATE DATABASE alpha_wallet_dev_v4_races');
+            await connection.query('CREATE DATABASE alpha_wallet_dev_v4_restore');
+            await connection.query('CREATE DATABASE alpha_wallet_dev_cancel_atomic');
+            await connection.query('CREATE DATABASE alpha_wallet_dev_cancel_races');
           } finally { await connection.end(); }
           NODE
 
@@ -259,6 +264,27 @@ jobs:
             --race-connection-string 'postgresql://wallet_fixture:simulation-only@127.0.0.1:5432/alpha_wallet_dev_initial_backup_races' \
             2>test-results/alpha-wallet/postgres-initial-marketplace-backup.stderr.log \
             | tee test-results/alpha-wallet/postgres-initial-marketplace-backup.json
+
+      - name: Verify isolated V4 cancellation, original receipts and competing paused restores
+        run: |
+          set -euo pipefail
+          node --conditions=react-server --import tsx scripts/alpha-wallet/postgres-v4-ledger.ts \
+            --fresh-simulation-databases \
+            --source-connection-string 'postgresql://wallet_fixture:simulation-only@127.0.0.1:5432/alpha_wallet_dev_v4_source' \
+            --race-connection-string 'postgresql://wallet_fixture:simulation-only@127.0.0.1:5432/alpha_wallet_dev_v4_races' \
+            --target-connection-string 'postgresql://wallet_fixture:simulation-only@127.0.0.1:5432/alpha_wallet_dev_v4_restore' \
+            2>test-results/alpha-wallet/postgres-v4-ledger.stderr.log \
+            | tee test-results/alpha-wallet/postgres-v4-ledger.json
+
+      - name: Verify canonical prepayment cancellation transaction mechanics
+        run: |
+          set -euo pipefail
+          node --conditions=react-server --import tsx scripts/alpha-wallet/postgres-prepayment-cancellation.ts \
+            --fresh-simulation-databases \
+            --atomic-connection-string 'postgresql://wallet_fixture:simulation-only@127.0.0.1:5432/alpha_wallet_dev_cancel_atomic' \
+            --race-connection-string 'postgresql://wallet_fixture:simulation-only@127.0.0.1:5432/alpha_wallet_dev_cancel_races' \
+            2>test-results/alpha-wallet/postgres-prepayment-cancellation.stderr.log \
+            | tee test-results/alpha-wallet/postgres-prepayment-cancellation.json
 
       - name: Install the locked Playwright Chromium browser
         run: node ./node_modules/playwright/cli.js install --with-deps chromium
