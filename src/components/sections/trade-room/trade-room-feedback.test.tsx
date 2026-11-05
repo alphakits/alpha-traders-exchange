@@ -1007,7 +1007,7 @@ it.each([
   expect((screen.getByRole("button", { name: "Adjust Amount" }) as HTMLButtonElement).disabled).toBe(true);
 });
 
-it("proposes a new cardless cash amount once and keeps the old total until buyer approval", async () => {
+it("proposes a new cardless cash amount once and shows the pending total while preserving current terms", async () => {
   const base = room("Cardless ATM Withdrawal", "pending");
   const current = { ...base, request: { ...base.request, usdtAmount: "125", fiatAmount: "400.00", pricePerUsdt: "3.20" } };
   const response = deferredResponse();
@@ -1023,7 +1023,14 @@ it("proposes a new cardless cash amount once and keeps the old total until buyer
   expect(patches).toHaveLength(1);
   expect(JSON.parse(String(patches[0][1]?.body))).toMatchObject({ action: "propose_ils_amount", value: "200" });
   await act(async () => response.resolve(Response.json({ request: { ...current.request, termsProposal: { id: "new-cash", kind: "amount_correction", status: "pending", usdtAmount: "62.5", fiatAmount: "200.00", pricePerUsdt: "3.20", createdAt: current.request.updatedAt } } })));
-  expect(screen.getByTestId("inclusive-payment-total").textContent).toContain("400.00");
+  const paymentTotal = screen.getByTestId("inclusive-payment-total").textContent;
+  expect(paymentTotal).toContain("Proposed total — awaiting buyer approval");
+  expect(paymentTotal).toContain("ILS 200.00");
+  expect(paymentTotal).toContain("Wait for buyer approval before payment, sharing a withdrawal code, or sending USDT.");
+  const terms = screen.getByRole("region", { name: "Trade terms" }).textContent;
+  expect(terms).toContain("Current → Proposed");
+  expect(terms).toContain("125 → 62.5 USDT");
+  expect(terms).toContain("ILS 400.00 → ILS 200.00");
   expect(await screen.findByRole("button", { name: "Withdraw proposal" })).toBeTruthy();
 });
 

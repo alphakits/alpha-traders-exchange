@@ -353,7 +353,7 @@ test("a seller counters 3.20 to 3.40, all ILS totals update, and wallet sharing 
     // from this seller's new document for every affected endpoint.
     await browserErrorAudit.navigate(sellerPage, () => sellerPage.reload(), sellerNavigationFeeds(baseURL!,
       setup.users.find(user => user.email === OFFLINE_ACCOUNTS.seller.email)!.id,
-      [{ id: purchase.id, status: "accepted", perspective: "seller", usdtAmount: "1000", fiatAmount: "3232.00" }],
+      [{ id: purchase.id, status: "accepted", perspective: "seller", usdtAmount: "1000", fiatAmount: "3434.00" }],
     ));
     await expect(sellerPage.getByTestId("trade-chat-messages")).toContainText(wallet);
   } finally { await Promise.all([buyer.close(), seller.close()]); }
