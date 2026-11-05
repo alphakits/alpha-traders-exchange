@@ -2,6 +2,8 @@
 
 Date: 5 November 2026 (Asia/Jerusalem). Scope: the existing private **simulation-only canonical wallet cohort**. This change introduces no production route, mobile release, account signup, provider, signer, external notification or deployment.
 
+**Verified source: `47f0fc18`.** The [exact-source report](marketplace-mobile-verification-2026-11-05.md) records 1,203 passing tests, including 1,016 wallet tests across 32 files, full-project TypeScript, seven native PostgreSQL drills with 66 checks and the retained English/Arabic Chromium rehearsal. The mobile addition contributes 122 test cases and 12 native checks; all earlier native drills were rerun on the same source. The [historical recovery baseline at `09405da`](marketplace-recovery-verification-2026-11-05.md) remains separately recorded. These results cover the private development cohort and do not establish live-launch readiness.
+
 ## Purpose and public development contract
 
 The private web coordinator already resolves the actual session and account inside its financial transaction. The earlier standalone mobile wallet resolver validates and rereads the bearer/device session through separate application stores. Those rereads do not place token/account revocation in the same transaction as canonical marketplace and wallet writes.
@@ -88,4 +90,4 @@ The added suites exercise the fixed mobile reader, shared web account-policy com
 
 Its mobile-session fixtures use the retained real table shape and the current hashing, token replacement/rotation and global-lock SQL contracts. Native checks observe actual backend identities and row/advisory waits. Token issuance/rotation fixtures do not contact the production mobile service. The lost-response case injects a missing reply after a real COMMIT; it is not a physical network partition.
 
-Executed results must identify the exact tested source. Existing browser checks cover the standalone synthetic English/Arabic rehearsal; this change adds no customer-facing mobile wallet screen. Later route integration must retain the platform's network, version, rate-limit, privacy and account gates. This private reader does not retrofit those routes or establish production capacity, independent security review or live-launch readiness.
+The [verification report](marketplace-mobile-verification-2026-11-05.md) identifies the exact tested source, complete CI results and verified artifact digest. Existing browser checks cover the standalone synthetic English/Arabic rehearsal; this change adds no customer-facing mobile wallet screen. Later route integration must retain the platform's network, version, rate-limit, privacy and account gates. This private reader does not retrofit those routes or establish production capacity, independent security review or live-launch readiness.

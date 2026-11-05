@@ -2,7 +2,7 @@
 
 Date: 5 November 2026 (Asia/Jerusalem). Scope: the private **simulation-only canonical cohort**. No live launch, production migration, provider, signer, account signup or external delivery is authorized by this implementation.
 
-**New mobile compatibility awaiting exact-source verification:** the current implementation adds `exportMobileMarketplaceWalletBackup`, accepts the exact optional mobile authentication table pair on a source, and extends restored-target credential quarantine. The [mobile authority contract](marketplace-mobile-auth-design.md) defines that addition. The verified `09405da` recovery baseline recorded below predates it; the financial format and original web export API remain unchanged.
+**Mobile compatibility verified at `47f0fc18`.** The implementation adds `exportMobileMarketplaceWalletBackup`, accepts the exact optional mobile authentication table pair on a source, and extends restored-target credential quarantine. The [mobile authority contract](marketplace-mobile-auth-design.md) defines that addition; [exact-source verification](marketplace-mobile-verification-2026-11-05.md) records its executed evidence. The historical `09405da` recovery baseline below predates it; the financial format and original web export API remain unchanged.
 
 ## Recovery unit and supported state
 
@@ -115,9 +115,9 @@ The existing standalone CLI remains v1-only. It is not automatically extended by
 
 ## Verification and remaining work
 
-[Exact-source verification at `09405da`](marketplace-recovery-verification-2026-11-05.md) passed 1,081 tests, full-project TypeScript, six native PostgreSQL drills with 54 checks and the existing Chromium rehearsal. The recovery addition accounts for 83 test cases and 11 native checks.
+[Historical recovery verification at `09405da`](marketplace-recovery-verification-2026-11-05.md) passed 1,081 tests, full-project TypeScript, six native PostgreSQL drills with 54 checks and the existing Chromium rehearsal. That recovery addition accounts for 83 test cases and 11 native checks.
 
-Those executed results cover the earlier web-authenticated recovery implementation. The new mobile export, optional source-table validation and deferred restored-target quarantine await their own complete exact-source verification. The [mobile design](marketplace-mobile-auth-design.md) and [native mobile drill](../../scripts/alpha-wallet/postgres-marketplace-mobile.ts) describe the additional contract; their presence is not an execution claim.
+The [current exact-source verification at `47f0fc18`](marketplace-mobile-verification-2026-11-05.md) covers the mobile export, optional source-table validation and deferred restored-target quarantine alongside the retained web implementation: 1,203 tests, including 1,016 wallet tests, full-project TypeScript, seven native PostgreSQL drills/66 checks and the existing Chromium rehearsal. The [native mobile drill](../../scripts/alpha-wallet/postgres-marketplace-mobile.ts) passed all 12 added native checks. Its fixtures do not call the production mobile service; browser evidence remains the standalone rehearsal.
 
 The implementation has pure manifest tests, real local database fault/reopen tests, and a separately executable native PostgreSQL drill at [postgres-marketplace-backup.ts](../../scripts/alpha-wallet/postgres-marketplace-backup.ts). The native harness requires three pre-created, empty, explicitly named loopback development databases and checks all three before writing to any. It covers late SQL failures, real commit with a synthetic lost response, unchanged canonical/ledger records, credential and writer refusals, and competing restores.
 
