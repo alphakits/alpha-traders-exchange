@@ -9,7 +9,7 @@ import type {
   MobileTradeMessage,
   MobileTradeSummary,
 } from "@alpha-traders/contracts";
-import { getTradeAmountAdjustmentCount, isNegotiatingQuantityFixed, isTradeChatOpen, localizeCardlessWithdrawalMessage, tradeChatStatus } from "@alpha-traders/contracts";
+import { canonicalizeNonNegativeTradeAmount, getTradeAmountAdjustmentCount, isNegotiatingQuantityFixed, isTradeChatOpen, localizeCardlessWithdrawalMessage, tradeChatStatus } from "@alpha-traders/contracts";
 import { tradeChatPublicId, tradeChatSender, type TradeChatContext } from "@/lib/trade-chat-presentation";
 import type { TradeRoomData } from "@/lib/alpha-exchange-store";
 import { DIRECT_CONTACT_CONTENT_ERROR } from "@/lib/privacy-redaction";
@@ -33,6 +33,7 @@ export function toMobileTradeSummary(request: PurchaseRequest, userId: string): 
   const pricePerUsdt = request.pricePerUsdt || request.listingPriceAtRequest || "0";
   return {
     feePolicyVersion: request.feePolicyVersion,
+    commissionCalculationVersion: request.commissionCalculationVersion,
     amountAdjustmentCount: getTradeAmountAdjustmentCount(request),
     counterPrices: request.counterPrices,
     termsProposal: request.termsProposal,
@@ -169,6 +170,10 @@ export function toMobileTradeDetail(
   const request = room.request;
   const side = request.buyerId === userId ? "buyer" : "seller";
   const isBuyer = side === "buyer";
+  const availableAmount = canonicalizeNonNegativeTradeAmount(room.listing?.availableAmount);
+  const maximumTrade = canonicalizeNonNegativeTradeAmount(room.listing?.maximumTrade || room.listing?.availableAmount);
+  const liveMaximumCounterUsdt = availableAmount !== null && maximumTrade !== null
+    ? String(Math.min(Number(availableAmount), Number(maximumTrade))) : undefined;
   const buyerReview = request.buyerReview
     ? {
         rating: request.buyerReview.rating,
@@ -193,6 +198,7 @@ export function toMobileTradeDetail(
     chatOpen: isTradeChatOpen(request),
     quantityFixed: isNegotiatingQuantityFixed(request),
     liveListingPrice: room.listing?.price,
+    liveMaximumCounterUsdt,
     receivingWalletAddress: canExposeBuyerWalletToMobileParticipant(request, userId)
       ? request.buyerReceivingWalletAddress
       : undefined,

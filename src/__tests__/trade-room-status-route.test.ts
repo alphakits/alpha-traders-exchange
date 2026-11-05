@@ -9,6 +9,10 @@ const mocks = vi.hoisted(() => ({
   requireApiUser: vi.fn(),
   requireMarketplaceVerificationForTrading: vi.fn(),
   updatePurchaseRequestStatus: vi.fn(),
+  updateTradeTerms: vi.fn(),
+  TradeBlockedError: class extends Error {
+    constructor(public code: string, message: string) { super(message); }
+  },
 }));
 
 vi.mock("next/server", async (importOriginal) => ({
@@ -29,8 +33,9 @@ vi.mock("@/lib/marketplace-email-events", () => ({
 }));
 vi.mock("@/lib/alpha-exchange-store", () => ({
   sanitizePurchaseRequestForActor: (request: unknown) => request,
-  TradeBlockedError: class TradeBlockedError extends Error {},
+  TradeBlockedError: mocks.TradeBlockedError,
   updatePurchaseRequestStatus: mocks.updatePurchaseRequestStatus,
+  updateTradeTerms: mocks.updateTradeTerms,
 }));
 
 import { PATCH } from "@/app/api/alpha-exchange/purchase-requests/[requestId]/route";
@@ -170,6 +175,7 @@ describe("Trade Room status route post-commit reliability", () => {
       withdrawalCode: "482913",
       verificationKind: "id_number",
       verificationValue: "012345678",
+      ilsAmount: "1700",
       clientOperationId: "0123456789abcdef0123456789abcdef",
     }), {
       params: Promise.resolve({ requestId: "purchase-1" }),
@@ -184,8 +190,33 @@ describe("Trade Room status route post-commit reliability", () => {
       cardlessWithdrawalCode: "482913",
       cardlessVerificationKind: "id_number",
       cardlessVerificationValue: "012345678",
+      cardlessIlsAmount: "1700",
       clientOperationId: "0123456789abcdef0123456789abcdef",
     }));
+  });
+
+  it.each([undefined, "400"])("passes the seller's optional cash selection without inferring it (%s)", async cardlessCashAmount => {
+    mocks.updateTradeTerms.mockResolvedValue({ id: "purchase-1", status: "pending" });
+    const response = await PATCH(actionRequest("counter_offer", {
+      value: "3.40", expectedUpdatedAt: "2026-11-05T12:00:00.000Z", cardlessCashAmount,
+    }), { params: Promise.resolve({ requestId: "purchase-1" }) });
+    expect(response.status).toBe(200);
+    expect(mocks.updateTradeTerms).toHaveBeenCalledWith(expect.objectContaining({
+      requestId: "purchase-1", actorUserId: "seller-1", action: "counter_offer",
+      value: "3.40", cardlessCashAmount,
+    }));
+  });
+
+  it("returns a conflict when a fresh ATM code amount differs from the approved cash", async () => {
+    mocks.updatePurchaseRequestStatus.mockRejectedValueOnce(new mocks.TradeBlockedError(
+      "CARDLESS_PAYMENT_AMOUNT_MISMATCH", "The code amount must match the approved total.",
+    ));
+    const response = await PATCH(actionRequest("submit_cardless_code", {
+      withdrawalCode: "482913", verificationKind: "id_number", verificationValue: "012345678",
+      ilsAmount: "1600", clientOperationId: "0123456789abcdef0123456789abcdef",
+    }), { params: Promise.resolve({ requestId: "purchase-1" }) });
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({ code: "CARDLESS_PAYMENT_AMOUNT_MISMATCH" });
   });
 
   it("rejects unknown trade commands before calling the store", async () => {

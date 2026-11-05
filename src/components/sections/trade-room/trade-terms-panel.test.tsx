@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { TradeTermsPanel } from "./trade-terms-panel";
 import type { PurchaseRequest } from "@/types/alpha-exchange";
 
@@ -191,44 +191,60 @@ it.each(["Bank Transfer", "Face-to-Face (Meet in Person)", "Cardless ATM Withdra
   fireEvent.click(screen.getByRole("button", { name: "Make a counter-offer" }));
   fireEvent.change(screen.getByLabelText("Counter price in ILS per USDT"), { target: { value: "3.10" } });
   const preview = screen.getByTestId("trade-adjustment-preview");
-  expect(preview.textContent).toContain(cardless ? "416.546509 → 415.202811 USDT" : "420 → 420 USDT");
-  expect(preview.textContent).toContain(cardless ? "1,300.00" : "1,315.02");
+  expect(preview.textContent).toContain(cardless ? "416.546509 → 416.546509 USDT" : "420 → 420 USDT");
+  expect(preview.textContent).toContain(cardless ? "1,304.21" : "1,315.02");
   expect(preview.textContent).toContain("1% fee");
   if (cardless) {
-    expect(preview.textContent).toContain("ATM cash amount stays the same");
-    expect((screen.getByRole("button", { name: "Send counter-offer" }) as HTMLButtonElement).disabled).toBe(false);
+    expect(preview.textContent).toContain("USDT quantity stays fixed");
+    expect((screen.getByRole("button", { name: "Send counter-offer" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByRole("status").textContent).toContain("100");
   }
   fireEvent.change(screen.getByLabelText("Counter price in ILS per USDT"), { target: { value: "3.101" } });
   expect(screen.queryByTestId("trade-adjustment-preview")).toBeNull();
   expect((screen.getByRole("button", { name: "Send counter-offer" }) as HTMLButtonElement).disabled).toBe(true);
 });
 
-it.each([false, true])("submits the screenshot ATM counter without changing cash, Arabic=%s", async isAr => {
-  const request = { ...base, paymentMethod: "Cardless ATM Withdrawal", feePolicyVersion: "buyer_seller_1pct_v1" as const, usdtAmount: "92.821782", fiatAmount: "300.00", pricePerUsdt: "3.20" };
-  const proposed = { ...request, termsProposal: { id: "atm-counter", kind: "counter_offer" as const, status: "pending" as const, calculationPolicy: "cardless_fixed_cash_v1" as const, usdtAmount: "90.009001", fiatAmount: "300.00", pricePerUsdt: "3.30", createdAt: base.updatedAt } };
+it.each([false, true])("shows the exact 3.40 ATM total and requires an explicit cash choice, Arabic=%s", async isAr => {
+  const request = { ...base, paymentMethod: "Cardless ATM Withdrawal", feePolicyVersion: "buyer_seller_1pct_v1" as const, commissionCalculationVersion: "usdt_6dp_v2" as const, usdtAmount: "92.821782", fiatAmount: "300.00", pricePerUsdt: "3.20", listingPriceAtRequest: "3.40" };
+  const proposed = { ...request, termsProposal: { id: "atm-counter", kind: "counter_offer" as const, status: "pending" as const, calculationPolicy: "cardless_selected_cash_v2" as const, usdtAmount: "116.482236", fiatAmount: "400.00", pricePerUsdt: "3.40", createdAt: base.updatedAt } };
   let finish!: (response: Response) => void;
   const fetch = vi.fn(() => new Promise<Response>(resolve => { finish = resolve; }));
   vi.stubGlobal("fetch", fetch);
   const updated = vi.fn();
-  render(<TradeTermsPanel request={request} actorId="seller" isAr={isAr} onUpdated={updated} />);
+  const previewChanged = vi.fn();
+  render(<TradeTermsPanel request={request} actorId="seller" isAr={isAr} onUpdated={updated} onPreviewChange={previewChanged} />);
   const counter = screen.getByRole("button", { name: isAr ? "تقديم عرض مقابل" : "Make a counter-offer" });
   fireEvent.click(counter);
   expect(counter.getAttribute("aria-expanded")).toBe("true");
   const input = screen.getByLabelText(isAr ? "السعر المقابل بالشيكل لكل USDT" : "Counter price in ILS per USDT") as HTMLInputElement;
-  fireEvent.change(input, { target: { value: "3.30" } });
+  fireEvent.change(input, { target: { value: "3.40" } });
   const preview = screen.getByTestId("trade-adjustment-preview");
-  expect(preview.textContent).toContain("92.821782 → 90.009001 USDT");
-  expect(preview.textContent).toContain("3.20 → 3.30");
-  expect(preview.textContent).toContain("ILS 300.00 → ILS 300.00");
+  expect(preview.textContent).toContain("92.821782 → 92.821782 USDT");
+  expect(preview.textContent).toContain("3.20 → 3.40");
+  expect(preview.textContent).toContain("ILS 300.00 → ILS 318.75");
+  expect(within(preview).getByTestId("trade-subtotal").textContent).toContain("315.59");
+  expect(within(preview).getByTestId("trade-buyer-fee").textContent).toContain("3.16");
+  expect(within(preview).getByTestId("trade-total-commission").textContent).toContain("1.856436 USDT");
+  expect(previewChanged).toHaveBeenLastCalledWith({ requestId: request.id, updatedAt: request.updatedAt,
+    terms: { usdtAmount: "92.821782", fiatAmount: "318.75", pricePerUsdt: "3.40" } });
   const submit = screen.getByRole("button", { name: isAr ? "إرسال عرض مقابل" : "Send counter-offer" });
+  expect((submit as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.click(submit);
+  expect(fetch).not.toHaveBeenCalled();
+  fireEvent.change(screen.getByRole("combobox", { name: isAr ? "مبلغ رمز السحب للعرض المقابل" : "ATM cash amount for counter-offer" }), { target: { value: "400" } });
+  expect(preview.textContent).toContain("92.821782 → 116.482236 USDT");
+  expect(preview.textContent).toContain("ILS 300.00 → ILS 400.00");
+  expect(within(preview).getByTestId("trade-total-commission").textContent).toContain("2.329644 USDT");
+  expect((submit as HTMLButtonElement).disabled).toBe(false);
   fireEvent.click(submit);
   fireEvent.click(submit);
   expect(input.disabled).toBe(true);
   expect(submit.getAttribute("aria-busy")).toBe("true");
   expect(fetch).toHaveBeenCalledOnce();
-  expect(JSON.parse((fetch.mock.calls[0] as unknown as [string, RequestInit])[1].body as string)).toMatchObject({ action: "counter_offer", value: "3.30", expectedUpdatedAt: request.updatedAt });
+  expect(JSON.parse((fetch.mock.calls[0] as unknown as [string, RequestInit])[1].body as string)).toMatchObject({ action: "counter_offer", value: "3.40", cardlessCashAmount: "400", expectedUpdatedAt: request.updatedAt });
   await act(async () => { finish(Response.json({ request: proposed })); });
   expect(updated).toHaveBeenCalledWith(proposed);
+  expect(previewChanged).toHaveBeenLastCalledWith(null);
   expect(screen.queryByLabelText(isAr ? "السعر المقابل بالشيكل لكل USDT" : "Counter price in ILS per USDT")).toBeNull();
 });
 
@@ -238,4 +254,54 @@ it.each(["300.00", "400.00"])("discloses the exact pending ATM cash terms (%s) b
   expect(screen.getByTestId("trade-amount-action").textContent).toContain(`ILS 300.00 → ILS ${fiatAmount}`);
   expect(screen.getByText(fiatAmount === "300.00" ? /ATM cash amount stays the same/ : /new withdrawal code must match/)).toBeTruthy();
   expect((screen.getByRole("button", { name: "Accept these terms" }) as HTMLButtonElement).disabled).toBe(false);
+});
+
+it.each(["Bank Transfer", "Face-to-Face (Meet in Person)"])("recalculates the 3.20 to 3.40 payment and all fee lines for %s", paymentMethod => {
+  const request = { ...base, paymentMethod, sellerSafetyAcknowledged: true, feePolicyVersion: "buyer_seller_1pct_v1" as const, commissionCalculationVersion: "usdt_6dp_v2" as const,
+    usdtAmount: "100", fiatAmount: "323.20", pricePerUsdt: "3.20", listingPriceAtRequest: "3.40" };
+  const onPreviewChange = vi.fn();
+  render(<TradeTermsPanel request={request} actorId="seller" isAr={false} onUpdated={vi.fn()} onPreviewChange={onPreviewChange} />);
+  fireEvent.click(screen.getByRole("button", { name: "Make a counter-offer" }));
+  fireEvent.change(screen.getByLabelText("Counter price in ILS per USDT"), { target: { value: "3.40" } });
+  const preview = within(screen.getByTestId("trade-adjustment-preview"));
+  expect(preview.getByTestId("trade-subtotal").textContent).toContain("ILS 340.00");
+  expect(preview.getByTestId("trade-buyer-fee").textContent).toContain("ILS 3.40");
+  expect(preview.getByTestId("trade-seller-commission").textContent).toContain("1 USDT");
+  expect(preview.getByTestId("trade-buyer-commission").textContent).toContain("1 USDT");
+  expect(preview.getByTestId("trade-total-commission").textContent).toContain("2 USDT");
+  expect(screen.getByTestId("trade-adjustment-preview").textContent).toContain("ILS 323.20 → ILS 343.40");
+  expect(onPreviewChange).toHaveBeenLastCalledWith({ requestId: request.id, updatedAt: request.updatedAt,
+    terms: { usdtAmount: "100", fiatAmount: "343.40", pricePerUsdt: "3.40" } });
+  expect((screen.getByRole("button", { name: "Send counter-offer" }) as HTMLButtonElement).disabled).toBe(false);
+  expect(request).toMatchObject({ usdtAmount: "100", fiatAmount: "323.20", pricePerUsdt: "3.20" });
+  fireEvent.click(screen.getByRole("button", { name: "Make a counter-offer" }));
+  expect(onPreviewChange).toHaveBeenLastCalledWith(null);
+});
+
+it("resets an explicit ATM cash choice when the seller edits the rate again", () => {
+  const request = { ...base, paymentMethod: "Cardless ATM Withdrawal", feePolicyVersion: "buyer_seller_1pct_v1" as const,
+    usdtAmount: "92.821782", fiatAmount: "300.00", pricePerUsdt: "3.20", listingPriceAtRequest: "3.40" };
+  const onPreviewChange = vi.fn();
+  render(<TradeTermsPanel request={request} actorId="seller" isAr={false} onUpdated={vi.fn()} onPreviewChange={onPreviewChange} />);
+  fireEvent.click(screen.getByRole("button", { name: "Make a counter-offer" }));
+  const rate = screen.getByLabelText("Counter price in ILS per USDT");
+  fireEvent.change(rate, { target: { value: "3.30" } });
+  fireEvent.change(screen.getByRole("combobox", { name: "ATM cash amount for counter-offer" }), { target: { value: "400" } });
+  fireEvent.change(rate, { target: { value: "3.40" } });
+  expect((screen.getByRole("combobox", { name: "ATM cash amount for counter-offer" }) as HTMLSelectElement).value).toBe("");
+  expect(onPreviewChange).toHaveBeenLastCalledWith({ requestId: request.id, updatedAt: request.updatedAt,
+    terms: { usdtAmount: "92.821782", fiatAmount: "318.75", pricePerUsdt: "3.40" } });
+  fireEvent.change(rate, { target: { value: "3.401" } });
+  expect(onPreviewChange).toHaveBeenLastCalledWith(null);
+});
+
+it("offers ATM cash amounts only within the visible listing's USDT capacity", () => {
+  const request = { ...base, paymentMethod: "Cardless ATM Withdrawal", feePolicyVersion: "buyer_seller_1pct_v1" as const,
+    usdtAmount: "92.821782", fiatAmount: "300.00", pricePerUsdt: "3.20", listingPriceAtRequest: "3.40" };
+  render(<TradeTermsPanel request={request} actorId="seller" isAr={false} maximumCounterUsdt="100" onUpdated={vi.fn()} />);
+  fireEvent.click(screen.getByRole("button", { name: "Make a counter-offer" }));
+  fireEvent.change(screen.getByLabelText("Counter price in ILS per USDT"), { target: { value: "3.40" } });
+  const select = screen.getByRole("combobox", { name: "ATM cash amount for counter-offer" });
+  expect(within(select).getByRole("option", { name: "ILS 300" })).toBeTruthy();
+  expect(within(select).queryByRole("option", { name: "ILS 400" })).toBeNull();
 });

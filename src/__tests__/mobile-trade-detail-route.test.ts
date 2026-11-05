@@ -12,6 +12,10 @@ const mocks = vi.hoisted(() => ({
   requireMobileApiUser: vi.fn(),
   tradeEmailEventForStatus: vi.fn(),
   updatePurchaseRequestStatus: vi.fn(),
+  updateTradeTerms: vi.fn(),
+  TradeBlockedError: class extends Error {
+    constructor(public code: string, message: string) { super(message); }
+  },
 }));
 
 vi.mock("next/server", async (importOriginal) => ({
@@ -23,6 +27,8 @@ vi.mock("@/lib/alpha-exchange-store", () => ({
   getTradeRoomData: mocks.getTradeRoomData,
   getTradeRoomRevision: mocks.getTradeRoomRevision,
   updatePurchaseRequestStatus: mocks.updatePurchaseRequestStatus,
+  updateTradeTerms: mocks.updateTradeTerms,
+  TradeBlockedError: mocks.TradeBlockedError,
 }));
 vi.mock("@/lib/marketplace-email-events", () => ({
   prepareTradeEventEmails: mocks.prepareTradeEventEmails,
@@ -309,6 +315,7 @@ describe("mobile trade detail route", () => {
       withdrawalCode: "482913",
       verificationKind: "id_number",
       verificationValue: "012345678",
+      ilsAmount: "1700",
       clientOperationId: "0123456789abcdef0123456789abcdef",
     }), {
       params: Promise.resolve({ requestId: "purchase-1" }),
@@ -323,8 +330,34 @@ describe("mobile trade detail route", () => {
       cardlessWithdrawalCode: "482913",
       cardlessVerificationKind: "id_number",
       cardlessVerificationValue: "012345678",
+      cardlessIlsAmount: "1700",
       clientOperationId: "0123456789abcdef0123456789abcdef",
     }));
+  });
+
+  it.each([undefined, "400"])("passes an explicit ATM cash selection and keeps an omitted one absent (%s)", async cardlessCashAmount => {
+    mocks.requireMobileApiUser.mockResolvedValue({ user: { id: "private-seller-id", role: "approved_seller" }, accessToken: "access", unauthorized: null });
+    mocks.updateTradeTerms.mockResolvedValue(room({ status: "pending" }).request);
+    const response = await PATCH(request("PATCH", {
+      action: "counter_offer", value: "3.40", expectedUpdatedAt: "2026-11-05T12:00:00.000Z", cardlessCashAmount,
+    }), { params: Promise.resolve({ requestId: "purchase-1" }) });
+    expect(response.status).toBe(200);
+    expect(mocks.updateTradeTerms).toHaveBeenCalledWith(expect.objectContaining({
+      requestId: "purchase-1", actorUserId: "private-seller-id", action: "counter_offer",
+      value: "3.40", cardlessCashAmount, clientPlatform: "mobile",
+    }));
+  });
+
+  it("returns a cash-specific conflict for a mismatched replacement withdrawal code", async () => {
+    mocks.updatePurchaseRequestStatus.mockRejectedValueOnce(new mocks.TradeBlockedError(
+      "CARDLESS_PAYMENT_AMOUNT_MISMATCH", "The code amount must match the approved total.",
+    ));
+    const response = await PATCH(request("PATCH", {
+      action: "submit_cardless_code", withdrawalCode: "482913", verificationKind: "id_number",
+      verificationValue: "012345678", ilsAmount: "1600", clientOperationId: "0123456789abcdef0123456789abcdef",
+    }), { params: Promise.resolve({ requestId: "purchase-1" }) });
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({ error: { code: "INVALID_REQUEST", message: "The code amount must match the approved total." } });
   });
 
   it("exposes and executes seller-only Face-to-Face completion only after USDT was confirmed sent", async () => {

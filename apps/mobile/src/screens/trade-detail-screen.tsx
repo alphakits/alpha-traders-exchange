@@ -3,6 +3,8 @@ import { sellerFeeResponsibilityNotice, tradePaymentReceiptConfirmation, tradeCh
 import { BrandedText as Text } from "../components/branded-text";
 import { AttentionSiren } from "../components/attention-siren";
 import { TradeTermsPanel } from "../components/trade-terms-panel";
+import { TradeFinancialSummary, type TradeTermsPreview } from "../components/trade-financial-summary";
+import { MoneyInput } from "../components/money-input";
 import { TradeCancellationControl } from "../components/trade-cancellation-control";
 import { updateMobileTradeTerms } from "../api/mobile-api";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -33,7 +35,7 @@ import type {
   MobileTradeStatus,
 } from "@alpha-traders/contracts";
 import { colors, radius, spacing, typography } from "@alpha-traders/design-tokens";
-import { normalizeCardlessDigits, parseCardlessWithdrawalDetails, tradeChatRoleLabel, tradeChatStatusLabel, type CardlessVerificationKind } from "@alpha-traders/contracts";
+import { normalizeCardlessDigits, parseCardlessWithdrawalDetails, validateCardlessIlsAmount, tradeChatRoleLabel, tradeChatStatusLabel, type CardlessVerificationKind } from "@alpha-traders/contracts";
 import {
   completeMobileTrade,
   getMobileTrade,
@@ -61,8 +63,7 @@ import {
   shouldGuideMobileTradeStatus,
   type MobileTradeGuidanceTarget,
 } from "../trades/trade-detail-guidance";
-import { formatCurrencyAmountAsUsd, formatUsdt } from "../finance/financial-display";
-import { useUsdDisplayRate } from "../finance/use-usd-display-rate";
+import { formatUsdt } from "../finance/financial-display";
 
 type BankDetails = {
   accountHolderName: string;
@@ -75,6 +76,25 @@ type BankDetails = {
 function chatTextStyle(value: string, isRTL: boolean) {
   const writingDirection = tradeChatTextDirection(value, isRTL ? "rtl" : "ltr");
   return { writingDirection, textAlign: writingDirection === "rtl" ? "right" as const : "left" as const };
+}
+
+function requiresCounterCodeAmount(trade?: MobileTradeDetail) {
+  const policy = trade?.termsProposal?.calculationPolicy;
+  return trade?.paymentMethod === "Cardless ATM Withdrawal" && trade.status === "accepted"
+    && trade.actions.canConfirmPreparedCardlessCode !== true && trade.termsProposal?.status === "accepted"
+    && (policy === "fixed_usdt_v2" || policy === "cardless_selected_cash_v2");
+}
+
+function tradeTermsRevision(trade: MobileTradeDetail) {
+  // Chat/read updates may change updatedAt without changing the financial draft.
+  // Reset the editor only when its terms, limits or payment eligibility change.
+  return JSON.stringify([
+    trade.id, trade.side, trade.status, trade.paymentMethod, trade.currency, trade.priceMode,
+    trade.usdtAmount, trade.fiatAmount, trade.pricePerUsdt, trade.listingPriceAtRequest,
+    trade.liveListingPrice, trade.liveMaximumCounterUsdt, trade.feePolicyVersion,
+    trade.commissionCalculationVersion, trade.amountAdjustmentCount, trade.counterPrices,
+    trade.termsProposal, trade.actions.canAdjustAmounts, trade.hasOpenDispute,
+  ]);
 }
 
 function stageInstruction(
@@ -172,7 +192,6 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
   const isOwnerChat = user?.role === "owner" || user?.roles.includes("owner") === true;
   const messageLimit = isOwnerChat ? OWNER_TRADE_CHAT_MESSAGE_MAX_LENGTH : TRADE_CHAT_MESSAGE_MAX_LENGTH;
   const { locale, isRTL, t } = useLocale();
-  const usdIlsRate = useUsdDisplayRate();
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -181,6 +200,8 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
   const [cardlessWithdrawalCode, setCardlessWithdrawalCode] = useState("");
   const [cardlessVerificationKind, setCardlessVerificationKind] = useState<CardlessVerificationKind>("id_number");
   const [cardlessVerificationValue, setCardlessVerificationValue] = useState("");
+  const [cardlessIlsAmount, setCardlessIlsAmount] = useState("");
+  const [termsPreview, setTermsPreview] = useState<(TradeTermsPreview & { revision: string }) | null>(null);
   const cardlessDetails = parseCardlessWithdrawalDetails({ withdrawalCode: cardlessWithdrawalCode, verificationKind: cardlessVerificationKind, verificationValue: cardlessVerificationValue });
   const [disputeReason, setDisputeReason] = useState("");
   const [reviewRating, setReviewRating] = useState(5);
@@ -216,6 +237,10 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
   const serverTimeRemaining = query.data?.trade?.status === "usdt_release_pending"
     ? query.data.trade.timeRemainingSeconds
     : null;
+  const requiredCardlessTotal = requiresCounterCodeAmount(query.data?.trade) ? query.data!.trade.fiatAmount : null;
+  const cardlessAmountMatches = requiredCardlessTotal === null || Boolean(validateCardlessIlsAmount(cardlessIlsAmount, requiredCardlessTotal));
+  const cardlessInputScope = requiredCardlessTotal === null ? tradeScope
+    : `${tradeScope}:${query.data?.trade.termsProposal?.id}:${requiredCardlessTotal}`;
 
   useEffect(() => {
     setBusyAction(null);
@@ -226,6 +251,8 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
     setCardlessWithdrawalCode("");
     setCardlessVerificationKind("id_number");
     setCardlessVerificationValue("");
+    setCardlessIlsAmount("");
+    setTermsPreview(null);
     setDisputeReason("");
     setReviewRating(5);
     setReviewComment("");
@@ -241,6 +268,14 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
       guidanceFrameRef.current = null;
     }
   }, [tradeScope]);
+
+  // A replacement code belongs to the newly accepted cash total. Discard any
+  // locally typed credential from the previous amount when live terms change.
+  useEffect(() => {
+    setCardlessWithdrawalCode("");
+    setCardlessVerificationValue("");
+    setCardlessIlsAmount("");
+  }, [cardlessInputScope]);
 
   useEffect(() => () => {
     if (guidanceFrameRef.current !== null) cancelAnimationFrame(guidanceFrameRef.current);
@@ -355,7 +390,14 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
   async function submitCardlessCode() {
     if (busyAction) return;
     const usePreparedDetails = query.data?.trade.actions.canConfirmPreparedCardlessCode === true;
-    const submissionDetails = usePreparedDetails ? { usePreparedDetails: true as const } : cardlessDetails.ok ? cardlessDetails.details : null;
+    if (!usePreparedDetails && requiredCardlessTotal !== null && !cardlessAmountMatches) {
+      setError(locale === "ar" ? `أدخل مبلغ الرمز المطابق تمامًا للإجمالي المتفق عليه: ILS ${requiredCardlessTotal}.` : `Enter the code amount matching the agreed total exactly: ILS ${requiredCardlessTotal}.`);
+      return;
+    }
+    const submissionDetails = usePreparedDetails ? { usePreparedDetails: true as const } : cardlessDetails.ok ? {
+      ...cardlessDetails.details,
+      ...(requiredCardlessTotal !== null ? { ilsAmount: cardlessIlsAmount } : {}),
+    } : null;
     if (!submissionDetails) {
       setError(t("withdrawalDetailsInvalid"));
       return;
@@ -370,6 +412,7 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
       if (activeTradeScopeRef.current !== operationScope) return;
       setCardlessWithdrawalCode("");
       setCardlessVerificationValue("");
+      setCardlessIlsAmount("");
       applyTradeMutation(response);
     } catch (caught) {
       if (activeTradeScopeRef.current === operationScope) {
@@ -382,7 +425,10 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
 
   function confirmCardlessCode() {
     if (busyAction) return;
-    Alert.alert(t("actionConfirmation"), t("withdrawalCodeSentConfirmation"), [
+    const amountConfirmation = requiredCardlessTotal === null ? "" : (locale === "ar"
+      ? `\nأؤكد أن مبلغ الرمز الجديد هو بالضبط ILS ${requiredCardlessTotal}.`
+      : `\nI confirm the new code is for exactly ILS ${requiredCardlessTotal}.`);
+    Alert.alert(t("actionConfirmation"), t("withdrawalCodeSentConfirmation") + amountConfirmation, [
       { text: t("cancel"), style: "cancel" },
       { text: t("confirm"), onPress: () => void submitCardlessCode() },
     ]);
@@ -403,13 +449,15 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
     ]);
   }
 
-  async function updateTerms(action: string, value: string, safetyAcknowledged: boolean) {
+  async function updateTerms(action: string, value: string, safetyAcknowledged: boolean, cardlessCashAmount?: string) {
     if (busyAction || !query.data?.trade) return;
     const current = query.data.trade;
     const operationScope = activeTradeScopeRef.current;
     setBusyAction("trade-terms"); setError(null);
     try {
-      const response = await requestWithSession((tokens, requestLocale) => updateMobileTradeTerms(tokens, requestLocale, requestId, { action, value, proposalId: current.termsProposal?.id, expectedUpdatedAt: current.updatedAt, safetyAcknowledged }));
+      const response = await requestWithSession((tokens, requestLocale) => updateMobileTradeTerms(tokens, requestLocale, requestId, { action, value, proposalId: current.termsProposal?.id, expectedUpdatedAt: current.updatedAt, safetyAcknowledged,
+        ...(action === "counter_offer" && cardlessCashAmount ? { cardlessCashAmount } : {}),
+      }));
       if (activeTradeScopeRef.current === operationScope) applyTradeMutation(response);
     } catch (caught) {
       if (activeTradeScopeRef.current === operationScope) setError(caught instanceof MobileApiError ? caught.message : t("genericError"));
@@ -716,6 +764,9 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
   }
 
   const trade: MobileTradeDetail = query.data.trade;
+  const termsRevision = tradeTermsRevision(trade);
+  const currentTermsPreview = termsPreview?.revision === termsRevision
+    ? { ...termsPreview, updatedAt: trade.updatedAt } : null;
   const actions = trade.actions;
   const actionsDisabled = busyAction !== null || trade.termsProposal?.status === "pending";
   const isFaceToFace = trade.paymentMethod === "Face-to-Face (Meet in Person)";
@@ -786,9 +837,7 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
           {trade.feePolicyVersion === "buyer_seller_1pct_v1" ? <Text style={[styles.commissionNotice, isRTL && styles.rtlText]}>{trade.side === "seller"
             ? sellerFeeResponsibilityNotice(locale)
             : (isRTL ? "عمولتك كمشتري 1% مشمولة في إجمالي الدفع للبائع، وتستلم كامل كمية USDT المتفق عليها." : "Your buyer fee of 1% is included in the payment total to the seller. You receive the full agreed USDT amount.")}</Text> : null}
-          <DetailRow monetary isRTL={isRTL} label={t("tradeAmount")} value={formatUsdt(trade.usdtAmount)} />
-          <DetailRow monetary isRTL={isRTL} label={t("unitPrice")} value={formatCurrencyAmountAsUsd(trade.pricePerUsdt, trade.currency, usdIlsRate, 4)} />
-          <DetailRow monetary isRTL={isRTL} commissionNotice={trade.feePolicyVersion === "buyer_seller_1pct_v1"} label={trade.feePolicyVersion === "buyer_seller_1pct_v1" ? (isRTL ? "الإجمالي للبائع (يشمل عمولة المشتري 1%)" : "Total to seller (includes buyer 1%)") : t("tradeValue")} value={`${trade.currency} ${Number(trade.fiatAmount).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} />
+          <TradeFinancialSummary trade={trade} isAr={isRTL} preview={currentTermsPreview} />
           <DetailRow isRTL={isRTL} label={t("selectPayment")} value={mobilePaymentMethodLabel(trade.paymentMethod, locale)} />
           {isCardlessAtm && trade.bankName ? <DetailRow isRTL={isRTL} label={locale === "ar" ? "بنك السحب" : "Withdrawal bank"} value={trade.bankName} /> : null}
           <DetailRow isRTL={isRTL} label={t("tradeSide")} value={trade.side === "buyer" ? t("purchaseSide") : t("saleSide")} />
@@ -845,7 +894,8 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
               <GoldButton onPress={() => router.push("/seller/commissions")}>{isRTL ? "دفع العمولة" : "Pay Commission"}</GoldButton>
             </View>
           ) : null}
-          <TradeTermsPanel key={trade.id} trade={trade} isAr={locale === "ar"} disabled={busyAction !== null || trade.hasOpenDispute} onAction={updateTerms} />
+          <TradeTermsPanel key={termsRevision} trade={trade} isAr={locale === "ar"} disabled={busyAction !== null || trade.hasOpenDispute} onAction={updateTerms}
+            onPreviewChange={preview => setTermsPreview(preview ? { ...preview, revision: termsRevision } : null)} />
           {actions.canAccept ? (
             <GoldButton
               disabled={actionsDisabled || Boolean(trade.sellerCommissionDue)}
@@ -891,6 +941,17 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
                 <>
                 <Text style={[styles.sectionTitle, isRTL && styles.rtlText]}>{t("withdrawalDetailsTitle")}</Text>
                 <Text style={[styles.messageText, isRTL && styles.rtlText]}>{t("withdrawalDetailsHint")}</Text>
+                {requiredCardlessTotal !== null ? <View style={{ gap: spacing.sm }}>
+                  <Text monetary style={[styles.commissionNotice, isRTL && styles.rtlText]}>{locale === "ar"
+                    ? `أنشئ رمز سحب جديدًا بمبلغ ILS ${requiredCardlessTotal} بالضبط. أدخل المبلغ الظاهر لدى البنك؛ لا تستخدم الرمز القديم.`
+                    : `Generate a new withdrawal code for exactly ILS ${requiredCardlessTotal}. Enter the amount shown by the bank; do not use the old code.`}</Text>
+                  <Text style={[styles.messageText, isRTL && styles.rtlText]}>{locale === "ar" ? "مبلغ رمز السحب الجديد (ILS)" : "New ATM code amount (ILS)"}</Text>
+                  <MoneyInput accessibilityLabel={locale === "ar" ? "مبلغ رمز السحب الجديد (ILS)" : "New ATM code amount (ILS)"} keyboardType="decimal-pad" editable={!actionsDisabled}
+                    value={cardlessIlsAmount} onChangeText={setCardlessIlsAmount} placeholder="100–10,000 ILS" placeholderTextColor={colors.textMuted} style={styles.input} />
+                  {cardlessIlsAmount && !cardlessAmountMatches ? <Text accessibilityRole="alert" style={[styles.error, isRTL && styles.rtlText]}>{locale === "ar"
+                    ? `يجب أن يطابق مبلغ الرمز ILS ${requiredCardlessTotal} بالضبط.`
+                    : `The code amount must match ILS ${requiredCardlessTotal} exactly.`}</Text> : null}
+                </View> : null}
                 <Text style={[styles.messageText, isRTL && styles.rtlText]}>{t("withdrawalCodeLabel")}</Text>
                 <TextInput
                   accessibilityLabel={t("withdrawalCodeLabel")}
@@ -927,7 +988,7 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
                 </>
               ) : null}
               <GoldButton
-                disabled={actionsDisabled || (isCardlessAtm && !hasPreparedCardlessDetails && !cardlessDetails.ok)}
+                disabled={actionsDisabled || (isCardlessAtm && !hasPreparedCardlessDetails && (!cardlessDetails.ok || !cardlessAmountMatches))}
                 loading={busyAction === (isCardlessAtm ? "payment_sent" : "funds_received")}
                 onPress={isCardlessAtm ? confirmCardlessCode : () => confirmStatus("funds_received", t("cashHandoverConfirmation"))}
               >

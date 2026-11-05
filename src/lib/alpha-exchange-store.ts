@@ -9,7 +9,7 @@ import { materializeCommissionShortfalls } from "./commission-shortfall-ledger";
 import type { BankTransferProvider, WiseUsdAccount, WiseUsdAccountSnapshot } from "@/types/wise";
 import { parseWiseUsdAccountDetails, maskWiseUsdAccount, createWiseUsdAccountSnapshot, getWiseUsdAccountFingerprint } from "@/lib/wise-bank-transfer";
 import { assertWisePaymentsRuntime, assertWiseListingShape, getReviewedWiseAccount, wiseAccountHasActiveUsage, assertWiseTradeSnapshotCurrent } from "@/lib/wise-store-policy";
-import { calculateTradeTermsQuote, CARDLESS_COUNTER_CALCULATION_POLICY, isSellerCounterPrice, submittedCounterPrices, isNegotiatingQuantityFixed, isTradeChatOpen, isTradeWalletMessage, tradeWalletShareError, TRADE_CHAT_MESSAGE_MAX_LENGTH, OWNER_TRADE_CHAT_MESSAGE_MAX_LENGTH } from "@alpha-traders/contracts";
+import { calculateTradeTermsQuote, tradeTermsQuoteValidationIssue, CARDLESS_COUNTER_CALCULATION_POLICY, FIXED_USDT_COUNTER_CALCULATION_POLICY, CARDLESS_SELECTED_CASH_COUNTER_CALCULATION_POLICY, isSellerCounterPrice, submittedCounterPrices, isNegotiatingQuantityFixed, isTradeChatOpen, isTradeWalletMessage, tradeWalletShareError, TRADE_CHAT_MESSAGE_MAX_LENGTH, OWNER_TRADE_CHAT_MESSAGE_MAX_LENGTH } from "@alpha-traders/contracts";
 import { requireManualCommissionOperationId } from "@/lib/manual-commission-operation";
 import { priceAlertSchema, priceAlertMatchesListing, readMarketplacePriceAlert, type MarketplacePriceAlert } from "@/lib/marketplace-price-alert";
 import { accountSessionId, presentAccountSession } from "@/lib/account-session-presentation";
@@ -10944,20 +10944,30 @@ export async function getWorkspaceBootstrapData(input: {
 function acceptedCounterQuote(request: PurchaseRequest, listing?: MarketplaceListing) {
   const proposed = request.termsProposal;
   const method = normalizeMarketplacePaymentMethod(request.paymentMethod) || request.paymentMethod;
-  let quote = proposed && calculateTradeTermsQuote({ ...request, paymentMethod: method }, "counter_offer", proposed.pricePerUsdt);
+  const trade = { ...request, paymentMethod: method };
+  const cardless = isCardlessAtmPaymentMethod(method);
+  const policy = proposed?.calculationPolicy;
+  const knownPolicy = policy === undefined || policy === FIXED_USDT_COUNTER_CALCULATION_POLICY
+    || (cardless && (policy === CARDLESS_COUNTER_CALCULATION_POLICY || policy === CARDLESS_SELECTED_CASH_COUNTER_CALCULATION_POLICY));
+  const selectedCash = policy === CARDLESS_COUNTER_CALCULATION_POLICY ? request.fiatAmount
+    : policy === CARDLESS_SELECTED_CASH_COUNTER_CALCULATION_POLICY ? proposed?.cardlessCashAmount : undefined;
+  const selectionMatchesPolicy = policy === CARDLESS_SELECTED_CASH_COUNTER_CALCULATION_POLICY
+    ? selectedCash !== undefined : proposed?.cardlessCashAmount === undefined;
+  let quote = proposed && knownPolicy
+    && selectionMatchesPolicy
+    ? calculateTradeTermsQuote(trade, "counter_offer", proposed.pricePerUsdt, { cardlessCashAmount: selectedCash })
+    : null;
   const matchesProposal = (candidate: typeof quote) => Boolean(candidate && proposed
     && canonicalizeTradeAmount(proposed.usdtAmount) === candidate.usdtAmount
     && canonicalizeTradeAmount(proposed.fiatAmount) === canonicalizeTradeAmount(candidate.fiatAmount));
-  if (proposed && proposed.calculationPolicy === undefined && isCardlessAtmPaymentMethod(method) && !matchesProposal(quote)) {
-    // Honour a valid proposal already shown before the fixed-cash policy was
-    // restored. Never silently reinterpret its quantity or cash at acceptance.
-    // Newly marked proposals cannot fall back to this legacy calculation.
-    const legacyQuote = calculateTradeTermsQuote({ ...request, paymentMethod: "Bank Transfer" }, "counter_offer", proposed.pricePerUsdt);
-    if (legacyQuote && matchesProposal(legacyQuote)
-      && validateCardlessIlsAmount(legacyQuote.fiatAmount, legacyQuote.fiatAmount)) quote = legacyQuote;
+  if (proposed && policy === undefined && selectionMatchesPolicy && cardless && !matchesProposal(quote)) {
+    // Unmarked historical proposals used either fixed USDT or fixed cash.
+    // Accept only the exact stored quote; never reinterpret what the buyer saw.
+    const legacyQuote = calculateTradeTermsQuote(trade, "counter_offer", proposed.pricePerUsdt, { cardlessCashAmount: request.fiatAmount });
+    if (matchesProposal(legacyQuote)) quote = legacyQuote;
   }
   if (!listing || proposed?.kind !== "counter_offer" || !quote
-    || (proposed.calculationPolicy !== undefined && (proposed.calculationPolicy !== CARDLESS_COUNTER_CALCULATION_POLICY || !isCardlessAtmPaymentMethod(method)))
+    || !knownPolicy || tradeTermsQuoteValidationIssue(trade, quote)
     || !isSellerCounterPrice(request.pricePerUsdt, request.listingPriceAtRequest || listing.price, proposed.pricePerUsdt, listing.price)
     || !matchesProposal(quote)
     || Number(quote.usdtAmount) < getPurchaseMinimumTrade(listing.minimumTrade, isCardlessAtmPaymentMethod(method))
@@ -10972,7 +10982,7 @@ export async function updateTradeTerms(input: {
   requestId: string; actorUserId: string;
   clientPlatform?: "mobile";
   action: "counter_offer" | "propose_amount" | "propose_ils_amount" | "accept_amount" | "decline_terms" | "withdraw_terms";
-  value?: string; proposalId?: string; expectedUpdatedAt?: string; safetyAcknowledged?: boolean;
+  value?: string; proposalId?: string; expectedUpdatedAt?: string; safetyAcknowledged?: boolean; cardlessCashAmount?: string;
 }) {
   let committed: PurchaseRequest | undefined;
   let notificationPublication: DeferredNotificationPublication | null = null;
@@ -11018,12 +11028,16 @@ export async function updateTradeTerms(input: {
       } else if (input.action === "propose_ils_amount" && request.currency !== "ILS") {
         throw new TradeBlockedError("trade-terms-invalid", "ILS correction requires an ILS trade.", input.requestId);
       }
-      const quote = calculateTradeTermsQuote({ ...request, pricePerUsdt: lockedPrice,
-        paymentMethod: normalizeMarketplacePaymentMethod(request.paymentMethod) || request.paymentMethod },
-      counter ? "counter_offer" : input.action === "propose_ils_amount" ? "propose_ils_amount" : "propose_amount", raw);
+      const quoteTrade = { ...request, pricePerUsdt: lockedPrice,
+        paymentMethod: normalizeMarketplacePaymentMethod(request.paymentMethod) || request.paymentMethod };
+      const quote = calculateTradeTermsQuote(quoteTrade,
+        counter ? "counter_offer" : input.action === "propose_ils_amount" ? "propose_ils_amount" : "propose_amount", raw,
+        { cardlessCashAmount: input.cardlessCashAmount });
       if (!quote) throw new TradeBlockedError("trade-terms-invalid", isCardlessAtmPaymentMethod(request.paymentMethod)
         ? "ATM withdrawal must be 100–10,000 ILS in multiples of 100. Adjust the ILS withdrawal amount before sharing a new code."
         : "Enter a valid amount with a positive payment total and at most two decimal places for ILS.", input.requestId);
+      const quoteIssue = tradeTermsQuoteValidationIssue(quoteTrade, quote);
+      if (quoteIssue) throw new TradeBlockedError("trade-terms-invalid", quoteIssue, input.requestId, { requiredTotal: quote.fiatAmount });
       const { usdtAmount: amount, fiatAmount: fiat, pricePerUsdt: price } = quote;
       if (request.commissionCalculationVersion === COMMISSION_CALCULATION_VERSION) assertPayableTradeCommission(amount);
       if (!Number.isFinite(Number(fiat)) || Number(fiat) <= 0 || Number(amount) > Number(listingUnreservedAmount(snapshot, listing, request.id)) || Number(amount) < getPurchaseMinimumTrade(listing.minimumTrade, isCardlessAtmPaymentMethod(request.paymentMethod)) || Number(amount) > Number(listing.maximumTrade || listing.availableAmount)) throw new TradeBlockedError("trade-terms-invalid", "Amount exceeds the available balance or trade limits.", input.requestId);
@@ -11031,7 +11045,9 @@ export async function updateTradeTerms(input: {
       request.amountAdjustmentCount = getTradeAmountAdjustmentCount(request) + 1;
       request.firstSellerResponseAt ??= request.termsProposal?.createdAt ?? now;
       request.termsProposal = { id: randomUUID(), kind: counter ? "counter_offer" : "amount_correction", status: "pending", pricePerUsdt: price, usdtAmount: amount, fiatAmount: fiat, createdAt: now,
-        ...(counter && isCardlessAtmPaymentMethod(request.paymentMethod) ? { calculationPolicy: CARDLESS_COUNTER_CALCULATION_POLICY } : {}) };
+        ...(counter ? input.cardlessCashAmount !== undefined
+          ? { calculationPolicy: CARDLESS_SELECTED_CASH_COUNTER_CALCULATION_POLICY, cardlessCashAmount: fiat }
+          : { calculationPolicy: FIXED_USDT_COUNTER_CALCULATION_POLICY } : {}) };
       if (counter && isFaceToFacePaymentMethod(request.paymentMethod)) request.sellerSafetyAcknowledged = true;
       message = `Seller proposed ${amount} USDT for ${request.currency} ${fiat} at ${price} per USDT. Buyer confirmation required.`;
     } else {
@@ -14378,6 +14394,7 @@ type UpdatePurchaseRequestStatusInput = {
   cardlessVerificationKind?: string;
   cardlessVerificationValue?: string;
   usePreparedCardlessDetails?: boolean;
+  cardlessIlsAmount?: string;
   clientOperationId?: string;
   traceId?: string;
   acceptCounterOfferId?: string;
@@ -14504,8 +14521,14 @@ async function updatePurchaseRequestStatusAttempt(
     verificationKind: preparedCardlessDetails.verificationKind ?? input.cardlessVerificationKind,
     verificationValue: preparedCardlessDetails.verificationValue ?? input.cardlessVerificationValue,
   });
+  const enteredCardlessCashAmount = preparedCardlessDetails.ilsAmount ?? input.cardlessIlsAmount;
+  const confirmedCardlessCashAmount = enteredCardlessCashAmount === undefined
+    ? null : validateCardlessIlsAmount(enteredCardlessCashAmount, request.fiatAmount);
+  const requiresCardlessCashConfirmation = request.termsProposal?.status === "accepted"
+    && [FIXED_USDT_COUNTER_CALCULATION_POLICY, CARDLESS_SELECTED_CASH_COUNTER_CALCULATION_POLICY]
+      .some(policy => request.termsProposal?.calculationPolicy === policy);
   const cardlessCredentialPayload = preparedCardlessPayload ?? (cardlessDetails.ok
-    ? JSON.stringify(cardlessDetails.details)
+    ? JSON.stringify({ ...cardlessDetails.details, ...(confirmedCardlessCashAmount ? { ilsAmount: confirmedCardlessCashAmount } : {}) })
     : cardlessWithdrawalCode);
   const cardlessOperationId = String(input.clientOperationId ?? "").trim().toLowerCase();
   const cardlessCodeIsValid = /^\d{4,12}$/.test(cardlessWithdrawalCode);
@@ -14624,6 +14647,14 @@ async function updatePurchaseRequestStatusAttempt(
       nextStatus: input.nextStatus,
       actorUserId: input.actorUserId,
     });
+  }
+
+  if (isAtmTrade && input.nextStatus === "payment_sent"
+    && (requiresCardlessCashConfirmation || enteredCardlessCashAmount !== undefined)
+    && !confirmedCardlessCashAmount) {
+    throw new TradeBlockedError("CARDLESS_PAYMENT_AMOUNT_MISMATCH",
+      "Enter the cash amount for this withdrawal code. It must match the approved total of ILS " + request.fiatAmount + ".",
+      request.id, { requiredTotal: request.fiatAmount });
   }
 
   let currentStatus = request.status;

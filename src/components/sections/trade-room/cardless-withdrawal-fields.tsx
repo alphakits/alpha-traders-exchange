@@ -14,6 +14,9 @@ type Props = {
   onCodeChange: (value: string) => void;
   onKindChange: (value: CardlessVerificationKind) => void;
   onValueChange: (value: string) => void;
+  expectedCashAmount?: string;
+  cashAmount?: string;
+  onCashAmountChange?: (value: string) => void;
 };
 
 export function CardlessWithdrawalFields(props: Props) {
@@ -54,6 +57,15 @@ export function CardlessWithdrawalFields(props: Props) {
           {isAr ? "اكتب يوم/شهر/سنة، مثال: 25/08/1995" : "Type day/month/year, for example: 25/08/1995"}
         </p> : null}
       </div>
+      {props.expectedCashAmount && props.onCashAmountChange ? <div className="space-y-2">
+        <label htmlFor="cardless-withdrawal-amount" className="block text-sm font-medium">{isAr ? "٣. مبلغ رمز السحب بالشيكل" : "3. Cash amount of this withdrawal code (ILS)"}</label>
+        <Input id="cardless-withdrawal-amount" name="ilsAmount" className={inputClass} required autoComplete="off" inputMode="decimal" dir="ltr"
+          aria-describedby="cardless-withdrawal-amount-help" value={props.cashAmount ?? ""}
+          onChange={event => props.onCashAmountChange?.(normalizeCardlessDigits(event.target.value))} />
+        <p id="cardless-withdrawal-amount-help" className="text-xs text-[#FDE68A]">{isAr
+          ? `تحقق أن الرمز الجديد صادر بمبلغ ${props.expectedCashAmount} ILS بالضبط، وهو الإجمالي الموافق عليه شامل عمولة المشتري إن وجدت.`
+          : `Check that your new code is for exactly ILS ${props.expectedCashAmount}, the approved total including any buyer fee.`}</p>
+      </div> : null}
       <p className="text-xs text-[#D1D5DB]">{props.phase === "request" ? (isAr ? "أنشئ الرمز لدى بنكك أولًا. تبقى التفاصيل خاصة حتى تؤكد إرسالها بعد قبول البائع، ثم يُقفل الإلغاء." : "Create the code with your bank first. Details stay private until you confirm sending them after seller acceptance; cancellation then closes.") : isAr ? "راجع البيانات قبل الإرسال. بعد إرسالها يبدأ سحب النقد ولا يعود الإلغاء العادي متاحاً." : "Check both details before sending. Cash collection starts after submission and normal cancellation is no longer available."}</p>
     </fieldset>
   );

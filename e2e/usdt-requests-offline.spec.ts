@@ -277,19 +277,19 @@ function sellerNavigationFeeds(baseURL: string, actorId: string, expectedTrades:
   ];
 }
 
-test("a seller counters the ILS rate, the buyer keeps 1,000 USDT, and both can share wallet details only after acceptance", async ({ browser, baseURL }) => {
+test("a seller counters 3.20 to 3.40, all ILS totals update, and wallet sharing waits for buyer approval", async ({ browser, baseURL }) => {
   const buyer = await browser.newContext({ baseURL, viewport: { width: 390, height: 844 } });
   const seller = await browser.newContext({ baseURL, viewport: { width: 390, height: 844 } });
   try {
     await Promise.all([blockExternalBrowserRequests(buyer), blockExternalBrowserRequests(seller)]);
     const setup = await state(buyer.request);
-    setup.marketplaceListings.find(l => l.id === "listing-offline-seller")!.price = "3.35";
+    setup.marketplaceListings.find(l => l.id === "listing-offline-seller")!.price = "3.40";
     const saved = await buyer.request.put("/api/testing/alpha-exchange-state", { headers: OFFLINE_HEADERS, data: setup });
     expect(saved.ok()).toBe(true);
     await Promise.all([login(buyer.request, "buyer"), login(seller.request, "seller")]);
     const created = await buyer.request.post("/api/alpha-exchange/purchase-requests", { data: {
       listingId: "listing-offline-seller", usdtAmount: "1000", receivingNetwork: "TRC20", buyerReceivingWalletAddress: wallet,
-      feePolicyVersion: "buyer_seller_1pct_v1", paymentMethod: "Bank Transfer", priceMode: "buyer_offer", offeredPrice: "3.15",
+      feePolicyVersion: "buyer_seller_1pct_v1", paymentMethod: "Bank Transfer", priceMode: "buyer_offer", offeredPrice: "3.20",
     } });
     expect(created.ok(), await created.text()).toBe(true);
     const { purchase } = await created.json();
@@ -306,12 +306,17 @@ test("a seller counters the ILS rate, the buyer keeps 1,000 USDT, and both can s
     await sellerPage.getByRole("button", { name: "Make a counter-offer" }).click();
     const rate = sellerPage.getByLabel("Counter price in ILS per USDT");
     const send = sellerPage.getByRole("button", { name: "Send counter-offer" });
-    for (const invalid of ["3.15", "3.36"]) {
+    for (const invalid of ["3.20", "3.41"]) {
       await rate.fill(invalid);
       await expect(send).toBeDisabled();
     }
-    await rate.fill("3.20");
-    await expect(sellerPage.getByTestId("trade-adjustment-preview")).toContainText("3,232.00");
+    await rate.fill("3.40");
+    await expect(sellerPage.getByTestId("trade-adjustment-preview")).toContainText("3,434.00");
+    await expect(sellerPage.getByTestId("inclusive-payment-total")).toContainText("Draft total — not sent yet");
+    await expect(sellerPage.getByTestId("inclusive-payment-total")).toContainText("3,434.00");
+    await expect(sellerPage.getByTestId("trade-adjustment-preview").getByTestId("trade-subtotal")).toContainText("3,400.00");
+    await expect(sellerPage.getByTestId("trade-adjustment-preview").getByTestId("trade-buyer-fee")).toContainText("34.00");
+    await expect(sellerPage.getByTestId("trade-adjustment-preview").getByTestId("trade-total-commission")).toContainText("20 USDT");
     const proposed = sellerPage.waitForResponse(r => new URL(r.url()).pathname === api && r.request().method() === "PATCH");
     await send.click();
     expect((await proposed).ok()).toBe(true);
@@ -322,14 +327,16 @@ test("a seller counters the ILS rate, the buyer keeps 1,000 USDT, and both can s
       notificationEngagementDestinationFeed(baseURL!, setup.users.find(user => user.email === OFFLINE_ACCOUNTS.buyer.email)!.id),
     ]);
     await expect(buyerPage.locator("#chat textarea")).toHaveCount(0);
+    await expect(buyerPage.getByTestId("inclusive-payment-total")).toContainText("Proposed total — awaiting buyer approval");
+    await expect(buyerPage.getByTestId("inclusive-payment-total")).toContainText("3,434.00");
     const accepted = buyerPage.waitForResponse(r => new URL(r.url()).pathname === api && r.request().method() === "PATCH");
     await buyerPage.getByRole("button", { name: "Accept these terms" }).click();
     const response = await accepted;
     expect(response.ok(), await response.text()).toBe(true);
-    expect((await response.json()).request).toMatchObject({ status: "accepted", usdtAmount: "1000", pricePerUsdt: "3.20", fiatAmount: "3232.00" });
+    expect((await response.json()).request).toMatchObject({ status: "accepted", usdtAmount: "1000", pricePerUsdt: "3.40", fiatAmount: "3434.00" });
     await browserErrorAudit.navigate(sellerPage, () => sellerPage.reload(), sellerNavigationFeeds(baseURL!,
       setup.users.find(user => user.email === OFFLINE_ACCOUNTS.seller.email)!.id,
-      [{ id: purchase.id, status: "accepted", perspective: "seller", usdtAmount: "1000", fiatAmount: "3232.00" }],
+      [{ id: purchase.id, status: "accepted", perspective: "seller", usdtAmount: "1000", fiatAmount: "3434.00" }],
     ));
     for (const [side, shareWallet] of [[buyerPage, true], [sellerPage, false]] as const) {
       const form = side.locator("#chat form");

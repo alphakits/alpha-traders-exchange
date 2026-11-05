@@ -958,14 +958,17 @@ export interface TradeTermsProposal {
   pricePerUsdt: string;
   usdtAmount: string;
   fiatAmount: string;
-  /** New ATM counters retain cash; absent on proposals issued by older servers. */
-  calculationPolicy?: "cardless_fixed_cash_v1";
+  /** Preserve the calculation that was shown when this proposal was issued. */
+  calculationPolicy?: "cardless_fixed_cash_v1" | "fixed_usdt_v2" | "cardless_selected_cash_v2";
+  /** Explicit seller selection for cardless_selected_cash_v2; never inferred or rounded. */
+  cardlessCashAmount?: string;
   createdAt: string;
   resolvedAt?: string;
 }
 
 export interface MobileTradeSummary {
   feePolicyVersion?: "buyer_seller_1pct_v1";
+  commissionCalculationVersion?: "usdt_6dp_v2";
   amountAdjustmentCount?: number;
   counterPrices?: string[];
   termsProposal?: TradeTermsProposal;
@@ -1012,6 +1015,7 @@ export interface MobileTradeDetail extends MobileTradeSummary {
   chatOpen?: boolean;
   quantityFixed?: boolean;
   liveListingPrice?: string;
+  liveMaximumCounterUsdt?: string;
   completionReceipt?: import("./trade-receipt").TradeCompletionReceipt;
   sellerCommissionDue?: { count: number; amount: number };
   counterpartyDisplayName: string;

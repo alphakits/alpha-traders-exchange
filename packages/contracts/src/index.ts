@@ -3,6 +3,7 @@ export * from "./native-web-bridge";
 export * from "./remembered-login";
 export * from "./trade-amount";
 export * from "./trade-terms";
+export * from "./trade-financials";
 export * from "./wallet-address";
 export * from "./whatsapp-contact";
 export * from "./cardless-withdrawal";

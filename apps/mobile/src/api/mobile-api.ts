@@ -858,7 +858,7 @@ export function updateMobileTrade(
   });
 }
 
-export function updateMobileTradeTerms(tokens: MobileAuthTokens, locale: MobileLocale, requestId: string, body: { action: string; value: string; proposalId?: string; expectedUpdatedAt: string; safetyAcknowledged: boolean }) {
+export function updateMobileTradeTerms(tokens: MobileAuthTokens, locale: MobileLocale, requestId: string, body: { action: string; value: string; proposalId?: string; expectedUpdatedAt: string; safetyAcknowledged: boolean; cardlessCashAmount?: string }) {
   return mobileRequest<MobileTradeMutationResponse>(`/api/mobile/v1/trades/${encodeURIComponent(requestId)}`, { locale, method: "PATCH", accessToken: tokens.accessToken, body });
 }
 
