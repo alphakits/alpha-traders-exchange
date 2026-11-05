@@ -2,7 +2,7 @@
 
 This runbook applies only to local **simulation-only** development stores. It does not authorize live deployment, live chain access, signing keys or real funds.
 
-**Latest verified source: `47f0fc18`.** The [mobile coordination verification](marketplace-mobile-verification-2026-11-05.md) records **1,203 passing tests**: 1,016 wallet tests across 32 files plus 187 targeted platform authentication/marketplace tests across nine files. Full-project TypeScript, all seven native PostgreSQL drills with 66 checks, and the existing English/Arabic Chromium rehearsal passed on this exact source. The mobile addition contributes 122 test cases and 12 native checks.
+**Latest verified source: `3d119889`.** The [initial acceptance groundwork verification](initial-acceptance-verification-2026-11-05.md) records **1,390 passing tests**: 1,203 wallet tests across 35 files plus 187 targeted platform authentication/marketplace tests across nine files. Root TypeScript, all eight native PostgreSQL drills with 75 checks, and the retained English/Arabic Chromium rehearsal passed on this exact source. This adds 187 wallet cases and nine native checks. The new initial path is a pure plan and canonical transaction participant; its authenticated seller reservation and new recovery cohort remain unimplemented. Live launch remains withheld.
 
 The [historical combined recovery report at `09405da`](marketplace-recovery-verification-2026-11-05.md) retains its 1,081-test and six-drill/54-check result, including 83 recovery cases and 11 native combined-recovery checks. The [prior canonical coordinator report](marketplace-coordinator-verification-2026-11-05.md) and [versioned-ledger report](ledger-v2-verification-2026-11-05.md) retain their historical evidence and scope.
 
@@ -14,12 +14,15 @@ The [historical combined recovery report at `09405da`](marketplace-recovery-veri
 
 | Source or target state | Supported procedure |
 | --- | --- |
+| Initial-acceptance mechanics fixture with canonical acceptance and only a companion wallet pause | Preserve the complete disposable fixture for inspection. This is not a coordinated financial cohort; wallet-only backup does not capture its canonical rows, and no initial-acceptance combined recovery format exists |
 | Canonical marketplace enrollment exists and the source matches the supported fixture | Inspect and pause through the owner coordinator, then export and restore the complete combined recovery unit below |
 | Activation status is uncertain, integrity checks fail, or the schema/cohort is unsupported | Preserve the complete isolated source and investigate. Do not select a wallet-only procedure to bypass the refusal |
 | A target was created by combined recovery, including an uncertain COMMIT outcome | Reopen that same target and use the offline recovery diagnostic with the separately retained checksum |
 | Source is confirmed to have no active canonical marketplace enrollment | Use the standalone v1/mixed-v2 backup and paused-restore procedure later in this runbook |
 
 The distinction concerns activation by the [private canonical coordinator](marketplace-coordinator-design.md). Standalone v2 ledger fixtures may contain their own synthetic terms bindings; they do not establish a canonical marketplace cohort. A ledger-only backup also cannot prove that the source remained unenrolled after its checkpoint. Establish the active source and its enrollment state before choosing a recovery procedure.
+
+The [initial seller acceptance groundwork](initial-acceptance-design.md) does not change either existing recovery format. Its frozen v2 history verifies original restore/receipt/payout behavior; its canonical mechanics drill is deliberately separate from recovery-compatible activation. The authenticated seller-native flow needs a distinct versioned recovery contract before use.
 
 ## Enrolled canonical cohort: inspect, pause, export and restore
 

@@ -6,6 +6,8 @@ The preliminary stage passed [exact-source verification at `44ac6c4`](marketplac
 
 The subsequent [bounded canonical coordinator at `ecc3752`](marketplace-coordinator-verification-2026-11-05.md) passed 998 tests and five native drills, including 16 new canonical/authentication/writer-fence checks. It connects the already-reserved Bank Transfer/Face-to-Face amount-correction path. The later [combined recovery contract](marketplace-recovery-design.md) describes separately implemented backup and quarantined restore for its fixed development schema. [Transaction-owned mobile authority](marketplace-mobile-auth-design.md) is also implemented and has its own [exact-source evidence](marketplace-mobile-verification-2026-11-05.md). This wider design still includes initial acceptance, further lifecycle, product delivery and production recovery work beyond that cohort; earlier verification counts do not cover later additions.
 
+The separately scoped [initial seller acceptance groundwork](initial-acceptance-design.md) passed [exact-source verification at `3d119889`](initial-acceptance-verification-2026-11-05.md): 1,390 tests and eight native drills/75 checks. That evidence covers the non-authoritative initial plan, canonical persistence mechanics, frozen v2 history and rollback hardening. It does not establish the missing seller-native financial version, initial receipt/coordinator or recovery contract.
+
 ## Decision and smallest next stage
 
 Use one database transaction to accept marketplace terms and adjust the corresponding wallet reservation. Two independently committed calls, including a wallet call inside today's marketplace callback, cannot provide that guarantee.
@@ -33,7 +35,7 @@ The disposable PostgreSQL harness `scripts/alpha-wallet/postgres-marketplace-tra
 | `src/lib/alpha-exchange-store.ts`: `updateTradeTerms`, `commitFocusedTradeMutation` | Amount corrections use seller proposal → buyer acceptance. The preferred write path calls `repository.mutateFocusedTrade`; the fallback uses `writeDb` with canonical rebasing. Neither supplies a shared wallet transaction. |
 | `src/lib/alpha-exchange-repository.ts`: `mutateFocusedTrade` | Still owns its original client and plain `BEGIN`, financial advisory lock `61422917`, focused delta, version increment and commit. Its actual read/persist statements now also serve the guarded development participant; existing callers retain their behavior. |
 | `src/lib/alpha-exchange-store.ts`: `updatePurchaseRequestStatus`, `acceptedCounterQuote` | Counter-price acceptance uses the lifecycle path and `acceptCounterOfferId`, not `accept_amount`. |
-| `src/lib/alpha-exchange-repository.ts`: `beginCanonicalTradeTransaction`, `TradeLifecycleTransaction` | Lifecycle persistence also owns its commit. Some status commands take request lock `(61422919, hashtext(requestId))` before `61422917`. Both persistence paths need shared transaction participants. |
+| `src/lib/alpha-exchange-repository.ts`: `beginCanonicalTradeTransaction`, `TradeLifecycleTransaction` | Lifecycle persistence also owns its commit. Some status commands take request lock `(61422919, hashtext(requestId))` before `61422917`. Focused amount-correction and separate initial-acceptance participants are implemented; the remaining lifecycle transitions still need dedicated participants and financial coordination contracts. |
 | `src/lib/alpha-wallet/durable.ts`, `durable-store.ts` | Wallet execution owns a SERIALIZABLE transaction, updates the wallet head before reading history, verifies semantic replay and immutable projections, then appends a command and its projections. |
 | `src/lib/alpha-wallet/backup.ts`: `transactionBoundStore` | Existing example of invoking wallet repository operations inside one already-owned transaction, without nested BEGIN/COMMIT. This is an internal ownership pattern, not a public SQL API. |
 | `src/lib/alpha-wallet/sandbox.ts`, `types.ts` | `reserveTrade` creates a new trade and quotes from `listing.price`. There is no resize command; `Trade` does not retain an explicit unit price, fee-policy version or proposal revision. |
@@ -83,7 +85,7 @@ The latest `termsProposal` field is insufficient recovery evidence: a later prop
 
 ## One transaction owner
 
-The focused participant has been extracted; lifecycle persistence still needs the equivalent extraction. These operations receive a trusted, lifetime-bound SQL context and never connect, begin, commit, retry or release independently. Existing repository entry points retain their present behavior. The future financial coordinator must supply the same context to the wallet participant.
+The focused amount-correction and separate initial-acceptance participants have been extracted; the remaining lifecycle transitions still need their own participants and financial coordination contracts. Existing production entry points retain their transaction ownership. These operations receive a trusted, lifetime-bound SQL context and never connect, begin, commit, retry or release independently. Existing repository entry points retain their present behavior. The future financial coordinator must supply the same context to the wallet participant.
 
 For an enrolled financial action:
 

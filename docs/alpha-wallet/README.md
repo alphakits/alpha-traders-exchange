@@ -6,7 +6,7 @@ Working branch: `feature/alpha-wallet-dev-20261104`.
 
 **Development resumed at the user's request on 4 November 2026.** The [saved pause checkpoint](PAUSED-2026-11-04.md) records the earlier handoff. The no-live-launch restriction remains in force; unfinished verification and integration are tracked in [launch-readiness.md](launch-readiness.md).
 
-**Latest verified source: `47f0fc18`.** The [mobile coordination verification](marketplace-mobile-verification-2026-11-05.md) records **1,203 passing tests**: 1,016 wallet tests across 32 files plus 187 targeted platform authentication/marketplace tests across nine files. Full-project TypeScript, all seven native PostgreSQL drills with 66 checks, and the existing English/Arabic Chromium rehearsal passed on this exact source. This includes 122 new mobile reader/coordinator/recovery cases and 12 native mobile checks. The browser evidence remains the standalone synthetic rehearsal. Live launch remains withheld.
+**Latest verified source: `3d119889`.** The [initial acceptance groundwork verification](initial-acceptance-verification-2026-11-05.md) records **1,390 passing tests**: 1,203 wallet tests across 35 files plus 187 targeted platform authentication/marketplace tests across nine files. Root TypeScript, all eight native PostgreSQL drills with 75 checks, and the retained English/Arabic Chromium rehearsal passed on this exact source. This adds 187 wallet cases and nine native checks. The new initial path is a pure plan and canonical transaction participant; its authenticated seller reservation and new recovery cohort remain unimplemented. Live launch remains withheld.
 
 The [historical combined recovery baseline at `09405da`](marketplace-recovery-verification-2026-11-05.md) retains its 1,081-test, six-drill/54-check result, including 83 recovery cases and 11 native recovery checks. The [earlier canonical coordinator baseline](marketplace-coordinator-verification-2026-11-05.md) is retained separately.
 
@@ -43,7 +43,7 @@ This is an executable specification connected to an isolated, durable simulation
 | Recovery worker | Persist claim before submission; retain uncertain funds; look up original reference; exact final receipt; tolerate late matching reports | Explicit offline fake-provider step; standalone workers are blocked after canonical cohort activation; no registered service or cron |
 | Backup and restore | Standalone v1/mixed-v2 formats plus a separate combined canonical/wallet recovery unit; exact original history, immutable application receipts and a new atomic pause; new mobile owner export shares the web format | Combined export requires a paused enrolled source and actual owner; fresh restore uses disabled identities, empty web sessions and no mobile authentication tables; production identity recovery and controlled resume remain separate |
 | User access boundary | Existing development web/mobile session-source adapters and strict gateway; private web and new mobile coordinators lock their actual session/account rows in the financial transaction and recheck eligibility/expiry | Production routes, account/trade screens and a real withdrawal step-up issuer remain required |
-| Marketplace groundwork | Pure accepted-amount planner using actual contract rules; frozen 41-command v1 history; actual focused repository SQL participates in one owned simulation transaction | Broader initial-acceptance, lifecycle and production integration remain unfinished |
+| Marketplace groundwork | Pure amount-correction and initial-seller-acceptance plans; frozen v1 and v2 histories; separate focused and initial canonical SQL participants in caller-owned transactions; guarded runtime-failure rollback | Initial seller-native financial command/coordinator, competing identity bindings, activation/recovery and broader lifecycle remain unfinished |
 | Private canonical coordinator | Owner enrollment/inspection/pause; stored-session buyer acceptance; atomic canonical terms, principal delta, immutable receipt and safe publication intent; database fences for the complete enrolled listing | One already-reserved development trade with an existing pending amount proposal; Bank Transfer/Face-to-Face only; no public route or delivery |
 | Versioned ledger continuation | Explicit atomic v1-to-v2 migration; unchanged historical prefix; durable synthetic enrollment, principal-delta corrections and immutable proposal receipts; inherited standalone settlement/recovery and mixed-history backup | The private coordinator adds canonical SQL/auth coupling; its active cohort fences unsupported settlement, worker and standalone-backup paths |
 | Chain evidence | Strict BSC/TRON receipt decoding, event identity, exact units, execution status and supplied canonical ancestry | Pure fixture consistency; no live RPC, consensus proof, authoritative finality source or automatic credit |
@@ -109,6 +109,16 @@ The new source compatibility accepts either neither mobile authentication table 
 `restoreMarketplaceWalletBackup` validates the complete bytes and separately retained checksum before opening a fresh target. One transaction replays the old history, appends a checksum-bound recovery pause, restores canonical and immutable coordination records, installs the common unchanged guards and seals an immutable recovery receipt. A deferred constraint refuses an incomplete restore. All sessions/passwords are excluded; account identities become disabled stubs. Neither mobile authentication table is created, and the new quarantine checks require both to remain absent, including at restore COMMIT. This preserves financial references without reviving old credentials.
 
 If COMMIT acknowledgement is lost, `inspectRestoredMarketplaceWallet` verifies that same target against its retained checksum, complete history, final pause and record digests. It is an offline database-capability diagnostic, not a login override. The source stays paused, the target stays paused, and this implementation provides no authority re-entry, resume, provider call or notification delivery. See [the recovery contract](marketplace-recovery-design.md) for exact limits and [the runbook](recovery-runbook.md) for handling.
+
+### Initial seller acceptance groundwork
+
+The [initial-acceptance contract](initial-acceptance-design.md) separates the pure seller acceptance plan from canonical SQL persistence and from the still-required financial command. The plan retains the buyer request, preallocated trade ID, frozen price/payment instructions, exact full principal and policy dependencies. It checks buyer history across sellers, review/commission obligations, seller capacity/approval, blocks/enforcement and funding. Its immutable result has `executionAuthority: false`.
+
+The new participant certifies one caller-owned SERIALIZABLE transaction, reads normalized and payload identity links, rejects precision/time mismatches and constructs a bounded target request/trade/listing/event write set. It handles either an absent physical trade projection or an exact pending projection left by a full snapshot. Canonical `availableAmount` stays unchanged. Both this participant and the retained focused participant now ensure a swallowed runtime-guard error cannot commit a prior wallet write.
+
+The initial financial planner refuses competing target-listing reservations, noncancelled target wallet-listing history and other active seller wallet trades whose canonical relationships are unproved. Equal amounts cannot establish identity. Supporting these histories needs complete one-to-one bindings; the general three-active-trade policy remains unchanged.
+
+[Exact-source verification at `3d119889`](initial-acceptance-verification-2026-11-05.md) includes actual native commit/rollback, stale cross-seller buyer history, competing acceptance, injected response loss and reopen checks. The companion wallet command is an independently authorized synthetic operator pause, leaving all 500 USDT in listing inventory and creating no reservation. This is transaction groundwork, not an authenticated wallet-backed sale or new recovery format. A separately versioned seller-native reservation must precede the end-to-end initial flow.
 
 ## Financial policy preserved
 
@@ -285,6 +295,17 @@ The demo simulates a pending deposit, final 500 USDT funding, 200 and 300 USDT p
 
 The test report records the actual checks run and their limits. Do not describe a local green suite as an independent security audit, real blockchain test, or guarantee of bug-free operation.
 
+The initial acceptance mechanics drill requires two additional fresh databases:
+
+```bash
+NODE_ENV=test node --conditions=react-server --import tsx scripts/alpha-wallet/postgres-initial-acceptance.ts \
+  --fresh-simulation-databases \
+  --atomic-connection-string 'postgresql://wallet_fixture:simulation-only@127.0.0.1:5432/alpha_wallet_dev_initial_atomic' \
+  --race-connection-string 'postgresql://wallet_fixture:simulation-only@127.0.0.1:5432/alpha_wallet_dev_initial_races'
+```
+
+It checks database emptiness before setup, uses explicit synthetic identities and never reads an environment database URL. Both wallets finish paused. The [nine executed checks](initial-acceptance-verification-2026-11-05.md) prove bounded canonical/transaction mechanics; no seller reservation or initial-acceptance receipt recovery is claimed.
+
 ## Next development milestones and exit criteria
 
 Current acceptance evidence, open gates and owner decisions are tracked in [launch-readiness.md](launch-readiness.md). This file is the implementation overview, not a declaration that the wallet may accept live funds.
@@ -299,6 +320,7 @@ Current acceptance evidence, open gates and owner decisions are tracked in [laun
 | 2a extension. Private canonical coordinator | Same-transaction stored web auth, owner enrollment/inspection/pause, existing-proposal acceptance, canonical/wallet receipts and listing-wide fences — implemented for the bounded development cohort | [Verified at `ecc3752`](marketplace-coordinator-verification-2026-11-05.md): 998 tests, five native drills and the retained browser rehearsal; production recovery and the remaining lifecycle remain separate gates |
 | 2a extension. Combined cohort recovery | Owner-authenticated paused export; original canonical/wallet history restored together; new quarantine, immutable recovery receipt and same-target outcome inspection | [Verified at `09405da`](marketplace-recovery-verification-2026-11-05.md): 1,081 tests and six native drills/54 checks; fixed development schema only, with authority re-entry, resume and production recovery still separate |
 | 2a extension. Private mobile authority | Current mobile session/account locks inside the existing financial transaction; cross-transport original receipts; mobile owner export and credential-free recovery compatibility | [Verified at `47f0fc18`](marketplace-mobile-verification-2026-11-05.md): 1,203 tests, seven native drills/66 checks, full-project TypeScript and the retained browser rehearsal; no public mobile route or lifecycle expansion |
+| 2a extension. Initial seller acceptance groundwork | Pure seller plan, dedicated canonical participant, frozen v2 history and swallowed-runtime-error rollback hardening | [Verified at `3d119889`](initial-acceptance-verification-2026-11-05.md): 1,390 tests, eight native drills/75 checks, root TypeScript and retained browser rehearsal; seller-native financial version, authenticated coordinator and recovery remain separate |
 | 2b. Production repository design | Auth-derived identities, production role design, version migration, checkpointing/scaling, backup/restore and operational recovery | Reviewed permissions, fault-injection evidence, restore/reconciliation exercise, realistic load tests |
 | 3. Testnet adapters | Exact chain allowlists; deposit address assignment; confirmed receipt observers; cursor recovery; chosen signer/custody sandbox; gas handling | Wrong-token, finality, provider outage, timeout, duplicate webhook, and ambiguous-broadcast recovery tests |
 | 4. Private integrated flow | Seller deposit/withdraw screens; funded listings; existing trade UI; Arabic/English mobile behavior; payment-verification and dispute resolution interfaces | End-to-end tests using synthetic/testnet funds; existing marketplace/commission/review/receipt regressions |
@@ -312,7 +334,9 @@ Additional implementation contracts:
 - [Platform session integration verification](platform-verification-2026-11-04.md)
 - [Marketplace transaction groundwork verification](marketplace-groundwork-verification-2026-11-04.md)
 - [Versioned ledger continuation and recovery verification](ledger-v2-verification-2026-11-05.md)
-- [Current 1,203-test mobile coordination and seven-drill verification](marketplace-mobile-verification-2026-11-05.md)
+- [Current 1,390-test initial acceptance groundwork and eight-drill verification](initial-acceptance-verification-2026-11-05.md)
+- [Initial seller acceptance contract and required next financial version](initial-acceptance-design.md)
+- [Historical 1,203-test mobile coordination and seven-drill verification](marketplace-mobile-verification-2026-11-05.md)
 - [Historical 1,081-test combined recovery and six-drill verification](marketplace-recovery-verification-2026-11-05.md)
 - [Combined marketplace/wallet recovery contract](marketplace-recovery-design.md)
 - [Recovery runbook](recovery-runbook.md)

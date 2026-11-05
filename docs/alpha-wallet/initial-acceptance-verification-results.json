@@ -1,0 +1,1474 @@
+{
+  "scope": "Initial seller acceptance planner and canonical SQL participant groundwork, frozen v2 history and transaction rollback hardening; simulation-only; no live launch",
+  "verified_source_commit": "3d119889ca4c3632a04cecdfd11c88d39f2d96da",
+  "verified_source_tree": "61e01e1602cb5ec1b964787373600a7f4671c517",
+  "baseline_commit": "6dc63a8997532759727bd8b6691a780d373b6276",
+  "previous_verified_source": "47f0fc18f33c0f307da53726281db18055a76855",
+  "branch": "feature/alpha-wallet-dev-20261104",
+  "checks": {
+    "wallet_suite": {
+      "passed": 1203,
+      "files": 35,
+      "failed": 0,
+      "skipped": 0,
+      "inventory": [
+        {
+          "path": "src/lib/alpha-wallet/accepted-terms.test.ts",
+          "passed": 105
+        },
+        {
+          "path": "src/lib/alpha-wallet/access.test.ts",
+          "passed": 19
+        },
+        {
+          "path": "src/lib/alpha-wallet/amounts.test.ts",
+          "passed": 22
+        },
+        {
+          "path": "src/lib/alpha-wallet/backup-cli.test.ts",
+          "passed": 9
+        },
+        {
+          "path": "src/lib/alpha-wallet/backup.test.ts",
+          "passed": 14
+        },
+        {
+          "path": "src/lib/alpha-wallet/chain-evidence.test.ts",
+          "passed": 146
+        },
+        {
+          "path": "src/lib/alpha-wallet/commands.test.ts",
+          "passed": 4
+        },
+        {
+          "path": "src/lib/alpha-wallet/durable-schema.test.ts",
+          "passed": 28
+        },
+        {
+          "path": "src/lib/alpha-wallet/durable-store.test.ts",
+          "passed": 50
+        },
+        {
+          "path": "src/lib/alpha-wallet/durable.test.ts",
+          "passed": 15
+        },
+        {
+          "path": "src/lib/alpha-wallet/fake-provider.test.ts",
+          "passed": 10
+        },
+        {
+          "path": "src/lib/alpha-wallet/initial-acceptance-transaction.test.ts",
+          "passed": 36
+        },
+        {
+          "path": "src/lib/alpha-wallet/initial-acceptance.test.ts",
+          "passed": 129
+        },
+        {
+          "path": "src/lib/alpha-wallet/marketplace-auth.test.ts",
+          "passed": 57
+        },
+        {
+          "path": "src/lib/alpha-wallet/marketplace-backup-manifest.test.ts",
+          "passed": 61
+        },
+        {
+          "path": "src/lib/alpha-wallet/marketplace-backup.test.ts",
+          "passed": 22
+        },
+        {
+          "path": "src/lib/alpha-wallet/marketplace-coordination-store.test.ts",
+          "passed": 15
+        },
+        {
+          "path": "src/lib/alpha-wallet/marketplace-coordinator.test.ts",
+          "passed": 47
+        },
+        {
+          "path": "src/lib/alpha-wallet/marketplace-mobile-auth.test.ts",
+          "passed": 86
+        },
+        {
+          "path": "src/lib/alpha-wallet/marketplace-mobile-coordinator.test.ts",
+          "passed": 22
+        },
+        {
+          "path": "src/lib/alpha-wallet/marketplace-mobile-recovery.test.ts",
+          "passed": 14
+        },
+        {
+          "path": "src/lib/alpha-wallet/marketplace-transaction.test.ts",
+          "passed": 15
+        },
+        {
+          "path": "src/lib/alpha-wallet/payout-worker.test.ts",
+          "passed": 13
+        },
+        {
+          "path": "src/lib/alpha-wallet/platform-session.test.ts",
+          "passed": 23
+        },
+        {
+          "path": "src/lib/alpha-wallet/process-recovery.test.ts",
+          "passed": 1
+        },
+        {
+          "path": "src/lib/alpha-wallet/rehearsal.test.ts",
+          "passed": 17
+        },
+        {
+          "path": "src/lib/alpha-wallet/runtime.test.ts",
+          "passed": 12
+        },
+        {
+          "path": "src/lib/alpha-wallet/sandbox.test.ts",
+          "passed": 78
+        },
+        {
+          "path": "src/lib/alpha-wallet/schema-draft.test.ts",
+          "passed": 34
+        },
+        {
+          "path": "src/lib/alpha-wallet/v1-compatibility.test.ts",
+          "passed": 3
+        },
+        {
+          "path": "src/lib/alpha-wallet/v2-engine.test.ts",
+          "passed": 52
+        },
+        {
+          "path": "src/lib/alpha-wallet/v2-history-compatibility.test.ts",
+          "passed": 17
+        },
+        {
+          "path": "src/lib/alpha-wallet/versioned-backup.test.ts",
+          "passed": 8
+        },
+        {
+          "path": "src/lib/alpha-wallet/versioned-durable.test.ts",
+          "passed": 14
+        },
+        {
+          "path": "src/lib/alpha-wallet/versioned-payout-worker.test.ts",
+          "passed": 5
+        }
+      ]
+    },
+    "platform_authentication": {
+      "passed": 87,
+      "files": 5,
+      "failed": 0,
+      "skipped": 0,
+      "inventory": [
+        {
+          "path": "src/__tests__/api-auth.test.ts",
+          "passed": 30
+        },
+        {
+          "path": "src/__tests__/authenticated-session-source.test.ts",
+          "passed": 5
+        },
+        {
+          "path": "src/__tests__/session-expiry-validation.test.ts",
+          "passed": 30
+        },
+        {
+          "path": "src/lib/mobile-auth.test.ts",
+          "passed": 4
+        },
+        {
+          "path": "src/lib/mobile-phone-enforcement.test.ts",
+          "passed": 18
+        }
+      ]
+    },
+    "marketplace_regressions": {
+      "passed": 100,
+      "files": 4,
+      "failed": 0,
+      "skipped": 0,
+      "inventory": [
+        {
+          "path": "src/__tests__/alpha-exchange-repository.test.ts",
+          "passed": 63
+        },
+        {
+          "path": "src/__tests__/owner-completed-trade-history.test.ts",
+          "passed": 20
+        },
+        {
+          "path": "src/__tests__/targeted-transaction-recovery.test.ts",
+          "passed": 9
+        },
+        {
+          "path": "src/__tests__/wise-storage-postgres.test.ts",
+          "passed": 8
+        }
+      ]
+    },
+    "totals": {
+      "passed": 1390,
+      "files": 44,
+      "failed": 0,
+      "skipped": 0,
+      "new_wallet_cases": 187,
+      "previous_wallet_cases_retained": 1016
+    },
+    "typecheck": {
+      "passed": true,
+      "log_empty": true,
+      "scope": "Root tsconfig.json; apps/mobile and three pre-existing excluded tests are outside this gate; no native iOS/Android build or full production build"
+    },
+    "native_postgresql": {
+      "version": "17.11",
+      "drills": 8,
+      "check_count": 75,
+      "new_initial_acceptance_checks": 9,
+      "results": {
+        "postgres-concurrency": {
+          "mode": "simulation-only",
+          "storage": "real PostgreSQL with two independent Node processes",
+          "checks": [
+            "Independent processes credit the same final deposit once",
+            "A forced SERIALIZABLE race prevents overselling; the remaining 200 USDT stays reservable",
+            "One dispatch claim wins; unknown submission retains its original reference and funds",
+            "Competing finalized receipts debit principal once; separate commission due does not consume it",
+            "Recovery resolves a synthetically lost client acknowledgement by the original command identity",
+            "A new store connection reconstructs identical verified state from committed history"
+          ],
+          "revision": 18,
+          "money": {
+            "fundedPrincipalUSDT": "500",
+            "buyerReceivedUSDT": "300",
+            "remainingReservedUSDT": "200",
+            "separateCommissionDueUSDT": "6"
+          }
+        },
+        "postgres-backup": {
+          "mode": "simulation-only",
+          "storage": "native PostgreSQL logical backup and quarantined restore",
+          "checks": [
+            "A real PostgreSQL source exports its verified immutable history and original checkpoint",
+            "A recomputed checksum cannot conceal inconsistent history; rejection leaves the native target untouched",
+            "A real SQL failure at the final pause rolls back the entire native restore, including schema creation",
+            "Native restore retains every original command row/hash/timestamp and appends exactly one quarantine command",
+            "A new native store connection preserves quarantine and conserves 500 USDT as 300 available plus 200 held",
+            "Original dispatch replay returns false; recovery only looks up its original reference and submits nothing"
+          ],
+          "sourceCheckpoint": {
+            "revision": 7,
+            "eventHash": "52a0c4527a69cd4a83bcc4e4ff248a6ebab675f535ef10d30758d6486f829eb0",
+            "stateHash": "97f77f4e93293f47aa36f7055542d60670116f9d75cfca5a0dcbbb9475087f21",
+            "lastCommandAtMs": 1793885227460
+          },
+          "restoredCheckpoint": {
+            "revision": 8,
+            "eventHash": "348ef96266f1c1894c9780013b9e900b81ee50bcd41c8ae9fcead84e9a89f1d0",
+            "stateHash": "0cec33ce49478736ec9d61aa52b17d617081fe858bca559a366110276d25a70e",
+            "lastCommandAtMs": 1793885227566
+          },
+          "quarantined": true,
+          "money": {
+            "expectedCustodyUSDT": "500",
+            "availablePrincipalUSDT": "300",
+            "heldPayoutUSDT": "200",
+            "providerSubmissionsDuringRecovery": 0
+          }
+        },
+        "postgres-marketplace-transaction": {
+          "mode": "simulation-only",
+          "scope": "Actual focused marketplace persistence and wallet shared-transaction mechanics; no enrollment or resize",
+          "checks": [
+            "One explicit SERIALIZABLE backend commits the actual focused trade-note update and a 200-USDT synthetic wallet reservation together",
+            "A swallowed post-wallet callback rejection still aborts the outer transaction; neither domain changes",
+            "A real SQL failure after the marketplace row update rolls back both that row and the wallet command/projections",
+            "A contender visibly waiting behind the platform financial lock fails its stale snapshot fence and reruns the whole decision with fresh state",
+            "A synthetically lost reply after a real shared commit is reconciled by the original wallet identity without a second command or marketplace overwrite",
+            "A new connection reconstructs both domains identically, with 500 USDT conserved as 300 listing inventory plus one 200-USDT reservation"
+          ],
+          "concurrency": {
+            "attempts": 2,
+            "distinctBackends": true,
+            "advisoryWaitObserved": true,
+            "authoritativeReadAfterRetry": true
+          },
+          "walletRevision": 7,
+          "marketplaceVersion": "11",
+          "money": {
+            "custodyUSDT": "500",
+            "listingInventoryUSDT": "300",
+            "reservedPrincipalUSDT": "200",
+            "reservations": 1,
+            "providerSubmissions": 0
+          },
+          "limits": [
+            "Marketplace metadata change and wallet command are deliberately paired by the fixture, not a production business coordinator.",
+            "No accepted-amount resize, durable acceptance receipt, enrolled-writer cutover or platform lifecycle extraction is implemented by this harness.",
+            "Lost COMMIT acknowledgement is injected after a real commit; no real network partition or custody provider is used."
+          ]
+        },
+        "postgres-versioned-ledger": {
+          "mode": "simulation-only",
+          "storage": "Disposable native PostgreSQL v1/v2 continuation, resizing and mixed restore",
+          "checks": [
+            "A real SQL failure after migration DDL rolls back the complete upgrade, retaining original schema, v1 rows and balances",
+            "An explicit upgrade links one v2 continuation to the unchanged v1 prefix; a lost reply recovers that original command without another transition",
+            "The old v1 repository/initializer and fresh v1 envelopes fail closed after upgrade without changing the upgraded ledger",
+            "Two native backends with overlapping snapshots accept one proposal once despite different transport IDs; whole-transaction retry returns one original receipt",
+            "A second accepted correction releases only the 150-USDT delta; inherited settlement delivers all remaining 150 principal and recognizes separately funded 3-USDT fees",
+            "Zero-delta acceptance appends a receipt without a journal; after later settlement, old proposal and v1 reservation/dispatch retries retain original identities and never regain dispatch authority",
+            "Mixed-history backup verifies semantic replay; a real final-quarantine SQL fault rolls back the entire native restore including both schema versions and migration DDL",
+            "A new native connection reopens the paused mixed restore with every original row/hash unchanged and 450 remaining principal plus 3 separate fee revenue conserved",
+            "The v2 worker can recover inherited uncertainty after restore using only the original provider reference; an empty lookup submits nothing and retains the 25-USDT hold"
+          ],
+          "concurrency": {
+            "attempts": [
+              1,
+              2
+            ],
+            "distinctBackends": true,
+            "oneAcceptanceReceipt": true,
+            "originalRevision": 15
+          },
+          "sourceV1Checkpoint": {
+            "revision": 12,
+            "eventHash": "f1cef650b79b3d4165efcffa2a15eb2a357b231af670ad6bda9e7b09965686ea",
+            "stateHash": "d7974a49f89c9e62442506f85e0d5633efc97b5314c7ddf8348684e4c79b5341",
+            "lastCommandAtMs": 1800000000000
+          },
+          "sourceCheckpoint": {
+            "revision": 30,
+            "eventHash": "eadb9169c0997ece20a7239f24dc72c78c7cef9e859f1abaabc5f632a86e2380",
+            "stateHash": "42645718bc83c6b20c7f4e2beb7e0e6c841397b5b799af4d8c4428ef003b603a",
+            "lastCommandAtMs": 1800000004000
+          },
+          "restoredCheckpoint": {
+            "revision": 31,
+            "eventHash": "3b619655c28621162e705ece1e2076920bf0988886cb1d60fc9068b6aeb19cb2",
+            "stateHash": "24bc9655d6f286412699bce94c23d3fd85d30a8be15d9ead976effb4783f47d7",
+            "lastCommandAtMs": 1800000004000
+          },
+          "originalV1Rows": 12,
+          "acceptanceReceipts": 3,
+          "termsBindings": 2,
+          "money": {
+            "initialPrincipalUSDT": "600",
+            "deliveredPrincipalUSDT": "150",
+            "remainingPrincipalUSDT": "450",
+            "listingPrincipalUSDT": "300",
+            "reservedTradeUSDT": "50",
+            "availablePrincipalUSDT": "75",
+            "inheritedUnknownWithdrawalUSDT": "25",
+            "separateCommissionRevenueUSDT": "3",
+            "custodyUSDT": "453",
+            "providerSubmissionsDuringRecovery": 0
+          },
+          "limits": [
+            "Marketplace records here are synthetic planner inputs; no production marketplace coordinator or enrolled-writer cutover is activated.",
+            "Lost upgrade acknowledgement is injected after a real commit; this is not a real network partition or custody-provider test.",
+            "Final payment and chain receipts are trusted synthetic evidence; no real signer, RPC, bank verification or funds are used."
+          ]
+        },
+        "postgres-marketplace-coordinator": {
+          "mode": "simulation-only",
+          "scope": "Actual canonical marketplace and v2 wallet amount-correction coordinator",
+          "checks": [
+            "Owner-authenticated enrollment atomically binds the accepted canonical request to its existing 200-USDT wallet reservation",
+            "A semantic failure after the wallet command and projections rolls back wallet, canonical terms, receipts and publication intent together",
+            "A real SQL error after the canonical marketplace UPDATE rolls back both domains and every acceptance side effect",
+            "Expiry detected after actual marketplace persistence still aborts the single transaction before commit",
+            "Legacy edits to the enrolled request, another request on its listing, inventory, evidence and TRUNCATE are rejected by native database guards",
+            "Standalone wallet commands, reads, workers and wallet-only backup fail closed once the canonical development cohort is active",
+            "A real shared commit resizes 200 to 300 USDT, preserves 500 USDT total and stores exactly one receipt, publication intent, seller notification, audit and system message despite an injected lost response",
+            "A freshly authenticated buyer recovers the original acceptance under a different transport ID even after pause; changed business input and a different actor are rejected and public receipts omit credentials and private payment details",
+            "An ordinary READ COMMITTED evidence writer that ignores the global advisory lock physically fences its listing; waiting enrollment retries with that committed evidence and rejects the now-ineligible trade without a ledger or cohort write",
+            "A legacy SERIALIZABLE writer whose snapshot predates enrollment is forced to retry by physical row fencing and then rejected by the enrolled guard",
+            "Two independent PostgreSQL backends accepting the same stored proposal serialize visibly, retry the entire stale decision and return one original receipt with one principal transfer",
+            "A web-session revocation committed after the coordinator snapshot but before its locked auth read forces a full retry and rejects acceptance without financial or canonical changes",
+            "An account disable committed after the coordinator snapshot but before its locked auth read forces a full retry and rejects acceptance without financial or canonical changes",
+            "Real FOR SHARE session/account locks order acceptance before a concurrently queued web-session revocation; the now-revoked credential cannot retrieve the committed receipt",
+            "The same buyer with a new valid stored session can recover the original immutable receipt without another wallet or canonical mutation",
+            "A fresh connection replays and checks the coordinated state after pause, with the accepted 300-USDT reservation and 200-USDT remaining inventory intact"
+          ],
+          "concurrency": {
+            "preEnrollmentAttempts": 2,
+            "staleLegacyAttempts": 2,
+            "acceptanceAttempts": 2,
+            "distinctBackends": true,
+            "advisoryWaitObserved": true,
+            "preEnrollmentRowWaitObserved": true
+          },
+          "authentication": {
+            "staleSessionAttempts": 2,
+            "staleAccountAttempts": 2,
+            "distinctBackends": true,
+            "rowLockWaitObserved": true,
+            "revocationCommittedAfterAcceptance": true,
+            "revokedSessionRecoveryRejected": true
+          },
+          "walletRevision": 9,
+          "money": {
+            "custodyUSDT": "500",
+            "listingInventoryUSDT": "200",
+            "reservedPrincipalUSDT": "300",
+            "buyerFeeUSDT": "3",
+            "sellerFeeUSDT": "3",
+            "fiatTotalILS": "969.60",
+            "providerSubmissions": 0
+          },
+          "limits": [
+            "Explicit owner enrollment of one clean active reserved trade globally; Bank Transfer and Face-to-Face only.",
+            "This drill exercises web sessions; the separate mobile drill verifies device-session coordination. No live route, payout, new proposal, cancellation, release or settlement is enabled.",
+            "Publication intent is durable but no external notification/realtime delivery runs.",
+            "Lost reply is injected after a real commit; no real network partition or provider is used.",
+            "Wallet-only export is rejected after enrollment; the separate combined recovery drill verifies paused fresh-target restoration."
+          ]
+        },
+        "postgres-marketplace-backup": {
+          "kind": "alpha-wallet-native-combined-marketplace-recovery-v1",
+          "mode": "simulation-only",
+          "status": "passed",
+          "checks": [
+            "All three isolated native targets are checked before any fixture write",
+            "Owner export preserves the native financial/canonical snapshot while excluding session and password material",
+            "Recomputing a checksum cannot hide contradictory canonical terms; invalid bytes never open a target transaction",
+            "A native SQL error at the new pause rolls back every replayed wallet command and schema",
+            "A native SQL error after actual canonical rows are inserted rolls back wallet and marketplace together",
+            "A failure after receipt completion and guard installation still rolls back the entire recovery",
+            "A real commit with a lost response is resolved by reopening that same target and verifying its immutable receipt and new pause",
+            "Reopen retains original hashes/timestamps and all canonical records; 300 reserved plus 200 available equals 500 synthetic USDT",
+            "Old credentials, standalone wallet paths and older writers to target/sibling requests remain blocked after recovery",
+            "A retry never overwrites a committed target; receipt mutation/checksum mismatch are refused and the source remains paused",
+            "Two native backends compete for one fresh target; exactly one restore commits and its verified state is never overwritten"
+          ],
+          "source": {
+            "revision": 9,
+            "eventHash": "ff983e52bd43769a406df19f1a00406e1917366d0ea0a583bff9f5defb7ffbc4",
+            "stateHash": "107375f1957f9c32424de22007ce60e1ee7a33afab34b1c354482b3de2ff8a13",
+            "lastCommandAtMs": 1800000001000
+          },
+          "restored": {
+            "revision": 10,
+            "eventHash": "d6f5c79aa9667c71181f4a63de21d45e1e949cd00409bec12a45704d0dfb4225",
+            "stateHash": "c7355bb8bd8cd1a440f4ecca22920c6abfe56916344647866ea8cdab0af2a66d",
+            "lastCommandAtMs": 1800000010000
+          },
+          "canonicalRowCounts": {
+            "runtime_meta": 1,
+            "purchase_requests": 2,
+            "users": 3,
+            "listings": 1,
+            "commissions": 0,
+            "trust_snapshots": 0,
+            "evidence": 0,
+            "disputes": 0,
+            "notifications": 1,
+            "audit_logs": 1,
+            "activity_logs": 0,
+            "trades": 2
+          },
+          "coordinationRowCounts": {
+            "enrollments": 1,
+            "acceptances": 1,
+            "publications": 1
+          },
+          "sourcePaused": true,
+          "targetPaused": true,
+          "credentialsRestored": false,
+          "historicalContextsRestored": false,
+          "providerSubmissions": 0,
+          "conservedPrincipalRaw": "500000000",
+          "tradeReservedRaw": "300000000",
+          "listingAvailableRaw": "200000000",
+          "concurrentRestoreResults": {
+            "fulfilled": 1,
+            "rejected": 1,
+            "distinctBackends": 2
+          },
+          "responseLoss": "Injected after a real native COMMIT; not a physical network partition"
+        },
+        "postgres-marketplace-mobile": {
+          "kind": "alpha-wallet-native-mobile-coordination-v1",
+          "mode": "simulation-only",
+          "status": "passed",
+          "checks": [
+            "All three explicitly named isolated native databases are empty and checked before any fixture write",
+            "A current stored mobile owner enrolls the original canonical reservation with the same financial contract as the web owner",
+            "Mobile expiry after the canonical UPDATE rolls back wallet, canonical terms, receipts and publication together",
+            "A lost mobile COMMIT reply is recovered from either current web or mobile authority with one immutable receipt and no duplicate principal movement or events",
+            "Mobile owner pause remains available and current web/mobile callers recover the original receipt while paused without new financial commands",
+            "Web and mobile owners export identical private financial bytes; a fresh paused restore excludes both mobile auth tables and retains 500 synthetic USDT as 300 reserved plus 200 available",
+            "A logout committed after the old snapshot forces a whole-transaction retry and denies the old mobile authority without financial changes",
+            "A rotation committed after the old snapshot forces a whole-transaction retry and denies the old mobile authority without financial changes",
+            "A replacement committed after the old snapshot forces a whole-transaction retry and denies the old mobile authority without financial changes",
+            "A account committed after the old snapshot forces a whole-transaction retry and denies the old mobile authority without financial changes",
+            "Two native backends expose a real row wait: acceptance commits before queued logout, the revoked mobile token is denied and the current web buyer recovers the original receipt",
+            "Concurrent web and mobile acceptances expose a real advisory wait and whole-transaction web retry, then return one original receipt with one financial acceptance"
+          ],
+          "platforms": [
+            "ios",
+            "android"
+          ],
+          "locales": [
+            "en",
+            "ar"
+          ],
+          "staleAuthorityAttempts": {
+            "logout": 2,
+            "rotation": 2,
+            "replacement": 2,
+            "account": 2
+          },
+          "ordering": {
+            "distinctBackends": 3,
+            "rowWaitObserved": true,
+            "advisoryWaitObserved": true,
+            "webContenderAttempts": 2,
+            "revocationCommittedAfterAcceptance": true
+          },
+          "recovery": {
+            "source": {
+              "revision": 9,
+              "eventHash": "51fed5c583035fecb76565ce24dab384da6274c0875715bd2976bca9079fc010",
+              "stateHash": "58a4747a56b1ceb2167e0eab8977cfe99ebc1fd8f5a1e8f801b3dbedcd025184",
+              "lastCommandAtMs": 1800000001000
+            },
+            "restored": {
+              "revision": 10,
+              "eventHash": "8ed2a72a13a58573eb19939a21d1202ed428d6db2259ca6de27f79cb3efebbfd",
+              "stateHash": "a82938cc7e1d200f98c34d4d8ebeb9326d6aa66bcda373d5d65952db0f27dfcd",
+              "lastCommandAtMs": 1800000010000
+            },
+            "mobileCredentialsRestored": false,
+            "sourcePaused": true,
+            "restoredPaused": true,
+            "providerSubmissions": 0,
+            "principalRaw": "500000000",
+            "tradeReservedRaw": "300000000",
+            "listingAvailableRaw": "200000000"
+          },
+          "providerSubmissions": 0,
+          "limits": [
+            "Private development API only; no mobile route, login flow, push delivery, provider or signer is activated.",
+            "The native fixtures apply the actual mobile session schema, hash conventions and rotation/global-lock SQL contract; they do not contact the production mobile session service.",
+            "Revocation queued after a financial operation holds its auth locks commits afterward; it does not cancel that earlier operation.",
+            "Expiry is checked at authorization checkpoints; there is no wall-clock COMMIT acknowledgement deadline guarantee.",
+            "Lost response is injected after real COMMIT, not a physical network partition.",
+            "The existing bounded amount-correction cohort and credential-free recovery format remain unchanged."
+          ]
+        },
+        "postgres-initial-acceptance": {
+          "mode": "simulation-only",
+          "scope": "Pure initial seller acceptance planning and actual canonical participant mechanics, not an authenticated financial acceptance coordinator",
+          "checks": [
+            "A swallowed callback rejection after an independently authorized synthetic pause still aborts the whole certified transaction",
+            "Restoring the simulation environment after swallowing a runtime-guard error cannot commit an earlier wallet write",
+            "A real SQL error after request, physical trade and listing persistence rolls back those rows, events and the companion wallet command",
+            "One actual SERIALIZABLE backend commits exact pending-to-accepted canonical SQL, retained trade identity, bounded events and a synthetic operator pause together",
+            "Canonical availableAmount remains 500 USDT; all 500 wallet USDT remain listing inventory, with zero fabricated reservations or payouts",
+            "After a lost COMMIT reply, direct read verifies the original rows and a second initial-acceptance attempt is refused without additional writes; no acceptance receipt recovery is claimed",
+            "Reopening a new native connection reconstructs the same canonical rows and original wallet command hashes with the wallet paused",
+            "A visibly waiting stale transaction retries at runtime_meta and refuses acceptance after seeing the buyer's new active trade with a different seller",
+            "Two competing native backends produce one Face-to-Face canonical acceptance and one pause; the waiting loser retries and refuses the already accepted request"
+          ],
+          "concurrency": {
+            "staleHistory": {
+              "attempts": 2,
+              "distinctBackends": true,
+              "advisoryWaitObserved": true,
+              "buyerHistoryAcrossSellersRechecked": true
+            },
+            "competition": {
+              "secondAttempts": 2,
+              "distinctBackends": true,
+              "advisoryWaitObserved": true,
+              "committedCanonicalAcceptances": 1,
+              "newWalletCommands": 1,
+              "reservationCommands": 0
+            }
+          },
+          "money": {
+            "custodyUSDT": "500",
+            "listingInventoryUSDT": "500",
+            "reservedPrincipalUSDT": "0",
+            "reservations": 0,
+            "payouts": 0,
+            "providerSubmissions": 0
+          },
+          "limits": [
+            "The wallet companion is an independently authorized synthetic operator pause; the seller does not impersonate the buyer.",
+            "Accepted canonical rows in this isolated mechanics fixture do not represent a coordinated wallet-backed sale or a recovery-compatible cohort.",
+            "No initial-acceptance authentication, seller-native versioned reservation, immutable acceptance receipt, activation, recovery format or production route is implemented by this drill.",
+            "Lost COMMIT acknowledgement is injected after a real commit, not a real network partition. All databases, identities and funds are synthetic."
+          ]
+        }
+      }
+    },
+    "browser_rehearsal": {
+      "mode": "simulation-only",
+      "driver": "Chromium through rendered UI actions",
+      "browserVersion": "149.0.7827.55",
+      "desktop": {
+        "width": 1440,
+        "language": "en"
+      },
+      "mobile": {
+        "width": 390,
+        "language": "ar",
+        "direction": "rtl",
+        "horizontalOverflow": false
+      },
+      "assertions": [
+        "Full 500-USDT funding and independent owner approval",
+        "200 + 300 principal reservations",
+        "Separate buyer, verifier, seller, and worker actions",
+        "Unknown provider response held until recovery",
+        "Provider finality does not itself settle the ledger",
+        "Full 500 USDT delivered with 10 USDT fees separately funded and recognized",
+        "Interrupted reservation and withdrawal HTTP responses retain the exact operation across reload without duplicate allocation"
+      ],
+      "amounts": {
+        "id": "tron-sim-usdt",
+        "label": "TRC20 simulation",
+        "decimals": 6,
+        "custody": "10",
+        "available": "0",
+        "listing": "0",
+        "reserved": "0",
+        "delivered": "500",
+        "commissionAvailable": "0",
+        "commissionDue": "0",
+        "revenue": "10",
+        "gasReady": true,
+        "reconciliationFresh": false
+      },
+      "requestRecovery": {
+        "reservation": {
+          "action": "trade-reserve",
+          "fault": "truncated JSON response after actual server commit",
+          "requestId": "ui-35184f21-a263-458d-b6b9-c37c88854a0c",
+          "sameRequestAfterReload": true,
+          "committedRevision": 7,
+          "recoveredRevision": 7
+        },
+        "withdrawal": {
+          "action": "withdrawal-create",
+          "fault": "truncated JSON response after actual server commit",
+          "requestId": "ui-383fa978-2e82-4beb-9164-d1e9bd47f449",
+          "sameRequestAfterReload": true,
+          "committedRevision": 6,
+          "recoveredRevision": 6,
+          "payoutCount": 1,
+          "heldUSDT": "25",
+          "availableUSDT": "75",
+          "providerSubmissions": 0
+        }
+      },
+      "consoleErrors": [],
+      "screenshots": [
+        "/home/runner/work/alpha-traders-exchange/alpha-traders-exchange/test-results/alpha-wallet/rehearsal/english-desktop-funded-reservations.png",
+        "/home/runner/work/alpha-traders-exchange/alpha-traders-exchange/test-results/alpha-wallet/rehearsal/english-desktop-unknown-submission.png",
+        "/home/runner/work/alpha-traders-exchange/alpha-traders-exchange/test-results/alpha-wallet/rehearsal/arabic-mobile-partial-settlement.png",
+        "/home/runner/work/alpha-traders-exchange/alpha-traders-exchange/test-results/alpha-wallet/rehearsal/arabic-mobile-full-settlement.png",
+        "/home/runner/work/alpha-traders-exchange/alpha-traders-exchange/test-results/alpha-wallet/rehearsal/arabic-mobile-final-viewport.png",
+        "/home/runner/work/alpha-traders-exchange/alpha-traders-exchange/test-results/alpha-wallet/rehearsal/english-desktop-final-viewport.png"
+      ]
+    },
+    "offline_demo": {
+      "mode": "OFFLINE SIMULATION ONLY \u2014 no real funds, chain calls, keys, or payouts",
+      "checkpoints": [
+        {
+          "stage": "Owner approved; no confirmed principal",
+          "listing": "awaiting_funding",
+          "availableUSDT": "0",
+          "expectedCustodyUSDT": "0"
+        },
+        {
+          "stage": "Deposit observed; waiting for finality",
+          "listing": "awaiting_funding",
+          "availableUSDT": "0",
+          "expectedCustodyUSDT": "0"
+        },
+        {
+          "stage": "Confirmed 500 USDT principal; listing active",
+          "listing": "active",
+          "availableUSDT": "500",
+          "expectedCustodyUSDT": "500"
+        },
+        {
+          "stage": "Buyer receives full 200 USDT; separate commission settles",
+          "listing": "active",
+          "availableUSDT": "300",
+          "expectedCustodyUSDT": "310"
+        },
+        {
+          "stage": "Buyer receives full 300 USDT; separate commission settles",
+          "listing": "no_available_inventory",
+          "availableUSDT": "0",
+          "expectedCustodyUSDT": "10"
+        }
+      ],
+      "totals": {
+        "principalDepositedUSDT": "500",
+        "principalDeliveredUSDT": "500",
+        "separateCommissionDepositedUSDT": "10",
+        "commissionRecognizedUSDT": "10",
+        "remainingCustomerPrincipalUSDT": "0"
+      },
+      "protectionsExercised": [
+        "unconfirmed deposit cannot activate",
+        "duplicate deposit cannot credit again",
+        "buyer claim cannot authorize release",
+        "unknown payout retains original intent",
+        "duplicate dispatch claim cannot send again",
+        "principal conserved",
+        "fees remain separate"
+      ]
+    },
+    "frozen_v2_capture": {
+      "command_count": 41,
+      "capture_source": "47f0fc18f33c0f307da53726281db18055a76855",
+      "capture_tree": "eea3bee815707d3fc62a0d68c69d301bad0ab079",
+      "checkpoint": {
+        "revision": 41,
+        "eventHash": "b61492df6398d0e3b1b3b71ea3b61e4d06ab8222189e1702cfb41d73bff3f020",
+        "stateHash": "5ef934b1da1a1481705e018e34462c8fad3b1169a3bbe5b1af0d70dac4c85872",
+        "lastCommandAtMs": 1793880041000
+      },
+      "prefix_checkpoint": {
+        "revision": 15,
+        "eventHash": "71ef75dd8498606f247595324f7d1c807870037fce406f707a01a21f3d502f9f",
+        "stateHash": "aa48c56140ceb668c1330685f4ffb695edaeb714e2a6dc8c3cd7d58a434d75c8",
+        "lastCommandAtMs": 1793880015000
+      },
+      "backup_checksum": "1f475d6f1c55ac1501ba1f415ff118018f7e4ab77d78c4328efc584f23111ad1",
+      "source_hashes": {
+        "src/lib/alpha-wallet/amounts.ts": {
+          "capture_sha256": "b24d8fea56a0c2c7f7948f2aaa73bcf31d1da0bbbc8a2e892e1798ec09f10011",
+          "verified_source_sha256": "b24d8fea56a0c2c7f7948f2aaa73bcf31d1da0bbbc8a2e892e1798ec09f10011",
+          "unchanged": true
+        },
+        "src/lib/alpha-wallet/backup.ts": {
+          "capture_sha256": "8de50d3242914c775970134b13f489f73a0396529669826ee14b32975f583715",
+          "verified_source_sha256": "8de50d3242914c775970134b13f489f73a0396529669826ee14b32975f583715",
+          "unchanged": true
+        },
+        "src/lib/alpha-wallet/commands.ts": {
+          "capture_sha256": "ede87aecd79de462b8e713babdcb1744a703e9039042abcd1e7d896dcd8dc877",
+          "verified_source_sha256": "ede87aecd79de462b8e713babdcb1744a703e9039042abcd1e7d896dcd8dc877",
+          "unchanged": true
+        },
+        "src/lib/alpha-wallet/durable-store.ts": {
+          "capture_sha256": "cf4dde3e05cb260973e57bafcb53d9f529614a82045e6067b4cee96b7835fd8b",
+          "verified_source_sha256": "aee94a5f2314f21b20fa44eb5cc197ab9d68744ad30fb1a513fecd248e8feeff",
+          "unchanged": false
+        },
+        "src/lib/alpha-wallet/durable.ts": {
+          "capture_sha256": "ca07f0f696e272ad10da09ba463860b9aabe42b11aeb009e593a29fa315f5a35",
+          "verified_source_sha256": "ca07f0f696e272ad10da09ba463860b9aabe42b11aeb009e593a29fa315f5a35",
+          "unchanged": true
+        },
+        "src/lib/alpha-wallet/ledger.ts": {
+          "capture_sha256": "a84d72d3d0a534d71b3a0993d570eda97b5894603254566c9ea74ca2e4082a64",
+          "verified_source_sha256": "a84d72d3d0a534d71b3a0993d570eda97b5894603254566c9ea74ca2e4082a64",
+          "unchanged": true
+        },
+        "src/lib/alpha-wallet/runtime.ts": {
+          "capture_sha256": "ec3c10b23bac049df9b86bb451193e6ead1f1cbae1a336b02e85f546307bf1de",
+          "verified_source_sha256": "ec3c10b23bac049df9b86bb451193e6ead1f1cbae1a336b02e85f546307bf1de",
+          "unchanged": true
+        },
+        "src/lib/alpha-wallet/sandbox.ts": {
+          "capture_sha256": "ca00563a69feee6086c4113f8c3072dfbd82c3522a59f2d200b2421645b2547d",
+          "verified_source_sha256": "ca00563a69feee6086c4113f8c3072dfbd82c3522a59f2d200b2421645b2547d",
+          "unchanged": true
+        },
+        "src/lib/alpha-wallet/types.ts": {
+          "capture_sha256": "c6584047e00afd8d436e970529ac60429bf9071050418fbe2122a6b9dbf0bed7",
+          "verified_source_sha256": "c6584047e00afd8d436e970529ac60429bf9071050418fbe2122a6b9dbf0bed7",
+          "unchanged": true
+        },
+        "src/lib/alpha-wallet/accepted-terms.ts": {
+          "capture_sha256": "a8711bf3c08eb74ba12c6cbcb3030b2b07fd78b7f77d3b9f9b4ffd989719dcf3",
+          "verified_source_sha256": "a8711bf3c08eb74ba12c6cbcb3030b2b07fd78b7f77d3b9f9b4ffd989719dcf3",
+          "unchanged": true
+        },
+        "src/lib/alpha-wallet/v2-commands.ts": {
+          "capture_sha256": "59ae929ca5e331a8a8493639bf1249d40ac33cc88e2eae07cf52ad8a809c1e33",
+          "verified_source_sha256": "59ae929ca5e331a8a8493639bf1249d40ac33cc88e2eae07cf52ad8a809c1e33",
+          "unchanged": true
+        },
+        "src/lib/alpha-wallet/v2-engine.ts": {
+          "capture_sha256": "34411de6898374140b98459cd370762a7e21abb317a395cce1c89ea36dd8483a",
+          "verified_source_sha256": "34411de6898374140b98459cd370762a7e21abb317a395cce1c89ea36dd8483a",
+          "unchanged": true
+        },
+        "src/lib/alpha-wallet/v2-kernel.ts": {
+          "capture_sha256": "3f74325bc24473d71729c95a03a4a8740599dc5b7e4d9502cc16857a33661608",
+          "verified_source_sha256": "3f74325bc24473d71729c95a03a4a8740599dc5b7e4d9502cc16857a33661608",
+          "unchanged": true
+        },
+        "src/lib/alpha-wallet/v2-fixtures.ts": {
+          "capture_sha256": "4bd03ea9eba33580e54cfb6ac197e3c163d02e4187c0f2ee3919cf28b7b280a6",
+          "verified_source_sha256": "4bd03ea9eba33580e54cfb6ac197e3c163d02e4187c0f2ee3919cf28b7b280a6",
+          "unchanged": true
+        },
+        "src/lib/alpha-wallet/versioned-durable.ts": {
+          "capture_sha256": "e093fd14b92aafda3b94c2cfbe0509e98d23a3b6fb8d7ee19a0113ef794264a2",
+          "verified_source_sha256": "e093fd14b92aafda3b94c2cfbe0509e98d23a3b6fb8d7ee19a0113ef794264a2",
+          "unchanged": true
+        },
+        "src/lib/alpha-wallet/versioned-projections.ts": {
+          "capture_sha256": "e77921e3b30c88d982c563ca4c11db29ea9b3a9a5956464a102bf8ad6cc42acc",
+          "verified_source_sha256": "e77921e3b30c88d982c563ca4c11db29ea9b3a9a5956464a102bf8ad6cc42acc",
+          "unchanged": true
+        },
+        "src/lib/alpha-wallet/versioned-backup.ts": {
+          "capture_sha256": "7d429d4e09a02f225069d12ce9e391275856d895594e9f673ac66cf66e93fa2d",
+          "verified_source_sha256": "7d429d4e09a02f225069d12ce9e391275856d895594e9f673ac66cf66e93fa2d",
+          "unchanged": true
+        },
+        "src/lib/alpha-wallet/payout-worker.ts": {
+          "capture_sha256": "2d4dae428c865532b4a9eda861e828206f7ddc62e9e4e2a23b0f73f9029fc1d9",
+          "verified_source_sha256": "2d4dae428c865532b4a9eda861e828206f7ddc62e9e4e2a23b0f73f9029fc1d9",
+          "unchanged": true
+        },
+        "src/lib/alpha-wallet/versioned-payout-worker.ts": {
+          "capture_sha256": "a77ccf907f73d11e7e2cf4888617d04481264b3129081fc19500282123771936",
+          "verified_source_sha256": "a77ccf907f73d11e7e2cf4888617d04481264b3129081fc19500282123771936",
+          "unchanged": true
+        },
+        "src/lib/trade-amount-lock.ts": {
+          "capture_sha256": "0648606e186ec1d3bac5c47b6a129f7e7c4279cd4204cac2890ea72c7ed764bd",
+          "verified_source_sha256": "0648606e186ec1d3bac5c47b6a129f7e7c4279cd4204cac2890ea72c7ed764bd",
+          "unchanged": true
+        },
+        "src/lib/trade-cancellation.ts": {
+          "capture_sha256": "9cb41e84d77bd52f70e8a37217adad034caac5288b7c257e9f92850a4718e298",
+          "verified_source_sha256": "9cb41e84d77bd52f70e8a37217adad034caac5288b7c257e9f92850a4718e298",
+          "unchanged": true
+        },
+        "src/lib/usdt-demand-policy.ts": {
+          "capture_sha256": "1778c6f01783a72c6bc72b1984ea5a7b2a7fa87e77083deb5c3ef4c3fa5279ba",
+          "verified_source_sha256": "1778c6f01783a72c6bc72b1984ea5a7b2a7fa87e77083deb5c3ef4c3fa5279ba",
+          "unchanged": true
+        },
+        "src/lib/marketplace-payment-methods.ts": {
+          "capture_sha256": "111649ad91a1bf380073da30f4300bebf2163e8553d295b90e56f19ef89d2b32",
+          "verified_source_sha256": "111649ad91a1bf380073da30f4300bebf2163e8553d295b90e56f19ef89d2b32",
+          "unchanged": true
+        },
+        "src/types/alpha-exchange.ts": {
+          "capture_sha256": "e3596f85b5b72ff3012153168cad0c927640695180619b6a330a933737f6be16",
+          "verified_source_sha256": "e3596f85b5b72ff3012153168cad0c927640695180619b6a330a933737f6be16",
+          "unchanged": true
+        },
+        "packages/contracts/src/index.ts": {
+          "capture_sha256": "bafcd0fb7352ef2e404a053245fa7a98911d701e06e4ed36d9b9aba06818f9fd",
+          "verified_source_sha256": "bafcd0fb7352ef2e404a053245fa7a98911d701e06e4ed36d9b9aba06818f9fd",
+          "unchanged": true
+        },
+        "packages/contracts/src/trade-terms.ts": {
+          "capture_sha256": "e1e9446e1b423157480d09d00633f94a0958ba67cd89cfcccd6080a1d908f30e",
+          "verified_source_sha256": "e1e9446e1b423157480d09d00633f94a0958ba67cd89cfcccd6080a1d908f30e",
+          "unchanged": true
+        },
+        "packages/contracts/src/trade-amount.ts": {
+          "capture_sha256": "4b369f8388328696ab1e91410254d3f8629f4da6fb37caea0899d08c53a0537c",
+          "verified_source_sha256": "4b369f8388328696ab1e91410254d3f8629f4da6fb37caea0899d08c53a0537c",
+          "unchanged": true
+        },
+        "packages/contracts/src/commission-amount.ts": {
+          "capture_sha256": "dfdc5205980524c7730bd3791bc79413a21e34f5afece8357e8f8aa3e8e271d3",
+          "verified_source_sha256": "dfdc5205980524c7730bd3791bc79413a21e34f5afece8357e8f8aa3e8e271d3",
+          "unchanged": true
+        },
+        "packages/contracts/src/marketplace-fees.ts": {
+          "capture_sha256": "754c6305368324a4541ee2f5e64184ac4e52e89ac1bb20b9ce15e3500da51097",
+          "verified_source_sha256": "754c6305368324a4541ee2f5e64184ac4e52e89ac1bb20b9ce15e3500da51097",
+          "unchanged": true
+        },
+        "packages/contracts/src/cardless-withdrawal.ts": {
+          "capture_sha256": "d5a72e0e080f64e7eb61e1351a97de8f2befc01f88a0167a6342df600671cc38",
+          "verified_source_sha256": "d5a72e0e080f64e7eb61e1351a97de8f2befc01f88a0167a6342df600671cc38",
+          "unchanged": true
+        },
+        "packages/contracts/src/price-offer.ts": {
+          "capture_sha256": "27028410114debb1f8ffea6e1b0955cabb3b670a012d996c16598ccc1307853f",
+          "verified_source_sha256": "27028410114debb1f8ffea6e1b0955cabb3b670a012d996c16598ccc1307853f",
+          "unchanged": true
+        },
+        "docs/alpha-wallet/durable-schema.sql": {
+          "capture_sha256": "1a170370b07cb81d168ed347eca3e9c60adee8832f7b3248c267829857772914",
+          "verified_source_sha256": "1a170370b07cb81d168ed347eca3e9c60adee8832f7b3248c267829857772914",
+          "unchanged": true
+        },
+        "docs/alpha-wallet/durable-v2-migration.sql": {
+          "capture_sha256": "6029ac496ca65200a469e1b13cddaf82def459c0ae67c056e467bec91ec27274",
+          "verified_source_sha256": "6029ac496ca65200a469e1b13cddaf82def459c0ae67c056e467bec91ec27274",
+          "unchanged": true
+        }
+      },
+      "provenance_bytes_unchanged": true,
+      "note": "33 historical capture source hashes remain retained. 32 current source files match; transaction transport alone has the separately tested runtime failure hardening. Financial history/commands/engines/recovery contracts are not reinterpreted."
+    },
+    "preserved_v1_fixtures": {
+      "src/lib/alpha-wallet/fixtures/v1/README.md": "173e2d689f607acb1d0782ffd446f64cd511d407b95d471a5487854c3211b10a",
+      "src/lib/alpha-wallet/fixtures/v1/provenance.json": "0ffa77d72ef2e78da79645e22b588a8f573e787537bf775e8f92eec5af37b47a",
+      "src/lib/alpha-wallet/fixtures/v1/settlement-and-held-withdrawal.backup.json": "c4ee709415d1c129e9db31c1f90222cceffb4a2cfda2efc495cb6a974204e7ee",
+      "src/lib/alpha-wallet/fixtures/v1/settlement-and-held-withdrawal.state.json": "cbbbb90b83b8846f01e1ef46643ae42962ba7961cd189dc7e45736c229a3aada"
+    },
+    "preserved_sql_contracts": {
+      "docs/alpha-wallet/marketplace-coordination-schema.sql": "b4d5826776de3de5f7e0488c460a5325ef26ec4b98b4fda3ae897eb4ffb07e00",
+      "docs/alpha-wallet/marketplace-coordination-tables.sql": "1bc303426a3af2ee67122a3f6011a737d6c4dcbeaccce7c725ade4cfe80b4dc1",
+      "docs/alpha-wallet/marketplace-coordination-guards.sql": "a4c0ccf6c2a2b32ecdb9369a44b54e9b7af5a801bbcf12e16e84b2d9b5b5bd16",
+      "docs/alpha-wallet/marketplace-recovery-canonical-schema.sql": "6a18ffe696fee6b6f81c518d2678210b89afe0c8c435725c0bab158663cbbc30",
+      "docs/alpha-wallet/marketplace-recovery-receipts.sql": "052a74ac19abf27b8ef492bf3a4d4cfe2cf6ce983958793f2270f5f83189a648",
+      "docs/alpha-wallet/durable-schema.sql": "1a170370b07cb81d168ed347eca3e9c60adee8832f7b3248c267829857772914",
+      "docs/alpha-wallet/durable-v2-migration.sql": "6029ac496ca65200a469e1b13cddaf82def459c0ae67c056e467bec91ec27274"
+    },
+    "artifact_verification": {
+      "archive_sha256_rechecked": true,
+      "archive_bytes_rechecked": true,
+      "allowlisted_paths": 34,
+      "extracted_files_match_archive_and_manifest": true
+    },
+    "local_verification": {
+      "wallet_passed": 1203,
+      "wallet_files": 35,
+      "wallet_max_workers": 2,
+      "wallet_inventory_matches_ci": true,
+      "typecheck_log_empty": true,
+      "changed_typescript_lint_log_empty": true,
+      "corrected_native_fixture_smoke": {
+        "mode": "simulation-only",
+        "correctedRaceFixtureCanonicalRead": true,
+        "isoTimestampPreserved": true,
+        "strictReaderUnchanged": true,
+        "externalDatabase": false
+      },
+      "evidence_sha256": {
+        "alpha-wallet-initial-full-wallet-results.json": "b52d63b873ffb88e44fe73b7e747fc05ca91a4e1621b0c6f6c40856a196a9604",
+        "alpha-wallet-initial-full-wallet-tests.log": "d0638702e3ea8a8811fb30312ab769dde2c362ddbe341e7961fb3b19025d9958",
+        "alpha-wallet-initial-typecheck.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "alpha-wallet-initial-eslint.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "alpha-wallet-initial-native-fix-eslint.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "alpha-wallet-initial-native-fix-smoke.json": "367fd9fc5fb6d7e549baadb1856bcd50635f7f49690976af1871d4a911401f6f"
+      }
+    }
+  },
+  "ci": {
+    "run": {
+      "id": 42034756783,
+      "name": "Alpha Wallet Simulation-Only Development",
+      "event": "push",
+      "status": "completed",
+      "conclusion": "success",
+      "head_branch": "feature/alpha-wallet-dev-20261104",
+      "head_sha": "3d119889ca4c3632a04cecdfd11c88d39f2d96da",
+      "run_number": 12,
+      "run_attempt": 1,
+      "created_at": "2026-11-05T13:19:29Z",
+      "updated_at": "2026-11-05T13:27:57Z",
+      "run_started_at": "2026-11-05T13:19:29Z",
+      "html_url": "https://github.com/alphakits/alpha-traders-exchange/actions/runs/42034756783",
+      "path": ".github/workflows/alpha-wallet-development.yml"
+    },
+    "jobs": [
+      {
+        "id": 127269889379,
+        "run_id": 42034756783,
+        "name": "Wallet, recovery and browser verification with synthetic funds",
+        "head_sha": "3d119889ca4c3632a04cecdfd11c88d39f2d96da",
+        "status": "completed",
+        "conclusion": "success",
+        "started_at": "2026-11-05T13:19:31Z",
+        "completed_at": "2026-11-05T13:27:56Z",
+        "html_url": "https://github.com/alphakits/alpha-traders-exchange/actions/runs/42034756783/job/127269889379",
+        "steps": [
+          {
+            "name": "Set up job",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 1,
+            "started_at": "2026-11-05T13:19:32Z",
+            "completed_at": "2026-11-05T13:19:33Z"
+          },
+          {
+            "name": "Initialize containers",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 2,
+            "started_at": "2026-11-05T13:19:33Z",
+            "completed_at": "2026-11-05T13:19:58Z"
+          },
+          {
+            "name": "Check out the development commit",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 3,
+            "started_at": "2026-11-05T13:19:58Z",
+            "completed_at": "2026-11-05T13:20:01Z"
+          },
+          {
+            "name": "Use the repository Node version",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 4,
+            "started_at": "2026-11-05T13:20:01Z",
+            "completed_at": "2026-11-05T13:20:11Z"
+          },
+          {
+            "name": "Install locked dependencies and local dependency patches",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 5,
+            "started_at": "2026-11-05T13:20:11Z",
+            "completed_at": "2026-11-05T13:20:27Z"
+          },
+          {
+            "name": "Prepare simulation evidence directory",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 6,
+            "started_at": "2026-11-05T13:20:27Z",
+            "completed_at": "2026-11-05T13:20:27Z"
+          },
+          {
+            "name": "Run the wallet unit and local persistence suite",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 7,
+            "started_at": "2026-11-05T13:20:27Z",
+            "completed_at": "2026-11-05T13:26:25Z"
+          },
+          {
+            "name": "Check TypeScript across the project",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 8,
+            "started_at": "2026-11-05T13:26:25Z",
+            "completed_at": "2026-11-05T13:26:55Z"
+          },
+          {
+            "name": "Verify retained platform authentication contracts with isolated stores",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 9,
+            "started_at": "2026-11-05T13:26:55Z",
+            "completed_at": "2026-11-05T13:26:59Z"
+          },
+          {
+            "name": "Verify retained marketplace transaction and storage contracts",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 10,
+            "started_at": "2026-11-05T13:26:59Z",
+            "completed_at": "2026-11-05T13:27:04Z"
+          },
+          {
+            "name": "Run the existing offline wallet simulation",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 11,
+            "started_at": "2026-11-05T13:27:04Z",
+            "completed_at": "2026-11-05T13:27:04Z"
+          },
+          {
+            "name": "Verify independent processes against disposable PostgreSQL",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 12,
+            "started_at": "2026-11-05T13:27:04Z",
+            "completed_at": "2026-11-05T13:27:06Z"
+          },
+          {
+            "name": "Prepare empty disposable recovery and marketplace databases",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 13,
+            "started_at": "2026-11-05T13:27:06Z",
+            "completed_at": "2026-11-05T13:27:06Z"
+          },
+          {
+            "name": "Verify backup and paused restore on disposable PostgreSQL",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 14,
+            "started_at": "2026-11-05T13:27:06Z",
+            "completed_at": "2026-11-05T13:27:07Z"
+          },
+          {
+            "name": "Verify actual marketplace SQL and wallet commands in one transaction",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 15,
+            "started_at": "2026-11-05T13:27:07Z",
+            "completed_at": "2026-11-05T13:27:08Z"
+          },
+          {
+            "name": "Verify explicit v2 upgrade, resize, inherited recovery and mixed restore",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 16,
+            "started_at": "2026-11-05T13:27:08Z",
+            "completed_at": "2026-11-05T13:27:11Z"
+          },
+          {
+            "name": "Verify canonical marketplace coordination, writer fences and web authentication races",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 17,
+            "started_at": "2026-11-05T13:27:11Z",
+            "completed_at": "2026-11-05T13:27:13Z"
+          },
+          {
+            "name": "Verify combined marketplace recovery, paused restore and competing fresh-target claims",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 18,
+            "started_at": "2026-11-05T13:27:13Z",
+            "completed_at": "2026-11-05T13:27:15Z"
+          },
+          {
+            "name": "Verify mobile authority races, cross-transport receipts and credential-free recovery",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 19,
+            "started_at": "2026-11-05T13:27:15Z",
+            "completed_at": "2026-11-05T13:27:17Z"
+          },
+          {
+            "name": "Verify initial acceptance planning and canonical transaction mechanics",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 20,
+            "started_at": "2026-11-05T13:27:17Z",
+            "completed_at": "2026-11-05T13:27:18Z"
+          },
+          {
+            "name": "Install the locked Playwright Chromium browser",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 21,
+            "started_at": "2026-11-05T13:27:18Z",
+            "completed_at": "2026-11-05T13:27:37Z"
+          },
+          {
+            "name": "Rehearse the English desktop and Arabic mobile wallet in Chromium",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 22,
+            "started_at": "2026-11-05T13:27:37Z",
+            "completed_at": "2026-11-05T13:27:48Z"
+          },
+          {
+            "name": "Preserve simulation verification evidence",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 23,
+            "started_at": "2026-11-05T13:27:48Z",
+            "completed_at": "2026-11-05T13:27:50Z"
+          },
+          {
+            "name": "Post Use the repository Node version",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 44,
+            "started_at": "2026-11-05T13:27:50Z",
+            "completed_at": "2026-11-05T13:27:50Z"
+          },
+          {
+            "name": "Post Check out the development commit",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 45,
+            "started_at": "2026-11-05T13:27:50Z",
+            "completed_at": "2026-11-05T13:27:50Z"
+          },
+          {
+            "name": "Stop containers",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 46,
+            "started_at": "2026-11-05T13:27:50Z",
+            "completed_at": "2026-11-05T13:27:54Z"
+          },
+          {
+            "name": "Complete job",
+            "status": "completed",
+            "conclusion": "success",
+            "number": 47,
+            "started_at": "2026-11-05T13:27:54Z",
+            "completed_at": "2026-11-05T13:27:54Z"
+          }
+        ]
+      }
+    ],
+    "artifact": {
+      "id": 13418890751,
+      "name": "alpha-wallet-simulation-evidence-3d119889ca4c3632a04cecdfd11c88d39f2d96da",
+      "size_in_bytes": 2025665,
+      "expired": false,
+      "created_at": "2026-11-05T13:27:49Z",
+      "updated_at": "2026-11-05T13:27:49Z",
+      "expires_at": "2026-11-19T13:27:48Z",
+      "digest": "sha256:6b9ad600dd5921d51795df43aad153d72fe216221da17f89c877da621d494c84",
+      "url": "https://api.github.com/repos/alphakits/alpha-traders-exchange/actions/artifacts/13418890751",
+      "workflow_run": {
+        "id": 42034756783,
+        "head_branch": "feature/alpha-wallet-dev-20261104",
+        "head_sha": "3d119889ca4c3632a04cecdfd11c88d39f2d96da"
+      },
+      "download_sha256_verified": true,
+      "downloaded_bytes": 2025665,
+      "verified_archive_files": 34,
+      "files": [
+        {
+          "path": "marketplace-regression-results.json",
+          "bytes": 35940,
+          "sha256": "11f31ac45c4fd5441d0bef351f952241ab205c7e75f689309d6f2291980a125a"
+        },
+        {
+          "path": "platform-auth-results.json",
+          "bytes": 32572,
+          "sha256": "381f24c4bd7642ab68e1fe0606f34f8b6b41cec11e2b37e53a21028c4d717001"
+        },
+        {
+          "path": "marketplace-regression-tests.log",
+          "bytes": 16404,
+          "sha256": "888b3c0f7ce41ef6e4176f198ce8f70dfe27ceef4b4e4491c734a7a456bb3bea"
+        },
+        {
+          "path": "platform-auth-tests.log",
+          "bytes": 12307,
+          "sha256": "624d938a53fc6a13689da25dd2229d2a8a71662c3476556cd06015e246f4ed7e"
+        },
+        {
+          "path": "postgres-backup.json",
+          "bytes": 1474,
+          "sha256": "b5ebcfc8e052af1f50f487b645565f2b57c0cb2c5ba6bf443cdae223a49de3cd"
+        },
+        {
+          "path": "postgres-backup.stderr.log",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "postgres-concurrency.json",
+          "bytes": 840,
+          "sha256": "d16b6c433a87a213fb98456632824373fd469b65d6f5db10f43a2ea8cc4e55e4"
+        },
+        {
+          "path": "postgres-concurrency.stderr.log",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "postgres-initial-acceptance.json",
+          "bytes": 2790,
+          "sha256": "e289feeb0d48aa0c0787b8bca5ac034045fbd779b6a01b75e73b119ba800fc17"
+        },
+        {
+          "path": "postgres-initial-acceptance.stderr.log",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "postgres-marketplace-backup.json",
+          "bytes": 2741,
+          "sha256": "f8bc64a1a9d8e21096009e570e8aef3b35255055962877518ffc4f76ca2ccd58"
+        },
+        {
+          "path": "postgres-marketplace-backup.stderr.log",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "postgres-marketplace-coordinator.json",
+          "bytes": 4169,
+          "sha256": "805362cfb2ad49c596b0246bddb18e4f55b061c1258673b7a4e937b53b124bab"
+        },
+        {
+          "path": "postgres-marketplace-coordinator.stderr.log",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "postgres-marketplace-mobile.json",
+          "bytes": 3872,
+          "sha256": "f0a14de3dda6b8c1d490c3615c1b9fa572a372b94a6b00674d1f84990b5902b7"
+        },
+        {
+          "path": "postgres-marketplace-mobile.stderr.log",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "postgres-marketplace-transaction.json",
+          "bytes": 1774,
+          "sha256": "112e7fa3b5389bc71a110dc3a188afdbeef7e100f72f47a175ecf7f37e2b9801"
+        },
+        {
+          "path": "postgres-marketplace-transaction.stderr.log",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "postgres-versioned-ledger.json",
+          "bytes": 3412,
+          "sha256": "e1427f5eb68ba3104de3ca4ec67a6c8b796e97ebe0991e54a55988f45865fc9c"
+        },
+        {
+          "path": "postgres-versioned-ledger.stderr.log",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "rehearsal/arabic-mobile-final-viewport.png",
+          "bytes": 105594,
+          "sha256": "3af560c9ff1f46fa6e699d520745e38c1e830c0e6eb3a5db4e22e357c0dfd05b"
+        },
+        {
+          "path": "rehearsal/arabic-mobile-full-settlement.png",
+          "bytes": 321744,
+          "sha256": "7600634624d3fe45abc68446a2968a547e4f4aeed471e2c49a6cf0416608561d"
+        },
+        {
+          "path": "rehearsal/arabic-mobile-partial-settlement.png",
+          "bytes": 284497,
+          "sha256": "9e5a28df98d0bdf75751ea96291941da267344a86e120807269851f3ced31f02"
+        },
+        {
+          "path": "rehearsal/browser-check.json",
+          "bytes": 2766,
+          "sha256": "04fd268680db834afd30c118b855b96820897c2ef29671090f007049945e4172"
+        },
+        {
+          "path": "rehearsal/english-desktop-final-viewport.png",
+          "bytes": 304622,
+          "sha256": "1097bd33701877e54824891a383d93255470097578931945da1edf83465ff205"
+        },
+        {
+          "path": "rehearsal/english-desktop-unknown-submission.png",
+          "bytes": 517205,
+          "sha256": "a9c7eb55a9f9daddba9066023853ff236c5eb11214d22ccf7965fc98dd757c6f"
+        },
+        {
+          "path": "rehearsal/english-desktop-funded-reservations.png",
+          "bytes": 487280,
+          "sha256": "f6fd77d778b23d2de75d3eec02f12990e95fcc5caa3a0baf4bccbe0e4ebb19af"
+        },
+        {
+          "path": "rehearsal-browser.json",
+          "bytes": 2767,
+          "sha256": "2e7239b3c82b4f42e8b48a25b4e1b0359fcf13e46890618423d3f050e1225df3"
+        },
+        {
+          "path": "rehearsal-browser.stderr.log",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "simulation-demo.json",
+          "bytes": 1524,
+          "sha256": "ca27ce014f3d6b912dcf3f0cf5b7fb64c0674302421440e2d831ba2c1edf6fd4"
+        },
+        {
+          "path": "simulation-demo.stderr.log",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "typecheck.log",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "unit-results.json",
+          "bytes": 444341,
+          "sha256": "5eb9809523e9d64f43a83bb377185a0d738c97563038ccaad6bad85f2ffd9ef4"
+        },
+        {
+          "path": "unit-tests.log",
+          "bytes": 50394,
+          "sha256": "935bca3c5863651e50e0980c564e96b46836648b9f37d419abf614128f63d828"
+        }
+      ]
+    },
+    "versions": {
+      "node": "v24.22.1",
+      "npm": "11.19.1",
+      "postgresql": "17.11",
+      "chromium": "149.0.7827.55"
+    },
+    "deployment_evidence": {
+      "branch": "feature/alpha-wallet-dev-20261104",
+      "branch_deployment_count": 0,
+      "observed_at_utc": "2026-11-05 13:28:54 UTC",
+      "source": "Vercel branch-filtered deployment listing",
+      "branch_auto_deploy_enabled": false,
+      "configuration_file": "vercel.json"
+    },
+    "prior_attempts": [
+      {
+        "run_id": 42033153323,
+        "html_url": "https://github.com/alphakits/alpha-traders-exchange/actions/runs/42033153323",
+        "source_commit": "2c36cb2a35d761085748d3356f175e4577984798",
+        "status": "completed",
+        "conclusion": "failure",
+        "created_at": "2026-11-05T13:08:41Z",
+        "updated_at": "2026-11-05T13:15:22Z",
+        "job_id": 127264401631,
+        "failed_step": "Verify initial acceptance planning and canonical transaction mechanics",
+        "failure_stage": "stale snapshot behind an ordinary writer changes buyer history at another seller",
+        "diagnosis": "The synthetic writer reused a timestamptz parameter as text, causing PostgreSQL to render payload timestamps in its session format. The strict normalized/payload reader correctly rejected the noncanonical timestamp before the intended buyer-active check.",
+        "correction": "Bind the canonical JSON payload separately from the SQL timestamptz parameter. Reproduced the conversion locally and verified corrected canonical reads through the actual participant; integrity guards are unchanged.",
+        "artifact": {
+          "id": 13417871268,
+          "bytes": 84290,
+          "sha256": "1ee009ff2cbf7e7acc4a72f3b336c18f2a394bf4882525c85e4685f58c34907f",
+          "download_sha256_verified": true
+        },
+        "retained_gates": "All 1390 test cases, root TypeScript, offline demo and seven retained PostgreSQL drills passed; Chromium steps were skipped after the new native drill failed."
+      }
+    ],
+    "source_commit": "3d119889ca4c3632a04cecdfd11c88d39f2d96da",
+    "source_tree": "61e01e1602cb5ec1b964787373600a7f4671c517"
+  },
+  "verified_source_file_sha256": {
+    ".github/workflows/alpha-wallet-development.yml": "be4ddb58031c9ab42a3b5e95bfaa6872c1b1addcf7c9dcdeab09fa0f689c7d2d",
+    "docs/alpha-wallet/initial-acceptance-design.md": "2ac7db4928ae1119202b36f49a63e9be2530b2312ea36fff7489dcb008957ee4",
+    "docs/alpha-wallet/transaction-integration-design.md": "7c76e119453a98b7b70ec272187cfb729307cba13e08b8d7e50d8cb125c79dab",
+    "scripts/alpha-wallet/capture-v2-history-fixture.ts": "21be6db493e9a4a4e8726f0ccd4752d6f23bc3d1ac1773eb7f21b3d92ff16bf6",
+    "scripts/alpha-wallet/postgres-initial-acceptance.ts": "72804418b6c5521c1b86021a07b2457546f34e49f61f7a06dc610d557493c15c",
+    "src/lib/alpha-exchange-repository.ts": "13eee10c1efa79b37f17229f4c24bb89b55844a885b44b85446e7f0568763cb2",
+    "src/lib/alpha-wallet/durable-store.test.ts": "5ffb4fc9624353b11727d89bb43ed57f632fa58461b35074e601c49c5e8591c3",
+    "src/lib/alpha-wallet/durable-store.ts": "aee94a5f2314f21b20fa44eb5cc197ab9d68744ad30fb1a513fecd248e8feeff",
+    "src/lib/alpha-wallet/fixtures/v2/README.md": "2de64f07b9b8a2a86ada369e12248a6bf7c69056e3d33cbcae74ae59a495fa0e",
+    "src/lib/alpha-wallet/fixtures/v2/corrections-and-settlement.backup.json": "b649ac30737b4ea33523ae04f2db3f476357600d36d966f229d32299fab5d5bb",
+    "src/lib/alpha-wallet/fixtures/v2/corrections-and-settlement.state.json": "ab9f897ec37291db953ee63eb2161adbc42a4ec086def7db80d927a47e1bfa02",
+    "src/lib/alpha-wallet/fixtures/v2/provenance.json": "46cc3cf891507e89c78e6ad7b38be8535f95b29d15f1596afbe255f884069f74",
+    "src/lib/alpha-wallet/initial-acceptance-fixture.ts": "d217625582e61b82778ad0307a8d3f1d901e30c96e40ac914f1d3c2dee5c9be1",
+    "src/lib/alpha-wallet/initial-acceptance-transaction.test.ts": "fba759621bc3a6fa808b376ff4f218b2ee5d88fc9aaa67a66cdf81d646eba8b4",
+    "src/lib/alpha-wallet/initial-acceptance.test.ts": "1b8163fe18edab24ba1c5a23675e5ff6b970055f32d6a678393db80b9b2d55bd",
+    "src/lib/alpha-wallet/initial-acceptance.ts": "69423cafb9ec2b72a19630792bed122b6c463ec6e52e6953ac96dcdb2b3cf470",
+    "src/lib/alpha-wallet/marketplace-transaction.test.ts": "719b40047b423e5e531140ef85451a81c6a9df3e280bf5307570803f0b373df4",
+    "src/lib/alpha-wallet/v2-history-compatibility.test.ts": "62c61f632782d903069819c54868dbe63ddf6785bea9322da1ff28010afe131e"
+  },
+  "limitations": [
+    "No production deployment, main merge, database migration/write, real provider, signer, key, chain call, user signup or live funds.",
+    "The pure plan always has executionAuthority:false. Retained buyer request evidence and seller action are not authentication proofs.",
+    "The initial financial cohort is deliberately limited. Existing target-listing reservations, noncancelled target-wallet-listing history and unpaired active seller wallet trades require explicit verified competing identity bindings.",
+    "The general three-active-trade policy is unchanged; canonical commitments on other listings still count. Pending sibling requests reserve nothing.",
+    "Canonical mechanics support absent or exactly coherent pending trade projections and retain canonical availableAmount. The participant cannot return an arbitrary snapshot.",
+    "The native companion is an independently authorized synthetic operator pause. Its accepted canonical rows do not form a coordinated wallet-backed sale; no initial reservation or acceptance receipt is created.",
+    "Unknown-COMMIT native evidence is an injected lost reply after a real commit and direct read/reopen/refusal, not an authenticated initial-acceptance receipt recovery protocol or physical network partition.",
+    "A separately versioned seller-native financial command/continuation, authenticated coordinator, immutable initial receipt, activation/writer guards and new recovery contract remain unimplemented.",
+    "Existing v1/v2 command semantics and the activated canonical-cohort-v1 recovery format remain unchanged. The new participant refuses the existing coordination/recovery namespace.",
+    "Public web/mobile routes and screens, remaining proposals/payment/cancellation/dispute/release/settlement lifecycle and external notification/realtime delivery remain separate work.",
+    "The browser gate remains the standalone English/Arabic synthetic rehearsal, not an initial-acceptance product screen or real platform authentication.",
+    "Root TypeScript excludes apps/mobile and three existing test paths. No native app build, full production build, production migration/role review or independent security audit is claimed.",
+    "A passing simulation suite does not authorize live launch; source/target custody recovery, source fencing, identity re-entry and operational/custody gates remain open."
+  ]
+}

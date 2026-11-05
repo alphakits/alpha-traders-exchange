@@ -1,6 +1,6 @@
 # Initial seller acceptance: development groundwork
 
-Date: 5 November 2026 (Asia/Jerusalem).
+Date: 5 November 2026 (Asia/Jerusalem). [Exact-source verification at `3d119889`](initial-acceptance-verification-2026-11-05.md): 1,390 tests, eight native PostgreSQL drills/75 checks, root TypeScript and the retained English/Arabic Chromium rehearsal passed. The [machine-readable evidence](initial-acceptance-verification-results.json) binds the run, artifact and file hashes.
 
 **Implemented scope: a pure initial-acceptance plan, a separate caller-owned canonical SQL participant, and frozen v2 history evidence. The authenticated seller-to-reservation coordinator is not implemented. Nothing in this milestone connects a route, activates a new cohort, changes an old engine contract or authorizes live use.**
 
