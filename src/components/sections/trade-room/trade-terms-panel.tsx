@@ -120,12 +120,12 @@ export function TradeTermsPanel({ request, actorId, isAr, disabled, liveListingP
     </>}
     {seller ? <p data-testid="trade-adjustment-count" className="max-w-md text-xs text-[#D1D5DB]">{limitReached
       ? (isAr ? "تم استخدام التعديلين (2/2). لا يمكن تقديم تعديلات أخرى." : "Adjustment limit reached (2/2). No further proposals are available.")
-      : (isAr ? `التعديلات المستخدمة: ${adjustmentCount} / 2` : `${adjustmentCount} / 2 adjustments used`)}</p> : null}
+      : (isAr ? <>التعديلات المستخدمة: <bdi dir="ltr">{adjustmentCount} / 2</bdi></> : `${adjustmentCount} / 2 adjustments used`)}</p> : null}
     {pending ? <>
       {paymentLocked || counterProposalLocked ? <p role="status" className="text-sm">{paymentLocked ? lockedMessage : counterLockedMessage}</p> : null}
       <TradeTermsComparison request={request} terms={proposal} isAr={isAr} />
       {cardless && proposal.kind === "counter_offer" ? <p className="text-sm text-[#FDE68A]">{Number(proposal.fiatAmount) === Number(request.fiatAmount)
-        ? (isAr ? "مبلغ السحب ثابت. تتغير كمية USDT حسب السعر الجديد، وتحتاج إلى موافقتك." : "The ATM cash amount stays the same. The USDT amount changes at the new rate and requires buyer approval.")
+        ? (isAr ? "مبلغ السحب ثابت. تتغير كمية USDT حسب السعر الجديد، وتحتاج إلى موافقة المشتري." : "The ATM cash amount stays the same. The USDT amount changes at the new rate and requires buyer approval.")
         : (isAr ? "يتغير مبلغ السحب بهذا الاقتراح. بعد الموافقة، يلزم رمز سحب جديد يطابق الإجمالي المقترح." : "This proposal changes the ATM cash amount. After approval, a new withdrawal code must match the proposed total.")}</p> : null}
       {includesBuyerFee ? <p className="commission-notice text-sm">{isAr ? "الإجمالي يشمل عمولة المشتري 1%. لا تُضف العمولة مرة أخرى." : "Total includes the buyer’s 1% fee. Do not add it again."}</p> : null}
       <p className="text-sm">{currencyText(isAr ? "راجع الكمية والسعر والإجمالي قبل الموافقة." : "Check the amount, price, and total before accepting.")}</p>

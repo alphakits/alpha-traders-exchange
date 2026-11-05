@@ -236,6 +236,26 @@ async function createDemand(api: APIRequestContext, amount = "1000") {
   return (await detail.json() as DemandWorkspace).requests.find(request => request.id === id)!;
 }
 
+function notificationEngagementDestinationFeed(baseURL: string, actorId: string) {
+  return {
+    url: new URL("/api/alpha-exchange/notification-engagement", baseURL).href,
+    label: "same account and unchanged notification preferences",
+    validateBody: (body: unknown) => {
+      const value = body as { userId?: unknown; emailVerified?: unknown; error?: unknown;
+        preferences?: { inApp?: unknown; email?: unknown; browserPush?: unknown };
+        browserPush?: { available?: unknown; publicKey?: unknown } } | null;
+      // The isolated fixture explicitly sets these preferences. A reminder
+      // claim or document reload must not change them or switch the account.
+      return value?.userId === actorId && value.error === undefined && value.emailVerified === true
+        && value.preferences?.inApp === true && value.preferences.email === false && value.preferences.browserPush === false
+        && typeof value.browserPush?.available === "boolean"
+        && (value.browserPush.available
+          ? typeof value.browserPush.publicKey === "string" && value.browserPush.publicKey.length > 0
+          : value.browserPush.publicKey === null);
+    },
+  };
+}
+
 function sellerNavigationFeeds(baseURL: string, actorId: string, expectedTrades: Array<{
   id: string; status: string; perspective: "seller"; usdtAmount: string; fiatAmount: string;
 }>) {
@@ -253,23 +273,7 @@ function sellerNavigationFeeds(baseURL: string, actorId: string, expectedTrades:
             && trade.usdtAmount === expected.usdtAmount && trade.fiatAmount === expected.fiatAmount));
       },
     },
-    {
-      url: new URL("/api/alpha-exchange/notification-engagement", baseURL).href,
-      label: "same seller and unchanged notification preferences",
-      validateBody: (body: unknown) => {
-        const value = body as { userId?: unknown; emailVerified?: unknown; error?: unknown;
-          preferences?: { inApp?: unknown; email?: unknown; browserPush?: unknown };
-          browserPush?: { available?: unknown; publicKey?: unknown } } | null;
-        // The isolated fixture explicitly sets these preferences. A reminder
-        // claim or document reload must not change them or switch the account.
-        return value?.userId === actorId && value.error === undefined && value.emailVerified === true
-          && value.preferences?.inApp === true && value.preferences.email === false && value.preferences.browserPush === false
-          && typeof value.browserPush?.available === "boolean"
-          && (value.browserPush.available
-            ? typeof value.browserPush.publicKey === "string" && value.browserPush.publicKey.length > 0
-            : value.browserPush.publicKey === null);
-      },
-    },
+    notificationEngagementDestinationFeed(baseURL, actorId),
   ];
 }
 
@@ -311,14 +315,22 @@ test("a seller counters the ILS rate, the buyer keeps 1,000 USDT, and both can s
     const proposed = sellerPage.waitForResponse(r => new URL(r.url()).pathname === api && r.request().method() === "PATCH");
     await send.click();
     expect((await proposed).ok()).toBe(true);
-    await buyerPage.reload();
+    // This reload was observed cancelling an old-document notification fetch.
+    // The new document must prove the exact buyer identity and preferences.
+    await browserErrorAudit.navigate(buyerPage, () => buyerPage.reload(), [
+      marketDestinationFeed(baseURL!),
+      notificationEngagementDestinationFeed(baseURL!, setup.users.find(user => user.email === OFFLINE_ACCOUNTS.buyer.email)!.id),
+    ]);
     await expect(buyerPage.locator("#chat textarea")).toHaveCount(0);
     const accepted = buyerPage.waitForResponse(r => new URL(r.url()).pathname === api && r.request().method() === "PATCH");
     await buyerPage.getByRole("button", { name: "Accept these terms" }).click();
     const response = await accepted;
     expect(response.ok(), await response.text()).toBe(true);
     expect((await response.json()).request).toMatchObject({ status: "accepted", usdtAmount: "1000", pricePerUsdt: "3.20", fiatAmount: "3232.00" });
-    await sellerPage.reload();
+    await browserErrorAudit.navigate(sellerPage, () => sellerPage.reload(), sellerNavigationFeeds(baseURL!,
+      setup.users.find(user => user.email === OFFLINE_ACCOUNTS.seller.email)!.id,
+      [{ id: purchase.id, status: "accepted", perspective: "seller", usdtAmount: "1000", fiatAmount: "3232.00" }],
+    ));
     for (const [side, shareWallet] of [[buyerPage, true], [sellerPage, false]] as const) {
       const form = side.locator("#chat form");
       await form.getByRole("button", { name: shareWallet ? "Add wallet address" : /Add network/ }).click();

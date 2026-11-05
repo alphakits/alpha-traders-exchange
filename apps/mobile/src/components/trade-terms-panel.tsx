@@ -74,7 +74,7 @@ export function TradeTermsPanel({ trade, isAr, disabled, onAction }: {
     try { await onAction(action, editingValue, safety); } finally { inFlight.current = false; setBusy(false); }
   }
   return <View style={{ padding: 16, gap: 12, borderWidth: 1, borderColor: "#C9A227", borderRadius: 14 }}>
-    {seller ? <Text style={{ color: "#D1D5DB" }}>{limitReached ? (isAr ? "تم استخدام التعديلين (2/2). لا يمكن تقديم تعديلات أخرى." : "Adjustment limit reached (2/2). No further proposals are available.") : (isAr ? `التعديلات المستخدمة: ${adjustmentCount} / 2` : `${adjustmentCount} / 2 adjustments used`)}</Text> : null}
+    {seller ? <Text style={{ color: "#D1D5DB" }}>{limitReached ? (isAr ? "تم استخدام التعديلين (2/2). لا يمكن تقديم تعديلات أخرى." : "Adjustment limit reached (2/2). No further proposals are available.") : (isAr ? `التعديلات المستخدمة: ${adjustmentCount} من 2` : `${adjustmentCount} / 2 adjustments used`)}</Text> : null}
     <Text style={{ color: "#FDE68A", fontWeight: "700" }}>{pending ? (isAr ? "اقتراح البائع بانتظار موافقة المشتري" : "Seller proposal — awaiting buyer confirmation") : counter ? (isAr ? "عرض مقابل" : "Counter-offer") : (isAr ? "تعديل المبلغ" : "Adjust Amount")}</Text>
     {pending ? <>
       {paymentLocked || counterProposalLocked ? <Text style={{ color: "#D1D5DB" }}>{paymentLocked
@@ -82,7 +82,7 @@ export function TradeTermsPanel({ trade, isAr, disabled, onAction }: {
         : (isAr ? "العرض المقابل متاح فقط قبل قبول الصفقة." : "Counter-offers are only available before the trade is accepted.")}</Text> : null}
       <TradeTermsComparison trade={trade} terms={proposal} isAr={isAr} />
       {cardless && proposal.kind === "counter_offer" ? <Text style={{ color: "#FDE68A" }}>{Number(proposal.fiatAmount) === Number(trade.fiatAmount)
-        ? (isAr ? "مبلغ السحب ثابت. تتغير كمية USDT حسب السعر الجديد، وتحتاج إلى موافقتك." : "The ATM cash amount stays the same. The USDT amount changes at the new rate and requires buyer approval.")
+        ? (isAr ? "مبلغ السحب ثابت. تتغير كمية USDT حسب السعر الجديد، وتحتاج إلى موافقة المشتري." : "The ATM cash amount stays the same. The USDT amount changes at the new rate and requires buyer approval.")
         : (isAr ? "يتغير مبلغ السحب بهذا الاقتراح. بعد الموافقة، يلزم رمز سحب جديد يطابق الإجمالي المقترح." : "This proposal changes the ATM cash amount. After approval, a new withdrawal code must match the proposed total.")}</Text> : null}
       {includesBuyerFee ? <Text style={{ color: "#FDE68A" }}>{isAr ? "الإجمالي يشمل عمولة المشتري 1%. لا تُضف العمولة مرة أخرى." : "Total includes the buyer’s 1% fee. Do not add it again."}</Text> : null}
       <Text style={{ color: "white" }}>{isAr ? "راجع الشروط الدقيقة قبل الموافقة." : "Review the exact terms before accepting."}</Text>
