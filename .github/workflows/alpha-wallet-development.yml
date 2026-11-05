@@ -139,6 +139,9 @@ jobs:
             await connection.query('CREATE DATABASE alpha_wallet_dev_mobile_restore');
             await connection.query('CREATE DATABASE alpha_wallet_dev_initial_atomic');
             await connection.query('CREATE DATABASE alpha_wallet_dev_initial_races');
+            await connection.query('CREATE DATABASE alpha_wallet_dev_v3_source');
+            await connection.query('CREATE DATABASE alpha_wallet_dev_v3_races');
+            await connection.query('CREATE DATABASE alpha_wallet_dev_v3_restore');
           } finally { await connection.end(); }
           NODE
 
@@ -213,6 +216,17 @@ jobs:
             --race-connection-string 'postgresql://wallet_fixture:simulation-only@127.0.0.1:5432/alpha_wallet_dev_initial_races' \
             2>test-results/alpha-wallet/postgres-initial-acceptance.stderr.log \
             | tee test-results/alpha-wallet/postgres-initial-acceptance.json
+
+      - name: Verify seller-native v3 history, reservation races and isolated paused recovery
+        run: |
+          set -euo pipefail
+          node --conditions=react-server --import tsx scripts/alpha-wallet/postgres-v3-ledger.ts \
+            --fresh-simulation-databases \
+            --source-connection-string 'postgresql://wallet_fixture:simulation-only@127.0.0.1:5432/alpha_wallet_dev_v3_source' \
+            --race-connection-string 'postgresql://wallet_fixture:simulation-only@127.0.0.1:5432/alpha_wallet_dev_v3_races' \
+            --target-connection-string 'postgresql://wallet_fixture:simulation-only@127.0.0.1:5432/alpha_wallet_dev_v3_restore' \
+            2>test-results/alpha-wallet/postgres-v3-ledger.stderr.log \
+            | tee test-results/alpha-wallet/postgres-v3-ledger.json
 
       - name: Install the locked Playwright Chromium browser
         run: node ./node_modules/playwright/cli.js install --with-deps chromium

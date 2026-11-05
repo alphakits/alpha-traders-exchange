@@ -21,6 +21,7 @@ import { assertLedgerInvariants, balance } from "./ledger";
 import { assertSimulationRuntime } from "./runtime";
 import type { State } from "./types";
 import { assertV2Invariants, isV2State } from "./v2-engine";
+import { assertV3Invariants, isV3State } from "./v3-engine";
 
 export const DEVELOPMENT_INITIAL_ACCEPTANCE_VERSION = "alpha-wallet-development-initial-acceptance-plan-v1" as const;
 type Frozen<T> = T extends object ? { readonly [K in keyof T]: Frozen<T[K]> } : T;
@@ -71,7 +72,7 @@ export type DevelopmentInitialAcceptancePlan = Frozen<{
   mode: "simulation-only";
   executionAuthority: false;
   /** Neither the action nor retained request provenance is an authentication proof or signature. */
-  requiredExecutionContract: "seller-initial-acceptance-not-implemented";
+  requiredExecutionContract: "seller-initial-acceptance-not-implemented" | "seller-initial-acceptance-v3";
   acceptanceKey: string;
   inputDigest: string;
   actorUserId: string;
@@ -398,12 +399,20 @@ export function planDevelopmentInitialAcceptance(context: DevelopmentInitialAcce
   const state = wallet.state;
   validateWalletShape(state);
   check(Array.isArray(state.journal) && state.gasReady instanceof Set && state.haltReason === null, "LOCKED", "A complete unpaused wallet replay is required");
-  try { if (isV2State(state)) assertV2Invariants(state); else { check(!("engineVersion" in state), "UNSUPPORTED", "Unknown wallet continuation"); assertLedgerInvariants(state); } }
+  try {
+    if (isV3State(state)) assertV3Invariants(state);
+    else if (isV2State(state)) assertV2Invariants(state);
+    else { check(!("engineVersion" in state), "UNSUPPORTED", "Unknown wallet continuation"); assertLedgerInvariants(state); }
+  }
   catch (error) { if (error instanceof InitialAcceptancePlanningError) throw error; return reject("INTEGRITY", "Wallet replay invariants failed"); }
-  if (isV2State(state)) check(!state.termsBindings.has(request.id)
+  if (isV2State(state) || isV3State(state)) check(!state.termsBindings.has(request.id)
     && ![...state.termsBindings.values()].some(binding => binding.walletTradeId === mapping.walletTradeId)
     && ![...state.acceptanceReceipts.values()].some(receipt => receipt.platformRequestId === request.id),
   "LOCKED", "The initial request already has versioned wallet history");
+  if (isV3State(state)) check(!state.initialBindings.has(request.id)
+    && ![...state.initialBindings.values()].some(binding => binding.walletTradeId === mapping.walletTradeId || binding.platformTradeId === request.tradeId)
+    && ![...state.initialAcceptanceReceipts.values()].some(receipt => receipt.platformRequestId === request.id),
+  "LOCKED", "The initial request already has seller-native wallet history");
   check(!state.trades.has(mapping.walletTradeId) && ![...state.payouts.values()].some(payout => payout.tradeId === mapping.walletTradeId)
     && ![...state.commissions.values()].some(commission => commission.tradeId === mapping.walletTradeId)
     && ![...state.evidenceOwners.values()].includes(mapping.walletTradeId), "LOCKED", "The planned wallet trade identity already has history");
@@ -455,7 +464,8 @@ export function planDevelopmentInitialAcceptance(context: DevelopmentInitialAcce
   const acceptanceKey = walletDigest(["alpha-wallet-initial-seller-acceptance-v1", request.id, seller.id]);
   const inputDigest = walletDigest({ acceptanceKey, actorUserId: seller.id, mapping, termsDigest: terms.digest, sellerAction, preconditions });
   return freeze({ kind: DEVELOPMENT_INITIAL_ACCEPTANCE_VERSION, mode: "simulation-only", executionAuthority: false,
-    requiredExecutionContract: "seller-initial-acceptance-not-implemented", acceptanceKey, inputDigest, actorUserId: seller.id,
+    requiredExecutionContract: isV3State(state) ? "seller-initial-acceptance-v3" : "seller-initial-acceptance-not-implemented",
+    acceptanceKey, inputDigest, actorUserId: seller.id,
     requestId: request.id, plannedAtMs: at, canonicalAcceptance: { requestId: request.id, actorUserId: seller.id,
       tradeId: request.tradeId, acceptedAtMs: at, ...(sellerAction.faceToFaceSafetyAcknowledged ? { safetyAcknowledged: true as const } : {}) },
     terms, sellerAction, buyerRequestEvidence: { kind: "retained_canonical_request", requestId: request.id, tradeId: request.tradeId,
