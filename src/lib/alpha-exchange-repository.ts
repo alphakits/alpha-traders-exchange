@@ -2952,6 +2952,46 @@ function buildInitialAcceptance(read: InitialAcceptanceRead, decision: Developme
   return { request, listing, trade, notifications, auditLogs };
 }
 
+/** The two development participants share exactly the same narrow canonical write set. */
+async function persistInitialAcceptance(
+  scoped: RepositorySql, read: InitialAcceptanceRead, decision: DevelopmentInitialAcceptanceDecision,
+  next: DevelopmentInitialAcceptanceResult,
+): Promise<void> {
+  // Exact UPDATE statements preserve every unrelated normalized column and
+  // ordering value. The new physical projection uses the existing encoder.
+  const request = next.request;
+  const updated = await scoped.query<{ id: string }>(`UPDATE alpha_exchange.purchase_requests SET status=$2,updated_at=$3::timestamptz,payload=$4::jsonb
+    WHERE id=$1 AND status='pending' AND trade_id=$5 RETURNING id /* initial acceptance: request persistence */`,
+  [request.id, request.status, request.updatedAt, json(request), decision.tradeId]);
+  initialAcceptanceCheck(updated.rows.length === 1 && updated.rows[0].id === request.id, "target update did not affect exactly one pending request");
+  if (read.rows.trades.length === 0) {
+    const trades = getTable("trades");
+    const projection = { ...emptySnapshotCollections(), purchaseRequests: [request] };
+    await trades.insert(scoped, trades.values(projection), { evidenceContentById: new Map() });
+  } else {
+    // A full repository snapshot may already have materialized the pending
+    // projection. Its identity/order stay fixed; creation time now means the
+    // actual acceptance, matching the existing canonical trades encoder.
+    const changedTrade = await scoped.query<{ id: string }>(`UPDATE alpha_exchange.trades SET status='accepted',
+      created_at=$3::timestamptz,updated_at=$3::timestamptz,payload=$4::jsonb
+      WHERE id=$1 AND purchase_request_id=$2 AND status='pending' RETURNING id /* initial acceptance: trade persistence */`,
+    [decision.tradeId, request.id, request.tradeCreatedAt, json(next.trade)]);
+    initialAcceptanceCheck(changedTrade.rows.length === 1 && changedTrade.rows[0].id === decision.tradeId,
+      "projection update did not affect exactly one retained pending trade");
+  }
+  const listing = next.listing;
+  const changedListing = await scoped.query<{ id: string }>(`UPDATE alpha_exchange.listings SET status=$2,active_trade_request_id=$3,
+    updated_at=$4::timestamptz,payload=$5::jsonb WHERE id=$1 RETURNING id /* initial acceptance: listing persistence */`,
+  [listing.id, listing.status, listing.activeTradeRequestId, listing.updatedAt, json(listing)]);
+  initialAcceptanceCheck(changedListing.rows.length === 1 && changedListing.rows[0].id === listing.id, "listing update did not affect exactly one row");
+  const events = { ...emptySnapshotCollections(), notifications: next.notifications, auditLogs: next.auditLogs };
+  for (const name of ["notifications", "audit_logs"] as const) {
+    const table = getTable(name);
+    await table.insert(scoped, table.values(events), { evidenceContentById: new Map(), appendOnlyEvents: true });
+  }
+  await scoped.query("UPDATE alpha_exchange.runtime_meta SET version=version+1,updated_at=now() WHERE singleton=true");
+}
+
 /**
  * Separate INITIAL seller-acceptance persistence groundwork. The callback may
  * await independently authorized synthetic wallet work in this SAME transaction;
@@ -3005,39 +3045,7 @@ export async function mutateDevelopmentInitialAcceptanceInTransaction(
     initialAcceptanceCheck(isDeepStrictEqual((await readInitialAcceptance(scoped, requestId)).rows, read.rows),
       "canonical decision basis changed inside the caller-owned transaction");
     const next = buildInitialAcceptance(read, decision);
-    // Exact UPDATE statements preserve every unrelated normalized column and
-    // ordering value. The new physical projection uses the existing encoder.
-    const request = next.request;
-    const updated = await scoped.query<{ id: string }>(`UPDATE alpha_exchange.purchase_requests SET status=$2,updated_at=$3::timestamptz,payload=$4::jsonb
-      WHERE id=$1 AND status='pending' AND trade_id=$5 RETURNING id /* initial acceptance: request persistence */`,
-    [request.id, request.status, request.updatedAt, json(request), decision.tradeId]);
-    initialAcceptanceCheck(updated.rows.length === 1 && updated.rows[0].id === request.id, "target update did not affect exactly one pending request");
-    if (read.rows.trades.length === 0) {
-      const trades = getTable("trades");
-      const projection = { ...emptySnapshotCollections(), purchaseRequests: [request] };
-      await trades.insert(scoped, trades.values(projection), { evidenceContentById: new Map() });
-    } else {
-      // A full repository snapshot may already have materialized the pending
-      // projection. Its identity/order stay fixed; creation time now means the
-      // actual acceptance, matching the existing canonical trades encoder.
-      const changedTrade = await scoped.query<{ id: string }>(`UPDATE alpha_exchange.trades SET status='accepted',
-        created_at=$3::timestamptz,updated_at=$3::timestamptz,payload=$4::jsonb
-        WHERE id=$1 AND purchase_request_id=$2 AND status='pending' RETURNING id /* initial acceptance: trade persistence */`,
-      [decision.tradeId, request.id, request.tradeCreatedAt, json(next.trade)]);
-      initialAcceptanceCheck(changedTrade.rows.length === 1 && changedTrade.rows[0].id === decision.tradeId,
-        "projection update did not affect exactly one retained pending trade");
-    }
-    const listing = next.listing;
-    const changedListing = await scoped.query<{ id: string }>(`UPDATE alpha_exchange.listings SET status=$2,active_trade_request_id=$3,
-      updated_at=$4::timestamptz,payload=$5::jsonb WHERE id=$1 RETURNING id /* initial acceptance: listing persistence */`,
-    [listing.id, listing.status, listing.activeTradeRequestId, listing.updatedAt, json(listing)]);
-    initialAcceptanceCheck(changedListing.rows.length === 1 && changedListing.rows[0].id === listing.id, "listing update did not affect exactly one row");
-    const events = { ...emptySnapshotCollections(), notifications: next.notifications, auditLogs: next.auditLogs };
-    for (const name of ["notifications", "audit_logs"] as const) {
-      const table = getTable(name);
-      await table.insert(scoped, table.values(events), { evidenceContentById: new Map(), appendOnlyEvents: true });
-    }
-    await scoped.query("UPDATE alpha_exchange.runtime_meta SET version=version+1,updated_at=now() WHERE singleton=true");
+    await persistInitialAcceptance(scoped, read, decision, next);
     await requireUnactivatedInitialAcceptance(scoped); await context();
     return structuredClone(next);
   } catch (error) {
@@ -3055,6 +3063,133 @@ export async function mutateDevelopmentInitialAcceptanceInTransaction(
     }
     throw error;
   } finally { active = false; }
+}
+
+export type DevelopmentInitialAcceptanceParticipant = Readonly<{
+  /** Complete fenced source facts; this copy supplies no session authority. */
+  marketplace: DevelopmentInitialAcceptanceMarketplace;
+  /** One narrow initial transition. Inspection and receipt recovery omit it. */
+  accept(decision: DevelopmentInitialAcceptanceDecision): Promise<DevelopmentInitialAcceptanceResult>;
+}>;
+
+function assertInitialParticipantBasis(
+  before: InitialAcceptanceRead, after: InitialAcceptanceRead, accepted?: DevelopmentInitialAcceptanceResult,
+) {
+  if (!accepted) {
+    initialAcceptanceCheck(isDeepStrictEqual(after.rows, before.rows), "canonical decision basis changed inside the coordinated transaction");
+    return;
+  }
+  for (const name of ["users", "commissions", "enforcements", "evidence", "disputes"] as const) {
+    initialAcceptanceCheck(isDeepStrictEqual(after.rows[name], before.rows[name]), "a canonical eligibility dependency changed after acceptance");
+  }
+  const omit = (row: InitialAcceptanceRow, keys: string[]) => Object.fromEntries(Object.entries(row).filter(([key]) => !keys.includes(key)));
+  for (const name of ["requests", "listings"] as const) {
+    const target = name === "requests" ? accepted.request : accepted.listing;
+    const mutable = name === "requests" ? ["status", "updated_at", "payload"]
+      : ["status", "active_trade_request_id", "updated_at", "payload"];
+    initialAcceptanceCheck(before.rows[name].length === after.rows[name].length, "canonical inventory changed after acceptance");
+    for (let index = 0; index < before.rows[name].length; index++) {
+      const old = before.rows[name][index], current = after.rows[name][index];
+      initialAcceptanceCheck(old.id === current.id, "canonical inventory ordering changed after acceptance");
+      if (old.id !== target.id) initialAcceptanceCheck(isDeepStrictEqual(old, current), "an unrelated canonical reservation changed after acceptance");
+      else initialAcceptanceCheck(isDeepStrictEqual(omit(old, mutable), omit(current, mutable))
+        && isDeepStrictEqual(current.payload, JSON.parse(json(target))), "canonical accepted projection changed after persistence");
+    }
+  }
+  initialAcceptanceCheck(after.rows.trades.length === 1 && after.rows.trades[0].id === accepted.trade.id
+    && isDeepStrictEqual(after.rows.trades[0].payload, JSON.parse(json(accepted.trade)))
+    && after.rows.trades[0].completed_at === null, "canonical trade projection changed after acceptance");
+  if (before.rows.trades.length) {
+    const mutable = ["status", "created_at", "updated_at", "payload"];
+    initialAcceptanceCheck(isDeepStrictEqual(omit(before.rows.trades[0], mutable), omit(after.rows.trades[0], mutable)),
+      "canonical trade identity or ordering changed after acceptance");
+  }
+}
+
+/**
+ * Transaction-owned access for the separate INITIAL marketplace coordinator.
+ * It supplies complete canonical reads and at most one narrow acceptance. The
+ * caller owns stored authentication, v3 reservation, coordinated receipts,
+ * publication intent and the only COMMIT. Read-only business retries do not
+ * recreate a pending transition. No route or production repository calls this.
+ */
+export async function withDevelopmentInitialAcceptanceInTransaction<T>(
+  options: { mode: "simulation-only"; tx: RepositorySql; requestId: string },
+  work: (participant: DevelopmentInitialAcceptanceParticipant) => Promise<T>,
+): Promise<T> {
+  const { mode, tx, requestId } = options;
+  assertSimulationRuntime(mode);
+  let active = true, certified = false, used = false;
+  let transactionId: string | undefined;
+  let accepted: DevelopmentInitialAcceptanceResult | undefined;
+  const context = async () => {
+    assertSimulationRuntime(mode);
+    initialAcceptanceCheck(active, "coordinated participant is no longer active");
+    const result = await tx.query<{ transaction_id: string; isolation: string; read_only: string; development_mode: string | null }>(
+      `SELECT txid_current()::text AS transaction_id,current_setting('transaction_isolation') AS isolation,
+        current_setting('transaction_read_only') AS read_only,current_setting('alpha_wallet.development_schema',true) AS development_mode`);
+    assertSimulationRuntime(mode);
+    const row = result.rows[0];
+    initialAcceptanceCheck(result.rows.length === 1 && typeof row?.transaction_id === "string" && /^[1-9][0-9]*$/.test(row.transaction_id)
+      && row.isolation === "serializable" && row.read_only === "off" && row.development_mode === mode
+      && (transactionId === undefined || transactionId === row.transaction_id), "requires its original writable SERIALIZABLE simulation transaction");
+    return row.transaction_id;
+  };
+  const abort = async () => {
+    if (!certified) return;
+    try {
+      // A failed runtime/contract check must still poison only this certified
+      // physical transaction when a caller swallows the participant's error.
+      const result = await tx.query<{ transaction_id: string }>("SELECT txid_current()::text AS transaction_id");
+      if (result.rows.length === 1 && result.rows[0].transaction_id === transactionId) {
+        await tx.query("SELECT 1 / 0 /* abort failed initial coordinated participant */");
+      }
+    } catch { /* Preserve the initiating failure; a replacement transaction is never touched. */ }
+  };
+  const scoped: RepositorySql = { async query<Row extends Record<string, unknown>>(sql: string, values?: unknown[]) {
+    await context(); const result = await tx.query<Row>(sql, values); await context(); return result;
+  } };
+  try {
+    transactionId = await context(); await context(); certified = true;
+    initialAcceptanceCheck(initialAcceptanceId(requestId), "requires an exact canonical request identity");
+    await requireUnactivatedInitialAcceptance(scoped);
+    await scoped.query("SELECT pg_advisory_xact_lock(61422919,hashtext($1))", [requestId]);
+    await scoped.query("SELECT pg_advisory_xact_lock(61422917)");
+    const fence = await scoped.query<{ version: string }>("SELECT version::text AS version FROM alpha_exchange.runtime_meta WHERE singleton=true FOR UPDATE");
+    initialAcceptanceCheck(fence.rows.length === 1 && /^[0-9]+$/.test(fence.rows[0].version), "runtime fence is missing or invalid");
+    await scoped.query(`SELECT l.id FROM alpha_exchange.listings l JOIN alpha_exchange.purchase_requests r ON r.listing_id=l.id
+      WHERE r.id=$1 ORDER BY l.id FOR UPDATE OF l /* initial acceptance: listing fence */`, [requestId]);
+    const basis = await readInitialAcceptance(scoped, requestId);
+    const participant: DevelopmentInitialAcceptanceParticipant = Object.freeze({
+      marketplace: structuredClone(basis.marketplace),
+      async accept(raw: DevelopmentInitialAcceptanceDecision) {
+        try {
+          // Mark the attempt synchronously, before any await. The owner must not
+          // commit a callback that starts acceptance and returns without joining it.
+          initialAcceptanceCheck(!used, "coordinated participant permits one acceptance only");
+          used = true;
+          // Capture before awaiting. Even an uncloneable decision is a semantic
+          // failure that must poison an already certified companion transaction.
+          const decision = structuredClone(raw);
+          await context();
+          await requireUnactivatedInitialAcceptance(scoped);
+          assertInitialParticipantBasis(basis, await readInitialAcceptance(scoped, requestId));
+          const next = buildInitialAcceptance(basis, decision);
+          await persistInitialAcceptance(scoped, basis, decision, next);
+          await requireUnactivatedInitialAcceptance(scoped); await context();
+          assertInitialParticipantBasis(basis, await readInitialAcceptance(scoped, requestId), next);
+          accepted = structuredClone(next);
+          return structuredClone(next);
+        } catch (error) { await abort(); throw error; }
+      },
+    });
+    const result = await work(participant);
+    initialAcceptanceCheck(!used || accepted !== undefined, "callback must await its complete canonical acceptance");
+    await requireUnactivatedInitialAcceptance(scoped); await context();
+    assertInitialParticipantBasis(basis, await readInitialAcceptance(scoped, requestId), accepted);
+    return result;
+  } catch (error) { await abort(); throw error; }
+  finally { active = false; }
 }
 
 export class AlphaExchangeRepository {

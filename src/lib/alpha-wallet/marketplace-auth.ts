@@ -8,6 +8,7 @@ import { assertSimulationRuntime } from "./runtime";
 type Authority = Readonly<{
   userId: string;
   canBuy: boolean;
+  canSell: boolean;
   isOwner: boolean;
   sessionExpiresAtMs: number;
 }>;
@@ -104,7 +105,7 @@ export async function resolveDevelopmentMarketplaceWebPrincipal(options: {
   assertSimulationRuntime(mode);
   let transactionId: string | undefined, certified = false, lastCheckedAt: number | undefined;
 
-  const context = async (requireContract = true) => {
+  const context = async () => {
     assertSimulationRuntime(mode);
     const result = await tx.query<Context>(`SELECT txid_current()::text AS transaction_id,
       current_setting('transaction_isolation') AS isolation, current_setting('transaction_read_only') AS read_only,
@@ -113,7 +114,7 @@ export async function resolveDevelopmentMarketplaceWebPrincipal(options: {
     const current = result.rows[0];
     if (result.rows.length !== 1 || typeof current?.transaction_id !== "string" || !/^[1-9][0-9]*$/.test(current.transaction_id)
       || (transactionId !== undefined && current.transaction_id !== transactionId)
-      || (requireContract && (current.isolation !== "serializable" || current.read_only !== "off" || current.development_mode !== mode))) {
+      || current.isolation !== "serializable" || current.read_only !== "off" || current.development_mode !== mode) {
       throw new WalletAccessError("WALLET_AUTH_CONTEXT_REQUIRED", 503);
     }
     return current.transaction_id;
@@ -131,8 +132,13 @@ export async function resolveDevelopmentMarketplaceWebPrincipal(options: {
       try {
         // Even a swallowed semantic failure cannot commit earlier financial work.
         // Never poison an unknown or replaced transaction.
-        await context(false);
-        await tx.query("SELECT 1 / 0 /* abort failed development marketplace authentication */");
+        // Cleanup must still reach the owned SQL boundary when the runtime or
+        // simulation contract itself failed. A runtime check here could let a
+        // swallowed refusal commit earlier work after the environment resets.
+        const current = await tx.query<{ transaction_id: string }>("SELECT txid_current()::text AS transaction_id");
+        if (current.rows.length === 1 && current.rows[0]?.transaction_id === transactionId) {
+          await tx.query("SELECT 1 / 0 /* abort failed development marketplace authentication */");
+        }
       } catch { /* Preserve the original failure, including whole-transaction retry codes. */ }
     }
     throw publicFailure(error);
@@ -168,7 +174,8 @@ export async function resolveDevelopmentMarketplaceWebPrincipal(options: {
     return Object.freeze({ ...initial, async assertFresh() {
       try {
         const current = await read();
-        if (current.userId !== initial.userId || current.canBuy !== initial.canBuy || current.isOwner !== initial.isOwner
+        if (current.userId !== initial.userId || current.canBuy !== initial.canBuy || current.canSell !== initial.canSell
+          || current.isOwner !== initial.isOwner
           || current.sessionExpiresAtMs !== initial.sessionExpiresAtMs) {
           throw new WalletAccessError("WALLET_AUTHORITY_CHANGED", 403);
         }

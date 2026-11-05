@@ -107,7 +107,7 @@ export async function resolveDevelopmentMarketplaceMobilePrincipal(options: {
   // changing the caller's metadata object later cannot change this authority.
   const parsed = developmentMarketplaceMobileCredentialsSchema.safeParse({ accessToken: options.accessToken, metadata: options.metadata });
   let transactionId: string | undefined, certified = false, lastCheckedAt: number | undefined;
-  const context = async (requireContract = true) => {
+  const context = async () => {
     assertSimulationRuntime(mode);
     const result = await tx.query<Context>(`SELECT txid_current()::text AS transaction_id,
       current_setting('transaction_isolation') AS isolation, current_setting('transaction_read_only') AS read_only,
@@ -116,7 +116,7 @@ export async function resolveDevelopmentMarketplaceMobilePrincipal(options: {
     const current = result.rows[0];
     if (result.rows.length !== 1 || typeof current?.transaction_id !== "string" || !/^[1-9][0-9]*$/.test(current.transaction_id)
       || (transactionId !== undefined && current.transaction_id !== transactionId)
-      || (requireContract && (current.isolation !== "serializable" || current.read_only !== "off" || current.development_mode !== mode))) {
+      || current.isolation !== "serializable" || current.read_only !== "off" || current.development_mode !== mode) {
       throw new WalletAccessError("WALLET_AUTH_CONTEXT_REQUIRED", 503);
     }
     return current.transaction_id;
@@ -132,8 +132,12 @@ export async function resolveDevelopmentMarketplaceMobilePrincipal(options: {
   const fail = async (error: unknown): Promise<never> => {
     if (certified) {
       try {
-        await context(false);
-        await tx.query("SELECT 1 / 0 /* abort failed development marketplace mobile authentication */");
+        // Check only physical identity here: the runtime/contract refusal is a
+        // reason to abort, never permission to commit earlier financial work.
+        const current = await tx.query<{ transaction_id: string }>("SELECT txid_current()::text AS transaction_id");
+        if (current.rows.length === 1 && current.rows[0]?.transaction_id === transactionId) {
+          await tx.query("SELECT 1 / 0 /* abort failed development marketplace mobile authentication */");
+        }
       } catch { /* Preserve the original failure and whole-transaction retry classification. */ }
     }
     throw publicFailure(error);
@@ -185,7 +189,8 @@ export async function resolveDevelopmentMarketplaceMobilePrincipal(options: {
       try {
         const current = await read();
         if (current.binding !== initial.binding || current.principal.userId !== initial.principal.userId
-          || current.principal.canBuy !== initial.principal.canBuy || current.principal.isOwner !== initial.principal.isOwner
+          || current.principal.canBuy !== initial.principal.canBuy || current.principal.canSell !== initial.principal.canSell
+          || current.principal.isOwner !== initial.principal.isOwner
           || current.principal.sessionExpiresAtMs !== initial.principal.sessionExpiresAtMs) {
           throw new WalletAccessError("WALLET_AUTHORITY_CHANGED", 403);
         }

@@ -113,7 +113,7 @@ describe("transaction-owned mobile marketplace authority", () => {
     });
     expect(principal).toMatchObject({ userId: BUYER, canBuy: true, isOwner: false, sessionExpiresAtMs: fixture.expiresAtMs });
     expect(Object.isFrozen(principal)).toBe(true);
-    expect(Object.keys(principal).sort()).toEqual(["assertFresh", "canBuy", "isOwner", "sessionExpiresAtMs", "userId"]);
+    expect(Object.keys(principal).sort()).toEqual(["assertFresh", "canBuy", "canSell", "isOwner", "sessionExpiresAtMs", "userId"]);
     expect(statements.filter(sql => sql.includes("FOR SHARE OF session, account"))).toHaveLength(2);
     expect(statements.some(sql => /^\s*(BEGIN|COMMIT|ROLLBACK|SAVEPOINT)\b/i.test(sql))).toBe(false);
     expect(parameters).toEqual([hashMobileSecret(credentials.accessToken), hashMobileSecret(credentials.accessToken)]);

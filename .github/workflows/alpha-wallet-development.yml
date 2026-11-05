@@ -142,6 +142,9 @@ jobs:
             await connection.query('CREATE DATABASE alpha_wallet_dev_v3_source');
             await connection.query('CREATE DATABASE alpha_wallet_dev_v3_races');
             await connection.query('CREATE DATABASE alpha_wallet_dev_v3_restore');
+            await connection.query('CREATE DATABASE alpha_wallet_dev_initial_coordination_atomic');
+            await connection.query('CREATE DATABASE alpha_wallet_dev_initial_coordination_races');
+            await connection.query('CREATE DATABASE alpha_wallet_dev_initial_coordination_auth');
           } finally { await connection.end(); }
           NODE
 
@@ -227,6 +230,17 @@ jobs:
             --target-connection-string 'postgresql://wallet_fixture:simulation-only@127.0.0.1:5432/alpha_wallet_dev_v3_restore' \
             2>test-results/alpha-wallet/postgres-v3-ledger.stderr.log \
             | tee test-results/alpha-wallet/postgres-v3-ledger.json
+
+      - name: Verify authenticated initial marketplace acceptance and canonical writer races
+        run: |
+          set -euo pipefail
+          node --conditions=react-server --import tsx scripts/alpha-wallet/postgres-initial-marketplace.ts \
+            --fresh-simulation-databases \
+            --atomic-connection-string 'postgresql://wallet_fixture:simulation-only@127.0.0.1:5432/alpha_wallet_dev_initial_coordination_atomic' \
+            --race-connection-string 'postgresql://wallet_fixture:simulation-only@127.0.0.1:5432/alpha_wallet_dev_initial_coordination_races' \
+            --auth-connection-string 'postgresql://wallet_fixture:simulation-only@127.0.0.1:5432/alpha_wallet_dev_initial_coordination_auth' \
+            2>test-results/alpha-wallet/postgres-initial-marketplace.stderr.log \
+            | tee test-results/alpha-wallet/postgres-initial-marketplace.json
 
       - name: Install the locked Playwright Chromium browser
         run: node ./node_modules/playwright/cli.js install --with-deps chromium

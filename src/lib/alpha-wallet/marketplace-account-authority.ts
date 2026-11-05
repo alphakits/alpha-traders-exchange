@@ -1,7 +1,9 @@
 import "server-only";
 import { hasAdultConfirmation } from "@/lib/age-eligibility";
 import { isAccountPhoneVerificationExempt } from "@/lib/phone-verification-exemptions";
+import { hasSellerOperationalAccess } from "@/lib/seller-approval-verification";
 import { hasVerifiedPhone } from "@/lib/verification-bypass";
+import type { SellerStatus, UserRole } from "@/types/alpha-exchange";
 import { WalletAccessError } from "./access";
 
 /** Canonical columns read by the fixed transaction-owned authentication readers. */
@@ -12,7 +14,7 @@ export type DevelopmentMarketplaceAccountRow = {
   account_seller_status: string;
   account_payload: unknown;
 };
-export type DevelopmentMarketplaceAccountAuthority = Readonly<{ userId: string; canBuy: boolean; isOwner: boolean }>;
+export type DevelopmentMarketplaceAccountAuthority = Readonly<{ userId: string; canBuy: boolean; canSell: boolean; isOwner: boolean }>;
 
 const ROLES = new Set(["guest", "student", "buyer", "pending_seller_approval", "approved_seller", "admin", "owner"]);
 const SELLER_STATUSES = new Set(["buyer", "pending_seller_approval", "approved_seller", "rejected", "suspended"]);
@@ -55,5 +57,10 @@ export function developmentMarketplaceAccountAuthority(
     || user.roles.some(role => typeof role !== "string" || !ROLES.has(role)))) return invalidRecord();
   const roles = new Set([row.account_role, ...((user.roles ?? []) as string[])]);
   return Object.freeze({ userId: row.account_id, canBuy: roles.has("buyer") || roles.has("admin") || roles.has("owner"),
+    // Match the canonical selling policy. An old approved-seller role label
+    // does not override the current suspended/rejected seller status. The
+    // coordinator must separately bind this capability to request.sellerId.
+    canSell: hasSellerOperationalAccess({ role: row.account_role as UserRole, roles: [...roles] as UserRole[],
+      sellerStatus: row.account_seller_status as SellerStatus }),
     isOwner: roles.has("owner") });
 }
