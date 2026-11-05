@@ -1196,15 +1196,18 @@ for (const role of ["buyer", "seller"] as const) {
       const landscapeToggle = page.locator('summary[aria-label="Open menu"]');
       await landscapeToggle.click();
       const landscapeEntry = landscapeToggle.locator("..").getByRole("link", { name: "Buy Requests", exact: true });
+      const landscapePanel = landscapeToggle.locator("+ div");
+      // Hover waits for stable menu dimensions after the viewport change,
+      // before we calculate the wheel distance from the panel and link bounds.
+      await landscapePanel.hover();
       const [panel, item] = await Promise.all([
-        landscapeToggle.locator("+ div").boundingBox(),
+        landscapePanel.boundingBox(),
         landscapeEntry.boundingBox(),
       ]);
       if (!panel || !item) throw new Error("The open menu and its Buy Requests link must have visible bounds.");
       // A click can hit a partly clipped row. Scroll the menu itself, as a user
       // would in landscape, and check the whole row before attempting the click.
       const panelCenterY = panel.y + panel.height / 2;
-      await page.mouse.move(panel.x + panel.width / 2, panelCenterY);
       await page.mouse.wheel(0, Math.round(item.y + item.height / 2 - panelCenterY));
       await expect(landscapeEntry).toBeInViewport({ ratio: 1 });
       await landscapeEntry.click({ trial: true });
