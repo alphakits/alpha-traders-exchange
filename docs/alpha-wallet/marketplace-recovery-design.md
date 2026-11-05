@@ -108,6 +108,8 @@ The existing standalone CLI remains v1-only. It is not automatically extended by
 
 ## Verification and remaining work
 
+[Exact-source verification at `09405da`](marketplace-recovery-verification-2026-11-05.md) passed 1,081 tests, full-project TypeScript, six native PostgreSQL drills with 54 checks and the existing Chromium rehearsal. The recovery addition accounts for 83 test cases and 11 native checks.
+
 The implementation has pure manifest tests, real local database fault/reopen tests, and a separately executable native PostgreSQL drill at [postgres-marketplace-backup.ts](../../scripts/alpha-wallet/postgres-marketplace-backup.ts). The native harness requires three pre-created, empty, explicitly named loopback development databases and checks all three before writing to any. It covers late SQL failures, real commit with a synthetic lost response, unchanged canonical/ledger records, credential and writer refusals, and competing restores.
 
 Executed results must be recorded against the exact source commit. A synthetic acknowledgement-loss injection after a real COMMIT is not a physical network partition; local file tests are not evidence of native PostgreSQL interleavings. No passing test proves absence of every bug.

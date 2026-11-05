@@ -2,57 +2,103 @@
 
 This runbook applies only to local **simulation-only** development stores. It does not authorize live deployment, live chain access, signing keys or real funds.
 
-**Latest verified source: `ecc3752`.** The [canonical coordinator report](marketplace-coordinator-verification-2026-11-05.md) records 998 passing tests and five native PostgreSQL drills, including the new coordinator's original-receipt recovery and writer/authentication races. The [previous versioned-ledger report](ledger-v2-verification-2026-11-05.md) covers standalone recovery. Neither standalone backup evidence nor successful acceptance recovery establishes the still-missing combined recovery protocol.
+**Latest verified source: `09405da`.** The [combined recovery report](marketplace-recovery-verification-2026-11-05.md) records 1,081 passing tests and six native PostgreSQL drills with 54 checks, including 11 native combined-recovery checks. The new manifest and database suites contain 83 cases. All earlier drills were rerun on this source. The [prior canonical coordinator report](marketplace-coordinator-verification-2026-11-05.md) and [versioned-ledger report](ledger-v2-verification-2026-11-05.md) retain their historical evidence and scope.
 
 ## First identify whether the canonical cohort is active
 
-**For an enrolled canonical marketplace cohort, use the coordinator's owner `inspect` and `pause`. Wallet-only export, standalone `snapshot()`/`recoverPayouts()` and worker entry points are blocked after activation. A combined marketplace/wallet backup and restore protocol is not implemented.**
+**An enrolled canonical marketplace cohort uses the combined recovery APIs below. Wallet-only export, standalone `snapshot()`/`recoverPayouts()` and worker entry points remain blocked after activation.** The [combined recovery contract](marketplace-recovery-design.md) applies only to its exact isolated development fixture schema, not an arbitrary or production marketplace database.
 
-| Source state | Supported procedure |
+| Source or target state | Supported procedure |
 | --- | --- |
-| Canonical marketplace enrollment exists, or activation status is uncertain | Preserve the complete isolated source and follow the enrolled-cohort procedure below. Do not export or restore only the ledger |
-| Source is confirmed to have no active canonical marketplace enrollment | The standalone v1/mixed-v2 backup and paused-restore procedure later in this runbook applies |
+| Canonical marketplace enrollment exists and the source matches the supported fixture | Inspect and pause through the owner coordinator, then export and restore the complete combined recovery unit below |
+| Activation status is uncertain, integrity checks fail, or the schema/cohort is unsupported | Preserve the complete isolated source and investigate. Do not select a wallet-only procedure to bypass the refusal |
+| A target was created by combined recovery, including an uncertain COMMIT outcome | Reopen that same target and use the offline recovery diagnostic with the separately retained checksum |
+| Source is confirmed to have no active canonical marketplace enrollment | Use the standalone v1/mixed-v2 backup and paused-restore procedure later in this runbook |
 
 The distinction concerns activation by the [private canonical coordinator](marketplace-coordinator-design.md). Standalone v2 ledger fixtures may contain their own synthetic terms bindings; they do not establish a canonical marketplace cohort. A ledger-only backup also cannot prove that the source remained unenrolled after its checkpoint. Establish the active source and its enrollment state before choosing a recovery procedure.
 
-## Enrolled canonical cohort: inspect, pause and preserve
+## Enrolled canonical cohort: inspect, pause, export and restore
 
-This initial cohort contains one already accepted canonical request with a clean existing wallet reservation and an existing pending amount-correction proposal. It supports current ILS Bank Transfer and Face-to-Face terms. Enrollment requires the only active canonical reservation on its listing, the only nonterminal wallet trade globally and no unfinished payout. This narrow development rule leaves the general three-active-trades-per-seller policy unchanged.
+The supported recovery cohort contains one already accepted canonical request with a clean wallet reservation. Its existing amount-correction proposal may still be pending or may already have been accepted. It supports current ILS Bank Transfer and Face-to-Face terms, the only active canonical reservation on its listing, the only nonterminal wallet trade globally and no unfinished payout. This narrow development rule leaves the general three-active-trades-per-seller policy unchanged.
 
-1. **Stop new coordinator work and preserve the source.** Identify the complete isolated database that owns the canonical marketplace, wallet and coordination records. Stop other callers while retaining a controlled owner recovery path. Do not start a second active copy, remove guards, clear a pause or create an ad hoc transaction context to bypass blocked standalone tools.
-2. **Inspect and pause through the typed owner boundary.** Supply a valid stored owner web-session credential and the canonical request ID to `inspect`, then use `pause` with a retained incident operation ID. Both operations authenticate inside their own guarded transaction. Record safe revisions, event hashes, current terms, balances and pause status; keep credentials and private account data out of incident reports. If authentication or integrity validation fails, preserve the source and investigate that failure rather than bypassing it.
-3. **Resolve an unknown acceptance outcome by its original business identity.** The same canonical buyer must authenticate again and call `acceptAmountCorrection` with the original request/proposal IDs and expected prior binding revision. A new transport operation ID or valid renewed session may recover the original receipt; an accepted proposal or owner pause does not cause another principal transfer. Owner inspection is not an override for buyer receipt authorization. Retry an uncertain owner enrollment or pause with its original input/operation identity. Never infer rollback from a missing response or replace/delete the original acceptance.
-4. **Preserve all coordinated records together.** Keep the existing `alpha_exchange`, `alpha_wallet_simulation` and `alpha_wallet_marketplace_simulation` state, plus relevant incident evidence. Canonical terms, wallet commands/projections, enrollment/acceptance receipts and publication intents are one recovery unit. The old JSON wallet backups omit part of that unit. Do not restore only one side, revive a pre-enrollment ledger copy, or treat an unverified physical copy as a supported combined restore.
-5. **Keep the cohort fenced while combined recovery is designed and verified.** There is no resume, new-proposal, cancellation, dispute, payment, release, payout or settlement operation for this cohort. Its publication intent is durable, but no external notification/realtime delivery or provider is connected. A future combined export, fresh-target restore, atomic quarantine and reconciliation protocol must cover both domains before recovery can activate another copy.
+Export requires the exact supported canonical and coordination tables, columns, types and nullability. Additional or missing schema elements and unrelated namespaces are refused. The combined bundle retains all supported canonical financial/application rows, mixed wallet history and immutable enrollment/acceptance/publication records. It retains only user IDs, role labels and seller status, excluding sessions, original profiles and authentication material. Old transaction registrations are never imported as authority in another database.
 
-An owner fixture can use the server-only API as follows:
+1. **Stop new coordinator work and preserve the source.** Identify the complete isolated database that owns `alpha_exchange`, `alpha_wallet_simulation` and `alpha_wallet_marketplace_simulation`. Stop other callers while retaining a controlled owner recovery path. Keep relevant incident evidence. Do not start a second active copy, remove guards, clear a pause or create an ad hoc context to bypass blocked standalone tools.
+2. **Inspect and pause through the typed owner boundary.** Supply a valid stored owner web-session credential and the canonical request ID to `inspect`, then use `pause` with a retained incident operation ID. Record safe revisions, event hashes, current terms, balances and pause status. If authentication or integrity validation fails, preserve the source and investigate; the export API requires actual owner authority and an already paused source.
+3. **Resolve an unknown acceptance outcome on the original source by its original business identity.** The same canonical buyer must authenticate again and call `acceptAmountCorrection` with the original request/proposal IDs and expected prior binding revision. A new transport operation ID or renewed valid session may recover the original receipt after acceptance or owner pause without another principal transfer. Owner inspection does not override buyer receipt authorization. Retry an uncertain owner enrollment or pause with its original input/operation identity. Never infer rollback from a missing response or replace/delete an acceptance.
+4. **Export the complete recovery unit.** Call `exportMarketplaceWalletBackup` with the paused source, enrolled request ID and valid owner session. Canonical locks, fixed web authentication, wallet replay/projection verification, row capture and coherence checks share one transaction. Export rechecks authority/expiry after awaited work. Preserve the original source; this API does not initialize it, clear its pause, deliver events or contact a provider.
+5. **Retain and inspect the recovery copy.** Save the returned private JSON under restricted access, using a new file rather than overwriting evidence. Record its canonical checksum, source checkpoint, export time and source identity separately. `inspectMarketplaceWalletBackup` validates the bytes without opening a database transaction. Compare with the independently retained checksum when selecting a copy. A hash of raw file bytes is not the canonical checksum expected by the API. A checksum establishes consistency, not the creator, recency or absence of activity in another source.
+6. **Prepare a genuinely fresh isolated target.** Select a new marked local file-store directory or explicitly isolated loopback PostgreSQL development database using the guarded store factory. Do not pre-initialize a wallet or canonical schema: combined restore refuses even an empty existing application namespace, as well as unrelated public, temporary or extension objects. Use no application/production connection string or environment-derived URL. The native fixture role requires deliberate superuser or `BYPASSRLS` capability; this is not a production permissions design.
+7. **Restore and retain both checkpoints.** Call `restoreMarketplaceWalletBackup` with the actual selected bytes, `acknowledgeFreshTarget: true` and the mandatory separately retained `expectedChecksum`. All original wallet commands, canonical rows, common writer guards, a new durable pause and the immutable recovery receipt commit together. The target has the original N commands followed by exactly one new quarantine command. Record the original source checkpoint separately from the restored N+1 checkpoint. Restore never drops, overwrites or repairs an existing target.
+8. **Reopen the same target and verify its quarantine.** Use `inspectRestoredMarketplaceWallet` with that target and the same independently retained checksum. It verifies the receipt, original history, exact added pause, current canonical/coordination digests, common coherence checks, empty sessions and exact disabled identity stubs. Keep the source fenced and the target paused. This offline diagnostic grants no web/mobile account authority and does not activate the recovered copy.
+
+The JSON is **private plaintext**: canonical financial payloads still contain payment instructions, destinations, user names and trade history. Do not attach it to public issues or paste it into logs. The library returns a string; it does not choose a backup destination, implement encryption/retention or configure a scheduled service. It refuses more than 16 MiB of UTF-8 JSON, 1,000 wallet commands, 1,000 rows per table or 10,000 captured rows in total rather than truncating the recovery unit. Physical SQL timestamps retain microseconds, bigint counters remain strings, and capture refuses values that would lose JSON numeric precision across the database boundary.
+
+### Combined recovery API in an isolated fixture
 
 ```ts
 import { createDevelopmentMarketplaceWalletCoordinator } from "./src/lib/alpha-wallet/marketplace-coordinator";
+import {
+  exportMarketplaceWalletBackup,
+  inspectMarketplaceWalletBackup,
+  restoreMarketplaceWalletBackup,
+  inspectRestoredMarketplaceWallet,
+} from "./src/lib/alpha-wallet/marketplace-backup";
 
 // `source` is the existing guarded simulation WalletStore.
-// Use the fixture's trusted clock and an already issued valid stored owner session.
+// Use an already issued valid stored owner session and trusted fixture clocks.
+const ownerInput = { sessionToken: ownerSessionToken, requestId: canonicalRequestId };
 const coordinator = createDevelopmentMarketplaceWalletCoordinator({
-  mode: "simulation-only",
-  store: source,
-  clock: fixtureClock,
+  mode: "simulation-only", store: source, clock: fixtureClock,
 });
-const current = await coordinator.inspect({
-  sessionToken: ownerSessionToken,
-  requestId: canonicalRequestId,
-});
+const current = await coordinator.inspect(ownerInput);
 const paused = await coordinator.pause({
-  sessionToken: ownerSessionToken,
-  requestId: canonicalRequestId,
-  operationId: incidentPauseOperationId,
+  ...ownerInput, operationId: incidentPauseOperationId,
 });
-// Preserve the operation identity and returned metadata if its response is uncertain.
-// Never log the session token or wrap a standalone export in a fabricated context.
+// Preserve the operation identity if the pause's response is uncertain.
+
+const serialized = await exportMarketplaceWalletBackup({
+  mode: "simulation-only", store: source, ...ownerInput, clock: fixtureClock,
+});
+const inspected = inspectMarketplaceWalletBackup(serialized);
+// Save the private bytes and record inspected.checksum/checkpoint separately.
+// `separatelyRetainedChecksum` below comes from that independent record.
+
+const restored = await restoreMarketplaceWalletBackup({
+  mode: "simulation-only", store: freshTarget, backup: serialized,
+  acknowledgeFreshTarget: true, expectedChecksum: separatelyRetainedChecksum,
+  clock: restoreFixtureClock,
+});
+// restored.quarantined is true only after the outer transaction commits.
+// restored.backup.checkpoint is the source; restored.restored includes the new pause.
+
+// Close/reopen the SAME target before checking a retained or uncertain outcome.
+const verifiedOutcome = await inspectRestoredMarketplaceWallet({
+  mode: "simulation-only", store: reopenedSameTarget,
+  expectedChecksum: separatelyRetainedChecksum,
+});
+// Safe metadata only. Do not print session tokens or the serialized private bundle.
 ```
 
-The fixed web reader locks actual session/account rows in the same transaction as canonical reads and financial work. It rechecks authority and expiry after persistence. A revocation committed before the locked read invalidates the attempt, including through whole-transaction retry; a revocation queued behind an already acquired lock is ordered afterward. Expiry checks do not promise that the eventual COMMIT acknowledgement arrives before a wall-clock deadline. Mobile authentication is not coordinated by this implementation.
+The fixed web reader locks actual session/account rows in the same transaction as canonical reads and export work. It rechecks authority and expiry after awaited capture and persistence. A revocation committed before the locked read invalidates the attempt, including through whole-transaction retry; a revocation queued behind an already acquired lock is ordered afterward. Expiry checks do not promise that the eventual COMMIT acknowledgement arrives before a wall-clock deadline. Mobile authentication is not coordinated by this implementation.
 
-Implementation references: [private coordinator](../../src/lib/alpha-wallet/marketplace-coordinator.ts), [transaction-bound web authentication](../../src/lib/alpha-wallet/marketplace-auth.ts), [coordination storage](../../src/lib/alpha-wallet/marketplace-coordination-store.ts), [SQL fences](marketplace-coordination-schema.sql), and the [complete coordinator contract](marketplace-coordinator-design.md).
+### Identity quarantine is not restored login authority
+
+Recovered users are disabled, credential-free identity stubs. Their original profiles, phone evidence, passwords and sessions are not restored. The source's owner/buyer credentials therefore cannot authenticate against the recovered target. Do not copy sessions, enable a stub or fabricate fresh authority from its retained role label to make a login work.
+
+Use the offline diagnostic for recovery verification. It requires the explicit guarded database capability and separately retained checksum; it is not a public route or an owner/buyer authentication bypass. There is no account-authority re-entry or resume API. Requiring the source pause prevents new financial work through this cohort's supported operations, but does not implement a cross-instance leader lease or discover another independently active copy.
+
+A recovered cohort cannot create new proposals, initial acceptances, cancellation/dispute/payment transitions, release, payout or settlement. Its stored publication intent is not delivered externally. Combined provider/chain reconciliation, authenticated provenance, encryption/retention, production schema/role compatibility, identity recovery, source fencing, recovery objectives, controlled resume and independent review remain separate launch requirements.
+
+### If a combined restore's COMMIT result is unknown
+
+`ALPHA_WALLET_COMMIT_OUTCOME_UNKNOWN` means the acknowledgement is uncertain; it does not establish rollback. Preserve the selected bundle, independently retained checksum, source checkpoint and exact target identity. Close the failed connection and reopen **that same target** with the guarded development store.
+
+Call `inspectRestoredMarketplaceWallet`. A successful result verifies the immutable receipt and complete source history followed by the checksum-bound pause: operator `marketplace-backup-recovery`, request ID `restore-<combined checksum>`. Its original source and restored checkpoints remain distinct. Do not append a replacement acceptance, erase a receipt, restore only the ledger or activate another copy to compensate for a missing reply.
+
+A committed target rejects another restore as nonempty. Preserve that target and inspect it; a nonempty refusal is not permission to clear it. A missing receipt alone also does not prove the destination is empty. Partial, inconsistent, unpaused, credential-bearing or differently checksummed state must remain isolated for investigation. A fresh restore may be retried only after the same destination is confirmed genuinely empty and the earlier writers are stopped. Neither a generic error nor an isolated row count establishes those facts.
+
+Implementation references: [combined API and same-target diagnostic](../../src/lib/alpha-wallet/marketplace-backup.ts), [strict manifest verification](../../src/lib/alpha-wallet/marketplace-backup-manifest.ts), [fresh-target storage and identity quarantine](../../src/lib/alpha-wallet/marketplace-recovery-store.ts), [immutable recovery receipt checks](marketplace-recovery-receipts.sql), [common SQL fences](marketplace-coordination-guards.sql), [private coordinator](../../src/lib/alpha-wallet/marketplace-coordinator.ts), and the [full combined recovery contract](marketplace-recovery-design.md).
 
 ## Standalone recovery always starts paused
 
@@ -232,7 +278,7 @@ The tests use real local PGlite files and separate source/target directories. Th
 
 These tests do not establish production backup retention, encryption, authenticated provenance, point-in-time recovery, real chain completeness, power-loss durability, production RPO/RTO, or an independent audit. Native PostgreSQL integration and process-failure tests are separate evidence. Keep those boundaries explicit when reporting recovery readiness.
 
-The coordinator suites and [native coordinator drill](../../scripts/alpha-wallet/postgres-marketplace-coordinator.ts) separately cover shared canonical/wallet transactions, current web authority, typed owner controls, original receipt recovery and rejection of standalone bypasses. The native drill requires three fresh disposable databases; it is not a repair or restore command for an existing enrolled source. [Its 16 native checks passed at `ecc3752`](marketplace-coordinator-verification-2026-11-05.md), alongside the four prior native drills. No passing acceptance/receipt test substitutes for the still-missing combined backup/restore protocol.
+The coordinator suites and [native coordinator drill](../../scripts/alpha-wallet/postgres-marketplace-coordinator.ts) separately cover shared canonical/wallet transactions, current web authority, typed owner controls, original receipt recovery and rejection of standalone bypasses. The native drill requires three fresh disposable databases; it is not a repair or restore command for an existing enrolled source. [Its 16 native checks passed at `ecc3752`](marketplace-coordinator-verification-2026-11-05.md), alongside the four prior native drills. Those historical results predate combined backup/restore; the [current combined recovery report](marketplace-recovery-verification-2026-11-05.md) separately records the new protocol and all six rerun drills at `09405da`. The [combined recovery contract](marketplace-recovery-design.md), [manifest tests](../../src/lib/alpha-wallet/marketplace-backup-manifest.test.ts), [database recovery tests](../../src/lib/alpha-wallet/marketplace-backup.test.ts) and [native combined recovery drill](../../scripts/alpha-wallet/postgres-marketplace-backup.ts) cover the separate protocol described above. Its 83 added cases and 11 native checks passed on the exact source recorded in that current report.
 
 ### Native PostgreSQL recovery fixture
 

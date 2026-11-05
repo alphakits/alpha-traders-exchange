@@ -75,7 +75,11 @@ Functions run as `SECURITY INVOKER`. New tables use forced RLS without public/cl
 
 The existing pure-v1 and mixed-v2 wallet backup formats do not contain canonical marketplace rows, transaction registrations, application acceptance receipts or publication intents. After cohort activation, wallet-only export fails closed. Do not bypass the head guard, export inside an ad hoc registered context, restore only one side, or claim the old backup format recovers this integrated cohort.
 
-A combined marketplace/wallet export, restore, quarantine and reconciliation protocol is the next recovery requirement. Until it exists, preserve the complete isolated source and its verification evidence; use owner `inspect` and typed `pause` for the enrolled fixture. There is no production rollout, automatic unpause or live recovery approval.
+The separate [combined recovery contract](marketplace-recovery-design.md) now covers this fixed development cohort when its existing correction is pending or accepted. Export requires a source already paused through the typed owner coordinator and a currently valid stored owner session. One transaction verifies and captures the complete mixed wallet history, supported canonical rows, immutable enrollment/acceptance records and publication intents. The original wallet-only formats and their blocked entry points remain unchanged.
+
+Restore validates the complete bundle and a separately retained checksum before accessing a fresh isolated target. Original history and canonical records, the shared coordination guards, an additional durable pause and an immutable recovery receipt commit together. Users become disabled identity stubs; original profiles, passwords, sessions and old transaction registrations are not imported. A lost restore acknowledgement is resolved by reopening the same target and using the offline recovery diagnostic, not by recreating the acceptance or erasing the target.
+
+Preserve the complete isolated source and its verification evidence throughout recovery. The source pause is not a cross-instance fencing service, and checksums do not establish provenance or external payment/chain state. The recovered target has no authority re-entry, resume, provider or external delivery path. Production recovery, reconciliation and launch approval remain separate requirements.
 
 ## Verification contract
 
