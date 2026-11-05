@@ -95,6 +95,39 @@ jobs:
         run: |
           docker exec "$POSTGRES_CONTAINER" psql -U postgres -d alpha_exchange_ci -v ON_ERROR_STOP=1 -c "ALTER SYSTEM SET track_wal_io_timing = on"
           docker exec "$POSTGRES_CONTAINER" psql -U postgres -d alpha_exchange_ci -v ON_ERROR_STOP=1 -c "SELECT pg_reload_conf()"
+      - name: Flush setup writes before database measurement
+        env:
+          POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          reports="test-results/postgres-concurrency"
+          mkdir -p "$reports"
+          capture_storage() {
+            date '+sampled_at_epoch_ms %s%3N'
+            awk '/^(Dirty|Writeback|WritebackTmp):/ { sub(/:$/, "", $1); print $1 "_kib", $2 }' /proc/meminfo
+            awk '$1 == "some" || $1 == "full" { print "io_pressure_" $0 }' /proc/pressure/io
+            # Retain device major/minor and numeric counters, without device names.
+            awk '{ printf "diskstats %s %s", $1, $2; for (i = 4; i <= NF; i++) printf " %s", $i; print "" }' /proc/diskstats
+          }
+          {
+            printf 'workspace_filesystem_device '
+            findmnt --target "$GITHUB_WORKSPACE" --noheadings --raw --output FSTYPE,MAJ:MIN 2>/dev/null || printf 'unavailable\n'
+            docker exec "$POSTGRES_CONTAINER" stat -f --format='postgres_filesystem %T' /var/lib/postgresql/data 2>/dev/null || printf 'postgres_filesystem unavailable\n'
+            docker exec "$POSTGRES_CONTAINER" stat --format='postgres_device %d' /var/lib/postgresql/data 2>/dev/null || printf 'postgres_device unavailable\n'
+          } > "$reports/setup-storage-metadata.txt"
+          capture_storage > "$reports/setup-storage-before.txt"
+          sync_started_ms="$(date +%s%3N)"
+          sync_status=0
+          # Finish dependency/cache/setup writeback before timing real actions.
+          # TERM at 55 seconds plus a 5-second kill grace bounds sync to 60 seconds.
+          timeout --signal=TERM --kill-after=5s 55s sync || sync_status=$?
+          sync_finished_ms="$(date +%s%3N)"
+          printf 'started_at_epoch_ms %s\nelapsed_ms %s\nexit_code %s\n' \
+            "$sync_started_ms" "$((sync_finished_ms - sync_started_ms))" "$sync_status" \
+            > "$reports/setup-storage-sync.txt"
+          capture_storage > "$reports/setup-storage-after.txt"
+          exit "$sync_status"
       - name: Exercise real database races and process recovery
         run: node scripts/check-postgres-concurrency.mjs
       - name: Recover provider history through process crashes and HTTP outages
