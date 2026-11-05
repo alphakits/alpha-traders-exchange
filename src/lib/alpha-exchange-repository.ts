@@ -23,6 +23,8 @@ import { parseUnits as parseInitialAcceptanceUnits } from "@/lib/alpha-wallet/am
 import { describeDevelopmentTradeTerms } from "@/lib/alpha-wallet/accepted-terms";
 import { planDevelopmentPrepaymentCancellation, type DevelopmentPrepaymentCancellationDecision,
   type DevelopmentPrepaymentCancellationMarketplace, type DevelopmentPrepaymentCancellationResult } from "@/lib/alpha-wallet/prepayment-cancellation";
+import { walletDigest as cancellationCanonicalDigest } from "@/lib/alpha-wallet/commands";
+import { assertCancellationMarketplaceContext, type CancellationMarketplaceContext } from "@/lib/alpha-wallet/cancellation-marketplace-coordination-store";
 import { isDemandReservedTrade } from "@/lib/usdt-demand-policy";
 import { hasSellerOperationalAccess } from "@/lib/seller-approval-verification";
 import type {
@@ -3447,6 +3449,202 @@ export async function withDevelopmentPrepaymentCancellationInTransaction<T>(
     prepaymentCancellationCheck(!used || cancelled !== undefined, "callback must await its complete canonical cancellation");
     await requireUncoordinatedPrepaymentCancellation(scoped); await context();
     assertPrepaymentCancellationBasis(basis, await readPrepaymentCancellation(scoped, requestId), cancelled);
+    return result;
+  } catch (error) { await abort(); throw error; }
+  finally { active = false; }
+}
+
+/** Private normalized/payload evidence, never a public receipt or account authority. */
+export type DevelopmentCancellationMarketplaceBasis = {
+  rows: InitialAcceptanceRows;
+  events: Record<"notifications" | "audits", InitialAcceptanceRow[]>;
+  runtime: { version: string; updated_at: string };
+};
+export type DevelopmentCancellationMarketplaceCanonical = {
+  request: PurchaseRequest;
+  listing: MarketplaceListing;
+  /** Exact existing physical trade payload, verified against the canonical encoder. */
+  trade: Omit<DevelopmentPrepaymentCancellationResult["trade"], "status"> & { status: "accepted" | "cancelled" };
+};
+export type DevelopmentCancellationMarketplaceDigests = {
+  requestDigest: string; listingDigest: string; tradeDigest: string; marketplaceDigest: string;
+};
+export type DevelopmentCancellationMarketplaceSnapshot = {
+  marketplace: DevelopmentPrepaymentCancellationMarketplace;
+  canonical: DevelopmentCancellationMarketplaceCanonical;
+  basis: DevelopmentCancellationMarketplaceBasis;
+  digests: DevelopmentCancellationMarketplaceDigests;
+};
+export type DevelopmentCancellationMarketplaceParticipant = Readonly<DevelopmentCancellationMarketplaceSnapshot & {
+  /** Authorize only the successor's version+1 upgrade fence; canonical data and clock stay identical. */
+  authorizeUpgrade(context: CancellationMarketplaceContext): Promise<void>;
+  /** One exact canonical mutation under an authenticated coordinator's opaque storage context. */
+  cancel(context: CancellationMarketplaceContext, decision: DevelopmentPrepaymentCancellationDecision): Promise<DevelopmentPrepaymentCancellationResult>;
+  /** Rechecked current state, including the post-upgrade or post-cancellation raw basis. */
+  snapshot(): Promise<DevelopmentCancellationMarketplaceSnapshot>;
+}>;
+
+function freezeCancellationSnapshot<T>(value: T): T {
+  if (value && typeof value === "object") {
+    for (const child of Object.values(value)) freezeCancellationSnapshot(child);
+    Object.freeze(value);
+  }
+  return value;
+}
+function cancellationMarketplaceSnapshot(read: PrepaymentCancellationRead): DevelopmentCancellationMarketplaceSnapshot {
+  const basis: DevelopmentCancellationMarketplaceBasis = {
+    rows: read.canonical.rows, events: read.events, runtime: read.runtime,
+  };
+  const canonical: DevelopmentCancellationMarketplaceCanonical = {
+    request: read.canonical.request, listing: read.canonical.listing,
+    trade: read.canonical.rows.trades[0].payload as unknown as DevelopmentCancellationMarketplaceCanonical["trade"],
+  };
+  return freezeCancellationSnapshot(structuredClone({ marketplace: read.marketplace, canonical, basis,
+    digests: { requestDigest: cancellationCanonicalDigest(canonical.request), listingDigest: cancellationCanonicalDigest(canonical.listing),
+      tradeDigest: cancellationCanonicalDigest(canonical.trade), marketplaceDigest: cancellationCanonicalDigest(basis) } }));
+}
+async function cancellationMarketplaceNamespaces(tx: RepositorySql) {
+  const result = await tx.query<{ initial: boolean; successor: boolean; correction: boolean }>(`SELECT
+    to_regnamespace('alpha_wallet_initial_marketplace_simulation') IS NOT NULL AS initial,
+    to_regnamespace('alpha_wallet_cancellation_marketplace_simulation') IS NOT NULL AS successor,
+    to_regnamespace('alpha_wallet_marketplace_simulation') IS NOT NULL AS correction
+    /* cancellation marketplace: explicit predecessor or successor */`);
+  const row = result.rows[0];
+  prepaymentCancellationCheck(result.rows.length === 1 && row?.initial === true && row.correction === false
+    && typeof row.successor === "boolean", "successor access requires the retained initial profile and refuses the correction profile");
+  return row;
+}
+function assertCancellationUpgradeBasis(before: PrepaymentCancellationRead, after: PrepaymentCancellationRead) {
+  prepaymentCancellationCheck(after.runtime.version === (BigInt(before.runtime.version) + BigInt(1)).toString()
+    && after.runtime.updated_at === before.runtime.updated_at, "successor upgrade must advance only the exact runtime version fence");
+  assertPrepaymentCancellationBasis(before, { ...after, runtime: before.runtime });
+}
+
+/**
+ * Additive canonical access for the explicitly versioned cancellation successor.
+ * Read-only access admits accepted/cancelled states, allowing the current owner
+ * to inspect the predecessor and an authenticated party to recover its original
+ * receipt after cancellation or pause. Reading a cancelled row grants no new
+ * financial authority. Complete source rows and digests remain private evidence.
+ *
+ * This wrapper owns the same pre-authentication canonical fences as the original
+ * standalone participant, whose refusal and behavior are unchanged. Mutation
+ * requires an opaque successor context registered after stored authentication
+ * and bound to this exact transaction/request. Only the new successor's valid
+ * cancel intent suppresses redundant legacy statement-fence bumps; canonical
+ * persistence still advances runtime_meta exactly once. An upgrade permits only
+ * its one explicit version increment, preserving runtime chronology and every
+ * canonical value while SQL physically versions the request/listing rows.
+ */
+export async function withDevelopmentCancellationMarketplaceInTransaction<T>(
+  options: { mode: "simulation-only"; tx: RepositorySql; requestId: string },
+  work: (participant: DevelopmentCancellationMarketplaceParticipant) => Promise<T>,
+): Promise<T> {
+  const { mode, tx, requestId } = options;
+  assertSimulationRuntime(mode);
+  let active = true, certified = false, used = false, upgradeStarted = false;
+  let transactionId: string | undefined;
+  let cancelled: DevelopmentPrepaymentCancellationResult | undefined;
+  let cancellationContext: CancellationMarketplaceContext | undefined;
+  let upgradeContext: CancellationMarketplaceContext | undefined;
+  const transaction = async () => {
+    assertSimulationRuntime(mode);
+    prepaymentCancellationCheck(active, "successor participant is no longer active");
+    const result = await tx.query<{ transaction_id: string; isolation: string; read_only: string; development_mode: string | null }>(
+      `SELECT txid_current()::text AS transaction_id,current_setting('transaction_isolation') AS isolation,
+        current_setting('transaction_read_only') AS read_only,current_setting('alpha_wallet.development_schema',true) AS development_mode`);
+    assertSimulationRuntime(mode);
+    const row = result.rows[0];
+    prepaymentCancellationCheck(result.rows.length === 1 && typeof row?.transaction_id === "string" && /^[1-9][0-9]*$/.test(row.transaction_id)
+      && row.isolation === "serializable" && row.read_only === "off" && row.development_mode === mode
+      && (transactionId === undefined || transactionId === row.transaction_id), "successor participant requires its original writable SERIALIZABLE simulation transaction");
+    return row.transaction_id;
+  };
+  const abort = async () => {
+    if (!certified) return;
+    try {
+      const current = await tx.query<{ transaction_id: string }>("SELECT txid_current()::text AS transaction_id");
+      if (current.rows.length === 1 && current.rows[0].transaction_id === transactionId) {
+        await tx.query("SELECT 1 / 0 /* abort failed cancellation marketplace canonical participant */");
+      }
+    } catch { /* Never poison a replacement transaction or mask the initiating failure. */ }
+  };
+  const scoped: RepositorySql = { async query<Row extends Record<string, unknown>>(sql: string, values?: unknown[]) {
+    await transaction(); const result = await tx.query<Row>(sql, values); await transaction(); return result;
+  } };
+  try {
+    transactionId = await transaction(); await transaction(); certified = true;
+    prepaymentCancellationCheck(initialAcceptanceId(requestId), "successor participant requires an exact canonical request identity");
+    const namespaces = await cancellationMarketplaceNamespaces(scoped);
+    await scoped.query("SELECT pg_advisory_xact_lock(61422919,hashtext($1))", [requestId]);
+    await scoped.query("SELECT pg_advisory_xact_lock(61422917)");
+    const fence = await scoped.query<{ version: string }>("SELECT version::text AS version FROM alpha_exchange.runtime_meta WHERE singleton=true FOR UPDATE");
+    prepaymentCancellationCheck(fence.rows.length === 1 && /^[0-9]+$/.test(fence.rows[0].version), "successor runtime fence is missing or invalid");
+    await scoped.query(`SELECT l.id FROM alpha_exchange.listings l JOIN alpha_exchange.purchase_requests r ON r.listing_id=l.id
+      WHERE r.id=$1 ORDER BY l.id FOR UPDATE OF l /* cancellation marketplace: listing fence */`, [requestId]);
+    const basis = await readPrepaymentCancellation(scoped, requestId);
+    prepaymentCancellationCheck(["accepted", "cancelled"].includes(basis.canonical.request.status),
+      "successor access requires an accepted or cancelled canonical request");
+    const checkCurrent = async (final: boolean) => {
+      prepaymentCancellationCheck((!used || cancelled !== undefined) && (!upgradeStarted || upgradeContext !== undefined),
+        "callback must await its complete successor canonical action");
+      if (cancellationContext) await assertCancellationMarketplaceContext(cancellationContext,
+        { tx, requestId, operation: "cancel", actorUserId: cancelled!.request.trustReconciliation!.requestedByUserId });
+      if (upgradeContext) await assertCancellationMarketplaceContext(upgradeContext, { tx, requestId, operation: "upgrade" });
+      const currentNamespaces = await cancellationMarketplaceNamespaces(scoped);
+      if (final) prepaymentCancellationCheck(upgradeContext ? currentNamespaces.successor === true
+        : currentNamespaces.successor === namespaces.successor, "successor namespace changed without an authorized upgrade");
+      const current = await readPrepaymentCancellation(scoped, requestId);
+      if (upgradeContext) {
+        // A snapshot immediately after authorization may still show the exact
+        // original basis. The final boundary always requires the committed delta.
+        if (!final && current.runtime.version === basis.runtime.version) assertPrepaymentCancellationBasis(basis, current);
+        else assertCancellationUpgradeBasis(basis, current);
+      } else assertPrepaymentCancellationBasis(basis, current, cancelled);
+      return current;
+    };
+    const initial = cancellationMarketplaceSnapshot(basis);
+    const participant: DevelopmentCancellationMarketplaceParticipant = Object.freeze({ ...initial,
+      async authorizeUpgrade(context: CancellationMarketplaceContext) {
+        try {
+          prepaymentCancellationCheck(!used && !upgradeStarted, "successor participant permits one upgrade authorization or cancellation only");
+          upgradeStarted = true;
+          const capturedContext = context;
+          await transaction();
+          await assertCancellationMarketplaceContext(capturedContext, { tx, requestId, operation: "upgrade" });
+          prepaymentCancellationCheck(basis.canonical.request.status === "accepted", "only the accepted predecessor can be upgraded");
+          assertPrepaymentCancellationBasis(basis, await readPrepaymentCancellation(scoped, requestId));
+          upgradeContext = capturedContext;
+        } catch (error) { await abort(); throw error; }
+      },
+      async cancel(context: CancellationMarketplaceContext, raw: DevelopmentPrepaymentCancellationDecision) {
+        try {
+          prepaymentCancellationCheck(!used && !upgradeStarted, "successor participant permits one upgrade authorization or cancellation only");
+          used = true;
+          const capturedContext = context, decision = structuredClone(raw);
+          await transaction();
+          await assertCancellationMarketplaceContext(capturedContext, { tx, requestId, actorUserId: decision.actorUserId, operation: "cancel" });
+          prepaymentCancellationCheck((await cancellationMarketplaceNamespaces(scoped)).successor === true,
+            "canonical cancellation requires the explicit successor profile");
+          prepaymentCancellationCheck(decision.requestId === requestId && basis.canonical.request.status === "accepted",
+            "new canonical cancellation requires its retained accepted target");
+          assertPrepaymentCancellationBasis(basis, await readPrepaymentCancellation(scoped, requestId));
+          const next = planDevelopmentPrepaymentCancellation(basis.marketplace, decision);
+          await persistPrepaymentCancellation(scoped, next);
+          await assertCancellationMarketplaceContext(capturedContext, { tx, requestId, actorUserId: decision.actorUserId, operation: "cancel" });
+          await transaction();
+          assertPrepaymentCancellationBasis(basis, await readPrepaymentCancellation(scoped, requestId), next);
+          cancelled = structuredClone(next); cancellationContext = capturedContext;
+          return structuredClone(next);
+        } catch (error) { await abort(); throw error; }
+      },
+      async snapshot() {
+        try { return cancellationMarketplaceSnapshot(await checkCurrent(false)); }
+        catch (error) { await abort(); throw error; }
+      },
+    });
+    const result = await work(participant);
+    await checkCurrent(true); await transaction();
     return result;
   } catch (error) { await abort(); throw error; }
   finally { active = false; }

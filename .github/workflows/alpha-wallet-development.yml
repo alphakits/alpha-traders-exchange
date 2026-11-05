@@ -156,6 +156,13 @@ jobs:
             await connection.query('CREATE DATABASE alpha_wallet_dev_v4_restore');
             await connection.query('CREATE DATABASE alpha_wallet_dev_cancel_atomic');
             await connection.query('CREATE DATABASE alpha_wallet_dev_cancel_races');
+            await connection.query('CREATE DATABASE alpha_wallet_dev_cancellation_atomic');
+            await connection.query('CREATE DATABASE alpha_wallet_dev_cancellation_races');
+            await connection.query('CREATE DATABASE alpha_wallet_dev_cancellation_auth');
+            await connection.query('CREATE DATABASE alpha_wallet_dev_cancellation_backup_source');
+            await connection.query('CREATE DATABASE alpha_wallet_dev_cancellation_backup_accepted');
+            await connection.query('CREATE DATABASE alpha_wallet_dev_cancellation_backup_target');
+            await connection.query('CREATE DATABASE alpha_wallet_dev_cancellation_backup_races');
           } finally { await connection.end(); }
           NODE
 
@@ -285,6 +292,29 @@ jobs:
             --race-connection-string 'postgresql://wallet_fixture:simulation-only@127.0.0.1:5432/alpha_wallet_dev_cancel_races' \
             2>test-results/alpha-wallet/postgres-prepayment-cancellation.stderr.log \
             | tee test-results/alpha-wallet/postgres-prepayment-cancellation.json
+
+      - name: Verify authenticated cancellation, principal return and canonical writer races
+        run: |
+          set -euo pipefail
+          node --conditions=react-server --import tsx scripts/alpha-wallet/postgres-cancellation-marketplace.ts \
+            --fresh-simulation-databases \
+            --atomic-connection-string 'postgresql://wallet_fixture:simulation-only@127.0.0.1:5432/alpha_wallet_dev_cancellation_atomic' \
+            --race-connection-string 'postgresql://wallet_fixture:simulation-only@127.0.0.1:5432/alpha_wallet_dev_cancellation_races' \
+            --auth-connection-string 'postgresql://wallet_fixture:simulation-only@127.0.0.1:5432/alpha_wallet_dev_cancellation_auth' \
+            2>test-results/alpha-wallet/postgres-cancellation-marketplace.stderr.log \
+            | tee test-results/alpha-wallet/postgres-cancellation-marketplace.json
+
+      - name: Verify cancellation combined recovery, inherited pause and competing restores
+        run: |
+          set -euo pipefail
+          node --conditions=react-server --import tsx scripts/alpha-wallet/postgres-cancellation-marketplace-backup.ts \
+            --fresh-simulation-databases \
+            --source-connection-string 'postgresql://wallet_fixture:simulation-only@127.0.0.1:5432/alpha_wallet_dev_cancellation_backup_source' \
+            --accepted-source-connection-string 'postgresql://wallet_fixture:simulation-only@127.0.0.1:5432/alpha_wallet_dev_cancellation_backup_accepted' \
+            --target-connection-string 'postgresql://wallet_fixture:simulation-only@127.0.0.1:5432/alpha_wallet_dev_cancellation_backup_target' \
+            --race-connection-string 'postgresql://wallet_fixture:simulation-only@127.0.0.1:5432/alpha_wallet_dev_cancellation_backup_races' \
+            2>test-results/alpha-wallet/postgres-cancellation-marketplace-backup.stderr.log \
+            | tee test-results/alpha-wallet/postgres-cancellation-marketplace-backup.json
 
       - name: Install the locked Playwright Chromium browser
         run: node ./node_modules/playwright/cli.js install --with-deps chromium

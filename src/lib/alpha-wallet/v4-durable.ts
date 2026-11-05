@@ -1,6 +1,8 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { applyWalletCommand, walletDigest, walletJson, WALLET_ENGINE_VERSION } from "./commands";
+import { installCancellationMarketplaceGuards, prepareCancellationMarketplaceUpgrade, withCancellationMarketplaceContext,
+  type CancellationMarketplaceContext } from "./cancellation-marketplace-coordination-store";
 import { WalletIntegrityError, type DurableExecution } from "./durable";
 import type { WalletSql, WalletStore } from "./durable-store";
 import { assertSimulationRuntime } from "./runtime";
@@ -174,13 +176,13 @@ export function verifyV4History(records: ReadonlyArray<Record<string, unknown>>)
   return publicSnapshot(replayHistory(records));
 }
 
-async function load(tx: WalletSql): Promise<Replayed> {
+async function load(tx: WalletSql, v4Protocol = "simulation-v4"): Promise<Replayed> {
   const header = (await tx.query("SELECT format_version,mode FROM alpha_wallet_simulation.head WHERE singleton=true")).rows;
   verify(header.length === 1 && [1, 2, 3, 4].includes(header[0]?.format_version as number) && header[0]?.mode === "simulation-only",
     "Unsupported v4 wallet head");
   // Before the explicit DDL transition, each original protocol gate remains intact.
   await tx.query("SELECT set_config('alpha_wallet.writer_protocol', $1, true)",
-    [header[0]!.format_version === 4 ? "simulation-v4" : header[0]!.format_version === 3 ? "simulation-v3" : "simulation-v2"]);
+    [header[0]!.format_version === 4 ? v4Protocol : header[0]!.format_version === 3 ? "simulation-v3" : "simulation-v2"]);
   const rows = await tx.query(`UPDATE alpha_wallet_simulation.head SET lock_version=lock_version+1 WHERE singleton=true
     RETURNING revision,last_event_hash,format_version,mode`);
   const head = rows.rows[0];
@@ -225,12 +227,13 @@ async function append(tx: WalletSql, current: Replayed, command: V4VersionedComm
  * Private financial simulation only. It does not initialize, upgrade, activate a
  * canonical cohort, authenticate a seller, or create canonical marketplace rows.
  */
-export function createV4DurableWallet(options: { mode: "simulation-only"; store: WalletStore; clock?: () => number }) {
-  assertSimulationRuntime(options.mode);
-  const { store } = options, clock = options.clock ?? Date.now;
+function walletForOwner(options: { mode: "simulation-only"; clock?: () => number },
+  owner: <T>(work: (tx: WalletSql) => Promise<T>) => Promise<T>, v4Protocol: string) {
+  const mode = options.mode, clock = options.clock ?? Date.now;
+  assertSimulationRuntime(mode);
   return Object.freeze({
     async execute<C extends V4VersionedCommand>(input: C): Promise<DurableExecution<V4VersionedResultOf<C>>> {
-      assertSimulationRuntime(options.mode);
+      assertSimulationRuntime(mode);
       // Capture caller-owned input synchronously. Defer a parse refusal until
       // the supplied transaction has been certified, so a caller cannot catch
       // it and commit a companion write from that same physical transaction.
@@ -238,10 +241,10 @@ export function createV4DurableWallet(options: { mode: "simulation-only"; store:
         try { return { command: parseV4VersionedCommand(input) }; }
         catch (error) { return { error }; }
       })();
-      return inOwnedTransaction(store, async tx => {
+      return owner(async tx => {
         if (!captured.command) throw captured.error;
         const command = captured.command;
-        const current = await load(tx), commandKey = v4CommandKey(command), inputHash = walletDigest(command);
+        const current = await load(tx, v4Protocol), commandKey = v4CommandKey(command), inputHash = walletDigest(command);
         const prior = current.keys.get(commandKey);
         if (prior) {
           verify(prior.inputHash === inputHash, "Idempotency key reused with different payload or engine version");
@@ -282,19 +285,48 @@ export function createV4DurableWallet(options: { mode: "simulation-only"; store:
       });
     },
     async snapshot(): Promise<V4WalletSnapshot> {
-      assertSimulationRuntime(options.mode);
-      return inOwnedTransaction(store, async tx => publicSnapshot(await load(tx)));
+      assertSimulationRuntime(mode);
+      return owner(async tx => publicSnapshot(await load(tx, v4Protocol)));
     },
     async recoverPayouts() {
-      assertSimulationRuntime(options.mode);
-      return inOwnedTransaction(store, async tx => {
-        const state = (await load(tx)).state;
+      assertSimulationRuntime(mode);
+      return owner(async tx => {
+        const state = (await load(tx, v4Protocol)).state;
         return [...state.payouts.values()].map(payout => ({ payout: structuredClone(payout),
           action: payout.state === "confirmed" ? "already_confirmed" : payout.state === "failed_final" ? "manual_recovery_required"
             : ["submitting", "submission_unknown", "broadcast"].includes(payout.state) ? "lookup_original_reference" : "held_by_policy",
         } as { payout: Payout; action: "already_confirmed" | "manual_recovery_required" | "lookup_original_reference" | "held_by_policy" }));
       });
     },
+  });
+}
+export function createV4DurableWallet(options: { mode: "simulation-only"; store: WalletStore; clock?: () => number }) {
+  const { mode, store, clock } = options;
+  return walletForOwner({ mode, clock }, work => inOwnedTransaction(store, work), "simulation-v4");
+}
+
+/** Separate opaque-context entrypoint; the standalone cohort refusal remains intact. */
+export function createCoordinatedV4DurableWallet(options: {
+  mode: "simulation-only"; context: CancellationMarketplaceContext; clock?: () => number;
+}) {
+  const { mode, context, clock } = options;
+  assertSimulationRuntime(mode);
+  const wallet = walletForOwner({ mode, clock }, work => withCancellationMarketplaceContext(context, registered => work(registered.tx)),
+    "simulation-v4-cancellation");
+  return Object.freeze({
+    async execute<C extends V4VersionedCommand>(input: C): Promise<DurableExecution<V4VersionedResultOf<C>>> {
+      const captured = (() => { try { return { command: parseV4VersionedCommand(input) }; } catch (error) { return { error }; } })();
+      return withCancellationMarketplaceContext(context, async registered => {
+        if (!captured.command) throw captured.error;
+        verify(registered.phase === "successor" && registered.command && captured.command.version === 4
+          && walletDigest(registered.command) === walletDigest(captured.command)
+          && ["cancel", "pause"].includes(registered.operation),
+        "Coordinated V4 execution requires its one exact bound cancellation or pause intent");
+        return wallet.execute(captured.command) as Promise<DurableExecution<V4VersionedResultOf<C>>>;
+      });
+    },
+    snapshot: wallet.snapshot,
+    recoverPayouts: wallet.recoverPayouts,
   });
 }
 export type V4DurableWallet = ReturnType<typeof createV4DurableWallet>;
@@ -335,6 +367,43 @@ export async function upgradeDurableWalletV4(options: {
     await tx.query("SELECT set_config('alpha_wallet.v4_upgrade_key', $1, true)", [key]);
     await tx.query("SELECT set_config('alpha_wallet.v4_source_halt_reason', $1, true)", [JSON.stringify(current.state.haltReason)]);
     await tx.exec(readFileSync(resolve("docs/alpha-wallet/durable-v4-migration.sql"), "utf8"));
+    return await append(tx, current, command, at, applied) as DurableExecution<V4ResultOf<"continueFromV3">>;
+  });
+}
+
+/** Original V3 evidence, successor DDL, continuation, and cohort receipt share the caller's real owner. */
+export async function upgradeCoordinatedDurableWalletV4(options: {
+  mode: "simulation-only"; context: CancellationMarketplaceContext; command: V4CommandOf<"continueFromV3">;
+  acknowledgeVersionUpgrade: true; clock?: () => number;
+}): Promise<DurableExecution<V4ResultOf<"continueFromV3">>> {
+  const { mode, context, acknowledgeVersionUpgrade, clock = Date.now } = options;
+  assertSimulationRuntime(mode);
+  const captured = (() => { try { return { command: parseV4Command(options.command) }; } catch (error) { return { error }; } })();
+  return withCancellationMarketplaceContext(context, async registered => {
+    verify(acknowledgeVersionUpgrade === true, "Explicit acknowledgment of the cancellation-profile upgrade is required");
+    if (!captured.command) throw captured.error;
+    const command = captured.command;
+    verify(command.type === "continueFromV3" && registered.operation === "upgrade" && registered.command
+      && walletDigest(registered.command) === walletDigest(command), "Cancellation upgrade requires its exact bound owner continuation");
+    const tx = registered.tx, current = await load(tx, "simulation-v4-cancellation"), key = v4CommandKey(command);
+    const prior = current.keys.get(key);
+    if (prior) {
+      verify(prior.inputHash === walletDigest(command) && isV4State(current.state), "Cancellation upgrade identity changed or did not commit");
+      return originalResult(current, command, key, prior) as DurableExecution<V4ResultOf<"continueFromV3">>;
+    }
+    verify(registered.phase === "predecessor" && isV3State(current.state), "Cancellation upgrade requires the intact accepted initial V3 profile");
+    const at = safeInteger(clock());
+    verify(at >= current.clock, "Cancellation upgrade clock precedes durable history");
+    const applied = applyNext(current, command, at);
+    await tx.exec("SET CONSTRAINTS ALL IMMEDIATE");
+    await tx.exec("SET CONSTRAINTS ALL DEFERRED");
+    await prepareCancellationMarketplaceUpgrade(context);
+    await tx.query("SELECT set_config('alpha_wallet.schema_upgrade','v3-to-v4',true)");
+    await tx.query("SELECT set_config('alpha_wallet.v4_upgrade_command',$1,true)", [JSON.stringify(command)]);
+    await tx.query("SELECT set_config('alpha_wallet.v4_upgrade_key',$1,true)", [key]);
+    await tx.query("SELECT set_config('alpha_wallet.v4_source_halt_reason',$1,true)", [JSON.stringify(current.state.haltReason)]);
+    await tx.exec(readFileSync(resolve("docs/alpha-wallet/cancellation-marketplace-v4-migration.sql"), "utf8"));
+    await installCancellationMarketplaceGuards(tx);
     return await append(tx, current, command, at, applied) as DurableExecution<V4ResultOf<"continueFromV3">>;
   });
 }
