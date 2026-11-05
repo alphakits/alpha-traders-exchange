@@ -47,6 +47,29 @@ async function fixture(api: APIRequestContext) {
   return { sellerId, buyerId, listingId, password };
 }
 
+async function cleanupFixture(api: APIRequestContext, f: Awaited<ReturnType<typeof fixture>>) {
+  const db = await readDb(api);
+  const ids = new Set([f.sellerId, f.buyerId, f.listingId, `${f.sellerId}@example.test`, `${f.buyerId}@example.test`]);
+  for (const trade of db.purchaseRequests) {
+    if (trade.sellerId === f.sellerId || trade.buyerId === f.buyerId || trade.listingId === f.listingId) ids.add(trade.id);
+  }
+  const referencesFixture = (value: unknown): boolean => {
+    if (typeof value === "string") return ids.has(value);
+    if (Array.isArray(value)) return value.some(referencesFixture);
+    if (value && typeof value === "object") return Object.values(value).some(referencesFixture);
+    return false;
+  };
+  // The browser suites share one isolated server. Remove only this scenario's
+  // rows so its completed ATM seller cannot change later marketplace choices.
+  for (const [key, rows] of Object.entries(db)) {
+    if (Array.isArray(rows)) (db as unknown as Record<string, unknown>)[key] = rows.filter(row => !referencesFixture(row));
+  }
+  const saved = await api.put("/api/testing/alpha-exchange-state", { headers: supportHeaders, data: db });
+  expect(saved.ok(), await saved.text()).toBe(true);
+  const cleaned = await readDb(api);
+  expect(Object.values(cleaned).filter(Array.isArray).flat().some(referencesFixture), "scenario rows must not leak into later tests").toBe(false);
+}
+
 async function login(api: APIRequestContext, userId: string, password: string) {
   const response = await api.post("/api/auth/login", {
     headers: { "x-forwarded-for": `2001:db8::${randomBytes(2).toString("hex")}` },
@@ -65,10 +88,13 @@ async function blockExternalBrowserRequests(context: BrowserContext) {
 test("ATM counter-offer preserves cash through mobile submission, buyer approval, private code and settlement", async ({ browser, request, browserName }, info) => {
   test.setTimeout(150_000);
   const f = await fixture(request);
-  const seller = await browser.newContext({ baseURL: E2E_BASE_URL, viewport: { width: 390, height: 844 }, deviceScaleFactor: 2 });
-  const buyer = await browser.newContext({ baseURL: E2E_BASE_URL, viewport: { width: 1440, height: 900 } });
+  const contexts: BrowserContext[] = [];
   const audit = createHardNavigationErrorAudit(browserName);
   try {
+    const seller = await browser.newContext({ baseURL: E2E_BASE_URL, viewport: { width: 390, height: 844 }, deviceScaleFactor: 2 });
+    contexts.push(seller);
+    const buyer = await browser.newContext({ baseURL: E2E_BASE_URL, viewport: { width: 1440, height: 900 } });
+    contexts.push(buyer);
     await Promise.all([blockExternalBrowserRequests(seller), blockExternalBrowserRequests(buyer)]);
     await Promise.all([login(seller.request, f.sellerId, f.password), login(buyer.request, f.buyerId, f.password)]);
     // Create the request through the real API, including private prepared ATM details.
@@ -190,7 +216,14 @@ test("ATM counter-offer preserves cash through mobile submission, buyer approval
     }
     expect(audit.errors).toEqual([]);
   } finally {
-    await info.attach("browser-error-audit", { body: JSON.stringify(audit.report(), null, 2), contentType: "application/json" });
-    await Promise.all([seller.close(), buyer.close()]);
+    try {
+      await info.attach("browser-error-audit", { body: JSON.stringify(audit.report(), null, 2), contentType: "application/json" });
+    } finally {
+      try {
+        await Promise.all(contexts.map(context => context.close()));
+      } finally {
+        await cleanupFixture(request, f);
+      }
+    }
   }
 });

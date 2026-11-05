@@ -179,11 +179,23 @@ test.describe("Buyer flow · Buy modal validation", () => {
   test("surfaces accessible validation and gates submit on required fields", async ({ page }) => {
     await login(page.request, buyerFixture!.email, buyerFixture!.password);
     await page.goto("/en/usdt-exchange");
-    await page.getByRole("button", { name: /Buy USDT from/i }).first().click();
+    await page.getByRole("button", { name: /Buy USDT from/i }).first().waitFor({ state: "visible" });
+    // The buyer fixture owns a bank listing; the seller-removal fixture is closed.
+    const card = page.locator(`#listing-${buyerFixture!.listingId}`);
+    const more = page.getByRole("button", { name: "Load More Listings", exact: true });
+    while (await card.count() === 0 && await more.isVisible()) {
+      const cards = page.locator("#buyer-marketplace-listings .seller-listing-shell");
+      const before = await cards.count();
+      await more.click();
+      await expect.poll(() => cards.count()).toBeGreaterThan(before);
+    }
+    await expect(card).toBeVisible();
+    await card.getByRole("button", { name: /Buy USDT from/i }).click();
 
     await expect(page.getByRole("heading", { name: /^Buy USDT$/ })).toBeVisible();
     const amount = page.getByLabel(/USDT Amount/i);
     await expect(amount).toBeVisible();
+    await expect(amount).toBeEditable();
 
     // Below-minimum amount marks the field invalid (not color-only — aria-invalid set).
     await amount.fill("1");
