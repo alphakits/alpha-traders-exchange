@@ -958,6 +958,8 @@ export interface TradeTermsProposal {
   pricePerUsdt: string;
   usdtAmount: string;
   fiatAmount: string;
+  /** New ATM counters retain cash; absent on proposals issued by older servers. */
+  calculationPolicy?: "cardless_fixed_cash_v1";
   createdAt: string;
   resolvedAt?: string;
 }

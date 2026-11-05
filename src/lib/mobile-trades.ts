@@ -108,7 +108,7 @@ export function toMobileTradeActions(
     canDecline: canSellerDeclineTrade(request, userId),
     canCancel: canBuyerCancelTrade(request, userId) || (request.status !== "pending" && canSellerCancelTrade(request, userId)),
     canAdjustAmounts: (isBuyer || isSeller) && !context.hasOpenDispute && !areTradeAmountsLocked(request),
-    canViewBankDetails: isBuyer
+    canViewBankDetails: isBuyer && canProgress
       && Boolean(request.sellerBankAccountId)
       && isBankTransferPaymentMethod(request.paymentMethod)
       && isBankDetailsDisclosureStage(request.status),

@@ -92,6 +92,18 @@ describe("mobile trade actions", () => {
     }
     expect(mobileTradeErrorCode(new Error("Bank details are available only for an active Bank Transfer request."))).toBe("TRADE_ACTION_NOT_ALLOWED");
   });
+  it.each(["counter_offer", "amount_correction"] as const)("withholds bank instructions until the pending %s is resolved", kind => {
+    const trade = { ...acceptedBankTrade, status: kind === "counter_offer" ? "pending" as const : "accepted" as const,
+      sellerBankAccountId: "bank-1",
+      termsProposal: { id: "proposal-1", kind, status: "pending" as const,
+        usdtAmount: "250", fiatAmount: "950.00", pricePerUsdt: "3.80", createdAt: "2026-11-05T12:00:00.000Z" },
+    };
+    expect(toMobileTradeActions(trade, "buyer-1")).toMatchObject({ canViewBankDetails: false, canUploadPaymentEvidence: false });
+    for (const status of ["accepted", "declined", "withdrawn"] as const) {
+      expect(toMobileTradeActions({ ...trade, termsProposal: { ...trade.termsProposal, status } }, "buyer-1").canViewBankDetails).toBe(true);
+    }
+    expect(mobileTradeErrorCode(new Error("Bank details are available only after the proposed terms are accepted, declined, or withdrawn."))).toBe("TRADE_ACTION_NOT_ALLOWED");
+  });
   it("exposes the persisted adjustment count to both native participants", () => {
     for (const userId of ["seller-1", "buyer-1"]) {
       expect(toMobileTradeSummary({...acceptedBankTrade, amountAdjustmentCount:2}, userId).amountAdjustmentCount).toBe(2);

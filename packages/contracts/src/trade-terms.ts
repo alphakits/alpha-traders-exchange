@@ -4,6 +4,7 @@ import { canonicalizeTradeAmount } from "./trade-amount";
 import { isSellerCounterPrice, normalizeListingPrice } from "./price-offer";
 
 export type TradeTermsCalculationAction = "counter_offer" | "propose_amount" | "propose_ils_amount";
+export const CARDLESS_COUNTER_CALCULATION_POLICY = "cardless_fixed_cash_v1" as const;
 
 /** Shared preview and server calculation. A quote is applied only after buyer approval. */
 export function calculateTradeTermsQuote(trade: {
@@ -21,7 +22,12 @@ export function calculateTradeTermsQuote(trade: {
   if (cardless && trade.currency !== "ILS") return null;
   let usdtAmount: string | null;
   if (action === "counter_offer") {
-    usdtAmount = canonicalizeTradeAmount(trade.usdtAmount);
+    // ATM codes represent a cash amount in whole ₪100 steps. A new rate must
+    // quote the USDT that same cash buys, including the existing buyer fee.
+    // The original terms remain unchanged until the buyer accepts this quote.
+    usdtAmount = cardless
+      ? calculateCardlessUsdtAmount(trade.fiatAmount, pricePerUsdt, includesBuyerFee)
+      : canonicalizeTradeAmount(trade.usdtAmount);
   } else if (action === "propose_ils_amount") {
     usdtAmount = cardless ? calculateCardlessUsdtAmount(raw, pricePerUsdt, includesBuyerFee) : calculateUsdtForPaymentTotal(raw, pricePerUsdt, includesBuyerFee);
   } else {
@@ -53,7 +59,7 @@ export function submittedCounterPrices(trade: {
 }
 
 export function tradeCounterPriceIssue(trade: {
-  pricePerUsdt?: string; listingPriceAtRequest?: string; counterPrices?: readonly string[];
+  paymentMethod?: string; pricePerUsdt?: string; listingPriceAtRequest?: string; counterPrices?: readonly string[];
   termsProposal?: { kind: string; pricePerUsdt: string };
 }, value: string, liveListingPrice?: string, locale = "en") {
   const ceiling = normalizeListingPrice(liveListingPrice ?? trade.listingPriceAtRequest) ?? "";
@@ -61,8 +67,9 @@ export function tradeCounterPriceIssue(trade: {
   const max = Number(ceiling) < Number(quotedCeiling) ? ceiling : quotedCeiling;
   const raw = canonicalizeTradeAmount(value) || "";
   if (!isSellerCounterPrice(trade.pricePerUsdt, quotedCeiling, raw, ceiling)) {
-    return locale === "ar" ? `السعر لازم يكون أعلى من ₪${trade.pricePerUsdt} ولحدّ ₪${max}. كمية USDT ثابتة.`
-      : `Enter a rate above ₪${trade.pricePerUsdt} and up to ₪${max}. The USDT quantity is fixed.`;
+    const cardless = trade.paymentMethod === "Cardless ATM Withdrawal";
+    return locale === "ar" ? `السعر لازم يكون أعلى من ₪${trade.pricePerUsdt} ولحدّ ₪${max}.${cardless ? "" : " كمية USDT ثابتة."}`
+      : `Enter a rate above ₪${trade.pricePerUsdt} and up to ₪${max}.${cardless ? "" : " The USDT quantity is fixed."}`;
   }
   if (submittedCounterPrices(trade).some(previous => Number(previous) === Number(raw))) {
     return locale === "ar" ? "سبق وأرسلت هذا السعر." : "You already proposed this rate.";

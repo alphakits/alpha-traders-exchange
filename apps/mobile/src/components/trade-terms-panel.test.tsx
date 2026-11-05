@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { afterEach, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { MobileTradeDetail } from "@alpha-traders/contracts";
 vi.mock("react-native", () => ({
   View: ({ children }: { children: ReactNode }) => <div>{children}</div>,
@@ -29,13 +29,38 @@ it.each([false, true])("calculates a native ATM correction from cash including t
   expect(screen.queryByText("420 → 415.202811 USDT")).toBeNull();
 });
 
-it("keeps the buyer’s ATM quantity fixed and rejects an unpayable counter-price", () => {
-  render(<TradeTermsPanel trade={{ ...base, priceMode: "buyer_offer", listingPriceAtRequest: "3.35", usdtAmount: "416.546509", fiatAmount: "1300.00", pricePerUsdt: "3.09" }} isAr={false} disabled={false} onAction={vi.fn()} />);
+it.each([false, true])("keeps ATM cash fixed and submits the recalculated quantity for approval, Arabic=%s", async isAr => {
+  let finish!: () => void;
+  const onAction = vi.fn(() => new Promise<void>(resolve => { finish = resolve; }));
+  render(<TradeTermsPanel trade={{ ...base, priceMode: "buyer_offer", listingPriceAtRequest: "3.35", usdtAmount: "416.546509", fiatAmount: "1300.00", pricePerUsdt: "3.09" }} isAr={isAr} disabled={false} onAction={onAction} />);
   expect(screen.queryByLabelText("New withdrawal amount (ILS)")).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "Make a counter-offer" }));
-  fireEvent.change(screen.getByLabelText("Counter price ILS"), { target: { value: "3.10" } });
-  expect(screen.getByText(/fixed quantity must produce/)).toBeTruthy();
-  expect((screen.getByRole("button", { name: "Send counter-offer" }) as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.click(screen.getByRole("button", { name: isAr ? "تقديم عرض مقابل" : "Make a counter-offer" }));
+  const input = screen.getByLabelText("Counter price ILS") as HTMLInputElement;
+  fireEvent.change(input, { target: { value: isAr ? "٣.١٠" : "3.10" } });
+  expect(screen.getByText("416.546509 → 415.202811 USDT")).toBeTruthy();
+  expect(screen.getByText("ILS 1300.00 → ILS 1300.00")).toBeTruthy();
+  expect(screen.getByText("3.09 → 3.10 ILS / USDT")).toBeTruthy();
+  const submit = screen.getByRole("button", { name: isAr ? "إرسال عرض مقابل" : "Send counter-offer" }) as HTMLButtonElement;
+  expect(submit.disabled).toBe(false);
+  fireEvent.click(submit);
+  fireEvent.click(submit);
+  expect(onAction).toHaveBeenCalledOnce();
+  expect(onAction).toHaveBeenCalledWith("counter_offer", isAr ? "٣.١٠" : "3.10", false);
+  expect(input.disabled).toBe(true);
+  expect(submit.disabled).toBe(true);
+  await act(async () => { finish(); });
+  expect(input.disabled).toBe(false);
+  fireEvent.change(input, { target: { value: "3.101" } });
+  expect(submit.disabled).toBe(true);
+});
+
+it.each(["300.00", "400.00"])("shows the buyer current and proposed ATM cash (%s) without reinterpreting old proposals", fiatAmount => {
+  const termsProposal = { id: "atm-counter", kind: "counter_offer" as const, status: "pending" as const, usdtAmount: "90.009001", fiatAmount, pricePerUsdt: "3.30", createdAt: "2026-11-05T00:00:00Z" };
+  render(<TradeTermsPanel trade={{ ...base, side: "buyer", priceMode: "buyer_offer", usdtAmount: "92.821782", fiatAmount: "300.00", pricePerUsdt: "3.20", termsProposal }} isAr={false} disabled={false} onAction={vi.fn()} />);
+  expect(screen.getByText("92.821782 → 90.009001 USDT")).toBeTruthy();
+  expect(screen.getByText(`ILS 300.00 → ILS ${fiatAmount}`)).toBeTruthy();
+  expect(screen.getByText(fiatAmount === "300.00" ? /ATM cash amount stays the same/ : /new withdrawal code must match/)).toBeTruthy();
+  expect((screen.getByRole("button", { name: "Accept these terms" }) as HTMLButtonElement).disabled).toBe(false);
 });
 
 it.each(["Bank Transfer", "Face-to-Face (Meet in Person)"])("calculates native total-payment adjustments for %s", paymentMethod => {

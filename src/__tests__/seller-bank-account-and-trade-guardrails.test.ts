@@ -467,6 +467,75 @@ describe("seller bank accounts and trade guardrails", () => {
     expect(details.accountHolderName).toBe("");
   });
 
+  it.each(["counter_offer", "amount_correction"] as const)("blocks bank disclosure for both participants while a %s is pending", async kind => {
+    seedAcceptedBankTransferTrade();
+    const request = currentSnapshot().purchaseRequests[0];
+    if (kind === "counter_offer") request.status = "pending";
+    request.termsProposal = { id: "proposal-1", kind, status: "pending", usdtAmount: "250",
+      fiatAmount: "950.00", pricePerUsdt: "3.80", createdAt: request.updatedAt };
+
+    for (const [actorUserId, actorRole] of [[BUYER_ID, "buyer"], [SELLER_ID, "approved_seller"]] as const) {
+      await expect(getTradeRoomBankDetails({ purchaseRequestId: request.id, actorUserId, actorRole }))
+        .rejects.toThrow("only after the proposed terms");
+      const room = await getTradeRoomData({ purchaseRequestId: request.id, actorUserId, actorRole,
+        markMessagesRead: false, strongConsistency: true });
+      expect(room.request.sellerBankAccountId).toBeUndefined();
+      expect(room.request.termsProposal?.id).toBe("proposal-1");
+    }
+    expect(currentSnapshot().purchaseRequests[0].sensitivePaymentSharedAt).toBeUndefined();
+    expect(currentSnapshot().auditLogs.some(entry => entry.action === "trade_bank_details_revealed")).toBe(false);
+  });
+
+  it.each(["accepted", "declined", "withdrawn"] as const)("restores bank disclosure after a proposal is %s", async status => {
+    seedAcceptedBankTransferTrade();
+    const request = currentSnapshot().purchaseRequests[0];
+    request.termsProposal = { id: "proposal-1", kind: "amount_correction", status, usdtAmount: "250",
+      fiatAmount: "900.00", pricePerUsdt: "3.60", createdAt: request.createdAt, resolvedAt: request.updatedAt };
+    await expect(getTradeRoomBankDetails({ purchaseRequestId: request.id, actorUserId: BUYER_ID, actorRole: "buyer" }))
+      .resolves.toMatchObject({ accountNumber: "1234567890" });
+  });
+
+  it.each(["admin", "owner"] as const)("preserves %s bank inspection while participant payment instructions are paused", async actorRole => {
+    seedAcceptedBankTransferTrade();
+    const actorUserId = `${actorRole}-1`;
+    currentSnapshot().users.push(createUser(actorUserId, actorRole) as never);
+    const request = currentSnapshot().purchaseRequests[0];
+    request.termsProposal = { id: "proposal-1", kind: "amount_correction", status: "pending", usdtAmount: "250",
+      fiatAmount: "950.00", pricePerUsdt: "3.80", createdAt: request.updatedAt };
+    await expect(getTradeRoomBankDetails({ purchaseRequestId: request.id, actorUserId, actorRole }))
+      .resolves.toMatchObject({ accountNumber: "1234567890" });
+    expect(currentSnapshot().purchaseRequests[0].sensitivePaymentSharedAt).toBeUndefined();
+    await expect(getTradeRoomBankDetails({ purchaseRequestId: request.id, actorUserId: BUYER_ID, actorRole: "buyer" }))
+      .rejects.toThrow("only after the proposed terms");
+  });
+
+  it("rechecks a newly submitted proposal when it races bank disclosure", async () => {
+    seedAcceptedBankTransferTrade("req-racing-proposal");
+    currentSnapshot().purchaseRequests[0].status = "pending";
+    const repository = await getAlphaExchangeRepository();
+    const saveSnapshot = repository.saveSnapshot.bind(repository);
+    const saveSpy = vi.spyOn(repository, "saveSnapshot").mockImplementationOnce(async (incoming, options) => {
+      const canonical = currentSnapshot() as AlphaExchangeDb & { __runtimeVersion: number };
+      const request = canonical.purchaseRequests[0];
+      request.updatedAt = new Date(Date.now() + 1_000).toISOString();
+      request.termsProposal = { id: "racing-proposal", kind: "counter_offer", status: "pending", usdtAmount: "250",
+        fiatAmount: "950.00", pricePerUsdt: "3.80", createdAt: request.updatedAt };
+      canonical.__runtimeVersion += 1;
+      return saveSnapshot(incoming, options);
+    });
+    try {
+      await expect(getTradeRoomBankDetails({ purchaseRequestId: "req-racing-proposal", actorUserId: BUYER_ID, actorRole: "buyer" }))
+        .rejects.toThrow("only after the proposed terms");
+    } finally {
+      saveSpy.mockRestore();
+    }
+    const request = currentSnapshot().purchaseRequests[0];
+    expect(request.termsProposal?.id).toBe("racing-proposal");
+    expect(request.sensitivePaymentSharedAt).toBeUndefined();
+    expect(request.timeline.some(entry => entry.type === "bank_details_revealed")).toBe(false);
+    expect(currentSnapshot().auditLogs.some(entry => entry.action === "trade_bank_details_revealed")).toBe(false);
+  });
+
   it("reveals bank details only to trade participants after accept and logs reveal once in short window", async () => {
     seedAcceptedBankTransferTrade();
 
