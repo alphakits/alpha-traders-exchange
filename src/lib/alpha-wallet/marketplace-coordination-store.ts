@@ -93,7 +93,8 @@ export async function initializeMarketplaceCoordination(options: {
 }): Promise<void> {
   assertSimulationRuntime(options.mode);
   check(options.acknowledgeDevelopmentSchema === true, "Explicit development marketplace schema acknowledgement is required");
-  const schema = readFileSync(resolve(process.cwd(), "docs/alpha-wallet/marketplace-coordination-schema.sql"), "utf8");
+  const schemas = ["marketplace-coordination-schema.sql", "marketplace-coordination-tables.sql", "marketplace-coordination-guards.sql"]
+    .map(name => readFileSync(resolve(process.cwd(), "docs/alpha-wallet", name), "utf8"));
   await options.store.transaction(async tx => {
     let certified: string | undefined;
     try {
@@ -106,7 +107,7 @@ export async function initializeMarketplaceCoordination(options: {
       check(snapshot.engineVersion === WALLET_V2_ENGINE_VERSION && isV2State(snapshot.state)
         && snapshot.state.termsBindings.size === 0 && snapshot.state.acceptanceReceipts.size === 0,
       "Marketplace coordination requires a verified v2 wallet without prior terms enrollment");
-      await tx.exec(schema);
+      for (const schema of schemas) await tx.exec(schema);
       await transactionIdentity(tx, identity);
     } catch (error) {
       if (certified !== undefined) await abortSameTransaction(tx, certified);

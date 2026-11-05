@@ -131,6 +131,9 @@ jobs:
             await connection.query('CREATE DATABASE alpha_wallet_dev_coordination_atomic');
             await connection.query('CREATE DATABASE alpha_wallet_dev_coordination_races');
             await connection.query('CREATE DATABASE alpha_wallet_dev_coordination_auth');
+            await connection.query('CREATE DATABASE alpha_wallet_dev_combined_source');
+            await connection.query('CREATE DATABASE alpha_wallet_dev_combined_restore');
+            await connection.query('CREATE DATABASE alpha_wallet_dev_combined_races');
           } finally { await connection.end(); }
           NODE
 
@@ -173,6 +176,17 @@ jobs:
             --auth-connection-string 'postgresql://wallet_fixture:simulation-only@127.0.0.1:5432/alpha_wallet_dev_coordination_auth' \
             2>test-results/alpha-wallet/postgres-marketplace-coordinator.stderr.log \
             | tee test-results/alpha-wallet/postgres-marketplace-coordinator.json
+
+      - name: Verify combined marketplace recovery, paused restore and competing fresh-target claims
+        run: |
+          set -euo pipefail
+          node --conditions=react-server --import tsx scripts/alpha-wallet/postgres-marketplace-backup.ts \
+            --fresh-simulation-databases \
+            --source-connection-string 'postgresql://wallet_fixture:simulation-only@127.0.0.1:5432/alpha_wallet_dev_combined_source' \
+            --target-connection-string 'postgresql://wallet_fixture:simulation-only@127.0.0.1:5432/alpha_wallet_dev_combined_restore' \
+            --race-connection-string 'postgresql://wallet_fixture:simulation-only@127.0.0.1:5432/alpha_wallet_dev_combined_races' \
+            2>test-results/alpha-wallet/postgres-marketplace-backup.stderr.log \
+            | tee test-results/alpha-wallet/postgres-marketplace-backup.json
 
       - name: Install the locked Playwright Chromium browser
         run: node ./node_modules/playwright/cli.js install --with-deps chromium
