@@ -103,7 +103,7 @@ async function inContext<T, Captured = undefined>(context: InitialMarketplaceCon
 /**
  * Explicit disposable DEVELOPMENT initialization, never a registered production
  * migration or automatic upgrade. The existing correction cohort is incompatible.
- * No backup/restore format includes this namespace yet; old exports fail closed.
+ * Recovery uses its dedicated combined initial format; old exports fail closed.
  */
 export async function initializeInitialMarketplaceCoordination(options: {
   mode: "simulation-only"; store: WalletStore; acknowledgeDevelopmentSchema: true;
@@ -139,25 +139,27 @@ export async function initializeInitialMarketplaceCoordination(options: {
 export async function registerInitialMarketplaceContext(options: {
   mode: "simulation-only"; tx: WalletSql; requestId: string; operation: InitialMarketplaceOperation; actorUserId: string;
 }): Promise<InitialMarketplaceContext> {
-  assertSimulationRuntime(options.mode);
+  // Preserve the handle that will be certified as well as the scalar identity.
+  // Caller mutation after an await must not redirect either writes or cleanup.
+  const { mode, tx, requestId, operation, actorUserId } = options;
+  assertSimulationRuntime(mode);
   let certified: string | undefined;
   try {
-    const transactionId = await transactionIdentity(options.tx);
-    await transactionIdentity(options.tx, transactionId);
+    const transactionId = await transactionIdentity(tx);
+    await transactionIdentity(tx, transactionId);
     certified = transactionId;
-    check(typeof options.requestId === "string" && id.test(options.requestId)
-      && typeof options.actorUserId === "string" && id.test(options.actorUserId) && operations.has(options.operation),
+    check(typeof requestId === "string" && id.test(requestId)
+      && typeof actorUserId === "string" && id.test(actorUserId) && operations.has(operation),
     "Invalid initial marketplace context identity or operation");
-    await options.tx.query(`INSERT INTO alpha_wallet_initial_marketplace_simulation.transaction_contexts
+    await tx.query(`INSERT INTO alpha_wallet_initial_marketplace_simulation.transaction_contexts
       (transaction_id,request_id,operation,actor_user_id) VALUES ($1,$2,$3,$4)`,
-    [transactionId, options.requestId, options.operation, options.actorUserId]);
-    await transactionIdentity(options.tx, transactionId);
+    [transactionId, requestId, operation, actorUserId]);
+    await transactionIdentity(tx, transactionId);
     const context = Object.freeze({}) as InitialMarketplaceContext;
-    contexts.set(context, { tx: options.tx, transactionId, requestId: options.requestId,
-      operation: options.operation, actorUserId: options.actorUserId });
+    contexts.set(context, { tx, transactionId, requestId, operation, actorUserId });
     return context;
   } catch (error) {
-    if (certified !== undefined) await abortSameTransaction(options.tx, certified);
+    if (certified !== undefined) await abortSameTransaction(tx, certified);
     throw error;
   }
 }

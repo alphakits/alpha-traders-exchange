@@ -121,8 +121,10 @@ async function owned<T>(tx: WalletSql, work: (transactionId: string) => Promise<
   } catch (error) {
     if (certified !== undefined) {
       try {
-        await transactionIdentity(tx, certified, false);
-        await tx.query("SELECT 1 / 0 /* abort failed marketplace recovery storage */");
+        const rows = (await tx.query<{ transaction_id: string }>("SELECT txid_current()::text AS transaction_id")).rows;
+        if (rows.length === 1 && rows[0]?.transaction_id === certified) {
+          await tx.query("SELECT 1 / 0 /* abort failed marketplace recovery storage */");
+        }
       } catch { /* Preserve the original failure; the real owner must roll back. */ }
     }
     throw error;

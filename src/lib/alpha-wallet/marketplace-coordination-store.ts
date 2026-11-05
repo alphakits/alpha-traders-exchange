@@ -63,18 +63,23 @@ async function abortSameTransaction(tx: WalletSql, identity: string) {
   try {
     // A swallowed semantic failure must not commit previously appended money
     // or canonical facts. Never poison an unknown/replaced transaction.
-    await transactionIdentity(tx, identity, false);
-    await tx.query("SELECT 1 / 0 /* abort failed marketplace coordination participant */");
+    const rows = (await tx.query<{ transaction_id: string }>("SELECT txid_current()::text AS transaction_id")).rows;
+    if (rows.length === 1 && rows[0]?.transaction_id === identity) {
+      await tx.query("SELECT 1 / 0 /* abort failed marketplace coordination participant */");
+    }
   } catch { /* Preserve the original rejection. */ }
 }
 
-async function inContext<T>(context: MarketplaceContext, work: (registered: Registered) => Promise<T>): Promise<T> {
-  assertSimulationRuntime("simulation-only");
+async function inContext<T, Captured = undefined>(context: MarketplaceContext,
+  work: (registered: Registered, captured: Captured) => Promise<T>, capture?: () => Captured): Promise<T> {
   const registered = context && typeof context === "object" ? contexts.get(context) : undefined;
   check(registered, "A registered opaque marketplace context is required");
   try {
+    // Capture before the first await, but inside the certified context's failure
+    // boundary. An uncloneable input must not leave earlier work committable.
+    const captured = capture?.() as Captured;
     await transactionIdentity(registered.tx, registered.transactionId);
-    const result = await work(registered);
+    const result = await work(registered, captured);
     await transactionIdentity(registered.tx, registered.transactionId);
     return result;
   } catch (error) {
@@ -120,33 +125,34 @@ export async function initializeMarketplaceCoordination(options: {
 export async function registerMarketplaceContext(options: {
   mode: "simulation-only"; tx: WalletSql; requestId: string; operation: MarketplaceOperation; actorUserId: string;
 }): Promise<MarketplaceContext> {
-  assertSimulationRuntime(options.mode);
+  // Preserve the handle that will be certified as well as the scalar identity.
+  // Caller mutation after an await must not redirect either writes or cleanup.
+  const { mode, tx, requestId, operation, actorUserId } = options;
+  assertSimulationRuntime(mode);
   let certified: string | undefined;
   try {
-    const transactionId = await transactionIdentity(options.tx);
-    await transactionIdentity(options.tx, transactionId);
+    const transactionId = await transactionIdentity(tx);
+    await transactionIdentity(tx, transactionId);
     certified = transactionId;
-    check(typeof options.requestId === "string" && id.test(options.requestId)
-      && typeof options.actorUserId === "string" && id.test(options.actorUserId) && operations.has(options.operation),
+    check(typeof requestId === "string" && id.test(requestId)
+      && typeof actorUserId === "string" && id.test(actorUserId) && operations.has(operation),
     "Invalid marketplace context identity or operation");
-    await options.tx.query(`INSERT INTO alpha_wallet_marketplace_simulation.transaction_contexts
+    await tx.query(`INSERT INTO alpha_wallet_marketplace_simulation.transaction_contexts
       (transaction_id,request_id,operation,actor_user_id) VALUES ($1,$2,$3,$4)`,
-    [transactionId, options.requestId, options.operation, options.actorUserId]);
-    await transactionIdentity(options.tx, transactionId);
+    [transactionId, requestId, operation, actorUserId]);
+    await transactionIdentity(tx, transactionId);
     const context = Object.freeze({}) as MarketplaceContext;
-    contexts.set(context, { tx: options.tx, transactionId, requestId: options.requestId,
-      operation: options.operation, actorUserId: options.actorUserId });
+    contexts.set(context, { tx, transactionId, requestId, operation, actorUserId });
     return context;
   } catch (error) {
-    if (certified !== undefined) await abortSameTransaction(options.tx, certified);
+    if (certified !== undefined) await abortSameTransaction(tx, certified);
     throw error;
   }
 }
 
 /** Binding a plan cannot execute it or confer marketplace/account authority. */
 export async function bindMarketplaceCommand(context: MarketplaceContext, input: V2Command): Promise<void> {
-  await inContext(context, async registered => {
-    const command = parseV2Command(structuredClone(input));
+  await inContext<void, V2Command>(context, async (registered, command) => {
     const expected = { enroll: "enrollReservedTrade", accept: "acceptAmountCorrection", pause: "pause", inspect: null }[registered.operation];
     check(!registered.command && expected !== null && command.type === expected
       && command.actor.id === registered.actorUserId
@@ -161,7 +167,7 @@ export async function bindMarketplaceCommand(context: MarketplaceContext, input:
     [registered.transactionId, JSON.stringify(walletJson(command)), versionedCommandKey(command)]);
     check(result.rows.length === 1, "Marketplace context was already bound or is missing");
     registered.command = command;
-  });
+  }, () => parseV2Command(structuredClone(input)));
 }
 
 function enrollment(row: EnrollmentRow): MarketplaceEnrollment {
@@ -202,9 +208,7 @@ function newExecution(registered: Registered, inputDigest: string, execution: Du
 export async function insertMarketplaceEnrollment(context: MarketplaceContext, options: {
   inputDigest: string; execution: DurableExecution<V2TermsBinding>;
 }): Promise<MarketplaceEnrollment> {
-  // Copy before any await: caller mutation cannot change an already checked proof.
-  const copy = structuredClone(options);
-  return inContext(context, async registered => {
+  return inContext<MarketplaceEnrollment, typeof options>(context, async (registered, copy) => {
     check(registered.operation === "enroll", "Enrollment needs an enrollment context");
     newExecution(registered, copy.inputDigest, copy.execution);
     const { execution } = copy, binding = execution.result;
@@ -220,15 +224,14 @@ export async function insertMarketplaceEnrollment(context: MarketplaceContext, o
     // all sibling requests, and runtime_meta to fence pre-activation snapshots.
     check(result.rows.length === 1, "Marketplace enrollment was not appended");
     return enrollment(result.rows[0]);
-  });
+  }, () => structuredClone(options));
 }
 
 export async function insertMarketplaceAcceptance(context: MarketplaceContext, options: {
   inputDigest: string; execution: DurableExecution<V2AcceptanceReceipt>;
   publication: { notificationIds: string[]; auditId: string; messageId: string };
 }): Promise<MarketplaceAcceptance> {
-  const copy = structuredClone(options);
-  return inContext(context, async registered => {
+  return inContext<MarketplaceAcceptance, typeof options>(context, async (registered, copy) => {
     check(registered.operation === "accept", "Acceptance needs an acceptance context");
     newExecution(registered, copy.inputDigest, copy.execution);
     const { execution, publication } = copy, receipt = execution.result;
@@ -248,7 +251,7 @@ export async function insertMarketplaceAcceptance(context: MarketplaceContext, o
       VALUES ($1,$2,alpha_wallet_marketplace_simulation.publication_payload($2))`, [publicationId, receipt.acceptanceKey]);
     check(result.rows.length === 1, "Marketplace acceptance was not appended");
     return acceptance(result.rows[0]);
-  });
+  }, () => structuredClone(options));
 }
 
 /** Call after actual focused persistence; deferred SQL repeats it at commit. */

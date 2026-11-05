@@ -107,8 +107,10 @@ async function owned<T>(store: WalletStore, work: (tx: WalletSql) => Promise<T>)
     } catch (error) {
       if (certified !== undefined) {
         try {
-          await transactionIdentity(tx, certified, false);
-          await tx.query("SELECT 1 / 0 /* abort failed combined marketplace recovery */");
+          const rows = (await tx.query<{ transaction_id: string }>("SELECT txid_current()::text AS transaction_id")).rows;
+          if (rows.length === 1 && rows[0]?.transaction_id === certified) {
+            await tx.query("SELECT 1 / 0 /* abort failed combined marketplace recovery */");
+          }
         } catch { /* Preserve the original error; never poison a changed transaction. */ }
       }
       throw error;

@@ -28,6 +28,7 @@ jobs:
         shell: bash
     env:
       NODE_ENV: test
+      TZ: UTC
     services:
       postgres:
         image: postgres:17
@@ -35,6 +36,7 @@ jobs:
           POSTGRES_DB: alpha_wallet_dev_races
           POSTGRES_USER: wallet_fixture
           POSTGRES_PASSWORD: simulation-only
+          TZ: UTC
         ports:
           - 5432:5432
         options: >-
@@ -145,6 +147,10 @@ jobs:
             await connection.query('CREATE DATABASE alpha_wallet_dev_initial_coordination_atomic');
             await connection.query('CREATE DATABASE alpha_wallet_dev_initial_coordination_races');
             await connection.query('CREATE DATABASE alpha_wallet_dev_initial_coordination_auth');
+            await connection.query('CREATE DATABASE alpha_wallet_dev_initial_backup_source');
+            await connection.query('CREATE DATABASE alpha_wallet_dev_initial_backup_activated');
+            await connection.query('CREATE DATABASE alpha_wallet_dev_initial_backup_target');
+            await connection.query('CREATE DATABASE alpha_wallet_dev_initial_backup_races');
           } finally { await connection.end(); }
           NODE
 
@@ -241,6 +247,18 @@ jobs:
             --auth-connection-string 'postgresql://wallet_fixture:simulation-only@127.0.0.1:5432/alpha_wallet_dev_initial_coordination_auth' \
             2>test-results/alpha-wallet/postgres-initial-marketplace.stderr.log \
             | tee test-results/alpha-wallet/postgres-initial-marketplace.json
+
+      - name: Verify initial combined recovery, credential quarantine and competing restores
+        run: |
+          set -euo pipefail
+          node --conditions=react-server --import tsx scripts/alpha-wallet/postgres-initial-marketplace-backup.ts \
+            --fresh-simulation-databases \
+            --source-connection-string 'postgresql://wallet_fixture:simulation-only@127.0.0.1:5432/alpha_wallet_dev_initial_backup_source' \
+            --activated-source-connection-string 'postgresql://wallet_fixture:simulation-only@127.0.0.1:5432/alpha_wallet_dev_initial_backup_activated' \
+            --target-connection-string 'postgresql://wallet_fixture:simulation-only@127.0.0.1:5432/alpha_wallet_dev_initial_backup_target' \
+            --race-connection-string 'postgresql://wallet_fixture:simulation-only@127.0.0.1:5432/alpha_wallet_dev_initial_backup_races' \
+            2>test-results/alpha-wallet/postgres-initial-marketplace-backup.stderr.log \
+            | tee test-results/alpha-wallet/postgres-initial-marketplace-backup.json
 
       - name: Install the locked Playwright Chromium browser
         run: node ./node_modules/playwright/cli.js install --with-deps chromium
