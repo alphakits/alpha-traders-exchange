@@ -2,7 +2,7 @@
 
 This runbook applies only to local **simulation-only** development stores. It does not authorize live deployment, live chain access, signing keys or real funds.
 
-**Latest verified source: `3d119889`.** The [initial acceptance groundwork verification](initial-acceptance-verification-2026-11-05.md) records **1,390 passing tests**: 1,203 wallet tests across 35 files plus 187 targeted platform authentication/marketplace tests across nine files. Root TypeScript, all eight native PostgreSQL drills with 75 checks, and the retained English/Arabic Chromium rehearsal passed on this exact source. This adds 187 wallet cases and nine native checks. The new initial path is a pure plan and canonical transaction participant; its authenticated seller reservation and new recovery cohort remain unimplemented. Live launch remains withheld.
+**Latest verified source: `f18e95e6`.** The [seller-native v3 verification](ledger-v3-verification-2026-11-05.md) records **1,626 passing tests**: 1,439 wallet tests across 39 files plus 187 targeted platform authentication/marketplace tests across nine files. Root TypeScript, nine native PostgreSQL drills with 86 checks, and the retained English/Arabic Chromium rehearsal passed on this exact source. All 1,203 prior wallet cases remain, with 236 added cases and eleven new native checks. The isolated v3 financial reservation and paused-wallet recovery are implemented; authenticated initial marketplace coordination and combined initial-cohort recovery remain unfinished. Live launch remains withheld.
 
 The [historical combined recovery report at `09405da`](marketplace-recovery-verification-2026-11-05.md) retains its 1,081-test and six-drill/54-check result, including 83 recovery cases and 11 native combined-recovery checks. The [prior canonical coordinator report](marketplace-coordinator-verification-2026-11-05.md) and [versioned-ledger report](ledger-v2-verification-2026-11-05.md) retain their historical evidence and scope.
 
@@ -14,15 +14,28 @@ The [historical combined recovery report at `09405da`](marketplace-recovery-veri
 
 | Source or target state | Supported procedure |
 | --- | --- |
+| Paused isolated v3 financial wallet, with no canonical/coordination schema | `exportV3WalletBackup`, `inspectV3WalletBackup`, and fresh-target `restoreV3WalletBackup`; format 3 preserves both continuations and original history, then adds quarantine. No combined canonical recovery or resume |
 | Initial-acceptance mechanics fixture with canonical acceptance and only a companion wallet pause | Preserve the complete disposable fixture for inspection. This is not a coordinated financial cohort; wallet-only backup does not capture its canonical rows, and no initial-acceptance combined recovery format exists |
 | Canonical marketplace enrollment exists and the source matches the supported fixture | Inspect and pause through the owner coordinator, then export and restore the complete combined recovery unit below |
 | Activation status is uncertain, integrity checks fail, or the schema/cohort is unsupported | Preserve the complete isolated source and investigate. Do not select a wallet-only procedure to bypass the refusal |
 | A target was created by combined recovery, including an uncertain COMMIT outcome | Reopen that same target and use the offline recovery diagnostic with the separately retained checksum |
-| Source is confirmed to have no active canonical marketplace enrollment | Use the standalone v1/mixed-v2 backup and paused-restore procedure later in this runbook |
+| Standalone v1/v2 source is confirmed to have no active canonical marketplace enrollment | Use the standalone v1/mixed-v2 backup and paused-restore procedure later in this runbook |
 
 The distinction concerns activation by the [private canonical coordinator](marketplace-coordinator-design.md). Standalone v2 ledger fixtures may contain their own synthetic terms bindings; they do not establish a canonical marketplace cohort. A ledger-only backup also cannot prove that the source remained unenrolled after its checkpoint. Establish the active source and its enrollment state before choosing a recovery procedure.
 
-The [initial seller acceptance groundwork](initial-acceptance-design.md) does not change either existing recovery format. Its frozen v2 history verifies original restore/receipt/payout behavior; its canonical mechanics drill is deliberately separate from recovery-compatible activation. The authenticated seller-native flow needs a distinct versioned recovery contract before use.
+The [initial seller acceptance groundwork](initial-acceptance-design.md) does not change either existing recovery format. Its frozen v2 history verifies original restore/receipt/payout behavior; its canonical mechanics drill is deliberately separate from recovery-compatible activation. The separate v3 milestone now has an isolated paused-wallet format. An authenticated seller-native canonical flow still needs its own combined recovery contract before activation.
+
+## Isolated v3 financial wallet
+
+Use the [v3 recovery contract](ledger-v3-initial-acceptance-design.md) only for an explicitly continued v3 financial ledger without canonical or coordination schemas. Pause its source through the v3 operator command first. `exportV3WalletBackup` requires the actual paused replay state; `inspectV3WalletBackup` validates the complete original command history, both continuations, source checkpoint and checksum. These checks establish consistency, not authentication.
+
+`restoreV3WalletBackup` takes a guarded fresh isolated store and explicit fresh-target acknowledgment. It reconstructs the v1/v2/v3 history and both migrations at their recorded clocks, verifies the exact source checkpoint, and adds a deterministic v3 quarantine pause in the same owned SERIALIZABLE transaction. Source and target remain paused. Known failure rolls back schema, projections and all restored commands. A lost COMMIT reply requires inspection of the same target; repeated restore cannot replace committed history.
+
+Reopen through `createV3DurableWallet`. Exact historical command/business receipts retain their original event identity; historic dispatch recovery always returns `shouldDispatch: false`. New initial reservation retries require the exact original actor/evidence and have no new financial effect. Current authenticated seller authority is not part of this isolated library and must be supplied by the future canonical coordinator.
+
+The v3 envelope permits only continuation, initial reservation and pause. It supplies no resume or subsequent lifecycle operation, no provider reauthorization, and no source/target custody ownership transfer. Old readers/exporters reject format 3. Existing canonical coordination namespaces are refused even when empty; wallet-only export also refuses canonical schemas and unrelated public relations. The old canonical mechanics fixture cannot be recovered using this wallet-only format.
+
+[Exact-source evidence at `f18e95e6`](ledger-v3-verification-2026-11-05.md) includes real PostgreSQL receipt contention, migration and financial rollback, a competing fresh-target restore, injected reply loss after actual commit, and close/reopen. These results do not establish a combined initial-acceptance recovery unit or production recovery readiness.
 
 ## Enrolled canonical cohort: inspect, pause, export and restore
 
