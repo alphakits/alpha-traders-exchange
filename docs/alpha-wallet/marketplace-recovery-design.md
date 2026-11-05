@@ -22,7 +22,7 @@ This is an explicit fixed development schema. It is not a dump/import utility fo
 | Coordination history | Exact immutable enrollment, acceptance and safe publication records |
 | Operational transaction registrations | Excluded; transaction IDs from a different database must never become current transaction authority |
 | Sessions, device credentials and passwords | Web/mobile session credentials, device identifiers/hashes, token families and refresh history are excluded; restore creates no session and neither mobile authentication table, and never restores an original password hash |
-| SQL and provider state | No SQL supplied by the file is executed. No provider/custody records, network credentials or signing material are included |
+| SQL and provider state | Original provider references/results recorded in command history are preserved. No external provider database/custody state, network credentials or signing material is included. No SQL supplied by the file is executed |
 
 Canonical financial payloads can contain private payment instructions, destinations, user names and trade history. The bundle is **private plaintext**, even though credentials are excluded. Public inspection results contain only IDs, checksums, checkpoints and counts; errors omit driver parameters and private causes. The library returns bytes as a string and does not choose a path, overwrite files, upload data or implement retention/encryption.
 
@@ -66,7 +66,7 @@ One outer writable SERIALIZABLE transaction owns every step:
 
 The original source checkpoint is returned separately from the new target checkpoint. If the source contains N commands, the successful recovered target contains N+1. Recovery does not accept a proposal again or append a second trade acceptance, message, notification, audit or publication.
 
-A recovery-only bootstrap row starts with an incomplete receipt. A deferred database constraint prevents COMMIT until the receipt is completed in that same original transaction. Omitting the final receipt, swallowing a participant rejection or failing after late canonical writes must abort the whole operation. The new mobile quarantine check also requires both authentication relations to remain absent at restore COMMIT, including when they are added after the final application check. Once completed, the receipt cannot be replaced, deleted, truncated or completed again through the supported schema.
+A recovery-only bootstrap row starts with an incomplete receipt. A deferred database constraint prevents COMMIT until the receipt is completed in that same original transaction. Omitting the final receipt, swallowing a participant rejection or failing after late canonical writes must abort the whole operation. Ordinary deferred completion also checks that both mobile authentication relations remain absent, including additions after application validation while checks remain pending. This row/deferred protocol does not defend against hostile privileged DDL after all deferred events have been deliberately flushed. Once completed, the receipt cannot be replaced, deleted, truncated or completed again through the supported schema.
 
 ## Identity quarantine and supported target access
 
