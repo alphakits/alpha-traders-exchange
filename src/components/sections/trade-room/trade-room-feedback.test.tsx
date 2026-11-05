@@ -246,6 +246,58 @@ it.each([
   expect(fetchMock.mock.calls.every(([, init]) => !init?.method)).toBe(true);
 });
 
+it.each([
+  ["en", "pending"],
+  ["ar", "pending"],
+  ["en", "payment_sent"],
+  ["ar", "payment_sent"],
+] as const)("keeps the ATM total and primary action outside collapsed price details in %s at %s", async (locale, status) => {
+  const current = room("Cardless ATM Withdrawal", status);
+  Object.assign(current.request, {
+    bankName: "Bank Hapoalim", usdtAmount: "297.029703", fiatAmount: "900.00", pricePerUsdt: "3.00",
+    feePolicyVersion: "buyer_seller_1pct_v1", commissionCalculationVersion: "usdt_6dp_v2",
+  });
+  const fetchMock = vi.fn<typeof fetch>(() => Promise.resolve(Response.json(current)));
+  vi.stubGlobal("fetch", fetchMock);
+  render(<TradeRoomPage locale={locale} requestId="feedback-request" actor={seller} />);
+  const header = await screen.findByTestId("inclusive-payment-total");
+  const details = within(header).getByTestId("trade-header-financial-details") as HTMLDetailsElement;
+  const summary = within(details).getByText(locale === "ar" ? "تفاصيل السعر والعمولة" : "Price and commission details");
+  expect(summary.tagName).toBe("SUMMARY");
+  expect(details.open).toBe(false);
+  const total = header.querySelector("p")!;
+  expect(total.textContent).toContain("900.00");
+  expect(total.closest("details")).toBeNull();
+  const notice = header.querySelector(".commission-notice")!;
+  const feeNotice = locale === "ar"
+    ? status === "pending" ? "عمولة للمشتري مشمولة" : "يشمل عمولة المشتري 1%"
+    : status === "pending" ? "buyer fee is included" : "Buyer’s 1% fee included";
+  expect(notice.textContent).toContain(feeNotice);
+  expect(notice.closest("details")).toBeNull();
+  const primary = await screen.findByTestId("trade-primary-action");
+  expect(primary.closest("details")).toBeNull();
+  expect((within(primary).getAllByRole("button")[0] as HTMLButtonElement).disabled).toBe(false);
+  expect(within(details).getByTestId("trade-subtotal").textContent).toContain("891.09");
+  expect(within(details).getByTestId("trade-buyer-fee").textContent).toContain("8.91");
+  expect(within(details).getByTestId("trade-total-commission").textContent).toContain("5.940594");
+  fireEvent.click(summary);
+  expect(details.open).toBe(true);
+  fireEvent.click(summary);
+  expect(details.open).toBe(false);
+  expect(fetchMock.mock.calls.every(([, init]) => !init?.method || init.method === "GET")).toBe(true);
+});
+
+it("does not show an empty price disclosure when a legacy saved total cannot be itemized", async () => {
+  const current = room("Bank Transfer", "pending");
+  Object.assign(current.request, { usdtAmount: "100", fiatAmount: "300.00", pricePerUsdt: "3.20" });
+  vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(Response.json(current))));
+  render(<TradeRoomPage locale="en" requestId="feedback-request" actor={seller} />);
+  const header = await screen.findByTestId("inclusive-payment-total");
+  expect(header.textContent).toContain("ILS 300.00");
+  expect(within(header).queryByTestId("trade-financial-breakdown")).toBeNull();
+  expect(within(header).queryByText("Price and commission details")).toBeNull();
+});
+
 it.each(["en", "ar"] as const)("gates seller acceptance and links payment, then unlocks the saved request after a verified refresh in %s", async (locale) => {
   const current = { ...room("Bank Transfer", "pending"), sellerCommissionDueCount: 1, sellerCommissionDueAmount: 7, sellerPayableCommissionId: "commission-gate", sellerPayableCommissionAmount: 7 };
   vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(Response.json(current))));
@@ -1017,6 +1069,7 @@ it("proposes a new cardless cash amount once and shows the pending total while p
   fireEvent.click(await screen.findByRole("button", { name: "Adjust Amount" }));
   fireEvent.change(screen.getByLabelText("New withdrawal amount (ILS)"), { target: { value: "200" } });
   expect(screen.getByTestId("trade-adjustment-preview").textContent).toContain("62.5 USDT");
+  expect(within(screen.getByTestId("trade-adjustment-preview")).getByTestId("trade-financial-breakdown").closest("details")).toBeNull();
   const adjust = screen.getByRole("button", { name: "Propose corrected amount" });
   fireEvent.click(adjust); fireEvent.click(adjust);
   const patches = fetch.mock.calls.filter(([, init]) => init?.method === "PATCH");
@@ -1031,6 +1084,8 @@ it("proposes a new cardless cash amount once and shows the pending total while p
   expect(terms).toContain("Current → Proposed");
   expect(terms).toContain("125 → 62.5 USDT");
   expect(terms).toContain("ILS 400.00 → ILS 200.00");
+  expect((screen.getByTestId("trade-header-financial-details") as HTMLDetailsElement).open).toBe(false);
+  expect(within(screen.getByRole("region", { name: "Trade terms" })).getByTestId("trade-financial-breakdown").closest("details")).toBeNull();
   expect(await screen.findByRole("button", { name: "Withdraw proposal" })).toBeTruthy();
 });
 
