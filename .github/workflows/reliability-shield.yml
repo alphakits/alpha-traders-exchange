@@ -394,6 +394,21 @@ jobs:
           path: test-results/
           if-no-files-found: error
           retention-days: 14
+      - name: Repeat bilingual price-alert first clicks without retries
+        id: price_alert_first_clicks
+        if: matrix.shard == 4
+        env:
+          PLAYWRIGHT_JSON_OUTPUT_FILE: test-results/webkit-price-alert-first-clicks.json
+          PRICE_ALERT_DIAGNOSTICS: "1"
+        run: node ./node_modules/playwright/cli.js test --config=playwright.webkit.config.ts e2e/workspace-additions.spec.ts --grep="price alerts persist" --repeat-each=5 --retries=0 --max-failures=1 --reporter=list,json
+      - name: Preserve price-alert first-click evidence
+        if: always() && matrix.shard == 4 && steps.price_alert_first_clicks.outcome != 'skipped'
+        uses: actions/upload-artifact@v4
+        with:
+          name: webkit-price-alert-first-clicks
+          path: test-results/
+          if-no-files-found: error
+          retention-days: 14
       - name: Repeat bilingual chat scroll containment without retries
         if: matrix.shard == 2
         env:
@@ -412,6 +427,7 @@ jobs:
         # through the same release-blocking browser job.
         env:
           PLAYWRIGHT_JSON_OUTPUT_FILE: test-results/webkit-critical-results.json
+          PRICE_ALERT_DIAGNOSTICS: ${{ matrix.shard == 4 && '1' || '0' }}
         run: node ./node_modules/playwright/cli.js test --config=playwright.webkit.config.ts --shard=${{ matrix.shard }}/4 --reporter=list,json
       - name: Preserve WebKit browser evidence
         if: always()
@@ -480,6 +496,11 @@ jobs:
     runs-on: ubuntu-latest
     # Allow setup, a cold production build, and all serial browser cases.
     timeout-minutes: 60
+    # Keep browser and OS dependencies pinned, as in the main WebKit jobs.
+    # A dependency-install stall must not consume the browser test budget.
+    container:
+      image: mcr.microsoft.com/playwright:v1.61.1-noble@sha256:5b8f294aff9041b7191c34a4bab3ac270157a28774d4b0660e9743297b697e48
+      options: --user 1001
     strategy:
       fail-fast: false
       matrix:
@@ -500,8 +521,20 @@ jobs:
           cache: npm
       - name: Install locked dependencies
         run: npm ci
-      - name: Install isolated browser runtime
-        run: npx playwright install --with-deps ${{ matrix.browser }}
+      - name: Verify pinned isolated browser runtime
+        run: |
+          node <<'NODE'
+          const assert = require('node:assert/strict');
+          assert.equal(require('playwright/package.json').version, '1.61.1',
+            'Update the pinned Playwright image together with the package lock.');
+          const name = process.env.USDT_OFFLINE_BROWSER;
+          assert.ok(name === 'chromium' || name === 'webkit');
+          (async () => {
+            const browser = await require('playwright')[name].launch();
+            console.log(`Pinned ${name} runtime ready: ${browser.version()}`);
+            await browser.close();
+          })().catch((error) => { console.error(error); process.exitCode = 1; });
+          NODE
       - name: Build the release source
         env:
           ALPHA_E2E_TEST_SUPPORT: "1"
