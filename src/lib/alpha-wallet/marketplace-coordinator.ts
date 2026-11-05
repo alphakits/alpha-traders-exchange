@@ -15,6 +15,9 @@ import { CommitOutcomeUnknownError, type WalletSql, type WalletStore } from "./d
 import { balance } from "./ledger";
 import { resolveDevelopmentMarketplaceWebPrincipal, type DevelopmentMarketplaceWebPrincipal } from "./marketplace-auth";
 import {
+  developmentMarketplaceMobileCredentialsSchema, resolveDevelopmentMarketplaceMobilePrincipal,
+} from "./marketplace-mobile-auth";
+import {
   assertMarketplaceCoherence, bindMarketplaceCommand, insertMarketplaceAcceptance, insertMarketplaceEnrollment,
   readMarketplaceAcceptance, readMarketplaceEnrollment, registerMarketplaceContext,
   type MarketplaceAcceptance, type MarketplaceContext, type MarketplaceEnrollment,
@@ -32,11 +35,23 @@ const enrollmentInput = z.strictObject({ ...operation, walletListingId: id, wall
 const acceptanceInput = z.strictObject({ ...operation, proposalId: id, expectedBindingRevision: z.number().int().min(0).max(2) });
 const inspectInput = z.strictObject(credentials);
 const pauseInput = z.strictObject(operation);
+const mobileCredentials = developmentMarketplaceMobileCredentialsSchema.shape;
+const mobileInspectInput = z.strictObject({ ...mobileCredentials, requestId: id });
+const mobilePauseInput = z.strictObject({ ...mobileCredentials, requestId: id, operationId: id });
+const mobileEnrollmentInput = z.strictObject({ ...enrollmentInput.shape, ...mobileCredentials }).omit({ sessionToken: true });
+const mobileAcceptanceInput = z.strictObject({ ...acceptanceInput.shape, ...mobileCredentials }).omit({ sessionToken: true });
 
 export type DevelopmentMarketplaceEnrollmentInput = z.infer<typeof enrollmentInput>;
 export type DevelopmentMarketplaceAcceptanceInput = z.infer<typeof acceptanceInput>;
 export type DevelopmentMarketplaceInspectionInput = z.infer<typeof inspectInput>;
 export type DevelopmentMarketplacePauseInput = z.infer<typeof pauseInput>;
+export type DevelopmentMobileMarketplaceEnrollmentInput = z.infer<typeof mobileEnrollmentInput>;
+export type DevelopmentMobileMarketplaceAcceptanceInput = z.infer<typeof mobileAcceptanceInput>;
+export type DevelopmentMobileMarketplaceInspectionInput = z.infer<typeof mobileInspectInput>;
+export type DevelopmentMobileMarketplacePauseInput = z.infer<typeof mobilePauseInput>;
+
+type CoordinatorOptions = { mode: "simulation-only"; store: WalletStore; clock?: () => number };
+type CoordinatedInspectionInput = DevelopmentMarketplaceInspectionInput | DevelopmentMobileMarketplaceInspectionInput;
 
 type Failure = "INVALID_INPUT" | "ACTOR" | "INTEGRITY" | "LOCKED" | "UNSUPPORTED" | "STALE" | "ENROLLMENT_REQUIRED"
   | "STORAGE_UNAVAILABLE" | "40001" | "40P01";
@@ -284,9 +299,7 @@ type Attempt = {
  * nonterminal wallet trade globally. A valid stored amount proposal must already
  * exist. Unsupported lifecycle/proposal writers remain fenced after enrollment.
  */
-export function createDevelopmentMarketplaceWalletCoordinator(options: {
-  mode: "simulation-only"; store: WalletStore; clock?: () => number;
-}) {
+function createCoordinator(options: CoordinatorOptions, credentialKind: "web" | "mobile") {
   assertSimulationRuntime(options.mode);
   const { mode, store } = options;
   const suppliedClock = options.clock ?? Date.now;
@@ -298,7 +311,7 @@ export function createDevelopmentMarketplaceWalletCoordinator(options: {
   };
   const walletAt = (tx: WalletSql, commandClock = clock) => createVersionedDurableWallet({ mode, store: boundStore(tx), clock: commandClock });
 
-  async function run<T>(input: DevelopmentMarketplaceInspectionInput, operationName: "enroll" | "accept" | "inspect" | "pause",
+  async function run<T>(input: CoordinatedInspectionInput, operationName: "enroll" | "accept" | "inspect" | "pause",
     work: (attempt: Attempt) => Promise<T>): Promise<T> {
     assertSimulationRuntime(mode);
     return store.transaction(async tx => {
@@ -308,7 +321,11 @@ export function createDevelopmentMarketplaceWalletCoordinator(options: {
       let result: T | undefined;
       await mutateDevelopmentFocusedTradeInTransaction({ mode, tx, requestId: input.requestId }, async db => {
         const request = canonicalRequest(db, input.requestId);
-        principal = await resolveDevelopmentMarketplaceWebPrincipal({ mode, tx, token: input.sessionToken, clock });
+        // Each public constructor selects one strict credential schema. There
+        // is no client actor, auth callback, credential fallback or cached user.
+        principal = "sessionToken" in input
+          ? await resolveDevelopmentMarketplaceWebPrincipal({ mode, tx, token: input.sessionToken, clock })
+          : await resolveDevelopmentMarketplaceMobilePrincipal({ mode, tx, accessToken: input.accessToken, metadata: input.metadata, clock });
         if (operationName === "accept") check(principal.canBuy && principal.userId === request.buyerId,
           "ACTOR", "Only the freshly authenticated canonical buyer may accept this proposal");
         else check(principal.isOwner, "ACTOR", "This development operation requires the authenticated owner");
@@ -327,8 +344,8 @@ export function createDevelopmentMarketplaceWalletCoordinator(options: {
   }
 
   return Object.freeze({
-    async enrollReservedTrade(raw: DevelopmentMarketplaceEnrollmentInput): Promise<DevelopmentMarketplaceEnrollmentReceipt> {
-      const input = parse(enrollmentInput, raw);
+    async enrollReservedTrade(raw: unknown): Promise<DevelopmentMarketplaceEnrollmentReceipt> {
+      const input = credentialKind === "web" ? parse(enrollmentInput, raw) : parse(mobileEnrollmentInput, raw);
       return run(input, "enroll", async ({ tx, db, request, principal, context }) => {
         const inputDigest = enrollmentFingerprint(principal.userId, input);
         const old = await readMarketplaceEnrollment(context);
@@ -371,8 +388,8 @@ export function createDevelopmentMarketplaceWalletCoordinator(options: {
       });
     },
 
-    async acceptAmountCorrection(raw: DevelopmentMarketplaceAcceptanceInput): Promise<DevelopmentMarketplaceAcceptanceReceipt> {
-      const input = parse(acceptanceInput, raw);
+    async acceptAmountCorrection(raw: unknown): Promise<DevelopmentMarketplaceAcceptanceReceipt> {
+      const input = credentialKind === "web" ? parse(acceptanceInput, raw) : parse(mobileAcceptanceInput, raw);
       return run(input, "accept", async ({ tx, db, request, principal, context }) => {
         const inputDigest = acceptanceFingerprint(principal.userId, input);
         const enrollment = await readMarketplaceEnrollment(context);
@@ -408,8 +425,8 @@ export function createDevelopmentMarketplaceWalletCoordinator(options: {
       });
     },
 
-    async inspect(raw: DevelopmentMarketplaceInspectionInput): Promise<DevelopmentMarketplaceInspection> {
-      const input = parse(inspectInput, raw);
+    async inspect(raw: unknown): Promise<DevelopmentMarketplaceInspection> {
+      const input = credentialKind === "web" ? parse(inspectInput, raw) : parse(mobileInspectInput, raw);
       return run(input, "inspect", async ({ tx, request, context }) => {
         const row = await readMarketplaceEnrollment(context);
         const snapshot = v2Snapshot(await walletAt(tx).snapshot());
@@ -427,8 +444,8 @@ export function createDevelopmentMarketplaceWalletCoordinator(options: {
       });
     },
 
-    async pause(raw: DevelopmentMarketplacePauseInput): Promise<DevelopmentMarketplacePauseReceipt> {
-      const input = parse(pauseInput, raw);
+    async pause(raw: unknown): Promise<DevelopmentMarketplacePauseReceipt> {
+      const input = credentialKind === "web" ? parse(pauseInput, raw) : parse(mobilePauseInput, raw);
       return run(input, "pause", async ({ tx, principal, context }) => {
         const wallet = walletAt(tx);
         v2Snapshot(await wallet.snapshot());
@@ -442,4 +459,32 @@ export function createDevelopmentMarketplaceWalletCoordinator(options: {
   });
 }
 
+/** Existing web contract; fixed stored-session authority inside the transaction. */
+export function createDevelopmentMarketplaceWalletCoordinator(options: CoordinatorOptions) {
+  const coordinator = createCoordinator(options, "web");
+  return Object.freeze({
+    enrollReservedTrade: (input: DevelopmentMarketplaceEnrollmentInput) => coordinator.enrollReservedTrade(input),
+    acceptAmountCorrection: (input: DevelopmentMarketplaceAcceptanceInput) => coordinator.acceptAmountCorrection(input),
+    inspect: (input: DevelopmentMarketplaceInspectionInput) => coordinator.inspect(input),
+    pause: (input: DevelopmentMarketplacePauseInput) => coordinator.pause(input),
+  });
+}
+
+/**
+ * Separate private mobile entry point. Access token/device/account authority is
+ * locked and rechecked in the same transaction as the unchanged financial work.
+ * It does not install a mobile route, mint tokens, refresh a session or deliver
+ * events. A web credential never acts as fallback for a denied mobile request.
+ */
+export function createDevelopmentMobileMarketplaceWalletCoordinator(options: CoordinatorOptions) {
+  const coordinator = createCoordinator(options, "mobile");
+  return Object.freeze({
+    enrollReservedTrade: (input: DevelopmentMobileMarketplaceEnrollmentInput) => coordinator.enrollReservedTrade(input),
+    acceptAmountCorrection: (input: DevelopmentMobileMarketplaceAcceptanceInput) => coordinator.acceptAmountCorrection(input),
+    inspect: (input: DevelopmentMobileMarketplaceInspectionInput) => coordinator.inspect(input),
+    pause: (input: DevelopmentMobileMarketplacePauseInput) => coordinator.pause(input),
+  });
+}
+
 export type DevelopmentMarketplaceWalletCoordinator = ReturnType<typeof createDevelopmentMarketplaceWalletCoordinator>;
+export type DevelopmentMobileMarketplaceWalletCoordinator = ReturnType<typeof createDevelopmentMobileMarketplaceWalletCoordinator>;

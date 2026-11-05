@@ -1,10 +1,8 @@
 import "server-only";
 import { createHash } from "node:crypto";
-import { hasAdultConfirmation } from "@/lib/age-eligibility";
-import { isAccountPhoneVerificationExempt } from "@/lib/phone-verification-exemptions";
-import { hasVerifiedPhone } from "@/lib/verification-bypass";
 import { WalletAccessError } from "./access";
 import type { WalletSql } from "./durable-store";
+import { developmentMarketplaceAccountAuthority, validateDevelopmentMarketplaceAccountRecord } from "./marketplace-account-authority";
 import { assertSimulationRuntime } from "./runtime";
 
 type Authority = Readonly<{
@@ -33,8 +31,6 @@ type AuthRow = Record<string, unknown> & {
   account_payload: unknown;
 };
 
-const ROLES = new Set(["guest", "student", "buyer", "pending_seller_approval", "approved_seller", "admin", "owner"]);
-const SELLER_STATUSES = new Set(["buyer", "pending_seller_approval", "approved_seller", "rejected", "suspended"]);
 const USER_ID = /^[A-Za-z0-9_-]{1,80}$/;
 
 function record(value: unknown): value is Record<string, unknown> {
@@ -62,37 +58,19 @@ function databaseTimestamp(value: unknown) {
 }
 
 function authority(row: AuthRow, tokenHash: string, now: number): Authority {
-  const session = row.session_payload, user = row.account_payload;
-  if (!record(session) || !record(user)
+  const session = row.session_payload;
+  if (!record(session)
     || row.token_hash !== tokenHash || session.token !== tokenHash
     || typeof row.user_id !== "string" || !USER_ID.test(row.user_id)
-    || session.userId !== row.user_id || row.account_id !== row.user_id || user.id !== row.user_id
-    || typeof row.account_email !== "string" || !row.account_email || user.email !== row.account_email
-    || typeof row.account_role !== "string" || !ROLES.has(row.account_role) || user.role !== row.account_role
-    || typeof row.account_seller_status !== "string" || !SELLER_STATUSES.has(row.account_seller_status)
-    || user.sellerStatus !== row.account_seller_status) return invalidRecord();
+    || session.userId !== row.user_id) return invalidRecord();
+  validateDevelopmentMarketplaceAccountRecord(row, row.user_id);
 
   const expiresAt = timestamp(session.expiresAt), createdAt = timestamp(session.createdAt);
   if (databaseTimestamp(row.session_expires_at_ms) !== expiresAt
     || databaseTimestamp(row.session_created_at_ms) !== createdAt || expiresAt <= createdAt) return invalidRecord();
   if (createdAt > now || expiresAt <= now) throw new WalletAccessError("WALLET_SESSION_REQUIRED", 401);
 
-  if (user.disabled !== undefined && user.disabled !== false) throw new WalletAccessError("WALLET_ACCOUNT_DISABLED");
-  if (user.emailVerified !== true) throw new WalletAccessError("WALLET_EMAIL_VERIFICATION_REQUIRED");
-  const phone = {
-    id: row.account_id, email: row.account_email, disabled: false,
-    verifiedPhone: typeof user.verifiedPhone === "string" ? user.verifiedPhone : undefined,
-    phoneVerifiedAt: typeof user.phoneVerifiedAt === "string" ? user.phoneVerifiedAt : undefined,
-  };
-  if (!hasVerifiedPhone(phone) && !isAccountPhoneVerificationExempt(phone)) {
-    throw new WalletAccessError("WALLET_PHONE_VERIFICATION_REQUIRED");
-  }
-  if (!hasAdultConfirmation(user)) throw new WalletAccessError("WALLET_ADULT_CONFIRMATION_REQUIRED");
-  if (user.roles !== undefined && (!Array.isArray(user.roles)
-    || user.roles.some(role => typeof role !== "string" || !ROLES.has(role)))) return invalidRecord();
-  const roles = new Set([row.account_role, ...((user.roles ?? []) as string[])]);
-  return Object.freeze({ userId: row.account_id, canBuy: roles.has("buyer") || roles.has("admin") || roles.has("owner"),
-    isOwner: roles.has("owner"), sessionExpiresAtMs: expiresAt });
+  return Object.freeze({ ...developmentMarketplaceAccountAuthority(row, row.user_id), sessionExpiresAtMs: expiresAt });
 }
 
 function publicFailure(error: unknown) {

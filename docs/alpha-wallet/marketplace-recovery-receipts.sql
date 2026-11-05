@@ -93,7 +93,12 @@ BEGIN
       'stateHash',target.state_hash,'lastCommandAtMs',target.occurred_at_ms) THEN
     RAISE EXCEPTION 'Combined recovery receipt must bind the original history and exactly one new quarantine pause';
   END IF;
-  IF EXISTS (SELECT 1 FROM alpha_exchange.sessions)
+  -- Native authentication is never installed by recovery. Check relation
+  -- absence again at deferred COMMIT so a late participant cannot add device
+  -- credentials or refresh history after the final application quarantine read.
+  IF to_regclass('alpha_exchange.mobile_device_sessions') IS NOT NULL
+    OR to_regclass('alpha_exchange.mobile_refresh_token_history') IS NOT NULL
+    OR EXISTS (SELECT 1 FROM alpha_exchange.sessions)
     OR EXISTS (SELECT 1 FROM alpha_exchange.users u WHERE u.email IS DISTINCT FROM 'recovery-' || u.id || '@example.invalid'
       OR u.payload IS DISTINCT FROM jsonb_build_object('id',u.id,'role',u.role,'sellerStatus',u.seller_status,
         'email','recovery-' || u.id || '@example.invalid','disabled',true,'emailVerified',false,

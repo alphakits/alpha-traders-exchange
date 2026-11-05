@@ -41,6 +41,22 @@ const canonicalTables: Record<string, Table> = {
   trades: { key: "id", columns: { id: required(), purchase_request_id: required(), listing_id: required(), seller_id: required(),
     buyer_id: required(), status: required(), payload: required("jsonb") } },
 };
+// Source compatibility only. These are the exact optional native-session
+// columns from the retained mobile migration, not additional recovery rows.
+// Keep them outside canonicalTables so neither capture nor installation can
+// accidentally serialize a token hash, installation identity or refresh history.
+const excludedMobileAuthenticationTables: Record<string, Table> = {
+  mobile_device_sessions: { key: "id", columns: {
+    id: required(), user_id: required(), device_id_hash: required(), access_token_hash: required(), refresh_token_hash: required(),
+    token_family_id: required(), refresh_generation: required("int4"), platform: required(), app_version: required(), locale: required(),
+    access_expires_at: required("timestamptz"), refresh_expires_at: required("timestamptz"), last_seen_at: required("timestamptz"),
+    revoked_at: optional("timestamptz"), revoke_reason: optional(), created_at: required("timestamptz"), updated_at: required("timestamptz"),
+  } },
+  mobile_refresh_token_history: { key: "token_hash", columns: {
+    token_hash: required(), session_id: required(), generation: required("int4"), used_at: required("timestamptz"),
+    expires_at: required("timestamptz"),
+  } },
+};
 const coordinationTables: Record<string, Table> = {
   transaction_contexts: { key: "transaction_id", columns: { transaction_id: required(), request_id: required(), operation: required(),
     actor_user_id: required(), planned_command: optional("jsonb"), planned_command_key: optional() } },
@@ -163,6 +179,21 @@ async function assertTableShape(tx: WalletSql, namespace: string, expected: Reco
   }
 }
 
+async function mobileAuthenticationRelations(tx: WalletSql) {
+  const result = await tx.query<{ sessions: boolean; history: boolean }>(`SELECT
+    to_regclass('alpha_exchange.mobile_device_sessions') IS NOT NULL AS sessions,
+    to_regclass('alpha_exchange.mobile_refresh_token_history') IS NOT NULL AS history`);
+  const row = result.rows[0];
+  check(result.rows.length === 1 && typeof row?.sessions === "boolean" && typeof row.history === "boolean",
+    "Recovery could not verify the mobile authentication schema boundary");
+  return row;
+}
+
+async function assertNoRecoveredMobileAuthentication(tx: WalletSql) {
+  const mobile = await mobileAuthenticationRelations(tx);
+  check(!mobile.sessions && !mobile.history, "Recovered marketplace mobile authentication relations must remain absent");
+}
+
 function selectedRow(table: string, specification: Table): string {
   const columns = table === "users" ? ["id", "role", "seller_status"] : Object.keys(specification.columns);
   const fields = columns.flatMap(column => {
@@ -203,12 +234,16 @@ async function capture(tx: WalletSql, namespace: string, name: string, specifica
   return captured;
 }
 
-/** Full fixed-schema capture; never carries sessions or original user profiles. */
+/** Full financial capture; web/native sessions, refresh history and profiles are excluded. */
 export async function readMarketplaceRecoveryRows(tx: WalletSql): Promise<MarketplaceRecoveryRows> {
   return owned(tx, async () => {
     await assertNamespaces(tx, ["alpha_exchange", "alpha_wallet_simulation", "alpha_wallet_marketplace_simulation"]);
-    await assertTableShape(tx, "alpha_exchange", canonicalTables);
     const recovery = (await tx.query<{ present: boolean }>("SELECT to_regclass('alpha_wallet_marketplace_simulation.recovery_receipts') IS NOT NULL AS present")).rows[0]?.present;
+    const mobile = await mobileAuthenticationRelations(tx);
+    check(mobile.sessions === mobile.history, "Recovery source must contain both exact mobile authentication tables or neither");
+    check(!recovery || !mobile.sessions, "Recovered marketplace mobile authentication relations must remain absent");
+    await assertTableShape(tx, "alpha_exchange", mobile.sessions
+      ? { ...canonicalTables, ...excludedMobileAuthenticationTables } : canonicalTables);
     await assertTableShape(tx, "alpha_wallet_marketplace_simulation", recovery ? { ...coordinationTables, recovery_receipts: recoveryReceiptTable } : coordinationTables);
     const canonical: Record<string, Row[]> = {}, coordination: Record<string, Row[]> = {};
     const budget = { rows: 0, bytes: 0 };
@@ -235,6 +270,10 @@ function identityStub(row: Row): Row {
 /** Compare the COMPLETE stub, not merely disabled=true beside hidden credentials. */
 export async function assertMarketplaceRecoveryIdentityQuarantine(tx: WalletSql): Promise<void> {
   await owned(tx, async () => {
+    // A fresh restored copy never creates mobile auth tables. Refuse even an
+    // empty pair added later; disabled account flags alone cannot certify that
+    // device-bound credentials and rotation history remained quarantined.
+    await assertNoRecoveredMobileAuthentication(tx);
     const count = await tx.query<{ count: string }>("SELECT count(*)::text AS count FROM alpha_exchange.sessions");
     check(count.rows[0]?.count === "0", "Recovered marketplace sessions must remain empty");
     const users = (await tx.query<{ row: Row }>("SELECT to_jsonb(u) AS row FROM alpha_exchange.users u ORDER BY id")).rows;

@@ -9,6 +9,10 @@ import { createDurableWallet, initializeDurableWallet, WalletIntegrityError } fr
 import { CommitOutcomeUnknownError, type WalletSql, type WalletStore } from "./durable-store";
 import { resolveDevelopmentMarketplaceWebPrincipal, type DevelopmentMarketplaceWebPrincipal } from "./marketplace-auth";
 import {
+  developmentMarketplaceMobileCredentialsSchema, resolveDevelopmentMarketplaceMobilePrincipal,
+  type DevelopmentMarketplaceMobileCredentials,
+} from "./marketplace-mobile-auth";
+import {
   inspectMarketplaceWalletBackup, parseMarketplaceWalletBackup,
   type MarketplaceWalletBackupEnvelope, type MarketplaceWalletBackupInspection,
 } from "./marketplace-backup-manifest";
@@ -30,6 +34,8 @@ export type { MarketplaceWalletBackupEnvelope, MarketplaceWalletBackupInspection
 const identity = z.string().regex(/^[A-Za-z0-9_-]{1,80}$/);
 const checksumSchema = z.string().regex(/^[a-f0-9]{64}$/);
 const exportInput = z.strictObject({ sessionToken: z.string().min(1).max(512), requestId: identity });
+const mobileExportInput = z.strictObject({ ...developmentMarketplaceMobileCredentialsSchema.shape, requestId: identity });
+type ExportOptions = { mode: "simulation-only"; store: WalletStore; requestId: string; clock?: () => number };
 const COMMANDS = `SELECT revision,command_key,command_type,occurred_at_ms::text AS occurred_at_ms,
   command_json,input_hash,result_json,result_hash,state_hash,previous_event_hash,event_hash
   FROM alpha_wallet_simulation.commands ORDER BY revision`;
@@ -117,13 +123,27 @@ async function owned<T>(store: WalletStore, work: (tx: WalletSql) => Promise<T>)
  * Returns private plaintext data; the caller must save it under restricted
  * access and retain its checksum separately. No file/network/provider operation.
  */
-export async function exportMarketplaceWalletBackup(options: {
-  mode: "simulation-only"; store: WalletStore; sessionToken: string; requestId: string; clock?: () => number;
-}): Promise<string> {
+export async function exportMarketplaceWalletBackup(options: ExportOptions & { sessionToken: string }): Promise<string> {
   assertSimulationRuntime(options.mode);
   const parsed = exportInput.safeParse({ sessionToken: options.sessionToken, requestId: options.requestId });
   check(parsed.success, "INVALID_INPUT", "Invalid development marketplace recovery export input");
-  const input = parsed.data;
+  return exportAuthenticatedMarketplaceWalletBackup(options, parsed.data);
+}
+
+/**
+ * Same private recovery format, authenticated by a current stored mobile owner
+ * in the export transaction. Device sessions and refresh history are excluded;
+ * this endpoint never issues, rotates or copies credentials to the target.
+ */
+export async function exportMobileMarketplaceWalletBackup(options: ExportOptions & DevelopmentMarketplaceMobileCredentials): Promise<string> {
+  assertSimulationRuntime(options.mode);
+  const parsed = mobileExportInput.safeParse({ accessToken: options.accessToken, metadata: options.metadata, requestId: options.requestId });
+  check(parsed.success, "INVALID_INPUT", "Invalid development mobile marketplace recovery export input");
+  return exportAuthenticatedMarketplaceWalletBackup(options, parsed.data);
+}
+
+async function exportAuthenticatedMarketplaceWalletBackup(options: ExportOptions,
+  input: z.infer<typeof exportInput> | z.infer<typeof mobileExportInput>): Promise<string> {
   const clock = () => checkedTime(options.clock ?? Date.now);
   return owned(options.store, async tx => {
     let principal: DevelopmentMarketplaceWebPrincipal | undefined;
@@ -131,7 +151,9 @@ export async function exportMarketplaceWalletBackup(options: {
     let serialized: string | undefined;
     await mutateDevelopmentFocusedTradeInTransaction({ mode: options.mode, tx, requestId: input.requestId }, async db => {
       check(db.purchaseRequests.some(request => request.id === input.requestId), "INTEGRITY", "Recovery requires the canonical enrolled request identity");
-      principal = await resolveDevelopmentMarketplaceWebPrincipal({ mode: options.mode, tx, token: input.sessionToken, clock });
+      principal = "sessionToken" in input
+        ? await resolveDevelopmentMarketplaceWebPrincipal({ mode: options.mode, tx, token: input.sessionToken, clock })
+        : await resolveDevelopmentMarketplaceMobilePrincipal({ mode: options.mode, tx, accessToken: input.accessToken, metadata: input.metadata, clock });
       check(principal.isOwner, "OWNER_REQUIRED", "Combined marketplace export requires the authenticated owner");
       context = await registerMarketplaceContext({ mode: options.mode, tx, requestId: input.requestId,
         operation: "inspect", actorUserId: principal.userId });

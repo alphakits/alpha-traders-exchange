@@ -514,7 +514,7 @@ async function verify(urls: ReturnType<typeof argumentsOf>) {
       concurrency, authentication, walletRevision: reopened.wallet.revision,
       money: { custodyUSDT: "500", listingInventoryUSDT: "200", reservedPrincipalUSDT: "300", buyerFeeUSDT: "3", sellerFeeUSDT: "3", fiatTotalILS: "969.60", providerSubmissions: 0 },
       limits: ["Explicit owner enrollment of one clean active reserved trade globally; Bank Transfer and Face-to-Face only.",
-        "Only web sessions are coordinated; no live route, mobile bridge, payout, new proposal, cancellation, release or settlement is enabled.",
+        "This drill exercises web sessions; the separate mobile drill verifies device-session coordination. No live route, payout, new proposal, cancellation, release or settlement is enabled.",
         "Publication intent is durable but no external notification/realtime delivery runs.",
         "Lost reply is injected after a real commit; no real network partition or provider is used.",
         "Wallet-only export is rejected after enrollment; the separate combined recovery drill verifies paused fresh-target restoration."] }, null, 2));

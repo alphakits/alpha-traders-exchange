@@ -134,6 +134,9 @@ jobs:
             await connection.query('CREATE DATABASE alpha_wallet_dev_combined_source');
             await connection.query('CREATE DATABASE alpha_wallet_dev_combined_restore');
             await connection.query('CREATE DATABASE alpha_wallet_dev_combined_races');
+            await connection.query('CREATE DATABASE alpha_wallet_dev_mobile_atomic');
+            await connection.query('CREATE DATABASE alpha_wallet_dev_mobile_auth');
+            await connection.query('CREATE DATABASE alpha_wallet_dev_mobile_restore');
           } finally { await connection.end(); }
           NODE
 
@@ -187,6 +190,17 @@ jobs:
             --race-connection-string 'postgresql://wallet_fixture:simulation-only@127.0.0.1:5432/alpha_wallet_dev_combined_races' \
             2>test-results/alpha-wallet/postgres-marketplace-backup.stderr.log \
             | tee test-results/alpha-wallet/postgres-marketplace-backup.json
+
+      - name: Verify mobile authority races, cross-transport receipts and credential-free recovery
+        run: |
+          set -euo pipefail
+          node --conditions=react-server --import tsx scripts/alpha-wallet/postgres-marketplace-mobile.ts \
+            --fresh-simulation-databases \
+            --atomic-connection-string 'postgresql://wallet_fixture:simulation-only@127.0.0.1:5432/alpha_wallet_dev_mobile_atomic' \
+            --auth-connection-string 'postgresql://wallet_fixture:simulation-only@127.0.0.1:5432/alpha_wallet_dev_mobile_auth' \
+            --restore-connection-string 'postgresql://wallet_fixture:simulation-only@127.0.0.1:5432/alpha_wallet_dev_mobile_restore' \
+            2>test-results/alpha-wallet/postgres-marketplace-mobile.stderr.log \
+            | tee test-results/alpha-wallet/postgres-marketplace-mobile.json
 
       - name: Install the locked Playwright Chromium browser
         run: node ./node_modules/playwright/cli.js install --with-deps chromium
