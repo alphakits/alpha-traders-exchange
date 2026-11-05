@@ -2,7 +2,7 @@
 
 Date: 5 November 2026 (Asia/Jerusalem).
 
-**Implemented scope: a separately versioned seller-native financial transition, guarded development storage, historical receipt recovery, and an isolated paused-wallet backup format. Authentication and coordinated canonical marketplace acceptance remain unfinished.** This extends the [initial-acceptance groundwork](initial-acceptance-design.md); it does not connect a public route or screen, activate a canonical cohort, register a production migration, deploy the application, or authorize live funds, providers or signing.
+**Financial scope: a separately versioned seller-native transition, guarded development storage, historical receipt recovery, and an isolated paused-wallet backup format.** The later [authenticated initial coordinator](initial-marketplace-coordinator-design.md) now adds stored web/mobile seller authority and canonical coupling through a separate development namespace. Combined initial-cohort recovery remains UNIMPLEMENTED. The v3 command/replay/storage contracts and frozen v1/v2 fixtures remain unchanged. No public route or screen, production migration, deployment, live funds, provider or signing authority is supplied.
 
 ## Closed financial contract
 
@@ -18,7 +18,7 @@ There is no v3 resume, new funding, enrollment, amount correction, payment, canc
 
 The [reducer](../../src/lib/alpha-wallet/v3-engine.ts) requires a seller actor whose identity matches the accepted terms and seller action. The buyer remains the distinct identity in the retained request. It never invokes the older buyer-only `reserveTrade` command under a manufactured buyer actor.
 
-Actors and canonical digests supplied to this private simulation are recorded facts, **not authentication proofs, signatures or evidence of complete database reads**. The constructor and pure planner are not endpoints. A future trusted coordinator must establish their source and current authority.
+Actors and canonical digests supplied to this private simulation are recorded facts, **not authentication proofs, signatures or evidence of complete database reads**. The constructor and pure planner are not endpoints. The separate fixed initial coordinator now establishes their source and current stored authority; arbitrary financial-module callers still cannot establish it by constructing a descriptor.
 
 ## First supported cohort
 
@@ -38,7 +38,7 @@ The reducer validates the canonical quote and exact raw units. Marketplace quant
 
 New `initialBindings` and `initialAcceptanceReceipts` remain separate from v2 enrollment/correction metadata. Each binds the canonical request/trade, wallet listing/trade, participants, asset, destination, retained terms and source evidence to the original command key, revision and acceptance time. Initial bindings have revision zero and immutable reserved trade data. They cannot be enrolled into the old listing-priced correction contract.
 
-Business identity is the stable initial-acceptance key derived from request and seller. A retry with the same actor and exact descriptor can use another transport operation ID, but returns the original command identity, event hash and receipt without another reservation. Changed evidence or actor under the same business identity is refused. Receipt recovery can succeed after pause because it creates no new financial effect. Current session authority is still a future coordinator requirement.
+Business identity is the stable initial-acceptance key derived from request and seller. A retry with the same actor and exact descriptor can use another transport operation ID, but returns the original command identity, event hash and receipt without another reservation. Changed evidence or actor under the same business identity is refused. Receipt recovery can succeed after pause because it creates no new financial effect. The initial coordinator enforces current stored seller authority for receipt recovery. This isolated financial library does not authenticate sessions itself.
 
 ## Explicit continuation and preserved history
 
@@ -60,7 +60,7 @@ Every v3 operation and migration refuses the existing `alpha_wallet_marketplace_
 
 ## Isolated format-3 recovery
 
-The [backup module](../../src/lib/alpha-wallet/v3-backup.ts) uses format version 3, scope `isolated-v3-ledger`, both continuation records, all command rows and their verified checkpoint/checksum. Export requires an actually paused replay state and an isolated development database. Even empty canonical/coordination schemas and unrelated public relations are refused: this wallet-only file cannot preserve their state.
+The [backup module](../../src/lib/alpha-wallet/v3-backup.ts) uses format version 3, scope `isolated-v3-ledger`, both continuation records, all command rows and their verified checkpoint/checksum. Export requires an actually paused replay state and an isolated development database. Even empty canonical/coordination schemas, including `alpha_wallet_initial_marketplace_simulation`, and unrelated public relations are refused: this wallet-only file cannot preserve their state.
 
 Restore validates the full bounded document before touching the target, checks an optional expected checksum, requires a fresh isolated target, and replays the original v1/v2/v3 commands at their original times. It verifies the exact source checkpoint before appending a deterministic v3 quarantine pause. Schema creation, both upgrades, complete history and quarantine share one transaction. There must be capacity for that final command. Source and restored target remain paused; this format supplies no resume or custody-transfer authority.
 
@@ -68,8 +68,10 @@ A lost COMMIT acknowledgment remains an unknown outcome. Inspect/reopen the same
 
 ## Evidence and remaining integration
 
-[Exact-source verification at `f18e95e6`](ledger-v3-verification-2026-11-05.md) passed **1,626 tests** across 48 files, root TypeScript, all nine native PostgreSQL drills/**86 checks**, the offline simulation and the retained English/Arabic Chromium rehearsal. The new tests comprise 143 engine, 42 durable-storage, 31 isolated-backup and 20 frozen-history cases; all 1,203 prior wallet cases are retained. The [machine-readable report](ledger-v3-verification-results.json) binds the commit/tree, CI job, downloaded artifact digest and every verified evidence file. The new [native drill](../../scripts/alpha-wallet/postgres-v3-ledger.ts) passed all eleven checks. Its synthetic source facts and isolated wallet-only scope do not establish authenticated canonical initial acceptance.
+[Historical financial verification at `f18e95e6`](ledger-v3-verification-2026-11-05.md) passed **1,626 tests** across 48 files, root TypeScript, all nine native PostgreSQL drills/**86 checks**, the offline simulation and the retained English/Arabic Chromium rehearsal. The new tests comprise 143 engine, 42 durable-storage, 31 isolated-backup and 20 frozen-history cases; all 1,203 prior wallet cases are retained. The [machine-readable report](ledger-v3-verification-results.json) binds the commit/tree, CI job, downloaded artifact digest and every verified evidence file. The new [native drill](../../scripts/alpha-wallet/postgres-v3-ledger.ts) passed all eleven checks. Its synthetic source facts and isolated wallet-only scope do not establish authenticated canonical initial acceptance.
 
-The next seller coordinator must resolve stored web/mobile authority in the same transaction, establish selling eligibility explicitly (`canBuy` or owner identity alone is insufficient), and recheck it after awaited work. It must own complete canonical reads and wallet replay; atomically commit canonical acceptance, physical trade/listing projections, reservation, receipt and publication intent; preserve business retries with fresh authorization; fence unsupported writers; and define a distinct combined recovery contract. Broader cohorts need complete one-to-one canonical/wallet identity coverage in both directions.
+The [initial coordinator](initial-marketplace-coordinator-design.md) now resolves stored web/mobile seller authority in the same transaction, explicitly derives `canSell`, checks exact seller ownership and rechecks authority after awaited work. It owns complete fenced canonical reads and wallet replay, commits canonical acceptance, trade/listing projections, full reservation, original coordinated receipt and safe publication intent together, and fences unsupported writers. Its separate [verification at `c11fe0e9`](initial-marketplace-verification-2026-11-05.md) passed 1,779 tests and ten native drills/101 checks; the [machine-readable evidence](initial-marketplace-verification-results.json) binds this successor separately from the financial-only baseline above. Broader cohorts still need complete canonical/wallet identity coverage in both directions.
+
+**Combined recovery for the initial canonical cohort remains UNIMPLEMENTED.** Isolated format 3 and the old v2 `canonical-cohort-v1` format refuse it. Current-owner initial inspection/pause and same-database original receipt recovery preserve the source, but are not portable disaster recovery. A distinct format must capture canonical activation/basis, full financial history, bindings, receipts, events and publication together with credential quarantine and source/target fencing. See the [recovery runbook](recovery-runbook.md).
 
 Subsequent trade lifecycle, product routes/screens, deduplicated delivery, real custody/provider/signing integration and the remaining [launch-readiness gates](launch-readiness.md) remain separate work.
