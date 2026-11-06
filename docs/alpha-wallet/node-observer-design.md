@@ -82,6 +82,8 @@ Regression tests cover exact eight MiB PNG/JPEG/PDF signature-bearing bytes, the
 
 ## Next integration gate
 
+The [proposed durable observation inbox](deposit-observation-ingestion-design.md) defines the next development slice. Its immutable admission wrapper, additional timing trace and replay validator, isolated schema/recorder, candidate cursor and independent backup are design only. Current observer transcripts retain start/completion and per-read completion times; they do not retrospectively prove all elapsed-time checks or authenticate copied clock data. The planned inbox still grants no credit authority.
+
 Before any observation can support a live deposit, define approved provider admission/authentication, actual independence, exact token registry and receiving-address attribution, durable event uniqueness, restart/backfill checkpoints, cross-observation conflict quarantine, source leadership/fencing and custody/liability reconciliation. A checksum alone is not source authentication, and a second successful function call is not another credit authorization.
 
 The existing lifecycle also needs trusted fiat evidence, current seller release authority, dispute resolution, complete unpaid cancellation through an explicit later profile and actual web/mobile product integration. Signer/testnet recovery and launch require their own concrete evidence. Current verification status belongs to the checkpoint/report, not this design contract.

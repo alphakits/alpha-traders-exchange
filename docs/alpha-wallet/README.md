@@ -4,7 +4,7 @@ Date: 6 November 2026 (Asia/Jerusalem). Scope: architecture and **offline develo
 Base: `0b11b21fc0de3d04e4325a748ea2de62ade4f317` (the existing marketplace main branch when this work began).
 Working branch: `feature/alpha-wallet-dev-20261104`.
 
-**Current development continuation:** the read-only BSC/TRON node observer layer and valid eight MiB payment-proof correction have been rebuilt from the saved baseline after the earlier local-only checkout became unavailable. They use explicit injected read IO, retain `creditAuthority: false` and change no financial receipt meaning. Fresh focused checks and source-bound CI are required for these new bytes; older local results do not verify this reconstruction. See the [observer contract](node-observer-design.md) and [workspace recovery record](workspace-recovery-2026-11-06.md). The user explicitly approved saving this development branch on 6 November; live launch remains prohibited.
+**Current verified development milestone:** the [read-only BSC/TRON observers and eight MiB payment-proof correction](node-observer-verification-2026-11-06.md) are rebuilt, saved and verified at `c2f078aa5960f835f82840977307dbfaedd096f2`, tree `89694b4a2db33f5f2b0ed7f5c92f3b44b2011e0b`. [CI run 42267049554](https://github.com/alphakits/alpha-traders-exchange/actions/runs/42267049554) passed **3,130 tests across 83 files**, zero failures/skips, **18 native PostgreSQL drills / 212 checks**, repository TypeScript, the offline demo and retained English/Arabic Chromium rehearsal. All 2,786 previous test cases and 75 frozen contracts are retained. Observations use injected synthetic IO and carry `creditAuthority: false`; no financial receipt meaning changes. The [recovery record](workspace-recovery-2026-11-06.md) distinguishes this reconstruction from the unavailable old local commits. Development and saving this branch are authorized. **Live launch remains prohibited.**
 
 **Last CI-verified lifecycle milestone:** the [payment-claim and dispute successor](payment-marketplace-coordinator-design.md) adds explicit owner enrollment into V5, a current stored buyer's unverified payment claim, a buyer-only dispute freeze after that exact claim, and complete combined recovery. Both actions preserve the full principal reservation and move no money. Enrollment explicitly disables new cancellation in this private profile; previously cancelled V4 mappings remain archival. Original financial history, profiles, backup formats and existing product behavior retain their meanings.
 
@@ -66,7 +66,7 @@ This is an executable specification connected to an isolated, durable simulation
 | Initial canonical coordinator | Stored web/mobile seller acceptance after explicit owner mapping; full-principal v3 reservation, canonical transition, original receipt and safe publication commit once; SQL fences order legacy writers | One clean ordinary pending request; original business retries require current authority; separate combined recovery is implemented; later lifecycle, public routes and delivery remain open |
 | Versioned ledger continuation | Explicit atomic v1-to-v2 migration; unchanged historical prefix; durable synthetic enrollment, principal-delta corrections and immutable proposal receipts; inherited standalone settlement/recovery and mixed-history backup | The private coordinator adds canonical SQL/auth coupling; its active cohort fences unsupported settlement, worker and standalone-backup paths |
 | Chain evidence | Strict BSC/TRON receipt decoding, event identity, exact units, execution status and supplied canonical ancestry | Pure fixture consistency; no live RPC, consensus proof, authoritative finality source or automatic credit |
-| Read-only node observations | Closed native reads, raw response bounds, two configured views, explicit finality, complete bounded ancestry and fixed evidence rereads | Rebuilt implementation with injected synthetic IO; current-source CI pending; no authenticated consensus, durable ingestion or credit authority |
+| Read-only node observations | Closed native reads, raw response bounds, two configured views, explicit finality, complete bounded ancestry and fixed evidence rereads | Verified rebuilt implementation with injected synthetic IO; see the current observer report. No authenticated consensus, durable ingestion or credit authority |
 | Interactive rehearsal | Persistent loopback app with English/Arabic flows, partial trades, fee accounting and fault recovery | Explicit synthetic role switcher; not real account authentication or a deployed product |
 | Seller-native ledger v3 | Explicit v2 continuation; seller-authored initial full-principal reservation at retained terms; immutable binding/receipt; strict SQL and isolated paused recovery | The financial contract is unchanged; the separate initial coordinator supplies stored authority and canonical coupling; later lifecycle remains unfinished and combined initial recovery has its own separate format |
 | Prepayment ledger V4 | Explicit v3 continuation; exact full-principal return to the original listing; immutable cancellation receipt; strict SQL and isolated format-4 paused recovery | Closed cancellation/pause scope, supplied simulation authority, no payout or fee; existing canonical cohorts refuse standalone V4 access |
@@ -260,7 +260,7 @@ The two simulation assets intentionally have different identities and precision:
 
 The existing manual marketplace permits some differing listing/receiving networks. The wallet prototype deliberately requires the funded asset and payout asset to match. A bridge or cross-chain liquidity service is not implied.
 
-Future observers must validate environment, chain, exact allowlisted contract, transfer-event index, transaction identity, recipient, raw units, canonical block identity, successful execution, and finality. The event identity is `(network, token, transaction, event index)`, rather than amount, token symbol, or transaction hash alone. Indexers discover candidates; authoritative receipt checks determine creditability. Preserve completed scan coverage and checkpoints so outages cannot falsely become “no deposits.”
+The implemented development observers validate exact native receipt, event, block and bounded finality consistency. They return no credit authority. Production deposit admission additionally requires authenticated source admission, immutable custody attribution, durable event consumption, reconciliation and a separately reviewed credit contract. Complete chain scanning and historical coverage remain unimplemented; the [proposed evidence inbox](deposit-observation-ingestion-design.md) initially tracks progress through explicitly supplied known candidates only. Its planned native event locator and transaction/block anchors detect changed token, recipient, amount or placement without silently creating a different deposit. The frozen decoder’s existing event key retains its original meaning.
 
 TRON's documentation distinguishes broadcast success, indexing, transaction inclusion, solidification, and execution success; the last two are both needed for a valid token deposit. BSC exposes finalized state through its JSON-RPC API. These are separate chain adapters, not one arbitrary elapsed-time delay. See the primary references below.
 
@@ -301,15 +301,15 @@ The original marketplace checkout and its unrelated commission work are preserve
 From the repository root, using its existing pinned dependencies:
 
 ```bash
-node node_modules/vitest/vitest.mjs run src/lib/alpha-wallet
-NODE_ENV=development node --import tsx scripts/alpha-wallet/demo.ts
+TZ=UTC NODE_ENV=test node node_modules/vitest/vitest.mjs run src/lib/alpha-wallet --maxWorkers=2
+TZ=UTC NODE_ENV=development node --import tsx scripts/alpha-wallet/demo.ts
 ```
 
 For an actual separate-process recovery demonstration, use fresh absolute paths:
 
 ```bash
-NODE_ENV=development node --import tsx scripts/alpha-wallet/recovery-demo.ts prepare /tmp/alpha-wallet-demo /tmp/alpha-provider-demo --abrupt-exit
-NODE_ENV=development node --import tsx scripts/alpha-wallet/recovery-demo.ts recover /tmp/alpha-wallet-demo /tmp/alpha-provider-demo
+TZ=UTC NODE_ENV=development node --import tsx scripts/alpha-wallet/recovery-demo.ts prepare /tmp/alpha-wallet-demo /tmp/alpha-provider-demo --abrupt-exit
+TZ=UTC NODE_ENV=development node --import tsx scripts/alpha-wallet/recovery-demo.ts recover /tmp/alpha-wallet-demo /tmp/alpha-provider-demo
 ```
 
 The first process exits without closing the store after the fake provider has accepted a 200 USDT transfer and its response was lost. The second process finds that original transfer, confirms it once, and proves that 300 USDT remains in custody with a separate 4 USDT commission due. This test uses synthetic funds and no network.
@@ -317,7 +317,7 @@ The first process exits without closing the store after the fake provider has ac
 For real multi-process SQL contention, create an empty disposable local PostgreSQL database and run the explicitly guarded harness (the workflow provisions this fixture automatically):
 
 ```bash
-NODE_ENV=test node --import tsx scripts/alpha-wallet/postgres-concurrency.ts \
+TZ=UTC NODE_ENV=test node --import tsx scripts/alpha-wallet/postgres-concurrency.ts \
   --fresh-simulation-database \
   --connection-string 'postgresql://wallet_fixture:simulation-only@127.0.0.1:5432/alpha_wallet_dev_races'
 ```
@@ -327,7 +327,7 @@ The harness refuses existing application schemas and never drops data. It requir
 The focused marketplace participant has a separate native fixture using the actual repository read/write statements and a fresh database:
 
 ```bash
-NODE_ENV=test node --conditions=react-server --import tsx scripts/alpha-wallet/postgres-marketplace-transaction.ts \
+TZ=UTC NODE_ENV=test node --conditions=react-server --import tsx scripts/alpha-wallet/postgres-marketplace-transaction.ts \
   --fresh-simulation-database \
   --connection-string 'postgresql://wallet_fixture:simulation-only@127.0.0.1:5432/alpha_wallet_dev_marketplace'
 ```
@@ -337,7 +337,7 @@ It pairs trade-note updates with synthetic wallet commands to check shared commi
 The amount-correction coordinator has its own native fixture using three distinct, already-created empty loopback databases:
 
 ```bash
-NODE_ENV=test node --conditions=react-server --import tsx scripts/alpha-wallet/postgres-marketplace-coordinator.ts \
+TZ=UTC NODE_ENV=test node --conditions=react-server --import tsx scripts/alpha-wallet/postgres-marketplace-coordinator.ts \
   --fresh-simulation-databases \
   --atomic-connection-string 'postgresql://wallet_fixture:simulation-only@127.0.0.1:5432/alpha_wallet_dev_coordinator_atomic' \
   --race-connection-string 'postgresql://wallet_fixture:simulation-only@127.0.0.1:5432/alpha_wallet_dev_coordinator_races' \
@@ -349,7 +349,7 @@ It exercises actual canonical enrollment/acceptance, cross-domain rollback, enro
 The separate combined recovery drill requires three different, already-created empty loopback databases. It checks all three before writing, then exercises exact export/restore, late SQL rollback, same-target recovery after a lost acknowledgement, credential quarantine and two competing restores:
 
 ```bash
-NODE_ENV=test node --conditions=react-server --import tsx scripts/alpha-wallet/postgres-marketplace-backup.ts \
+TZ=UTC NODE_ENV=test node --conditions=react-server --import tsx scripts/alpha-wallet/postgres-marketplace-backup.ts \
   --fresh-simulation-databases \
   --source-connection-string 'postgresql://wallet_fixture:simulation-only@127.0.0.1:5432/alpha_wallet_dev_combined_source' \
   --target-connection-string 'postgresql://wallet_fixture:simulation-only@127.0.0.1:5432/alpha_wallet_dev_combined_restore' \
@@ -361,7 +361,7 @@ These are disposable fixture credentials. The drill does not create/drop databas
 The new [native mobile drill](../../scripts/alpha-wallet/postgres-marketplace-mobile.ts) uses three different, already-created empty loopback databases for mobile authority races, cross-transport receipt recovery and credential-free restore:
 
 ```bash
-NODE_ENV=test node --conditions=react-server --import tsx scripts/alpha-wallet/postgres-marketplace-mobile.ts \
+TZ=UTC NODE_ENV=test node --conditions=react-server --import tsx scripts/alpha-wallet/postgres-marketplace-mobile.ts \
   --fresh-simulation-databases \
   --atomic-connection-string 'postgresql://wallet_fixture:simulation-only@127.0.0.1:5432/alpha_wallet_dev_mobile_atomic' \
   --auth-connection-string 'postgresql://wallet_fixture:simulation-only@127.0.0.1:5432/alpha_wallet_dev_mobile_auth' \
@@ -379,7 +379,7 @@ The test report records the actual checks run and their limits. Do not describe 
 The initial acceptance mechanics drill requires two additional fresh databases:
 
 ```bash
-NODE_ENV=test node --conditions=react-server --import tsx scripts/alpha-wallet/postgres-initial-acceptance.ts \
+TZ=UTC NODE_ENV=test node --conditions=react-server --import tsx scripts/alpha-wallet/postgres-initial-acceptance.ts \
   --fresh-simulation-databases \
   --atomic-connection-string 'postgresql://wallet_fixture:simulation-only@127.0.0.1:5432/alpha_wallet_dev_initial_atomic' \
   --race-connection-string 'postgresql://wallet_fixture:simulation-only@127.0.0.1:5432/alpha_wallet_dev_initial_races'
@@ -390,7 +390,7 @@ It checks database emptiness before setup, uses explicit synthetic identities an
 The separate seller-native financial drill requires three fresh databases:
 
 ```bash
-NODE_ENV=test node --conditions=react-server --import tsx scripts/alpha-wallet/postgres-v3-ledger.ts \
+TZ=UTC NODE_ENV=test node --conditions=react-server --import tsx scripts/alpha-wallet/postgres-v3-ledger.ts \
   --fresh-simulation-databases \
   --source-connection-string 'postgresql://wallet_fixture:simulation-only@127.0.0.1:5432/alpha_wallet_dev_v3_source' \
   --race-connection-string 'postgresql://wallet_fixture:simulation-only@127.0.0.1:5432/alpha_wallet_dev_v3_races' \
@@ -402,7 +402,7 @@ Its [eleven executed checks](ledger-v3-verification-2026-11-05.md) cover the exp
 The separate authenticated initial-coordinator drill requires three fresh databases:
 
 ```bash
-NODE_ENV=test node --conditions=react-server --import tsx scripts/alpha-wallet/postgres-initial-marketplace.ts \
+TZ=UTC NODE_ENV=test node --conditions=react-server --import tsx scripts/alpha-wallet/postgres-initial-marketplace.ts \
   --fresh-simulation-databases \
   --atomic-connection-string 'postgresql://wallet_fixture:simulation-only@127.0.0.1:5432/alpha_wallet_dev_initial_marketplace_atomic' \
   --race-connection-string 'postgresql://wallet_fixture:simulation-only@127.0.0.1:5432/alpha_wallet_dev_initial_marketplace_races' \
@@ -414,7 +414,7 @@ It checks all three databases before fixture writes, using actual stored synthet
 The initial combined recovery drill uses four distinct, already-created empty loopback databases and fixed UTC database sessions:
 
 ```bash
-NODE_ENV=test TZ=UTC node --conditions=react-server --import tsx scripts/alpha-wallet/postgres-initial-marketplace-backup.ts \
+TZ=UTC NODE_ENV=test TZ=UTC node --conditions=react-server --import tsx scripts/alpha-wallet/postgres-initial-marketplace-backup.ts \
   --fresh-simulation-databases \
   --source-connection-string 'postgresql://wallet_fixture:simulation-only@127.0.0.1:5432/alpha_wallet_dev_initial_backup_source' \
   --activated-source-connection-string 'postgresql://wallet_fixture:simulation-only@127.0.0.1:5432/alpha_wallet_dev_initial_backup_activated' \
@@ -446,7 +446,9 @@ Current acceptance evidence, open gates and owner decisions are tracked in [laun
 | 2a extension. Initial combined recovery | Distinct full v1/v2/v3 and canonical bundle; web/mobile owner export; fresh atomic paused restore; disabled identities; same-target unknown-COMMIT inspection | [Verified at `2c3e6a0b`](initial-marketplace-recovery-verification-2026-11-05.md): 1,913 tests, eleven native drills/117 checks, TypeScript and retained Chromium rehearsal. Current schemas and old formats remain distinct; no authority re-entry or resume |
 | 2a extension. Isolated V4 cancellation and canonical groundwork | Frozen v3 evidence; explicit full-principal cancellation/receipt; strict durable SQL and isolated format-4 recovery; separate canonical cancellation participant | [Verified at `73970284`](prepayment-cancellation-verification-2026-11-06.md): 2,232 tests, thirteen native drills/139 checks, root TypeScript, offline demo and retained Chromium rehearsal; no authenticated cancellation coordinator |
 | 2a extension. Authenticated cancellation and combined recovery | Explicit owner cutover; current stored party authority; one canonical/V4 return, receipt and publication; exact SQL and complete quarantined recovery | [Verified at `3122fdbf`](cancellation-marketplace-verification-2026-11-06.md): 2,404 tests, 15 native drills/166 checks, TypeScript and retained Chromium rehearsal |
-| 2a extension. Payment claims, dispute freezes and combined recovery | Explicit V5 enrollment; current buyer authority; exact private evidence; unverified claim followed by a buyer dispute hold; full reservation retained; complete recovery | [Current payment verification report](payment-marketplace-verification-2026-11-06.md); source-bound CI status at the top of this document. No product integration or release authority |
+| 2a extension. Payment claims, dispute freezes and combined recovery | Explicit V5 enrollment; current buyer authority; exact private evidence; unverified claim followed by a buyer dispute hold; full reservation retained; complete recovery | [Historical V5 payment verification report](payment-marketplace-verification-2026-11-06.md); the current observer gate retains this complete lifecycle coverage. No product integration or release authority |
+| 2a extension. Read-only native node observations | Closed bounded native reads, exact BSC/TRON event consistency, explicit finalized/solidified ancestry, fixed evidence rereads and valid eight MiB attachment handling | [Verified observer milestone](node-observer-verification-2026-11-06.md): 3,130 tests / 83 files, 18 native drills / 212 checks, TypeScript and retained Chromium rehearsal. No real provider or financial credit authority |
+| Next. Durable observation evidence inbox | [Proposed development contract](deposit-observation-ingestion-design.md): immutable admission/attribution, a separately captured timing trace and transcript replay, isolated durable event/transaction/block anchors, absorbing quarantine, candidate progress and paused recovery | Design only; schema, admitted reader, replay validator, recorder, cursor and backup are not implemented. Require exact fixture replay, independent SQL constraints, native contention/unknown-COMMIT proof and retained V1–V5 compatibility; no credit authority |
 | Next. Trusted payment and complete lifecycle | Trusted bank/cash verification, seller-authorized release, dispute resolution, and a complete unpaid cancellation path through an explicit later profile | Reviewed authority/evidence contracts; preserved V1–V5 meanings and recovery; exact atomic transitions, native contention/rollback/retry proof and complete lifecycle coverage before product routes |
 | 2b. Production repository design | Auth-derived identities, production role design, version migration, checkpointing/scaling, backup/restore and operational recovery | Reviewed permissions, fault-injection evidence, restore/reconciliation exercise, realistic load tests |
 | 3. Testnet adapters | Exact chain allowlists; deposit address assignment; confirmed receipt observers; cursor recovery; chosen signer/custody sandbox; gas handling | Wrong-token, finality, provider outage, timeout, duplicate webhook, and ambiguous-broadcast recovery tests |
@@ -495,6 +497,10 @@ Additional implementation contracts:
 - [Private canonical marketplace coordinator](marketplace-coordinator-design.md)
 - [Transaction-owned mobile marketplace authority](marketplace-mobile-auth-design.md)
 - [Chain evidence adapter contract](chain-adapter-contract.md)
+- [Current observer exact-source verification](node-observer-verification-2026-11-06.md)
+- [Current observer machine-readable evidence](node-observer-verification-results.json)
+- [Read-only native observer contract](node-observer-design.md)
+- [Proposed durable observation inbox](deposit-observation-ingestion-design.md)
 - [Interactive rehearsal](rehearsal.md)
 - [Custody and signing decision](custody-decision.md)
 
