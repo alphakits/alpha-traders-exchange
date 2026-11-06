@@ -1,14 +1,14 @@
 # Durable deposit-observation inbox: development contract
 
-Date: **6 November 2026, Asia/Jerusalem**. Status: **the first development phase implements immutable admission, timed native capture, exact offline replay and prepared evidence bound to a trusted synthetic context. The durable inbox schema, recorder, cursor and backup remain proposed.** See [the implemented preparation contract](deposit-observation-preparation.md) for its exact API and limits. The [preparation verification report](deposit-preparation-verification-2026-11-06.md) records the tested source separately; this design is not custody evidence or launch approval.
+Date: **6 November 2026, Asia/Jerusalem**. Status: **immutable admission, timed native capture, exact offline replay, isolated durable evidence recording, finite candidate progress and complete independent paused recovery are implemented for synthetic development.** The [preparation contract](deposit-observation-preparation.md) and [persistence contract](deposit-inbox-persistence.md) specify their respective APIs and limits. The [inbox verification report](deposit-inbox-verification-2026-11-06.md) binds the tested source separately. Complete chain coverage, financial credit, actual custody/provider authority and live launch remain outside this contract.
 
 ## 1. Scope and existing boundaries
 
-Implement an isolated, bounded **evidence inbox** for observations of known native transfer events. Its first version will record immutable attribution, admitted source configuration, exact observations, repeated evidence, conflicts and restart progress through an explicitly supplied candidate job. Every future inbox command result and durable receipt must carry `mode: "simulation-only"` and `creditAuthority: false`; the implemented prepared observations and verified preparation results already carry those fields.
+The isolated, bounded **evidence inbox** records observations of known native transfer events. It retains immutable attribution, admitted source configuration, exact observations, repeated evidence, conflicts and restart progress through explicitly supplied candidate jobs. Prepared observations, inbox commands, durable receipts, snapshots and backups carry `mode: "simulation-only"` and `creditAuthority: false`. Candidate progress is not complete blockchain coverage.
 
 An inbox record must never call `observeDeposit`, increment a wallet balance, fund or approve a listing, settle commission, reserve principal, verify fiat, authorize release, clear a dispute, create a payout or contact a signer. The existing simulation `observeDeposit` actually credits on successful finalized fixture evidence; converting a native observation into that command would therefore cross the boundary of this slice. Its simulation destinations and event encodings remain unchanged. See [`sandbox.ts`](../../src/lib/alpha-wallet/sandbox.ts), [`types.ts`](../../src/lib/alpha-wallet/types.ts) and [`commands.ts`](../../src/lib/alpha-wallet/commands.ts).
 
-| Existing implementation | Consequence for this proposal |
+| Retained implementation | Consequence for the isolated inbox |
 | --- | --- |
 | [`chain-evidence.ts`](../../src/lib/alpha-wallet/chain-evidence.ts) validates supplied complete receipts/proofs and returns no credit authority. | Reuse its frozen decoders unchanged. A checksum and a successful decoder call establish consistency, not provider authentication or custody ownership. |
 | [`chain-observer-common.ts`](../../src/lib/alpha-wallet/chain-observer-common.ts), the [BSC observer](../../src/lib/alpha-wallet/bsc-node-observer.ts) and [TRON observer](../../src/lib/alpha-wallet/tron-node-observer.ts) verify one expected event, with at most 64 connecting successors. | The current result is neither a complete deposit scanner nor a durable ingestion receipt. It does not carry an admission manifest or custody assignment. |
@@ -39,18 +39,18 @@ Retain the assignment hash on every event and every ingestion command. No foreig
 
 ## 3. Preparation outside SQL and evidence admission
 
-The implemented `createAdmittedDevelopmentObservationReader` constructs the existing transport from the admitted source pair and matching separately supplied endpoint configuration. Before IO, an explicitly trusted `preparationContext` callback supplies a synthetic snapshot binding the configured store-instance identifier, registry, assignment, source set, captured source-head revision/identity and optional candidate cursor. The reader captures that snapshot, policy, candidate and trusted worker identity. It uses an explicitly injected fetch function and optional clock; an arbitrary caller-supplied `DevelopmentNodeTransport` is not an admission credential. This phase does not supply a persistent checkpoint provider: the future inbox must verify the snapshot against its actual retained history and candidate job before recording.
+The implemented `createAdmittedDevelopmentObservationReader` constructs the existing transport from the admitted source pair and matching separately supplied endpoint configuration. Before native IO, `recorder.preparationContext` supplies a snapshot from actual retained development-store history, binding the physical store-instance identifier, manifest, assignment, source set, captured source-head revision/identity and optional candidate bookmark. The reader captures that snapshot, policy, candidate and trusted worker identity. It uses an explicitly injected fetch function and optional clock; an arbitrary caller-supplied `DevelopmentNodeTransport` is not an admission credential. The callback interface still permits isolated synthetic fixtures, whose hashes alone do not establish persisted history. Before accepting a new record, the recorder verifies the captured base against its actual retained historical head and candidate job inside the same certified physical store.
 
 `prepare({ attemptId, candidate, jobId? })` returns a serializable `PreparedDepositObservationV1` containing:
 
 - Format/profile identifiers, manifest hash, source-set hash, assignment hash and worker ID.
-- The captured preparation-base source-head revision/number/hash, or an explicit first-observation base, and the configured store-instance identifier. The future recorder must verify this base against an actual retained historical head rather than accept a caller-selected checkpoint; the current synthetic callback does not establish persisted history.
+- The captured preparation-base source-head revision/number/hash, or an explicit first-observation base, and the physical store-instance identifier. The recorder verifies that base against an actual retained historical head and checks any candidate bookmark against its immutable job and cursor; a caller-selected checkpoint or a valid synthetic callback value alone cannot establish that history.
 - A stable attempt ID and the exact captured fixture context and policy.
 - The complete `DevelopmentChainObservation`, including raw request/response transcripts and their digests.
 - A **versioned timing trace** captured by the admitted reader's session wrapper: every semantic `session.now()` value and its read ordinal, per-read wall start/return times and conservative monotonic elapsed microseconds, plus whole-session elapsed microseconds. This trace belongs to the new prepared-inbox profile; the legacy observer result remains unchanged.
 - A preparation digest over the complete canonical envelope. The request ID and prepared bytes must be retained by the caller before recording; an uncertain database reply is resolved using those same bytes.
 
-The future recorder must validate the closed envelope and reproduce its semantic result before opening its write transaction. A plain object with `creditAuthority: false` and a recomputed observation checksum is insufficient. The implemented versioned transcript replay validator parses each original request/response, checks source/operation/argument order and BSC request/response IDs, consumes every required read exactly once, and reruns the unchanged observer/decoder semantics using a transcript-backed transport and the new semantic clock trace. It rejects missing, reordered, extra or unconsumed reads/clock samples. Captured wall and elapsed values must satisfy the profile's sequence/bounds; freshness is checked at the recorded semantic check instants and, through a separate new-admission check, against the current time. The reader wrapper enforces conservative whole-read/session elapsed bounds while capturing them.
+The recorder validates the closed envelope and reproduces its semantic result before opening its write transaction. A plain object with `creditAuthority: false` and a recomputed observation checksum is insufficient. The implemented versioned transcript replay validator parses each original request/response, checks source/operation/argument order and BSC request/response IDs, consumes every required read exactly once, and reruns the unchanged observer/decoder semantics using a transcript-backed transport and the new semantic clock trace. It rejects missing, reordered, extra or unconsumed reads/clock samples. Captured wall and elapsed values must satisfy the profile's sequence/bounds; freshness is checked at the recorded semantic check instants and, through a separate new-admission check, against the current time. The reader wrapper enforces conservative whole-read/session elapsed bounds while capturing them.
 
 **Legacy timing evidence remains narrower.** The original observer result retains session start/completion and each read's `completedAtMs`; it does not retain semantic clock calls, per-read starts or elapsed monotonic samples. Its capture enforces real monotonic deadlines, but copied legacy transcripts cannot retrospectively prove all those deadlines. The new prepared profile therefore requires its captured trace before clock-faithful replay; it does not backfill invented timing samples into old observations. Even the new trace proves internal consistency only when read from a file: hashes do not authenticate a clock or prove that the claimed real-time interval occurred.
 
@@ -81,11 +81,13 @@ New accepted evidence must agree with every retained overlapping block anchor. A
 
 A higher head requires complete linked continuity from the preparation base and, at commit, from the then-current retained source head. Accept when the observed path contains that head with the same identity, or when the containing block is its exact immediate successor, naming its full hash with a profile-valid timestamp. A gap such as retained head 102 followed by a candidate proof only covering 110→112 is `continuity-unproved-held`, not contradiction and not permission to advance. Inbox v1 adds no supplemental bridge reader. A later reviewed range/bridge implementation must supply missing intermediate evidence outside SQL. The current 64-successor profile can also hold older work; no hold permits truncating ancestry, clearing old anchors or pretending a job is complete.
 
-## 5. Proposed isolated storage and invariants
+## 5. Implemented isolated storage and invariants
 
 Use schema **`alpha_wallet_deposit_inbox_simulation`** in a separate marked PGlite directory or dedicated loopback database such as `alpha_wallet_dev_inbox_<fixture>`. Reuse `WalletStore`, but bootstrap and every reopen must reject wallet/marketplace/other application schemas and public relations. Existing wallet stores must never be initialized or upgraded as an inbox target.
 
-| Table/projection | Contract |
+The table below describes logical record/projection roles. The [implemented schema](deposit-inbox-schema.sql) also separates normalized `admission_records` and immutable `command_seals`; the [persistence guide](deposit-inbox-persistence.md) records module ownership.
+
+| Logical record/projection | Contract |
 | --- | --- |
 | `head` | One logical inbox ID, physical store-instance ID, manifest/profile/schema fingerprints, journal revision/hash, lock version and recording/paused/quarantined state. Only a complete command may advance it. |
 | `admission` | Exactly the immutable admitted manifest and its normalized chain/asset/source/assignment/worker projections. No updates or deletes. |
@@ -102,36 +104,56 @@ Use decimal-text validation or an unconstrained numeric domain that checks integ
 
 SQL must independently enforce unique locators/requests, immutable rows, admission and command foreign keys, cursor compare-and-swap, one owner transaction, row counts/bounds and a deferred completeness seal. No committed command may lack its exact receipt, observation links, required anchors, quarantine effect or cursor effect. No projection may be appended to an already sealed command. Direct cursor updates or quarantine clearing must fail at COMMIT even if application coherence checks are suppressed.
 
-As in the [existing durable schema](durable-schema.sql), SQL integrity constraints do not authenticate a worker or prove truthful chain data. The repository recomputes canonical cryptographic hashes and semantic replay on reopen/export/restore; do not promise a PostgreSQL JSON-hash primitive that has not been implemented. Revoke schema/table/function privileges from `PUBLIC`; no generic SQL or DDL surface is exposed through the recorder.
+SQL independently enforces the closed structural contract and its implemented cryptographic commitments, including canonical admission/bootstrap/state/journal/result/input commitments and the observer-specific observation/response commitments. Repository replay separately verifies complete native transcript semantics and reconstructs historical projections. Neither layer authenticates a provider, clock, real custody assignment or external worker identity. The schema revokes object privileges from `PUBLIC`; the recorder exposes no generic SQL or DDL surface.
 
-## 6. Proposed APIs and outcomes
+## 6. Implemented APIs and outcomes
 
-The following names describe **new internal development APIs**, not current exports. All inputs are captured as bounded plain data without executing getters or `toJSON`; all effectful entry points apply the runtime guard first. The worker/operator capability belongs to the constructor, not request JSON.
+The [persistence contract](deposit-inbox-persistence.md) describes the current internal development exports. Inputs are captured as bounded plain data without executing getters or `toJSON`; effectful entry points apply the runtime guard first. The worker/operator capability belongs to the constructor, not request JSON. This outline uses explicit synthetic dependencies and separately isolated source and fresh-target stores.
 
 ```ts
-initializeDevelopmentDepositInbox({ mode, store, manifest, requestId, clock });
-createAdmittedDevelopmentObservationReader({ mode, manifest, endpointConfig, fetch, clock });
-// reader.prepare({ assignmentId, sourceSetId, attemptId,
-//   transactionId, eventIndex, expectedAmountRaw }) -> PreparedDepositObservationV1
+await initializeDevelopmentDepositInbox({
+  mode: "simulation-only", store, manifest, storeInstanceId,
+  requestId: bootstrapRequestId, clock: syntheticClock,
+});
+const recorder = createDevelopmentDepositInboxRecorder({
+  mode: "simulation-only", store, manifest, storeInstanceId,
+  worker: { workerId, role: "operator" }, clock: syntheticClock,
+});
+const probe = createDevelopmentDepositInboxProbe({
+  mode: "simulation-only", manifest, workerId, storeInstanceId,
+  endpointConfig, fetch: syntheticFetch, clock: syntheticClock,
+  preparationContext: recorder.preparationContext,
+});
+const result = await probe.prepare({
+  attemptId,
+  candidate: { assignmentId, sourceSetId, transactionId, eventIndex, amountRaw },
+});
+const receipt = result.kind === "prepared"
+  ? await recorder.record({ requestId, prepared: result.prepared })
+  : await recorder.recordAttemptHold({ requestId, attempt: result.attempt });
+// Finite jobs additionally bind the captured candidate cursor precondition.
+// Other methods: registerCandidateJob, preparationContext, inspect, snapshot,
+// lookupReceipt, reconcileUnknown, and irreversible operator pause.
+if ((await recorder.inspect()).state.status === "recording") {
+  await recorder.pause({ requestId: pauseRequestId, reason });
+}
 
-createDevelopmentDepositInbox({ mode, store, worker, clock });
-// inbox.record({ requestId, prepared, candidateCursor? }) -> IngestionReceiptV1
-// inbox.recordAttemptHold({ requestId, admittedAttempt, classifiedFailure, candidateCursor? })
-// inbox.registerCandidateJob({ requestId, jobId, orderedCandidates })
-// inbox.preparationContext({ assignmentId, sourceSetId, jobId? })
-// inbox.inspect({ expectedStoreInstanceId })
-// inbox.lookupReceipt({ requestId, inputFingerprint, expectedStoreInstanceId })
-// inbox.reconcileUnknown({ requestId, inputFingerprint, expectedStoreInstanceId,
-//   expectedPreCommandCheckpoint })
-// inbox.pause({ requestId, reason })
-
-exportDevelopmentDepositInboxBackup({ mode, store, clock });
-inspectDevelopmentDepositInboxBackup(serialized, { expectedChecksum });
-restoreDevelopmentDepositInboxBackup({ mode, store, backup, expectedChecksum,
-  acknowledgeFreshTarget: true, requestId, clock });
+const backup = await exportDevelopmentDepositInboxBackup({
+  mode: "simulation-only", store, expectedStoreInstanceId: storeInstanceId,
+  clock: syntheticClock,
+});
+await inspectDevelopmentDepositInboxBackup(backup, { expectedChecksum });
+await restoreDevelopmentDepositInboxBackup({
+  mode: "simulation-only", store: freshTarget, backup, expectedChecksum,
+  acknowledgeFreshTarget: true, requestId: restoreRequestId, clock: syntheticClock,
+});
+await inspectRestoredDevelopmentDepositInbox({
+  mode: "simulation-only", store: freshTarget,
+  requestId: restoreRequestId, expectedChecksum,
+});
 ```
 
-An `IngestionReceiptV1` fixes request key/fingerprint, journal revision/hash, original disposition, evidence/locator references, before/after cursor values, quarantine reference and `creditAuthority: false`. It never includes a wallet command or promised amount to credit. Exact lookup returns that original receipt unchanged. Current inbox state is a separate fresh inspection, so recovery of an earlier `recorded` receipt cannot disguise a later quarantine.
+The expected checksum is retained separately from the restore input. Export requires the source to be durably paused or quarantined. The probe classifies an unresolved native attempt inside its trusted capability; callers cannot supply an arbitrary exception or `classifiedFailure` as authority. `DepositInboxReceipt` fixes request key/fingerprint, journal revision/hash, original disposition, evidence/locator references, cursor effects, quarantine reference and `creditAuthority: false`. Exact lookup returns that original receipt unchanged. Current inbox state is a separate inspection, so recovery of an earlier accepted receipt cannot disguise a later quarantine.
 
 | Condition after admission validation | Durable outcome |
 | --- | --- |
@@ -153,7 +175,7 @@ New observations and new jobs are refused once paused/quarantined. Exact receipt
 
 ## 7. One write transaction
 
-The proposed owner follows this order:
+The implemented transaction owner follows this order:
 
 1. Capture and validate the complete command, admission envelope and semantic transcript outside SQL. Capture a stable command clock once. Do not issue node calls inside `store.transaction`.
 2. Start one SERIALIZABLE owner, verify the original physical transaction ID, runtime, UTC, schema fingerprint and physical store-instance ID, and lock/increment the singleton head's fencing version. Certify the same transaction before and after subordinate readers/writers, following the existing combined-recovery ownership pattern.
@@ -200,7 +222,7 @@ For the first proposed coverage profile, cap a window at four blocks, 32 transac
 
 ## 10. Independent backup and restoration
 
-Define a new logical format, **`alpha-wallet-development-deposit-inbox`**, `formatVersion: 1`, with no wallet engine version or ledger command vocabulary. It contains the complete admission manifest/commitments, logical and physical source identities, journal/checkpoint, exact evidence blobs, anchors, event links, candidate jobs/cursors, quarantine records and a checksum. Hashes detect consistency; backup authenticity and encrypted external retention are separate future requirements.
+The independent logical format is **`alpha-wallet-development-deposit-inbox`**, `formatVersion: 1`, with no wallet engine version or ledger command vocabulary. It contains the complete admission manifest/commitments, logical and physical source identities, journal/checkpoint, exact evidence blobs, anchors, event links, candidate jobs/cursors, quarantine records and a checksum. Hashes detect consistency; backup authenticity and encrypted external retention are separate future requirements.
 
 Export only a durably paused/quarantined source. Recompute hashes, transcript semantics at their original recorded times, immutable projections, cursor completeness and bounds in one certified snapshot. Do not apply today's freshness clock to historical observations. Do not strip source conflicts, raw receipts or old evidence to fit a size bound. Reserve room for the mandatory restore quarantine.
 
@@ -212,25 +234,26 @@ No change is permitted to `backup.ts`, `versioned-backup.ts`, `v3-backup.ts`, `v
 
 ## 11. Initial bounds and failure behavior
 
-| Resource | Proposed inbox-v1 limit |
+| Resource | Implemented inbox-v1 limit |
 | --- | --- |
 | Manifest | At most 2 chains, 4 exact assets, 8 sources, 4 source pairs, 64 custody assignments and 16 worker/job scopes |
-| Candidate job | At most 256 explicit candidates; one ordinal advance per record command |
+| Candidate jobs | At most 16 immutable jobs, each with at most 256 explicit candidates; one ordinal advance per accepted record command |
 | Retained observations | At most 256 distinct complete observations; no evidence eviction |
-| Retained block/transaction anchors | At most 4,096 block anchors and 256 transaction anchors |
+| Retained anchors/events | At most 4,096 block anchors, 256 transaction anchors and 256 native events |
 | Raw evidence bytes | Existing per-observation transport bounds; at most 16 MiB aggregate retained raw request/response bytes in this bounded inbox |
 | Additional timing trace | At most one start/return/elapsed tuple per retained read and eight semantic clock samples; exact call order is fixed by the prepared observation profile |
 | Journal | At most 1,000 records; ordinary mutations stop at 998, reserving capacity for one terminal pause/quarantine and one restoration quarantine |
-| Logical backup | At most 64 MiB of exact UTF-8 serialization, checked independently of object/string length; reject an insertion if it would make a complete recoverable export exceed this bound |
+| Full portable envelope | At most 64 MiB of exact UTF-8 serialization and 100,000 data nodes, including repeated projections, timing provenance, immutable results and the checksum |
+| Reserved control capacity | 65,536 bytes and 2,048 nodes per terminal/restore control; ordinary recording reserves two controls, terminal state reserves one restore control, and completed restoration uses the full bound |
 | New admission delay | At most 30 seconds after observation completion, with checkpoint freshness still checked under the pinned policy; exact receipt retries use original evidence and are exempt |
 
-If evidence cannot fit, persist only a terminal resource quarantine using reserved control/receipt capacity; do not label the incoming evidence as retained or accepted. Keep its supplied envelope digest and attempted scope for diagnosis, leave cursors unchanged and stop new ingestion. Do not truncate the observation or delete prior evidence to make space. Once terminally stopped, further novel requests cannot exhaust the reserve; exact retries and reads remain possible. Export/restore refuse when their required reserved capacity is unavailable.
+If evidence cannot fit, persist a terminal resource quarantine using reserved control/receipt capacity. Retain only the rejected input fingerprint and attempted scope; do not claim that the rejected raw observation was retained or accepted. Leave candidate progress unchanged and stop. A valid conflict can retain its evidence when ordinary capacity permits. A terminal control using its final reserved slot must itself fit the bounded byte/node allowance. Do not truncate observations or delete prior evidence to make space. Exact retries and reads remain possible after terminal stop; export/restore refuse if the complete supported recovery unit cannot fit.
 
 These are deliberately small development bounds, not production throughput targets. They keep full replay and failure testing concrete. Changes require a new reviewed profile, not an environment variable that silently widens admission.
 
-## 12. Acceptance plan before implementation can be called complete
+## 12. Development acceptance contract and source-bound evidence
 
-Proposed files: `deposit-observation-canonical.ts`, `deposit-observation-inbox.ts`, `deposit-observation-store.ts`, `deposit-observation-backup.ts`, their focused tests, `docs/alpha-wallet/deposit-observation-schema.sql`, and disposable native drills `scripts/alpha-wallet/postgres-deposit-observation-inbox.ts` / `postgres-deposit-observation-backup.ts`. These names are a work plan; none is implemented by this document. Do not modify the frozen sources to make the new tests pass.
+The implemented files are `deposit-inbox-protocol.ts`, `deposit-inbox-model.ts`, `deposit-inbox-probe.ts`, `deposit-inbox-store.ts`, `deposit-inbox-portable.ts` and `deposit-inbox-backup.ts`, with focused model/probe/store/backup suites. SQL lives in `docs/alpha-wallet/deposit-inbox-schema.sql`. Synthetic fixtures are in `scripts/alpha-wallet/deposit-inbox-fixtures.ts`; disposable native drills are `scripts/alpha-wallet/postgres-deposit-inbox.ts` and `postgres-deposit-inbox-backup.ts`. The [verification report](deposit-inbox-verification-2026-11-06.md) and [machine-readable evidence](deposit-inbox-verification-results.json) record the actual source and executed gate. The table below remains an acceptance contract; total test counts alone do not establish every conceivable production failure mode. Frozen source contracts retain their original meanings.
 
 | Test layer | Required evidence and invariant |
 | --- | --- |
@@ -245,13 +268,13 @@ Proposed files: `deposit-observation-canonical.ts`, `deposit-observation-inbox.t
 | Compatibility and money gates | Compare frozen V1–V5 source/fixture hashes and retained test identities; run their existing recovery checks unchanged. Spy/deny every financial command and signer/provider-send surface during all inbox paths. Reject hosted/mainnet/signing flags before store or node IO. Prove no ledger/marketplace schema appears in the inbox store and no inbox schema appears in an existing wallet target. |
 | Coverage, when separately implemented | Complete/empty windows, missing transactions/receipts, two conflicting sources, intermediate ancestry forks, budget overflow, crash before/after cursor CAS, overlapping workers and changed scope. Until this passes, there is no chain-height coverage cursor claim. |
 
-Use locked dependencies, `TZ=UTC` and disposable loopback PostgreSQL 17 fixtures for the native gate. Preserve native Vitest JSON, native-drill results, source hashes and exact implementation commit. Existing observer tests remain regression coverage; their passing counts do not prove an unimplemented inbox. Production/native-mobile builds, independent audits, live balances and real transfers are outside this acceptance statement.
+Use locked dependencies, `TZ=UTC` and disposable loopback PostgreSQL 17 fixtures for the native development gate. Preserve native Vitest inventories, native-drill results, source hashes and the exact implementation commit. The new inbox evidence is separate from retained observer, financial and browser regression coverage. Production/native-mobile builds, independent audits, live balances and real transfers remain outside this acceptance statement.
 
-## 13. Delivery order and explicit remaining gates
+## 13. Delivered development slices and explicit remaining gates
 
-1. Build the deterministic inbox reducer around the implemented closed manifest and envelope/transcript validators. Add retained transaction/block anchors and absorbing quarantine, and prove semantic retry/conflict behavior without SQL or money calls.
-2. Implement the isolated schema/recorder and fixed-candidate cursor in one owner transaction. Complete direct-writer, native concurrency and uncertain-COMMIT drills.
-3. Implement independent paused export/fresh-target quarantine restore and frozen-history compatibility evidence. Do not ship a recorder whose complete retained evidence cannot be backed up and replayed.
+1. Delivered the deterministic inbox reducer around the implemented closed manifest and envelope/transcript validators. It retains transaction/block anchors and absorbing quarantine, with semantic retry/conflict coverage and no money calls.
+2. Delivered the isolated schema/recorder and fixed-candidate cursor in one owner transaction. The exact-source gate includes direct-writer, native concurrency and uncertain-COMMIT evidence.
+3. Delivered independent paused export/fresh-target quarantine restore and frozen-history compatibility evidence. The recorder and complete recovery unit are verified together, including retained history and evidence replay.
 4. Only then design/implement the exhaustive native range reader and its separate coverage certificate gate. Old-transfer backfill beyond 64 successors remains held until a reviewed historical ancestry/proof strategy exists.
 
-The [implemented preparation layer](deposit-observation-preparation.md) now supplies immutable source/assignment admission, a captured semantic/per-read timing trace, exact transcript replay and validated last-head extraction around the unchanged legacy observation object. Its context callback is still trusted synthetic configuration; binding a preparation base and candidate cursor to actual retained history belongs to the remaining durable reducer, recorder and recovery work. No custody proof, real source authentication, live provider independence, arbitrary-range scanner or cross-ledger consumption protocol exists here. Synthetic admission lets this development work proceed without creating a real wallet or selecting a signer. Actual deposit credit, sweeps/self-transfers, issuer mint exclusions, asset/liability reconciliation, later seller release, dispute resolution, unpaid cancellation and live product integration keep their separate money gates.
+The [preparation layer](deposit-observation-preparation.md) supplies immutable source/assignment admission, semantic/per-read timing, exact transcript replay and validated last-head extraction around the unchanged legacy observation object. The [implemented recorder](deposit-inbox-persistence.md) supplies its preparation context from actual retained history and compares the captured base and candidate bookmark inside the same physical store. Admission and provider IO remain synthetic. No real custody proof, provider authentication/independence, arbitrary-range scanner or cross-ledger consumption protocol is established. V5 admits no fresh deposit/reconciliation command; financial consumption requires an explicit reviewed successor that preserves all original meanings and recovery. Actual deposit credit, sweeps/self-transfers, issuer mint exclusions, asset/liability reconciliation, later seller release, dispute resolution, unpaid cancellation and live product integration retain their separate gates.

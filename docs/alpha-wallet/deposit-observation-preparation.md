@@ -1,6 +1,6 @@
 # Admitted deposit observation preparation
 
-This is the first implemented phase of the [durable inbox design](deposit-observation-ingestion-design.md). It supplies development admission, bounded observation capture, historical replay and prepared evidence. It creates no database, persistent receipt, candidate job, custody claim, wallet credit or financial command. Prepared deposit observations and their verified preparation results explicitly carry `mode: "simulation-only"` and `creditAuthority: false`.
+This is the preparation layer of the [durable inbox contract](deposit-observation-ingestion-design.md). It supplies development admission, bounded observation capture, historical replay and prepared evidence. The preparation module itself creates no database, persistent receipt, candidate job, custody claim, wallet credit or financial command; its [separate persistence layer](deposit-inbox-persistence.md) now supplies isolated durable evidence and recovery. Prepared observations and verified preparation results carry `mode: "simulation-only"` and `creditAuthority: false`.
 
 ## Modules and API
 
@@ -19,7 +19,7 @@ const reader = createAdmittedDevelopmentObservationReader({
   endpointConfig, // [{ sourceId, endpoint }], exactly the admitted sources
   fetch: syntheticFetch,
   clock: syntheticClock,
-  preparationContext: trustedSyntheticContext,
+  preparationContext: recorder.preparationContext, // isolated retained development history
 });
 
 const prepared = await reader.prepare({
@@ -38,7 +38,7 @@ The trusted constructor supplies the manifest, configured store-instance identif
 
 The context callback receives a frozen copy of `{ inboxId, storeInstanceId, manifestSha256, workerId, candidate, jobId }`. It must return the closed `development-deposit-preparation-context` version-1 snapshot, either as inert data or an unmodified native Promise. Plain thenables, accessors, Proxy values and Promise subclasses are refused. The snapshot binds the admitted assignment/source set, global checkpoint revision/hashes, optional retained source head and optional finite job cursor. Revisions and native head identities are validated, including TRON's height-bearing block ID.
 
-**The callback is a trusted synthetic fixture boundary.** Matching hashes and valid snapshot fields do not prove an actual database checkpoint or membership in a persisted job. The later recorder must compare the preparation base and cursor with actual retained history, inside the same physical store. This phase does not accept or quarantine durable evidence, advance a cursor, resolve an unknown COMMIT or restore an inbox.
+**The callback remains a trusted development boundary.** Matching hashes and valid snapshot fields alone do not prove a database checkpoint or membership in a persisted job. The [implemented recorder](deposit-inbox-persistence.md) supplies `recorder.preparationContext` from retained store history and compares the captured base and cursor again inside that same physical store. Tests can still inject a synthetic context. Preparation itself performs no durable acceptance/quarantine, cursor advance, unknown-COMMIT resolution or restoration; those operations belong to the persistence contract.
 
 ## Timing, cancellation and replay
 
@@ -54,18 +54,20 @@ The timing trace records per-read enclosing wall intervals, conservative integer
 
 ## Identities and assurance
 
-The verified result returns the prepared envelope, native semantics and identity fields. Native event locators contain chain identity, transaction ID, native index kind and event index. They exclude token, recipient, amount, assignment and block placement so contradictory facts do not create a different native position. Event-facts hashes bind those excluded facts and the assignment; transaction-facts hashes bind the complete receipt semantics and transaction placement. A transaction key also permits the future recorder to catch BSC re-inclusion with a changed block-wide log index.
+The verified result returns the prepared envelope, native semantics and identity fields. Native event locators contain chain identity, transaction ID, native index kind and event index. They exclude token, recipient, amount, assignment and block placement so contradictory facts do not create a different native position. Event-facts hashes bind those excluded facts and the assignment; transaction-facts hashes bind the complete receipt semantics and transaction placement. The recorder uses the transaction key to catch BSC re-inclusion with a changed block-wide log index.
 
 The admitted evidence ID binds the manifest, source-set and assignment hashes, comparison profile and exact observation digest. Changing only an attempt ID does not create additional evidence. A fresh read with different RPC IDs or timing can have another observation digest while retaining identical native event and transaction facts; this phase does not count either observation as corroboration.
 
-Replay returns the original pinned proof checkpoint separately from the last fully validated head. Validated block semantics retain ordered transaction membership and supported TRON headers; their hashes exclude the list of supporting source IDs. The future recorder still needs overlap checks, continuity checks, durable first-fact retention and global quarantine behavior.
+Replay returns the original pinned proof checkpoint separately from the last fully validated head. Validated block semantics retain ordered transaction membership and supported TRON headers; their hashes exclude the list of supporting source IDs. The implemented recorder adds overlap/continuity checks, durable first-fact retention and absorbing global quarantine.
 
 New hashes use SHA-256 over UTF-8 `["alpha-wallet-deposit-inbox-v1", domain, value]`, with lexicographically ordered object keys and preserved array order. Inputs are deeply copied and frozen, bounded by actual UTF-8 JSON size, and reject unsafe numeric values, malformed Unicode, cycles, sparse arrays, executable fields and reserved object keys. Hashes demonstrate consistency. They do not authenticate a provider, clock, organization, custody assignment or restored store.
 
 ## Remaining work
 
-The isolated SQL inbox, deterministic durable reducer, command receipts, transaction and block anchors, candidate jobs/cursors, unknown-COMMIT fencing, paused backups and quarantine-only restores remain under the proposed design. They must be delivered as a coherent persistence and recovery contract before any ingestion service or financial adapter uses this evidence. Wallet credit authorization, direction exclusion, reconciliation, real custody, signing, payout execution and product routes remain separate unfinished work. No deployment or launch is part of this phase.
+The [separate implemented persistence contract](deposit-inbox-persistence.md) supplies the isolated SQL inbox, deterministic durable reducer, immutable command receipts, transaction/block anchors, finite jobs/cursors, same-target unknown-COMMIT fencing, paused backups and quarantine-only restores. Complete chain scanning, wallet credit authorization, direction exclusion, reconciliation, real custody, signing, payout execution and product routes remain unfinished. No deployment or live launch is part of either development phase.
 
-## Verified development evidence
+## Historical preparation verification
 
 Implementation `68ee52017b18631bfbd44acb3c5afea44a3c8223`, tree `b16deed3ad860c77923d0d3d4780f37343812434`, passed [CI run 42280807815](https://github.com/alphakits/alpha-traders-exchange/actions/runs/42280807815) on **6 November 2026, 21:53:24 Asia/Jerusalem**. The complete run reports **3,604 passing tests across 87 files**, including all 3,130 predecessors and 474 distinct additions, with zero failures or skips. The 18 existing native PostgreSQL drills / 212 ordered checks, repository TypeScript, offline demo and retained English/Arabic Chromium rehearsal also passed. These native and browser checks retain previous contracts; they do not test a new durable inbox or product route. See the [verification report](deposit-preparation-verification-2026-11-06.md) and [machine-readable evidence](deposit-preparation-verification-results.json).
+
+The later [inbox verification report](deposit-inbox-verification-2026-11-06.md) and [machine-readable evidence](deposit-inbox-verification-results.json) bind the separate persistence/recovery source and its new native drills. The preparation counts above remain their original historical milestone.
