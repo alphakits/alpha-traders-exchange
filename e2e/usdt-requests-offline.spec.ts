@@ -1141,9 +1141,19 @@ for (const role of ["buyer", "seller"] as const) {
       if (role === "seller") await login(buyer, "buyer");
       const demand = await createDemand(role === "buyer" ? page.request : buyer, "5000");
       const scope = role === "seller" ? "available" : "mine";
+      // These starts are independent entry journeys. Keep their authenticated
+      // context, but avoid tearing down a previous journey's document with a
+      // setup navigation while its background reads are still in flight.
+      // Every new page remains covered by the context's strict error audit.
+      const startEntryJourney = async (url: string, viewport: { width: number; height: number }) => {
+        const completedPage = page;
+        page = await context.newPage();
+        await page.setViewportSize(viewport);
+        await completedPage.close();
+        await page.goto(url);
+      };
       for (const width of [1440, 320]) {
-        await page.setViewportSize({ width, height: 900 });
-        await page.goto(role === "seller" ? "/en/dashboard/seller" : "/en/dashboard");
+        await startEntryJourney(role === "seller" ? "/en/dashboard/seller" : "/en/dashboard", { width, height: 900 });
         await expect(page).toHaveURL(new RegExp(`/en/dashboard${role === "seller" ? "/seller" : ""}$`));
         const dashboardEntry = page.getByTestId("welcome-buy-requests");
         const welcome = page.locator(".account-welcome").filter({ has: dashboardEntry });
@@ -1170,16 +1180,14 @@ for (const role of ["buyer", "seller"] as const) {
         await expect(page.getByRole("button", { name: role === "seller" ? "Buyer requests · Sell USDT" : "My buying requests", exact: true })).toHaveAttribute("aria-pressed", "true");
         await expect(page.getByTestId("request-card")).toContainText("5,000");
       }
-      await page.setViewportSize({ width: 390, height: 844 });
-      await page.goto("/en/usdt-exchange");
+      await startEntryJourney("/en/usdt-exchange", { width: 390, height: 844 });
       const exchangeEntry = page.getByRole("main").locator('a:not([data-testid="welcome-buy-requests"])').filter({ hasText: /^Buy Requests$/ });
       await expect(exchangeEntry).toHaveAttribute("href", `/en/usdt-exchange/requests?scope=${scope}`);
       await expectBlueAction(exchangeEntry);
       await exchangeEntry.click();
       await expect(page).toHaveURL(new RegExp(`/en/usdt-exchange/requests\\?scope=${scope}$`));
       for (const width of [320, 390, 768, 1024]) {
-        await page.setViewportSize({ width, height: 844 });
-        await page.goto(`/en/usdt-exchange/requests/${demand.id}`);
+        await startEntryJourney(`/en/usdt-exchange/requests/${demand.id}`, { width, height: 844 });
         const toggle = page.locator('summary[aria-label="Open menu"]');
         await toggle.click();
         const menu = toggle.locator("..");
