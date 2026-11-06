@@ -2,10 +2,10 @@
 import { createHash } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AlphaExchangeNotification, AlphaExchangeUser, MarketplaceListing, PurchaseRequest } from "@/types/alpha-exchange";
-import { DEVELOPMENT_PAYMENT_EVIDENCE_MAX_BYTES, assertDevelopmentPaymentEvidence, normalizeDevelopmentPaymentDisputeReason,
+import { DEVELOPMENT_PAYMENT_EVIDENCE_MAX_BYTES, PaymentMarketplacePlanningError, assertDevelopmentPaymentEvidence, normalizeDevelopmentPaymentDisputeReason,
   normalizeDevelopmentPaymentEvidenceInput, paymentCanonicalCommitment, planDevelopmentPaymentClaim, planDevelopmentPaymentDispute,
   type DevelopmentPaymentClaimDecision, type DevelopmentPaymentDisputeDecision, type DevelopmentPaymentEvidence,
-  type DevelopmentPaymentMarketplace, type DevelopmentPaymentMarketplaceResult } from "./payment-marketplace-canonical";
+  type DevelopmentPaymentMarketplace } from "./payment-marketplace-canonical";
 import { simulatedDestination } from "./sandbox";
 
 const AT = 1_800_000_000_000, ACCEPTED = AT + 1000, CLAIMED = AT + 2000, DISPUTED = AT + 3000;
@@ -66,6 +66,12 @@ function reminder(f: Fixture, id: string, patch: Partial<AlphaExchangeNotificati
   return { id, userId: f.buyer.id, category: "trade", title: "Action required", message: "Synthetic reminder", isRead: false,
     state: "unread", relatedRequestId: f.request.id, relatedTradeId: f.request.tradeId, relatedListingId: f.listing.id,
     reason: "automatic_trade_action_reminder", createdAt: acceptedAt, ...patch };
+}
+function expectInvalidEvidence(input: unknown, reason: string) {
+  let caught: unknown;
+  try { normalizeDevelopmentPaymentEvidenceInput(input); } catch (error) { caught = error; }
+  expect(caught).toBeInstanceOf(PaymentMarketplacePlanningError);
+  expect(caught).toMatchObject({ code: "INVALID", message: `Payment marketplace ${reason}.` });
 }
 
 describe("exact canonical buyer payment claim", () => {
@@ -155,7 +161,34 @@ describe("bounded exact evidence and reason inputs", () => {
   });
   it("enforces the byte limit independently of caller declarations", () => {
     const bytes = Buffer.alloc(DEVELOPMENT_PAYMENT_EVIDENCE_MAX_BYTES + 1); bytes.write("%PDF-1.7");
-    expect(() => normalizeDevelopmentPaymentEvidenceInput({ mimeType: proof.mimeType, contentBase64: bytes.toString("base64") })).toThrow();
+    expectInvalidEvidence({ mimeType: proof.mimeType, contentBase64: bytes.toString("base64") }, "requires exact bounded evidence bytes");
+  });
+  it.each([
+    ["image/png", [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]],
+    ["image/jpeg", [0xff, 0xd8, 0xff]],
+    ["application/pdf", [0x25, 0x50, 0x44, 0x46, 0x2d]],
+  ] as const)("accepts the exact eight MiB limit for %s without a regex stack overflow", (mimeType, signature) => {
+    // Allocate inside each case, rather than retaining three large buffers in the case table.
+    const bytes = Buffer.alloc(DEVELOPMENT_PAYMENT_EVIDENCE_MAX_BYTES);
+    bytes.set(signature);
+    const contentBase64 = bytes.toString("base64");
+    const result = normalizeDevelopmentPaymentEvidenceInput({ mimeType, contentBase64 });
+    expect(result.sizeBytes).toBe(DEVELOPMENT_PAYMENT_EVIDENCE_MAX_BYTES);
+    expect(result.mimeType).toBe(mimeType);
+    expect(result.contentBase64 === contentBase64).toBe(true);
+    expect(result.contentDigest).toBe(createHash("sha256").update(bytes).digest("hex"));
+  });
+  it.each(["alphabet", "interior padding", "nonzero pad bits"] as const)("rejects large malformed %s with the typed validation error", kind => {
+    const bytes = Buffer.alloc(DEVELOPMENT_PAYMENT_EVIDENCE_MAX_BYTES); bytes.write("%PDF-1.7");
+    const valid = bytes.toString("base64");
+    const contentBase64 = kind === "alphabet" ? `${valid.slice(0, -4)}!AA=`
+      : kind === "interior padding" ? `${valid.slice(0, -8)}=AAA${valid.slice(-4)}`
+      : `${valid.slice(0, -2)}B=`;
+    const message = kind === "nonzero pad bits" ? "requires exact bounded evidence bytes" : "requires strict base64 evidence bytes";
+    expectInvalidEvidence({ mimeType: proof.mimeType, contentBase64 }, message);
+  });
+  it.each(["A===", "====", "AA=A", "AAAA=", "AA-_", "AA\n="])("rejects noncanonical small base64 %j", contentBase64 => {
+    expectInvalidEvidence({ mimeType: proof.mimeType, contentBase64 }, "requires strict base64 evidence bytes");
   });
   it.each(["", "   ", "x".repeat(501), "Contact me at test@example.com"]) ("refuses invalid private dispute reason %#", reason => {
     expect(() => normalizeDevelopmentPaymentDisputeReason(reason)).toThrow();

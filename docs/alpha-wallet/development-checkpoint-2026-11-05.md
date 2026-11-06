@@ -1,8 +1,14 @@
 # Alpha Wallet development checkpoint
 
-Updated: **6 November 2026, Asia/Jerusalem**. Active source: `621beaad00715ea81c7eb48b07a63c6137599314`.
+Updated: **6 November 2026, Asia/Jerusalem**. Saved V5 baseline: `621beaad00715ea81c7eb48b07a63c6137599314`; branch checkpoint `7f6118af1bb70670991aae65e5e7775abd1c7f36`.
 
 **Development continues. Live launch remains off.** The V5 buyer payment-claim and subsequent buyer dispute-freeze profile, authenticated canonical integration and complete combined recovery are implemented and saved. Neither action verifies payment, releases funds or moves principal. Exact-source CI passed **2,786 tests across 80 files** and **18 native PostgreSQL drills / 212 checks**, with zero test failures or skips; the previous cancellation milestone remains recorded below as history. See the [payment-profile design](payment-marketplace-coordinator-design.md) and [current verification report](payment-marketplace-verification-2026-11-06.md).
+
+## Current rebuilt observer continuation
+
+The read-only BSC/TRON node-observer layer and eight MiB payment-proof correction have been reconstructed after the previous local-only checkout became unavailable. The [recovery record](workspace-recovery-2026-11-06.md) explains why the unavailable `e162d0a7` and `397a2878` commits and their old local results are not claimed as current source or verification. The [observer contract](node-observer-design.md) records the new API and its `creditAuthority: false` boundary. Fresh source-bound CI is required before calling this rebuilt milestone verified.
+
+The user explicitly approved saving and continuing on `alphakits/alpha-traders-exchange`, branch `feature/alpha-wallet-dev-20261104`, on 6 November 2026. This resolves the earlier automatic push-approval block. **No live launch is authorized.** Save the rebuilt implementation to this branch and inspect the complete development CI. The preceding fully verified V5 evidence below remains historical.
 
 ## Authorization and source
 
@@ -13,10 +19,10 @@ Repository: `alphakits/alpha-traders-exchange`. Branch: `feature/alpha-wallet-de
 | Evidence | Exact source and status |
 | --- | --- |
 | Saved V5 implementation | `621beaad00715ea81c7eb48b07a63c6137599314`; tree `0d7c97bd2998b0a51d2dbe7b5d126fb926a8249f` |
-| Current clean CI | [Run 42195918584](https://github.com/alphakits/alpha-traders-exchange/actions/runs/42195918584), job `127819018187`, attempt 1; success at `2026-11-06T09:51:29Z` |
-| Current full suite | 2,599 wallet / 71 files; 87 authentication / 5 files; 100 marketplace / 4 files; all 2,217 old wallet cases plus 382 new; zero failures/skips |
-| Current native PostgreSQL and retained rehearsal evidence | 18 drills / 212 checks, including all 15 old drills / 166 checks; full repository TypeScript, offline demo and standalone English/Arabic Chromium rehearsal passed |
-| Current downloaded evidence | Artifact `13492542282`, 2,113,009 bytes, 54 extracted files; SHA-256 `e997ba0232e7856fe579b89c6015f817a514091b21a515e276ed41989296f456` matches GitHub |
+| Historical V5 clean CI | [Run 42195918584](https://github.com/alphakits/alpha-traders-exchange/actions/runs/42195918584), job `127819018187`, attempt 1; success at `2026-11-06T09:51:29Z` |
+| Historical V5 full suite | 2,599 wallet / 71 files; 87 authentication / 5 files; 100 marketplace / 4 files; all 2,217 old wallet cases plus 382 new; zero failures/skips |
+| Historical V5 native PostgreSQL and retained rehearsal evidence | 18 drills / 212 checks, including all 15 old drills / 166 checks; full repository TypeScript, offline demo and standalone English/Arabic Chromium rehearsal passed |
+| Historical V5 downloaded evidence | Artifact `13492542282`, 2,113,009 bytes, 54 extracted files; SHA-256 `e997ba0232e7856fe579b89c6015f817a514091b21a515e276ed41989296f456` matches GitHub |
 | Frozen contracts | All 75 original frozen contracts remain byte exact; V1–V4 financial reducers, migrations and immutable receipt meanings remain unchanged |
 | Independent V4 predecessor capture | Accepted and cancelled history/state/paused-backup fixtures captured from `26ac313212071c3ca600ad19dfb72cac234c0ef0` before V5 implementation; see [capture provenance](../../src/lib/alpha-wallet/fixtures/v4/README.md) |
 
@@ -64,11 +70,11 @@ The [cancellation design](cancellation-marketplace-coordinator-design.md) descri
 
 ### Recorded test-harness compatibility note
 
-The native payment coordinator drill passed all 15 checks and emitted one 289-byte `pg` queued-query deprecation warning. Its three `observeWait` calls run concurrently on a standalone observer client; they do not share the wallet transaction clients. All distinct-backend, lock-wait, retry and single-claim assertions passed. The raw warning is retained in the machine report; the other 17 native stderr logs are empty. Before a future `pg@9` upgrade, change the observer `Promise.all` in `scripts/alpha-wallet/postgres-payment-marketplace.ts` to awaited sequential reads while keeping the first claim held. No implementation source was changed after this exact-source CI run.
+The native payment coordinator drill passed all 15 checks and emitted one 289-byte `pg` queued-query deprecation warning. Its three `observeWait` calls run concurrently on a standalone observer client; they do not share the wallet transaction clients. All distinct-backend, lock-wait, retry and single-claim assertions passed. The raw warning is retained in the machine report; the other 17 native stderr logs are empty. Before a future `pg@9` upgrade, change the observer `Promise.all` in `scripts/alpha-wallet/postgres-payment-marketplace.ts` to awaited sequential reads while keeping the first claim held. That V5 checkpoint had no implementation changes after its exact-source CI run. The later rebuilt observer continuation requires its own gate.
 
 ## Exact next engineering slice
 
-The exact-source V5 CI/evidence gate is complete. Define a **later explicit lifecycle contract** for trusted payment verification, actual seller-authorized release, dispute resolution and unpaid cancellation. Do not add those authorities to a V5 claim or widen a frozen reducer/profile silently. Preserve the pinned V4 fixtures and the full V1–V5 financial/canonical history.
+The historical exact-source V5 CI/evidence gate is complete. Finish the rebuilt observer/upload save and its exact-source CI, then implement durable observation ingestion with explicit attribution, uniqueness, cursor recovery and conflict quarantine. Also define a **later explicit lifecycle contract** for trusted payment verification, actual seller-authorized release, dispute resolution and unpaid cancellation. Do not add those authorities to a V5 claim or widen a frozen reducer/profile silently. Preserve the pinned V4 fixtures and the full V1–V5 financial/canonical history.
 
 1. Define what independently verifies bank/cash payment, how verification differs from buyer-uploaded proof, and which current actor may authorize release. Bind the exact request, buyer, seller, principal, asset, destination, quote and separate fees; matching totals alone is insufficient.
 2. Specify dispute-resolution authority and outcomes, including how a hold survives revocation, expiry, inconsistent evidence and uncertain replies. Define unpaid cancellation and its ordering against claims through a later explicit successor; **no new cancellation is supported in V5**. Owner force-cancel and expired inventory handling also require explicit contracts.
@@ -84,6 +90,6 @@ Live launch additionally needs complete actual product integration, trusted fiat
 
 ## Working constraints
 
-The workspace was pruned during this continuation and the repository was freshly cloned at `/workspace/scratch/2626a93ce9d9/alpha-wallet`. Exact-lock `npm ci` completed with **1,112 packages**. `node_modules` is an ordinary local directory, not a shared workspace symlink. There are no package or lockfile changes. The old unrelated untracked `e2e/cardless-counter-offer.spec.ts` is absent; do not recreate it.
+The previous local-only checkout was unavailable after the approval pause. The repository was independently cloned from the saved branch at `/workspace/scratch/47b234e8c768/alpha-wallet`; see the recovery record above. Exact-lock `npm ci` completed with **1,112 packages**. `node_modules` is an ordinary local directory, not a shared workspace symlink. There are no package or lockfile changes. The old unrelated untracked `e2e/cardless-counter-offer.spec.ts` is absent; do not recreate it.
 
 Use Node 24.22.1, the locked dependencies, UTC and disposable loopback PostgreSQL 17 fixtures. Branch auto-deployment remains disabled. Never merge/deploy, purchase providers, migrate production, sign, fund or transfer real assets as a consequence of a green development gate. Root TypeScript retains its existing native-mobile/test exclusions; no production or native-mobile build or independent audit is implied. Keep further development on the authorized feature branch and preserve the frozen historical contracts.

@@ -117,12 +117,26 @@ function validateRows(items: readonly { id: string }[], shape: z.ZodType, label:
   }
 }
 
+function isStrictBase64(value: string): boolean {
+  if (value.length === 0 || value.length % 4 !== 0) return false;
+  const padding = value.endsWith("==") ? 2 : value.endsWith("=") ? 1 : 0;
+  // A repeated-group regexp over an allowed eight MiB upload exhausts the JS stack.
+  // The schema bounds this linear scan; the decode/re-encode check below still
+  // enforces canonical padding bits and the exact decoded-byte limit.
+  for (let i = 0; i < value.length - padding; i++) {
+    const code = value.charCodeAt(i);
+    if (!((code >= 65 && code <= 90) || (code >= 97 && code <= 122)
+      || (code >= 48 && code <= 57) || code === 43 || code === 47)) return false;
+  }
+  return true;
+}
+
 /** Strict canonical base64 and the existing upload signature validation, with a fixed development bound. */
 export function normalizeDevelopmentPaymentEvidenceInput(input: unknown) {
   const parsed = developmentPaymentEvidenceUploadSchema.safeParse(input);
   check(parsed.success, "INVALID", "requires bounded supported evidence input without caller metadata");
   const { mimeType, contentBase64 } = parsed.data;
-  check(/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(contentBase64),
+  check(isStrictBase64(contentBase64),
     "INVALID", "requires strict base64 evidence bytes");
   const bytes = Buffer.from(contentBase64, "base64");
   check(bytes.length > 0 && bytes.length <= DEVELOPMENT_PAYMENT_EVIDENCE_MAX_BYTES && bytes.toString("base64") === contentBase64,
