@@ -2,7 +2,7 @@ import { test, expect, type APIRequestContext } from "@playwright/test";
 import { randomBytes, randomUUID, scryptSync } from "node:crypto";
 import { E2E_BASE_URL } from "./support/base-url";
 import { createE2eSellerApprovalVerification } from "./support/seller-verification";
-import { createHardNavigationErrorAudit } from "./support/hard-navigation-errors";
+import { createHardNavigationErrorAudit, marketDestinationFeed } from "./support/hard-navigation-errors";
 import { clickConfirmedTradeAction } from "./support/action-dialog";
 
 const headers = { "x-alpha-test-support": "enabled" };
@@ -120,7 +120,25 @@ for (const method of methods) {
       const newTotal = method === methods[2] ? "500.00" : "484.80";
       await expect(sellerPage.getByTestId("trade-room-summary")).toContainText(newTotal);
       await expect(buyerPage.getByTestId("trade-room-summary")).toContainText(newTotal);
-      await errorAudit.navigate(sellerPage, () => sellerPage.reload());
+      // WebKit can refuse an old-document header refresh during reload.
+      // The destination must prove this seller's exact approved terms.
+      await errorAudit.navigate(sellerPage, () => sellerPage.reload(), [
+        marketDestinationFeed(E2E_BASE_URL),
+        {
+          url: new URL("/api/alpha-exchange/seller/active-trades", E2E_BASE_URL).href,
+          label: "same seller and approved corrected trade",
+          validateBody: (body: unknown) => {
+            const snapshot = body as { actorId?: unknown; trades?: unknown[]; error?: unknown } | null;
+            if (snapshot?.actorId !== f.sellerId || snapshot.error !== undefined
+              || !Array.isArray(snapshot.trades) || snapshot.trades.length !== 1) return false;
+            const trade = snapshot.trades[0] as Record<string, unknown> | null;
+            return trade !== null && typeof trade === "object" && !Array.isArray(trade)
+              && trade.id === f.id && trade.status === "accepted" && trade.perspective === "seller"
+              && trade.usdtAmount === newAmount && trade.fiatAmount === newTotal
+              && trade.currency === "ILS" && trade.paymentMethod === method;
+          },
+        },
+      ]);
       await expect(sellerPage.getByTestId("trade-room-summary")).toContainText(newAmount);
       await expect(adjust).toBeDisabled();
       await expect(sellerPage.getByTestId("trade-adjustment-count")).toContainText("2/2");

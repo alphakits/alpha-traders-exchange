@@ -4,13 +4,18 @@ import { canonicalizeTradeAmount } from "./trade-amount";
 import { isSellerCounterPrice, normalizeListingPrice } from "./price-offer";
 
 export type TradeTermsCalculationAction = "counter_offer" | "propose_amount" | "propose_ils_amount";
+export type TradeTermsQuote = { usdtAmount: string; fiatAmount: string; pricePerUsdt: string };
+export type TradeTermsQuoteOptions = { cardlessCashAmount?: string };
+/** Retained only for proposals already issued with fixed ATM cash. */
 export const CARDLESS_COUNTER_CALCULATION_POLICY = "cardless_fixed_cash_v1" as const;
+export const FIXED_USDT_COUNTER_CALCULATION_POLICY = "fixed_usdt_v2" as const;
+export const CARDLESS_SELECTED_CASH_COUNTER_CALCULATION_POLICY = "cardless_selected_cash_v2" as const;
 
 /** Shared preview and server calculation. A quote is applied only after buyer approval. */
 export function calculateTradeTermsQuote(trade: {
   paymentMethod: string; currency: string; usdtAmount: string; fiatAmount: string;
   pricePerUsdt?: string; listingPriceAtRequest?: string; feePolicyVersion?: string;
-}, action: TradeTermsCalculationAction, value: string) {
+}, action: TradeTermsCalculationAction, value: string, options: TradeTermsQuoteOptions = {}): TradeTermsQuote | null {
   const raw = canonicalizeTradeAmount(value);
   if (!raw || ((action === "counter_offer" || action === "propose_ils_amount") && trade.currency !== "ILS")) return null;
   if (!/^\d{1,9}(?:\.\d{1,6})?$/.test(raw)) return null;
@@ -20,13 +25,14 @@ export function calculateTradeTermsQuote(trade: {
   const includesBuyerFee = trade.feePolicyVersion === MARKETPLACE_FEE_POLICY;
   const cardless = trade.paymentMethod === "Cardless ATM Withdrawal";
   if (cardless && trade.currency !== "ILS") return null;
+  const selectedCash = options.cardlessCashAmount;
+  if (selectedCash !== undefined && (!cardless || action !== "counter_offer")) return null;
   let usdtAmount: string | null;
   if (action === "counter_offer") {
-    // ATM codes represent a cash amount in whole ₪100 steps. A new rate must
-    // quote the USDT that same cash buys, including the existing buyer fee.
-    // The original terms remain unchanged until the buyer accepts this quote.
-    usdtAmount = cardless
-      ? calculateCardlessUsdtAmount(trade.fiatAmount, pricePerUsdt, includesBuyerFee)
+    // A rate change keeps the requested quantity. An ATM seller can explicitly
+    // select supported cash instead; its revised quantity also needs approval.
+    usdtAmount = selectedCash !== undefined
+      ? calculateCardlessUsdtAmount(canonicalizeTradeAmount(selectedCash), pricePerUsdt, includesBuyerFee)
       : canonicalizeTradeAmount(trade.usdtAmount);
   } else if (action === "propose_ils_amount") {
     usdtAmount = cardless ? calculateCardlessUsdtAmount(raw, pricePerUsdt, includesBuyerFee) : calculateUsdtForPaymentTotal(raw, pricePerUsdt, includesBuyerFee);
@@ -39,8 +45,22 @@ export function calculateTradeTermsQuote(trade: {
   }
   if (!usdtAmount) return null;
   const fiatAmount = calculateTradePaymentTotal(usdtAmount, pricePerUsdt, includesBuyerFee);
-  if (!fiatAmount || fiatAmount === "0.00" || (cardless && !parseCardlessCashAmount(fiatAmount))) return null;
+  if (!fiatAmount || fiatAmount === "0.00" || (cardless && action !== "counter_offer" && !parseCardlessCashAmount(fiatAmount))) return null;
   return { usdtAmount, fiatAmount, pricePerUsdt };
+}
+
+/** Keep the exact mathematical preview visible even when an ATM cannot settle it. */
+export function tradeTermsQuoteValidationIssue(
+  trade: { paymentMethod: string; currency: string },
+  quote: TradeTermsQuote,
+  locale = "en",
+) {
+  if (trade.paymentMethod !== "Cardless ATM Withdrawal") return null;
+  if (trade.currency === "ILS" && parseCardlessCashAmount(quote.fiatAmount)) return null;
+  const total = Number(quote.fiatAmount).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return locale === "ar"
+    ? "الإجمالي الجديد ₪" + total + ". يتطلب السحب مبلغاً من 100 إلى 10,000 شيكل بمضاعفات 100. اختر مبلغ سحب صالحاً وراجع كمية USDT الجديدة قبل إرسال العرض."
+    : "The new total is ₪" + total + ". ATM cash must be ₪100–₪10,000 in ₪100 steps. Select a supported cash amount and review the revised USDT quantity before sending.";
 }
 
 /** Ordinary full-price purchases retain their separate pre-payment correction workflow. */

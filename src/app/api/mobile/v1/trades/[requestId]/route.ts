@@ -109,7 +109,8 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     if (["counter_offer", "propose_amount", "propose_ils_amount", "accept_amount", "decline_terms", "withdraw_terms"].includes(action)) {
       const rate = checkRateLimit({ headers: request.headers, key: "mobile:trade:terms", identifier: auth.user.id, maxRequests: 20, windowMs: 60_000 });
       if (!rate.allowed) return mobileError("RATE_LIMITED", requestId, locale, 429);
-      const updated = await updateTradeTerms({ clientPlatform: "mobile", requestId: params.requestId, actorUserId: auth.user.id, action: action as Parameters<typeof updateTradeTerms>[0]["action"], value: String(body?.value ?? ""), proposalId: String(body?.proposalId ?? ""), expectedUpdatedAt: String(body?.expectedUpdatedAt ?? ""), safetyAcknowledged: body?.safetyAcknowledged === true });
+      const updated = await updateTradeTerms({ clientPlatform: "mobile", requestId: params.requestId, actorUserId: auth.user.id, action: action as Parameters<typeof updateTradeTerms>[0]["action"], value: String(body?.value ?? ""), proposalId: String(body?.proposalId ?? ""), expectedUpdatedAt: String(body?.expectedUpdatedAt ?? ""), safetyAcknowledged: body?.safetyAcknowledged === true,
+        cardlessCashAmount: body?.cardlessCashAmount == null ? undefined : String(body.cardlessCashAmount) });
       return mobileJson({ trade: toMobileTradeSummary(updated, auth.user.id), actions: toMobileTradeActions(updated, auth.user.id) }, requestId);
     }
     if (action === "recalculate_cardless_amount") {
@@ -155,6 +156,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       cardlessWithdrawalCode: isCardlessCodeSubmission ? String(body?.withdrawalCode ?? "") : undefined,
       cardlessVerificationKind: isCardlessCodeSubmission ? String(body?.verificationKind ?? "") : undefined,
       cardlessVerificationValue: isCardlessCodeSubmission ? String(body?.verificationValue ?? "") : undefined,
+      cardlessIlsAmount: isCardlessCodeSubmission && body?.ilsAmount != null ? String(body.ilsAmount) : undefined,
       usePreparedCardlessDetails: isCardlessCodeSubmission && body?.usePreparedDetails === true,
       clientOperationId: isCardlessCodeSubmission ? String(body?.clientOperationId ?? "") : undefined,
     });
@@ -207,6 +209,11 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       actions: toMobileTradeActions(updated.request, auth.user.id),
     }, requestId);
   } catch (error) {
+    if (error instanceof TradeBlockedError && error.code === "CARDLESS_PAYMENT_AMOUNT_MISMATCH") {
+      return mobileJson({ error: { code: "INVALID_REQUEST", message: locale === "ar"
+        ? "أدخل مبلغ النقد الخاص برمز السحب. يجب أن يطابق إجمالي الدفع المعتمد في الصفقة تماماً."
+        : error.message } }, requestId, { status: 409 });
+    }
     if (error instanceof TradeBlockedError && ["trade-terms-invalid", "stale-counter-offer", "trade-terms-pending"].includes(error.code)) {
       return mobileJson({ error: { code: "INVALID_REQUEST", message: locale === "ar" ? "تعذر تأكيد تغيير الشروط. تحقق من المبلغ وحدود العرض وحدّث الصفقة. للسحب دون بطاقة يجب مطابقة مبلغ رمز المشتري." : error.message } }, requestId, { status: 409 });
     }

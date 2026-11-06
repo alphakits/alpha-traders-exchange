@@ -6,11 +6,13 @@ import { CardlessWithdrawalFields } from "./cardless-withdrawal-fields";
 
 afterEach(cleanup);
 
-function Form({ disabled = false, isAr = false }: { disabled?: boolean; isAr?: boolean }) {
+function Form({ disabled = false, isAr = false, expectedCashAmount }: { disabled?: boolean; isAr?: boolean; expectedCashAmount?: string }) {
   const [code, setCode] = useState("");
   const [kind, setKind] = useState<CardlessVerificationKind>("id_number");
   const [value, setValue] = useState("");
+  const [cashAmount, setCashAmount] = useState("");
   return <CardlessWithdrawalFields isAr={isAr} disabled={disabled} code={code} verificationKind={kind} verificationValue={value}
+    expectedCashAmount={expectedCashAmount} cashAmount={cashAmount} onCashAmountChange={setCashAmount}
     onCodeChange={setCode} onKindChange={setKind} onValueChange={setValue} />;
 }
 
@@ -44,5 +46,15 @@ describe("cardless withdrawal form", () => {
     expect((screen.getByRole("group") as HTMLFieldSetElement).disabled).toBe(true);
     expect(screen.getByLabelText("١. رمز السحب").matches(":disabled")).toBe(true);
     expect(screen.getByLabelText("٢. رقم الهوية").matches(":disabled")).toBe(true);
+  });
+
+  it("requires the buyer to enter a replacement code's cash amount without silently pre-filling it", () => {
+    render(<Form expectedCashAmount="400.00" />);
+    const amount = screen.getByLabelText("3. Cash amount of this withdrawal code (ILS)") as HTMLInputElement;
+    expect(amount.required).toBe(true);
+    expect(amount.value).toBe("");
+    expect(screen.getByText(/exactly ILS 400.00/)).toBeTruthy();
+    fireEvent.change(amount, { target: { value: "٤٠٠" } });
+    expect(amount.value).toBe("400");
   });
 });

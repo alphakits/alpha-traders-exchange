@@ -1,13 +1,110 @@
-import { expect, test, request } from "@playwright/test";
+import { expect, test, request, type Page, type TestInfo } from "@playwright/test";
 import { E2E_BASE_URL } from "./support/base-url";
 import lessonData from "../src/data/lessons.json";
 import providedLessons from "../src/data/lessons-provided.json";
 
+async function installPriceAlertDiagnostics(page: Page) {
+  await page.addInitScript(() => {
+    if (window !== window.top) return;
+    const diagnostics = { version: 1, maxEvents: 256, droppedEvents: 0, events: [] as unknown[] };
+    (window as Window & { __alphaPriceAlertDiagnostics?: typeof diagnostics }).__alphaPriceAlertDiagnostics = diagnostics;
+    const nodeIds = new WeakMap<object, number>();
+    let nextNodeId = 0;
+    const describe = (target: EventTarget | null) => {
+      if (!target) return null;
+      if (!nodeIds.has(target)) nodeIds.set(target, ++nextNodeId);
+      return {
+        nodeId: nodeIds.get(target),
+        tag: target instanceof Element ? target.tagName.toLowerCase()
+          : target === window ? "window" : target === document ? "document" : "other",
+      };
+    };
+    const record = (event: Event, phase: "capture" | "bubble") => {
+      const summary = document.querySelector('section[aria-label="USDT price alert"] summary, section[aria-label="تنبيه سعر USDT"] summary');
+      if (!summary) return;
+      const details = summary.closest("details");
+      if (event.type === "toggle" && event.target !== details) return;
+      const rect = summary.getBoundingClientRect();
+      const mouse = event instanceof MouseEvent ? event : null;
+      const pointer = typeof PointerEvent !== "undefined" && event instanceof PointerEvent ? event : null;
+      // All pointer targets are useful here: a displaced summary can send the
+      // release/click to another element. Do not record text or input values.
+      if (diagnostics.events.length === diagnostics.maxEvents) { diagnostics.events.shift(); diagnostics.droppedEvents += 1; }
+      diagnostics.events.push({
+        type: event.type, phase, time: performance.now(), timeOrigin: performance.timeOrigin,
+        eventTime: event.timeStamp, path: location.pathname, trusted: event.isTrusted,
+        target: describe(event.target), eventPath: event.composedPath().slice(0, 12).map(describe),
+        defaultPrevented: event.defaultPrevented, propagationStopped: event.cancelBubble,
+        client: mouse ? { x: mouse.clientX, y: mouse.clientY } : null,
+        button: mouse?.button, buttons: mouse?.buttons, clickCount: mouse?.detail,
+        pointerId: pointer?.pointerId, pointerType: pointer?.pointerType,
+        pointTarget: mouse ? describe(document.elementFromPoint(mouse.clientX, mouse.clientY)) : null,
+        summary: { ...describe(summary), connected: summary.isConnected,
+          rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height }, open: details?.open },
+        scroll: { x: window.scrollX, y: window.scrollY },
+        active: describe(document.activeElement), documentFocused: document.hasFocus(),
+      });
+    };
+    for (const type of ["pointerdown", "pointerup", "pointercancel", "mousedown", "mouseup", "click", "toggle", "focus", "blur", "focusin", "focusout", "scroll"]) {
+      window.addEventListener(type, event => record(event, "capture"), { capture: true, passive: true });
+      window.addEventListener(type, event => record(event, "bubble"), { passive: true });
+    }
+  });
+}
+
+const priceAlertDiagnosticsEnabled = process.env.PRICE_ALERT_DIAGNOSTICS === "1";
+
+async function attachPriceAlertDiagnostics(page: Page, testInfo: TestInfo) {
+  if (!priceAlertDiagnosticsEnabled || (testInfo.status === testInfo.expectedStatus && testInfo.retry === 0)) return;
+  const diagnostics = await page.evaluate(() =>
+    (window as Window & { __alphaPriceAlertDiagnostics?: unknown }).__alphaPriceAlertDiagnostics ?? { unavailable: true },
+  ).catch(() => ({ unavailable: true }));
+  await testInfo.attach("price-alert-disclosure-events", {
+    body: JSON.stringify(diagnostics, null, 2),
+    contentType: "application/json",
+  });
+}
+
 for (const locale of ["en", "ar"] as const) {
   const isAr = locale === "ar";
+  // Repeat disclosure interactions without spending the account's PATCH quota.
+  // Persistence/security coverage below retains its real saves and cleanup.
+  test.describe(`price-alert first click (${locale})`, () => {
+    test.beforeEach(async ({ page }) => {
+      if (priceAlertDiagnosticsEnabled) await installPriceAlertDiagnostics(page);
+    });
+    test.afterEach(async ({ page }, testInfo) => {
+      await attachPriceAlertDiagnostics(page, testInfo);
+    });
+    test(`price alert opens on the first click (${locale})`, async ({ page }) => {
+      let priceAlertPatches = 0;
+      page.on("request", request => {
+        if (request.method() === "PATCH" && new URL(request.url()).pathname === "/api/alpha-exchange/price-alerts") priceAlertPatches += 1;
+      });
+      const login = await page.request.post("/api/auth/login", { headers: { "x-forwarded-for": "198.51.100.231" }, data: { email: process.env.E2E_BUYER_EMAIL!, password: process.env.E2E_BUYER_PASSWORD!, rememberMe: true } });
+      expect(login.ok()).toBeTruthy();
+      await page.setViewportSize({ width: isAr ? 390 : 1280, height: 900 });
+      await page.goto(`/${locale}/usdt-exchange`);
+      const panel = page.getByRole("region", { name: isAr ? "تنبيه سعر USDT" : "USDT price alert" });
+      const save = panel.getByRole("button", { name: isAr ? "حفظ التنبيه" : "Save alert" });
+      await expect(save).toBeHidden();
+      await panel.locator("summary").click();
+      await expect(save).toBeEnabled();
+      await page.reload();
+      await expect(save).toBeHidden();
+      await panel.locator("summary").click();
+      await expect(save).toBeEnabled();
+      expect(priceAlertPatches).toBe(0);
+    });
+  });
+
   test.describe(`price-alert account cleanup (${locale})`, () => {
+    test.beforeEach(async ({ page }) => {
+      if (priceAlertDiagnosticsEnabled) await installPriceAlertDiagnostics(page);
+    });
     test.afterEach(async ({ page }, testInfo) => {
       try {
+        await attachPriceAlertDiagnostics(page, testInfo);
         if (testInfo.status === "passed") {
           const panel = page.getByRole("region", { name: isAr ? "تنبيه سعر USDT" : "USDT price alert" });
           await panel.screenshot({ path: `test-results/workspace-additions-${locale}-price-alert.png` });

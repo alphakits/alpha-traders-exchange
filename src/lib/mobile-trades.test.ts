@@ -11,6 +11,12 @@ const acceptedBankTrade = {
 } as PurchaseRequest;
 
 describe("mobile trade actions", () => {
+  it.each([undefined, "usdt_6dp_v2"] as const)("preserves commission precision for native fee previews: %s", commissionCalculationVersion => {
+    const trade = { ...acceptedBankTrade, feePolicyVersion: "buyer_seller_1pct_v1" as const, commissionCalculationVersion };
+    for (const actor of ["buyer-1", "seller-1"]) {
+      expect(toMobileTradeSummary(trade, actor)).toMatchObject({ feePolicyVersion: "buyer_seller_1pct_v1", commissionCalculationVersion });
+    }
+  });
   it("exposes amount adjustment independently of buyer cancellation after bank disclosure", () => {
     const viewed = { ...acceptedBankTrade, sensitivePaymentKind: "bank_details" as const,
       sensitivePaymentSharedAt: "2026-10-28T12:00:00Z" };

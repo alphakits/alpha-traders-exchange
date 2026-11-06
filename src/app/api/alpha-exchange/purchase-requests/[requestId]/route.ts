@@ -75,7 +75,8 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     const rawBody = body as Record<string, unknown>;
     const action = String(rawBody.action ?? "").trim();
     if (["counter_offer", "propose_amount", "propose_ils_amount", "accept_amount", "decline_terms", "withdraw_terms"].includes(action)) {
-      const updated = await updateTradeTerms({ requestId: requestId, actorUserId: user.id, action: action as Parameters<typeof updateTradeTerms>[0]["action"], value: String(rawBody?.value ?? ""), proposalId: String(rawBody?.proposalId ?? ""), expectedUpdatedAt: String(rawBody?.expectedUpdatedAt ?? ""), safetyAcknowledged: rawBody?.safetyAcknowledged === true });
+      const updated = await updateTradeTerms({ requestId: requestId, actorUserId: user.id, action: action as Parameters<typeof updateTradeTerms>[0]["action"], value: String(rawBody?.value ?? ""), proposalId: String(rawBody?.proposalId ?? ""), expectedUpdatedAt: String(rawBody?.expectedUpdatedAt ?? ""), safetyAcknowledged: rawBody?.safetyAcknowledged === true,
+        cardlessCashAmount: rawBody?.cardlessCashAmount == null ? undefined : String(rawBody.cardlessCashAmount) });
       return NextResponse.json({ request: sanitizePurchaseRequestForActor(updated, user.id, user.role) }, { headers: PRIVATE_NO_STORE_HEADERS });
     }
     if (action === "recalculate_cardless_amount") {
@@ -143,6 +144,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       cardlessWithdrawalCode: isCardlessCodeSubmission ? String(rawBody.withdrawalCode ?? "") : undefined,
       cardlessVerificationKind: isCardlessCodeSubmission ? String(rawBody.verificationKind ?? "") : undefined,
       cardlessVerificationValue: isCardlessCodeSubmission ? String(rawBody.verificationValue ?? "") : undefined,
+      cardlessIlsAmount: isCardlessCodeSubmission && rawBody.ilsAmount != null ? String(rawBody.ilsAmount) : undefined,
       usePreparedCardlessDetails: isCardlessCodeSubmission && rawBody.usePreparedDetails === true,
       clientOperationId: isCardlessCodeSubmission ? String(rawBody.clientOperationId ?? "") : undefined,
       traceId: isUsdtSent ? traceId : undefined,

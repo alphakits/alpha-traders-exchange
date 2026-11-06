@@ -42,6 +42,21 @@ export function calculateSellerTotalAlphaDue(amount: string) {
   return fee === null ? null : fromMicros(fee * BigInt(2));
 }
 
+/** Preserve the rounding and minimum that were shown on already-issued trades. */
+export function calculateLegacySellerCommissionAmount(amount: string) {
+  const canonical = canonicalizeTradeAmount(amount);
+  if (canonical === null) return null;
+  const [whole, fraction = ""] = canonical.split(".");
+  const quantity = BigInt(whole!) * MICROS + BigInt(fraction.padEnd(6, "0"));
+  const roundedCents = (quantity + BigInt(500_000)) / MICROS;
+  return Number(roundedCents > BigInt(0) ? roundedCents : BigInt(1)) / 100;
+}
+
+export function calculateLegacySellerTotalAlphaDue(amount: string) {
+  const fee = calculateLegacySellerCommissionAmount(amount);
+  return fee === null ? null : Number((fee + fee).toFixed(2));
+}
+
 /** Keep payable sub-cent balances visible without changing the precision of fiat totals. */
 export function formatCommissionAmount(value: number) {
   if (!Number.isFinite(value) || value < 0) return "—";

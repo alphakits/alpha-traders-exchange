@@ -85,7 +85,7 @@ async function blockExternalBrowserRequests(context: BrowserContext) {
   });
 }
 
-test("ATM counter-offer preserves cash through mobile submission, buyer approval, private code and settlement", async ({ browser, request, browserName }, info) => {
+test("ATM counter-offer recalculates ILS and fees through explicit cash selection, approval and settlement", async ({ browser, request, browserName }, info) => {
   test.setTimeout(150_000);
   const f = await fixture(request);
   const contexts: BrowserContext[] = [];
@@ -132,12 +132,22 @@ test("ATM counter-offer preserves cash through mobile submission, buyer approval
       await rate.fill(invalid);
       await expect(send).toBeDisabled();
     }
-    await rate.fill("3.30");
+    await rate.fill("3.40");
     const preview = sellerPage.getByTestId("trade-adjustment-preview");
     await expect(preview).toContainText("92.821782");
-    await expect(preview).toContainText("90.009001");
-    await expect(preview).toContainText("300.00");
+    await expect(preview).toContainText("318.75");
+    await expect(preview.getByTestId("trade-subtotal")).toContainText("315.59");
+    await expect(preview.getByTestId("trade-buyer-fee")).toContainText("3.16");
+    await expect(sellerPage.getByTestId("inclusive-payment-total")).toContainText("Draft total — not sent yet");
+    await expect(sellerPage.getByTestId("inclusive-payment-total")).toContainText("318.75");
     await expect(preview).toContainText("1%");
+    await expect(send).toBeDisabled();
+    const incompatibleCash = await seller.request.patch(apiPath, { data: { action: "counter_offer", value: "3.40", expectedUpdatedAt: purchase.updatedAt } });
+    expect(incompatibleCash.status()).toBe(409);
+    await sellerPage.getByRole("combobox", { name: "ATM cash amount for counter-offer" }).selectOption("400");
+    await expect(preview).toContainText("116.482236");
+    await expect(preview).toContainText("400.00");
+    await expect(preview.getByTestId("trade-total-commission")).toContainText("2.329644");
     await expect(send).toBeEnabled();
     expect(await sellerPage.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
     await sellerPage.screenshot({ path: info.outputPath("atm-counter-offer-en-mobile.png") });
@@ -145,21 +155,25 @@ test("ATM counter-offer preserves cash through mobile submission, buyer approval
     // The Arabic phone screen must show the same financial proposal before submission.
     await audit.navigate(sellerPage, () => sellerPage.goto(`/ar/trade-room/${purchase.id}`));
     await sellerPage.getByRole("button", { name: "تقديم عرض مقابل", exact: true }).click();
-    await sellerPage.getByLabel("السعر المقابل بالشيكل لكل USDT", { exact: true }).fill("3.30");
-    await expect(sellerPage.getByTestId("trade-adjustment-preview")).toContainText("90.009001");
-    await expect(sellerPage.getByTestId("trade-adjustment-preview")).toContainText("300.00");
+    await sellerPage.getByLabel("السعر المقابل بالشيكل لكل USDT", { exact: true }).fill("3.40");
+    await expect(sellerPage.getByTestId("trade-adjustment-preview")).toContainText("318.75");
+    await expect(sellerPage.getByTestId("inclusive-payment-total")).toContainText("318.75");
+    await sellerPage.getByRole("combobox", { name: "مبلغ رمز السحب للعرض المقابل" }).selectOption("400");
+    await expect(sellerPage.getByTestId("trade-adjustment-preview")).toContainText("116.482236");
+    await expect(sellerPage.getByTestId("trade-adjustment-preview")).toContainText("400.00");
     expect(await sellerPage.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
     await sellerPage.screenshot({ path: info.outputPath("atm-counter-offer-ar-mobile.png") });
     await audit.navigate(sellerPage, () => sellerPage.goto(tradePath));
     await sellerPage.getByRole("button", { name: "Make a counter-offer", exact: true }).click();
-    await sellerPage.getByLabel("Counter price in ILS per USDT", { exact: true }).fill("3.30");
+    await sellerPage.getByLabel("Counter price in ILS per USDT", { exact: true }).fill("3.40");
+    await sellerPage.getByRole("combobox", { name: "ATM cash amount for counter-offer" }).selectOption("400");
     const submittedResponse = sellerPage.waitForResponse(response => new URL(response.url()).pathname === apiPath && response.request().method() === "PATCH");
     await sellerPage.getByRole("button", { name: "Send counter-offer", exact: true }).click();
     const submitted = await submittedResponse;
     expect(submitted.ok(), await submitted.text()).toBe(true);
     const proposed = (await submitted.json()).request as PurchaseRequest;
     expect(proposed).toMatchObject({ status: "pending", usdtAmount: "92.821782", fiatAmount: "300.00", amountAdjustmentCount: 1,
-      termsProposal: { kind: "counter_offer", status: "pending", usdtAmount: "90.009001", fiatAmount: "300.00", pricePerUsdt: "3.30", calculationPolicy: "cardless_fixed_cash_v1" } });
+      termsProposal: { kind: "counter_offer", status: "pending", usdtAmount: "116.482236", fiatAmount: "400.00", pricePerUsdt: "3.40", calculationPolicy: "cardless_selected_cash_v2" } });
     await audit.navigate(sellerPage, () => sellerPage.reload());
     await expect(sellerPage.getByRole("button", { name: "Withdraw proposal", exact: true })).toBeVisible();
     const blockedSellerAcceptance = await seller.request.patch(apiPath, { data: { status: "accepted" } });
@@ -170,20 +184,23 @@ test("ATM counter-offer preserves cash through mobile submission, buyer approval
     await audit.navigate(buyerPage, () => buyerPage.goto(tradePath));
     const buyerTerms = buyerPage.getByTestId("trade-amount-action");
     await expect(buyerTerms).toContainText("92.821782");
-    await expect(buyerTerms).toContainText("90.009001");
-    await expect(buyerTerms).toContainText("300.00");
-    await expect(buyerTerms).toContainText("3.30");
+    await expect(buyerTerms).toContainText("116.482236");
+    await expect(buyerTerms).toContainText("400.00");
+    await expect(buyerTerms).toContainText("3.40");
+    await expect(buyerPage.getByTestId("inclusive-payment-total")).toContainText("Proposed total — awaiting buyer approval");
+    await expect(buyerPage.getByTestId("inclusive-payment-total")).toContainText("400.00");
     await expect(buyerPage.getByRole("button", { name: "Send & Confirm Withdrawal Details", exact: true })).toHaveCount(0);
     await buyerPage.screenshot({ path: info.outputPath("atm-counter-offer-buyer-desktop.png") });
     const acceptedResponse = buyerPage.waitForResponse(response => new URL(response.url()).pathname === apiPath && response.request().method() === "PATCH");
     await buyerPage.getByRole("button", { name: "Accept these terms", exact: true }).click();
     const accepted = await acceptedResponse;
     expect(accepted.ok(), await accepted.text()).toBe(true);
-    expect((await accepted.json()).request).toMatchObject({ status: "accepted", usdtAmount: "90.009001", fiatAmount: "300.00", pricePerUsdt: "3.30", cardlessCodeAwaitingBuyerConfirmation: true });
+    expect((await accepted.json()).request).toMatchObject({ status: "accepted", usdtAmount: "116.482236", fiatAmount: "400.00", pricePerUsdt: "3.40", cardlessCodeAwaitingBuyerConfirmation: false });
     await audit.navigate(sellerPage, () => sellerPage.reload());
     for (const page of [buyerPage, sellerPage]) {
-      await expect(page.getByTestId("trade-room-summary")).toContainText("90.009001");
-      await expect(page.getByTestId("inclusive-payment-total")).toContainText("300.00");
+      await expect(page.getByTestId("trade-room-summary")).toContainText("116.482236");
+      await expect(page.getByTestId("inclusive-payment-total")).toContainText("400.00");
+      await expect(page.getByTestId("inclusive-payment-total")).not.toContainText("awaiting buyer approval");
     }
     await expect(sellerPage.getByTestId("trade-chat-messages")).not.toContainText("923814");
     const duplicateApproval = await buyer.request.patch(apiPath, { data: { action: "accept_counter_offer", proposalId: proposed.termsProposal!.id } });
@@ -192,10 +209,17 @@ test("ATM counter-offer preserves cash through mobile submission, buyer approval
     expect(beforePayment.marketplaceListings.find(listing => listing.id === f.listingId)?.availableAmount).toBe("1500");
     expect(beforePayment.commissionRecords.filter(record => record.purchaseRequestId === purchase.id)).toHaveLength(0);
 
+    const wrongCashCode = await buyer.request.patch(apiPath, { data: { action: "submit_cardless_code", withdrawalCode: "943815", verificationKind: "id_number", verificationValue: "123456789", ilsAmount: "300", clientOperationId: randomUUID() } });
+    expect(wrongCashCode.status()).toBe(409);
+    await buyerPage.getByLabel("1. Withdrawal code", { exact: true }).fill("943815");
+    await buyerPage.getByLabel("2. ID number", { exact: true }).fill("123456789");
+    await buyerPage.getByLabel("3. Cash amount of this withdrawal code (ILS)", { exact: true }).fill("400");
     await clickConfirmedTradeAction(buyerPage, buyerPage.getByRole("button", { name: "Send & Confirm Withdrawal Details", exact: true }));
     await expect(sellerPage.getByRole("button", { name: "I Collected the ATM Cash", exact: true })).toBeVisible({ timeout: 20_000 });
     await expect(sellerPage.getByTestId("trade-amount-locked")).toBeVisible();
-    await expect(sellerPage.getByTestId("trade-chat-messages")).toContainText("923814");
+    await expect(sellerPage.getByTestId("trade-chat-messages")).not.toContainText("923814");
+    await expect(sellerPage.getByTestId("trade-chat-messages")).toContainText("943815");
+    await expect(sellerPage.getByTestId("trade-chat-messages")).toContainText("400.00");
     const locked = (await readDb(request)).purchaseRequests.find(trade => trade.id === purchase.id)!;
     const deniedCounter = await seller.request.patch(apiPath, { data: { action: "counter_offer", value: "3.40", expectedUpdatedAt: locked.updatedAt } });
     expect(deniedCounter.status()).toBe(409);
@@ -206,13 +230,13 @@ test("ATM counter-offer preserves cash through mobile submission, buyer approval
     const repeatedCompletion = await seller.request.patch(apiPath, { data: { action: "complete_trade", usdtSentConfirmed: true } });
     expect(repeatedCompletion.ok(), await repeatedCompletion.text()).toBe(true);
     const after = await readDb(request);
-    expect(after.purchaseRequests.find(trade => trade.id === purchase.id)).toMatchObject({ status: "review_open", usdtAmount: "90.009001", fiatAmount: "300.00", pricePerUsdt: "3.30", amountAdjustmentCount: 1 });
-    expect(after.marketplaceListings.find(listing => listing.id === f.listingId)?.availableAmount).toBe("1409.990999");
-    expect(after.commissionRecords.filter(record => record.purchaseRequestId === purchase.id)).toEqual([expect.objectContaining({ sellerFeeAmount: 0.90009, buyerFeeCollectedAmount: 0.90009, commissionAmount: 1.80018, grossAmount: 300 })]);
+    expect(after.purchaseRequests.find(trade => trade.id === purchase.id)).toMatchObject({ status: "review_open", usdtAmount: "116.482236", fiatAmount: "400.00", pricePerUsdt: "3.40", amountAdjustmentCount: 1 });
+    expect(after.marketplaceListings.find(listing => listing.id === f.listingId)?.availableAmount).toBe("1383.517764");
+    expect(after.commissionRecords.filter(record => record.purchaseRequestId === purchase.id)).toEqual([expect.objectContaining({ sellerFeeAmount: 1.164822, buyerFeeCollectedAmount: 1.164822, commissionAmount: 2.329644, grossAmount: 400 })]);
     for (const api of [buyer.request, seller.request]) {
       const receipt = await api.get(`${apiPath}/receipt`);
       expect(receipt.ok(), await receipt.text()).toBe(true);
-      expect((await receipt.json()).receipt).toMatchObject({ usdtAmount: "90.009001", fiatAmount: "300.00", pricePerUsdt: "3.30", buyerFeeUsdt: "0.90009", sellerFeeUsdt: "0.90009", totalPlatformFeeUsdt: "1.80018" });
+      expect((await receipt.json()).receipt).toMatchObject({ usdtAmount: "116.482236", fiatAmount: "400.00", pricePerUsdt: "3.40", buyerFeeUsdt: "1.164822", sellerFeeUsdt: "1.164822", totalPlatformFeeUsdt: "2.329644" });
     }
     expect(audit.errors).toEqual([]);
   } finally {
