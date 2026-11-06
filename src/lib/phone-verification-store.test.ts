@@ -108,6 +108,16 @@ describe("persisted SMS verification challenges", () => {
     expect(saved?.phoneOtpHash).toBeUndefined();
     await expect(confirmProfilePhoneVerification({ userId: "test-one", phone, code: challenge.code })).rejects.toThrow("expired or invalid");
   });
+  it.each([
+    ["Arabic-Indic", "٠١٢٣٤٥٦٧٨٩"],
+    ["Eastern Arabic", "۰۱۲۳۴۵۶۷۸۹"],
+  ])("accepts the issued code entered with %s digits", async (_label, digits) => {
+    const challenge = await beginProfilePhoneVerification({ userId: "test-one", phone });
+    const localizedCode = challenge.code.replace(/\d/g, digit => digits[Number(digit)]);
+    const verified = await confirmProfilePhoneVerification({ userId: "test-one", phone, code: localizedCode });
+    expect(verified).toMatchObject({ verifiedPhone: phone, phoneVerifiedAt: now });
+    expect(verified.phoneOtpHash).toBeUndefined();
+  });
   it.each([undefined, "whatsapp"] as const)("rejects a pending code from a legacy or unavailable channel %j", async channel => {
     const challenge = await beginProfilePhoneVerification({ userId: "test-one", phone });
     globalThis.__alphaExchangeMemorySnapshot!.users[0].phoneOtpChannel = channel;
@@ -131,9 +141,9 @@ describe("persisted SMS verification challenges", () => {
     expect(results.filter(result => result.status === "fulfilled")).toHaveLength(1);
     expect((await findUserById("test-one"))?.phoneOtpSendsToday).toBe(1);
   });
-  it("does not let simultaneous guesses reset the attempt counter", async () => {
+  it.each(["0123456789", "٠١٢٣٤٥٦٧٨٩", "۰۱۲۳۴۵۶۷۸۹"])("does not let simultaneous guesses reset the attempt counter with digits %s", async digits => {
     const challenge = await beginProfilePhoneVerification({ userId: "test-one", phone });
-    const wrong = challenge.code === "000000" ? "111111" : "000000";
+    const wrong = (challenge.code === "000000" ? "111111" : "000000").replace(/\d/g, digit => digits[Number(digit)]);
     const attempts = await Promise.allSettled(Array.from({ length: 8 }, () => confirmProfilePhoneVerification({ userId: "test-one", phone, code: wrong })));
     expect(attempts.every(result => result.status === "rejected")).toBe(true);
     expect((await findUserById("test-one"))?.phoneOtpAttempts).toBe(5);

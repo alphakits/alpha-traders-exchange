@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { expect, request, test, type APIRequestContext, type Page } from "@playwright/test";
 import { E2E_BASE_URL } from "./support/base-url";
 
@@ -221,4 +221,66 @@ test("changing a verified number revokes exchange access after refresh", async (
   await expectPhoneDenied(page.request);
   await page.reload();
   await expect(page).toHaveURL(/\/en\/verify-account\?redirectTo=%2Fen%2Fusdt-exchange$/);
+});
+
+for (const locale of ["en", "ar"] as const) {
+  test(`an existing SMS code survives leaving and reloading verification: ${locale}`, async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    const user = await provision(page.request, "buyer", false);
+    const db = await state(page.request);
+    const stored = db.users.find(item => item.id === user.id)!;
+    const phone = locale === "ar" ? "+972500019335" : "+972500019334";
+    const code = "012345";
+    const salt = randomBytes(16).toString("hex");
+    const requestedAt = Date.now() - 15_000;
+    Object.assign(stored, {
+      phoneOtpPhone: phone, phoneOtpChannel: "sms", phoneOtpSalt: salt,
+      phoneOtpHash: createHash("sha256").update(`${phone}:${code}:${salt}`).digest("hex"),
+      phoneOtpRequestedAt: new Date(requestedAt).toISOString(),
+      phoneOtpExpiresAt: new Date(requestedAt + 10 * 60_000).toISOString(),
+      phoneOtpAttempts: 0, phoneOtpSendsToday: 1,
+    });
+    expect((await page.request.put("/api/testing/alpha-exchange-state", { headers: supportHeaders, data: db })).ok()).toBeTruthy();
+    await login(page, user);
+    const sends: string[] = [];
+    page.on("request", request => {
+      if (request.method() === "POST" && request.url().includes("/phone/send-code")) sends.push(request.url());
+    });
+    await page.goto(`/${locale}/trades`);
+    await expect(page).toHaveURL(new RegExp(`/${locale}/verify-account\\?redirectTo=`));
+    const input = page.getByRole("textbox", { name: locale === "ar" ? "رمز التحقق" : "Verification code", exact: true });
+    await expect(input).toBeEnabled();
+    await page.goto(`/${locale}/support`);
+    await page.goto(`/${locale}/trades`);
+    await page.reload();
+    await expect(input).toBeEnabled();
+    await input.fill(locale === "ar" ? "٠١٢٣٤٥" : code);
+    await expect(input).toHaveValue(code);
+    await page.getByRole("button", { name: locale === "ar" ? "تأكيد رقم الهاتف" : "Verify phone", exact: true }).click();
+    await expect(page).toHaveURL(new RegExp(`/${locale}/trades$`));
+    expect((await (await page.request.get("/api/auth/me")).json()).user.isPhotoVerified).toBe(true);
+    const saved = (await state(page.request)).users.find(item => item.id === user.id)!;
+    expect(saved.verifiedPhone).toBe(phone);
+    expect(saved.phoneOtpHash).toBeUndefined();
+    expect(saved.phoneOtpSendsToday).toBe(1);
+    expect(sends).toEqual([]);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  });
+}
+
+test("a verified account repairs a missing email cookie before leaving verification", async ({ page, context }) => {
+  const user = await provision(page.request, "buyer", true);
+  await login(page, user);
+  expect((await context.cookies()).find(cookie => cookie.name === "alpha_exchange_verified")?.expires).toBeGreaterThan(Date.now() / 1000);
+  await context.clearCookies({ name: "alpha_exchange_verified" });
+  await page.route("**/api/auth/me", async route => {
+    // A slower canonical read must finish before the page replaces itself.
+    await new Promise(resolve => setTimeout(resolve, 150));
+    await route.continue();
+  });
+  await page.goto("/en/verify-account?redirectTo=%2Fen%2Ftrades");
+  await expect(page).toHaveURL(/\/en\/trades$/);
+  expect((await context.cookies()).find(cookie => cookie.name === "alpha_exchange_verified")?.value).toBe("1");
+  await page.reload();
+  await expect(page).toHaveURL(/\/en\/trades$/);
 });

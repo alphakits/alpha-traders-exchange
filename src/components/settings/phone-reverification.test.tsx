@@ -18,6 +18,22 @@ function mockAccount(confirmOk: boolean) {
 }
 
 describe("phone reverification", () => {
+  it.each(["001234", "٠٠١٢٣٤", "۰۰۱۲۳۴"])("submits code %s without discarding localized digits or leading zeroes", async code => {
+    const fetchMock = mockAccount(true);
+    render(<AccountSettingsPanel locale="en" phoneVerificationEnabled initialTab="notifications" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Reverify phone" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Phone number" }), { target: { value: "+972541234567" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send code" }));
+    await screen.findByText("Verification code sent via SMS.");
+    const codeInput = screen.getByRole("textbox", { name: "Verification code" }) as HTMLInputElement;
+    fireEvent.change(codeInput, { target: { value: code } });
+    expect(codeInput.value).toBe("001234");
+    fireEvent.click(screen.getByRole("button", { name: "Verify" }));
+    await waitFor(() => expect(fetchMock.mock.calls.find(([url]) => String(url).endsWith("phone/verify-code"))).toBeTruthy());
+    const verify = fetchMock.mock.calls.find(([url]) => String(url).endsWith("phone/verify-code"))!;
+    expect(JSON.parse(String(verify[1]?.body))).toEqual({ phone: "+972541234567", code: "001234" });
+  });
+
   it("allows a verified member to request a fresh SMS without changing existing verification or notification consent", async () => {
     const fetchMock = mockAccount(false);
     render(<AccountSettingsPanel locale="en" phoneVerificationEnabled initialTab="notifications" />);

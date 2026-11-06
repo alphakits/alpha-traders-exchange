@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { confirmProfilePhoneVerification } from "@/lib/alpha-exchange-store";
+import { normalizePhoneVerificationCode } from "@/lib/phone-verification-code";
 import { isMarketplacePhoneVerificationEnabled } from "@/lib/phone-verification";
 import { requireMobileApiUser } from "@/lib/mobile-api-auth";
 import {
@@ -40,19 +41,19 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await readMobileJsonBody(request);
+    const code = normalizePhoneVerificationCode(body?.code);
     if (
       !body
       || Object.keys(body).some((key) => key !== "phone" && key !== "code")
       || typeof body.phone !== "string"
-      || typeof body.code !== "string"
-      || !/^\d{6}$/.test(body.code)
+      || code === null
     ) {
       return mobileError("INVALID_REQUEST", requestId, locale, 400);
     }
     const user = await confirmProfilePhoneVerification({
       userId: auth.user.id,
       phone: body.phone,
-      code: body.code,
+      code,
     });
     return mobileJson({
       ok: true,

@@ -98,6 +98,7 @@ import { formatIsraelCalendarDateKey } from "@/lib/israel-calendar";
 import { assertNoDirectContactContent, containsDirectContactContent, redactPrivateContactDetails } from "@/lib/privacy-redaction";
 import { getSmsTemplate, isTwilioSendEnabled, normalizeE164, resolveSmsDeliveryStatusTransition, sendTwilioMessageWithRetry, twilioStatusCallbackUrl } from "@/lib/notification-platform";
 import { normalizeIsraeliPhone, canonicalPhoneNumber } from "@/lib/phone-number-normalization";
+import { normalizePhoneVerificationCode } from "@/lib/phone-verification-code";
 import { assertAccountPhoneAvailable } from "@/lib/account-phone-ownership";
 import { isMarketplacePhoneVerificationEnabled, needsMarketplacePhoneVerification } from "@/lib/phone-verification";
 import { ADULT_CONFIRMATION_METHOD, hasAdultConfirmation, needsAdultConfirmation } from "@/lib/age-eligibility";
@@ -6723,7 +6724,8 @@ export async function beginProfilePhoneVerification(input: { userId: string; pho
 export async function confirmProfilePhoneVerification(input: { userId: string; phone: string; code: string }) {
   if (!isMarketplacePhoneVerificationEnabled()) throw new Error("Phone verification is disabled.");
   const phone = canonicalPhoneNumber(input.phone);
-  if (!phone || !/^\d{6}$/.test(input.code)) throw new Error("Invalid verification code.");
+  const code = normalizePhoneVerificationCode(input.code);
+  if (!phone || code === null) throw new Error("Invalid verification code.");
   const db = await readDbForSelectedTables(["users"]);
   let committedUser: AlphaExchangeUser | undefined;
   let accepted = false;
@@ -6741,7 +6743,7 @@ export async function confirmProfilePhoneVerification(input: { userId: string; p
       throw new Error("Verification code expired or invalid. Request a new code.");
     }
     const expected = Buffer.from(user.phoneOtpHash, "hex");
-    const actual = Buffer.from(hashPhoneOtp(phone, input.code, user.phoneOtpSalt), "hex");
+    const actual = Buffer.from(hashPhoneOtp(phone, code, user.phoneOtpSalt), "hex");
     if (expected.length !== actual.length || !timingSafeEqual(expected, actual)) {
       snapshot.users[index] = { ...user, phoneOtpAttempts: attempts + 1, updatedAt: nowIso() };
       return snapshot;

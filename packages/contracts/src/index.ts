@@ -6,6 +6,7 @@ export * from "./trade-terms";
 export * from "./trade-financials";
 export * from "./wallet-address";
 export * from "./whatsapp-contact";
+export * from "./phone-verification-code";
 export * from "./cardless-withdrawal";
 export * from "./israeli-banks";
 export * from "./user-presence";

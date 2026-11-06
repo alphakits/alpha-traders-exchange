@@ -13,6 +13,7 @@ import { Input } from "@/components/ui/input";
 import { getIsraeliBankDisplayName, getIsraeliBankOptions } from "@/lib/israeli-banks";
 import { PhoneVerificationChannelPicker } from "@/components/auth/phone-verification-channel-picker";
 import type { PhoneVerificationChannel, PhoneVerificationChannels } from "@/lib/phone-verification-channel";
+import { normalizePhoneVerificationCodeInput } from "@/lib/phone-verification-code";
 import { useOptionalCanonicalSession } from "@/components/auth/canonical-session-provider";
 import { getInterfaceAccess } from "@alpha-traders/contracts";
 import { ClientRequestTimeoutError, fetchClientJson, runClientRequest } from "@/lib/client-request-deadline";
@@ -1159,7 +1160,7 @@ export function AccountSettingsPanel({
                     <div className="flex flex-wrap gap-2">
                     <Input type="tel" autoComplete="tel" dir="ltr" maxLength={30} disabled={Boolean(phoneBusy)} aria-label={isAr ? "رقم الهاتف" : "Phone number"} value={phone} onChange={(event) => { setPhone(event.target.value); setPhoneCode(""); setPhoneSentTo(null); setPhoneMessage(null); }} placeholder="+972 50 123 4567" className="max-w-xs" />
                     <Button type="button" variant="secondary" loading={phoneBusy === "send"} disabled={Boolean(phoneBusy) || !phone.trim() || phoneCooldown > 0 || phoneVerificationChannels?.[phoneChannel] === false} onClick={() => void sendPhoneCode()}>{phoneCooldown > 0 ? (isAr ? `أعد الإرسال بعد ${phoneCooldown} ثانية` : `Resend in ${phoneCooldown}s`) : (isAr ? "إرسال الرمز" : "Send code")}</Button>
-                    <Input type="text" inputMode="numeric" dir="ltr" autoComplete="one-time-code" maxLength={6} disabled={!phoneSentTo || Boolean(phoneBusy)} aria-label={isAr ? "رمز التحقق" : "Verification code"} value={phoneCode} onChange={(event) => setPhoneCode(event.target.value.replace(/\D/g, "").slice(0, 6))} placeholder={isAr ? "رمز من 6 أرقام" : "6-digit code"} className="max-w-36" />
+                    <Input type="text" inputMode="numeric" dir="ltr" autoComplete="one-time-code" maxLength={6} disabled={!phoneSentTo || Boolean(phoneBusy)} aria-label={isAr ? "رمز التحقق" : "Verification code"} value={phoneCode} onChange={(event) => setPhoneCode(normalizePhoneVerificationCodeInput(event.target.value))} placeholder={isAr ? "رمز من 6 أرقام" : "6-digit code"} className="max-w-36" />
                     <Button type="button" loading={phoneBusy === "verify"} disabled={Boolean(phoneBusy) || !phoneSentTo || !/^\d{6}$/.test(phoneCode)} onClick={() => void verifyPhoneCode()}>{isAr ? "تحقق" : "Verify"}</Button>
                     </div>
                   </div>}
