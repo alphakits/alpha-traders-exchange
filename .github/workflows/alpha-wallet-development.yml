@@ -22,7 +22,7 @@ jobs:
     name: Wallet, recovery and browser verification with synthetic funds
     if: ${{ github.ref == 'refs/heads/feature/alpha-wallet-dev-20261104' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     defaults:
       run:
         shell: bash
@@ -62,6 +62,40 @@ jobs:
 
       - name: Prepare simulation evidence directory
         run: mkdir -p test-results/alpha-wallet
+
+      - name: Prepare empty isolated deposit inbox databases
+        run: |
+          node --input-type=module <<'NODE'
+          import pg from 'pg';
+          const connection = new pg.Client({ connectionString: 'postgresql://wallet_fixture:simulation-only@127.0.0.1:5432/alpha_wallet_dev_races' });
+          await connection.connect();
+          try {
+            await connection.query('CREATE DATABASE alpha_wallet_dev_inbox_atomic');
+            await connection.query('CREATE DATABASE alpha_wallet_dev_inbox_races');
+            await connection.query('CREATE DATABASE alpha_wallet_dev_inbox_backup_source');
+            await connection.query('CREATE DATABASE alpha_wallet_dev_inbox_backup_target');
+          } finally { await connection.end(); }
+          NODE
+
+      - name: Verify isolated deposit evidence persistence and independent writer races
+        run: |
+          set -euo pipefail
+          node --conditions=react-server --import tsx scripts/alpha-wallet/postgres-deposit-inbox.ts \
+            --fresh-simulation-databases \
+            --atomic-url 'postgresql://wallet_fixture:simulation-only@127.0.0.1:5432/alpha_wallet_dev_inbox_atomic' \
+            --races-url 'postgresql://wallet_fixture:simulation-only@127.0.0.1:5432/alpha_wallet_dev_inbox_races' \
+            2>test-results/alpha-wallet/postgres-deposit-inbox.stderr.log \
+            | tee test-results/alpha-wallet/postgres-deposit-inbox.json
+
+      - name: Verify paused deposit export and quarantined fresh-target recovery
+        run: |
+          set -euo pipefail
+          node --conditions=react-server --import tsx scripts/alpha-wallet/postgres-deposit-inbox-backup.ts \
+            --fresh-simulation-databases \
+            --source-connection-string 'postgresql://wallet_fixture:simulation-only@127.0.0.1:5432/alpha_wallet_dev_inbox_backup_source' \
+            --target-connection-string 'postgresql://wallet_fixture:simulation-only@127.0.0.1:5432/alpha_wallet_dev_inbox_backup_target' \
+            2>test-results/alpha-wallet/postgres-deposit-inbox-backup.stderr.log \
+            | tee test-results/alpha-wallet/postgres-deposit-inbox-backup.json
 
       - name: Run the wallet unit and local persistence suite
         run: |
