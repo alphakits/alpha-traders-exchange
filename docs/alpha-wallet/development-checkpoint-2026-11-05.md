@@ -1,8 +1,8 @@
 # Alpha Wallet development checkpoint
 
-Updated: **6 November 2026, Asia/Jerusalem**. Exact-source verification completed `2026-11-05T23:06:24Z`.
+Updated: **6 November 2026, Asia/Jerusalem**. Active source: `621beaad00715ea81c7eb48b07a63c6137599314`.
 
-**Development continues. Live launch remains off.** Authenticated initial-trade cancellation and its complete combined recovery are implemented and saved. The clean CI gate passed **2,404 tests across 70 files**, zero failures/skips; **15 native PostgreSQL drills / 166 checks**, root TypeScript, offline simulation and retained English/Arabic Chromium rehearsal. See the [verification report](cancellation-marketplace-verification-2026-11-06.md) and [machine-readable evidence](cancellation-marketplace-verification-results.json).
+**Development continues. Live launch remains off.** The V5 buyer payment-claim and subsequent buyer dispute-freeze profile, authenticated canonical integration and complete combined recovery are implemented and saved. Neither action verifies payment, releases funds or moves principal. Exact-source CI passed **2,786 tests across 80 files** and **18 native PostgreSQL drills / 212 checks**, with zero test failures or skips; the previous cancellation milestone remains recorded below as history. See the [payment-profile design](payment-marketplace-coordinator-design.md) and [current verification report](payment-marketplace-verification-2026-11-06.md).
 
 ## Authorization and source
 
@@ -12,16 +12,46 @@ Repository: `alphakits/alpha-traders-exchange`. Branch: `feature/alpha-wallet-de
 
 | Evidence | Exact source and status |
 | --- | --- |
+| Saved V5 implementation | `621beaad00715ea81c7eb48b07a63c6137599314`; tree `0d7c97bd2998b0a51d2dbe7b5d126fb926a8249f` |
+| Current clean CI | [Run 42195918584](https://github.com/alphakits/alpha-traders-exchange/actions/runs/42195918584), job `127819018187`, attempt 1; success at `2026-11-06T09:51:29Z` |
+| Current full suite | 2,599 wallet / 71 files; 87 authentication / 5 files; 100 marketplace / 4 files; all 2,217 old wallet cases plus 382 new; zero failures/skips |
+| Current native PostgreSQL and retained rehearsal evidence | 18 drills / 212 checks, including all 15 old drills / 166 checks; full repository TypeScript, offline demo and standalone English/Arabic Chromium rehearsal passed |
+| Current downloaded evidence | Artifact `13492542282`, 2,113,009 bytes, 54 extracted files; SHA-256 `e997ba0232e7856fe579b89c6015f817a514091b21a515e276ed41989296f456` matches GitHub |
+| Frozen contracts | All 75 original frozen contracts remain byte exact; V1–V4 financial reducers, migrations and immutable receipt meanings remain unchanged |
+| Independent V4 predecessor capture | Accepted and cancelled history/state/paused-backup fixtures captured from `26ac313212071c3ca600ad19dfb72cac234c0ef0` before V5 implementation; see [capture provenance](../../src/lib/alpha-wallet/fixtures/v4/README.md) |
+
+The independent V4 capture verified a historical graph of **101 transitive source/schema/manifest files** against its pinned capture commit. That number describes the capture provenance, not a claim that all 101 corresponding files are unchanged in the current implementation. The fixtures retain original accepted/cancelled receipts, source pause state and the held `submission_unknown` withdrawal with its single historical dispatch. Do not regenerate them to fit a successor.
+
+## Completed V5 integration
+
+- **Explicit one-way enrollment.** `alpha_wallet_payment_marketplace_simulation`, profile `canonical-initial-payment-cohort-v1`, continues one original V4 cancellation-profile mapping under current stored owner authority. Both `acknowledgeVersionUpgrade: true` and `acknowledgePaymentClaimOnlyProfile: true` are required. Enrollment acknowledges that this V5 profile has no new cancellation, release or settlement command. Original accepted sources can continue; original cancelled sources are archival only. An inherited pause survives.
+- **Buyer payment claim with exact evidence binding.** Only the original buyer can claim payment for the exact retained request, acceptance, terms and full fiat amount. Bank Transfer requires a newly validated atomic upload whose evidence identifier, SHA-256, allowed MIME type and exact byte size are bound into the immutable financial receipt. Face-to-Face requires no uploaded proof. The canonical request becomes `payment_sent`, the listing becomes `in_trade` and the financial trade becomes `payment_reported`. This is the buyer's claim, not independently verified payment evidence.
+- **Buyer dispute after that exact claim.** Only the same original buyer can freeze a dispute after the exact V5 claim receipt. The financial receipt binds that prior receipt and a SHA-256 digest of the normalized private reason; the canonical open dispute retains the claimed evidence reference. The request remains `payment_sent`, the listing remains `in_trade` and the reservation stays held. Seller disputes, preclaim disputes and dispute resolution are outside this profile.
+- **No principal or payout movement.** Claims and freezes retain the original full principal, listing balances, accounts and journal. Their transfer amount is zero. Original unknown payouts remain held; replaying an old dispatch receipt never authorizes another dispatch. No V5 claim creates verified `PaymentEvidence`, fee settlement, release authority, provider action or Trust Wallet reconciliation.
+- **One transaction and current authority.** Fixed web/mobile readers resolve current accounts, sessions and devices. Canonical evidence bytes, exact canonical effects, financial and cross-system receipts, audit/timeline effects and safe publication commit under the same physical transaction. Independent SQL binds actor, original trade, prior receipt and proof while rejecting missing coupled effects, new journals and altered predecessor records. Legacy payment, evidence, dispute, release and reminder writers are fenced for this profile.
+- **Immutable receipt recovery.** A current valid same-buyer retry recovers the original claim or dispute receipt across transport changes and after pause. Changed actor, evidence, prior claim or input fails. Late errors roll back the whole coupled operation; uncertain replies are recovered by inspection or exact receipt retry without creating a second action.
+- **Complete combined recovery.** A durably paused source exports all five financial histories and four continuations together with exact original initial/cancellation cohort records, V5 receipts, canonical rows, evidence bytes and safe publications. A fresh isolated target replays the original history, restores disabled credential-free identity stubs, appends one V5 quarantine pause and seals financial, canonical and authentication writes. Source and target remain paused. Same-target inspection resolves an uncertain restore COMMIT; credentials, delivery, authority re-entry and resume are not restored.
+- **Verification coverage implemented.** Wallet-only and combined-profile tests/drills cover competing backends, direct SQL violations, revocation, late rollback, uncertain COMMIT, cancelled/paused sources, historical unknown payouts and competing fresh-target restores. The clean exact-source CI gate passed; the [machine-readable report](payment-marketplace-verification-results.json) retains every case identity, native result and verified artifact/source hash. The fixtures are synthetic and disposable.
+
+The [payment-profile design](payment-marketplace-coordinator-design.md) and [recovery runbook](recovery-runbook.md) describe these contracts. Original standalone, initial-cohort and cancellation-cohort APIs and recovery formats retain their meanings. Standalone V5 cannot bypass coordinated authority. Historical replay and receipt inspection never authorize a new old-version action.
+
+## Previous verified milestone — cancellation and complete recovery
+
+This is historical evidence for the predecessor, not the outcome of the current V5 CI run. Exact-source verification completed `2026-11-05T23:06:24Z` (**6 November 2026, 01:06:24 Asia/Jerusalem**). The clean gate passed **2,404 tests across 70 files**, zero failures/skips; **15 native PostgreSQL drills / 166 checks**, root TypeScript, offline simulation and retained English/Arabic Chromium rehearsal. See the [cancellation verification report](cancellation-marketplace-verification-2026-11-06.md) and [machine-readable evidence](cancellation-marketplace-verification-results.json).
+
+| Historical evidence | Exact source and status |
+| --- | --- |
 | Verified implementation | `3122fdbf38f5149fa4f85c73e9fd82ad4d603d2e`; tree `439689dd28e18f21e3980c582362ce9560e4bf78` |
+| Saved predecessor checkpoint | `26ac313212071c3ca600ad19dfb72cac234c0ef0`; tree `3254c852ba07dac2af9989bbba763b07f4b14727` |
 | Clean CI | [Run 42125265166](https://github.com/alphakits/alpha-traders-exchange/actions/runs/42125265166), job `127587701636`, attempt 1; success at `2026-11-05T23:06:24Z` |
 | Full suite | 2,217 wallet / 61 files; 87 authentication / 5 files; 100 marketplace / 4 files; zero failures/skips |
-| Retention | All 2,045 previous wallet cases plus 172 new; all 13 old native drills/139 checks retained; 75 frozen source contracts unchanged |
-| Previous verified source | `73970284b87fdce6d1daf97b6b3ebefa757825f3`, [2,232-test V4/canonical groundwork](prepayment-cancellation-verification-2026-11-06.md) |
+| Retention at that milestone | All 2,045 previous wallet cases plus 172 new; all 13 old native drills/139 checks retained; 75 frozen source contracts unchanged |
+| Earlier verified source | `73970284b87fdce6d1daf97b6b3ebefa757825f3`, [2,232-test V4/canonical groundwork](prepayment-cancellation-verification-2026-11-06.md) |
 | Earlier complete initial recovery | `2c3e6a0b809f9bb34f84dcc82243593ba079ee1f`, [1,913-test initial recovery](initial-marketplace-recovery-verification-2026-11-05.md) |
 
-Downloaded artifact `13461137044` matches GitHub's ZIP SHA-256 `42c2505ad0466c181aa0d28c3fdfa62afe838a85a899037492b312575c0ef2a1`. The machine report records all 48 extracted file digests, the decoded job-log digest, complete native results and case inventories. Later documentation commits leave this tested source unchanged.
+Downloaded artifact `13461137044` matches GitHub's ZIP SHA-256 `42c2505ad0466c181aa0d28c3fdfa62afe838a85a899037492b312575c0ef2a1`. Its machine report records all 48 extracted file digests, the decoded job-log digest, complete native results and case inventories. The later predecessor documentation commit did not change that tested implementation.
 
-## Completed integration
+The verified predecessor delivered:
 
 - **Explicit successor admission.** `alpha_wallet_cancellation_marketplace_simulation`, profile `canonical-initial-cancellation-cohort-v1`, upgrades exactly one original accepted initial mapping under current owner authority. Original activation/acceptance/publication and V1–V3 history remain immutable. Empty preparation, incomplete migration and missing transition cannot commit. Inherited pause survives.
 - **Current stored authority.** Fixed web/mobile readers verify current accounts, sessions, devices and expiry. Actual retained buyer/seller participation supplies cancellation authority independently of new-sale capability. Disabled accounts fail; an unrelated owner cannot cancel. All components share the earliest physical transaction certificate.
@@ -30,26 +60,30 @@ Downloaded artifact `13461137044` matches GitHub's ZIP SHA-256 `42c2505ad0466c18
 - **Complete combined recovery.** Paused accepted/cancelled sources export canonical rows, predecessor/successor evidence and all four financial histories together. Fresh-target restore adds one quarantine pause, restores disabled credential-free identities, seals further writes and supports same-target uncertain-COMMIT inspection. Source and target remain paused; no credentials, delivery, re-entry or resume are restored.
 - **Native proof.** Separate backends visibly contend; cancellation retries for the original receipt, legacy payment writes refuse, and prior account revocation prevents a return. Five restore rollback stages, committed-response loss and competing fresh-target restores pass. These are synthetic disposable fixtures.
 
-The [successor design](cancellation-marketplace-coordinator-design.md) and [recovery runbook](recovery-runbook.md) describe the implementation. Original correction/initial/standalone APIs and recovery formats retain their meanings. Standalone V4 still refuses coordinated state. A raw canonical `cancelled` flag is never financial receipt authority.
+The [cancellation design](cancellation-marketplace-coordinator-design.md) describes that retained profile. Standalone V4 still refuses coordinated state. A raw canonical `cancelled` flag is never financial receipt authority. V5 enrollment preserves original cancellation history but explicitly closes new cancellation within the V5 profile.
+
+### Recorded test-harness compatibility note
+
+The native payment coordinator drill passed all 15 checks and emitted one 289-byte `pg` queued-query deprecation warning. Its three `observeWait` calls run concurrently on a standalone observer client; they do not share the wallet transaction clients. All distinct-backend, lock-wait, retry and single-claim assertions passed. The raw warning is retained in the machine report; the other 17 native stderr logs are empty. Before a future `pg@9` upgrade, change the observer `Promise.all` in `scripts/alpha-wallet/postgres-payment-marketplace.ts` to awaited sequential reads while keeping the first claim held. No implementation source was changed after this exact-source CI run.
 
 ## Exact next engineering slice
 
-Implement an explicit **payment/dispute lifecycle successor** for the accepted mapped trade before connecting a complete public product flow. Begin with the frozen V4/coordinator history and independent predecessor fixtures; do not widen an old reducer or profile silently.
+The exact-source V5 CI/evidence gate is complete. Define a **later explicit lifecycle contract** for trusted payment verification, actual seller-authorized release, dispute resolution and unpaid cancellation. Do not add those authorities to a V5 claim or widen a frozen reducer/profile silently. Preserve the pinned V4 fixtures and the full V1–V5 financial/canonical history.
 
-1. Define supported buyer payment claims, exact evidence linkage, dispute holds and their ordering against cancellation, disclosure, expiry and revocation. Claims do not authorize release or move principal.
-2. Specify the required financial continuation/canonical profile, admission proof, immutable receipts and complete migration/recovery contract. The cancellation-only profile currently fences those later writes intentionally.
-3. Implement current stored participant authority, one owned transaction, independent SQL completeness, safe publication and cross-transport original receipt recovery for each supported transition.
-4. Prove native competing/direct-writer and revocation races, late rollback and uncertain-COMMIT recovery; retain every old case and frozen receipt/fixture meaning.
-5. Add actual web/mobile account/trade/receipt flows and deduplicated delivery only against complete private lifecycle contracts. The retained browser rehearsal currently covers the standalone synthetic UI.
-
-Release/settlement requires trusted bank/cash evidence and actual seller authorization, with full principal and separate fees. Owner force-cancel, expired inventory handling, later proposals and competing reservations need explicit contracts too. Broader reservations require complete canonical/wallet request, buyer, asset, destination and quote identity coverage; matching totals alone is insufficient.
+1. Define what independently verifies bank/cash payment, how verification differs from buyer-uploaded proof, and which current actor may authorize release. Bind the exact request, buyer, seller, principal, asset, destination, quote and separate fees; matching totals alone is insufficient.
+2. Specify dispute-resolution authority and outcomes, including how a hold survives revocation, expiry, inconsistent evidence and uncertain replies. Define unpaid cancellation and its ordering against claims through a later explicit successor; **no new cancellation is supported in V5**. Owner force-cancel and expired inventory handling also require explicit contracts.
+3. Give each supported transition its own versioned admission proof, immutable receipt, independent SQL completeness, atomic canonical/financial effects and complete migration/recovery contract before enabling product calls. Retain all previous receipt and fixture meanings.
+4. Prove competing/direct-writer and revocation races, late rollback, source/target quarantine and uncertain-COMMIT recovery for any new principal movement or authority. Keep real signing/provider work outside the simulation boundary until its separate gates are concrete and authorized.
+5. Connect actual web/mobile account, trade, evidence and receipt flows and deduplicated delivery against the complete private lifecycle. The retained browser rehearsal still covers the standalone synthetic UI; the authenticated coordinator APIs do not by themselves establish a complete public product experience. Later proposals and competing reservations remain separate scoped work.
 
 ## Receiving direction and launch gates
 
-**Trust Wallet remains selected.** No real receiving address, wallet key, provider account or chain-connected signer/testnet environment is connected. An internal cancellation return does not send money to Trust Wallet. TWAK remains a candidate automation component whose send-once/recovery suitability requires evidence. Continue deterministic accounting and read-only adapter work independently of signing; see [custody-decision.md](custody-decision.md) and [chain-adapter-contract.md](chain-adapter-contract.md).
+**Trust Wallet remains selected.** No real receiving address, wallet key, provider account or chain-connected signer/testnet environment is connected. The V5 claim/dispute actions and historical internal cancellation return do not send money to Trust Wallet. TWAK remains a candidate automation component whose send-once/recovery suitability requires evidence. Continue deterministic accounting and read-only adapter work independently of signing; see [custody-decision.md](custody-decision.md) and [chain-adapter-contract.md](chain-adapter-contract.md).
 
 Live launch additionally needs complete actual product integration, trusted fiat evidence and exceptions, exact network/token/address configuration, signer/testnet recovery evidence, step-up/spend limits, production SQL roles/migrations, authenticated encrypted retention, source leadership/fencing, controlled authority re-entry, monitoring, realistic load/recovery exercises and independent review. The [launch checklist](launch-readiness.md) remains the gate record. Complete a concrete release and its evidence before asking for launch authorization.
 
 ## Working constraints
 
-Use Node 24.22.1, the locked dependencies, UTC and disposable loopback PostgreSQL 17 fixtures. Branch auto-deployment remains disabled. Never merge/deploy or connect real funds as a consequence of a green development gate. Preserve unrelated untracked `e2e/cardless-counter-offer.spec.ts`; it is outside this work. The local `node_modules` is a shared workspace symlink, so do not run local `npm ci`; the clean CI checkout installs the lockfile. Root TypeScript retains its existing native-mobile/test exclusions; no production or native-mobile build or independent audit is implied.
+The workspace was pruned during this continuation and the repository was freshly cloned at `/workspace/scratch/2626a93ce9d9/alpha-wallet`. Exact-lock `npm ci` completed with **1,112 packages**. `node_modules` is an ordinary local directory, not a shared workspace symlink. There are no package or lockfile changes. The old unrelated untracked `e2e/cardless-counter-offer.spec.ts` is absent; do not recreate it.
+
+Use Node 24.22.1, the locked dependencies, UTC and disposable loopback PostgreSQL 17 fixtures. Branch auto-deployment remains disabled. Never merge/deploy, purchase providers, migrate production, sign, fund or transfer real assets as a consequence of a green development gate. Root TypeScript retains its existing native-mobile/test exclusions; no production or native-mobile build or independent audit is implied. Keep further development on the authorized feature branch and preserve the frozen historical contracts.
