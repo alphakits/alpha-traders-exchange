@@ -25,6 +25,10 @@ jobs:
     name: Wise isolated USD lifecycle and phone layouts
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    # Reuse the same pinned browsers as the other WebKit release jobs.
+    container:
+      image: mcr.microsoft.com/playwright:v1.61.1-noble@sha256:5b8f294aff9041b7191c34a4bab3ac270157a28774d4b0660e9743297b697e48
+      options: --user 1001
     steps:
       - name: Check out source
         uses: actions/checkout@v4
@@ -37,8 +41,20 @@ jobs:
           cache: npm
       - name: Install locked dependencies
         run: npm ci
-      - name: Install Chromium and WebKit
-        run: npx playwright install --with-deps chromium webkit
+      - name: Verify pinned Chromium and WebKit runtimes
+        run: |
+          node <<'NODE'
+          const assert = require('node:assert/strict');
+          assert.equal(require('playwright/package.json').version, '1.61.1',
+            'Update the pinned Playwright image together with the package lock.');
+          (async () => {
+            for (const name of ['chromium', 'webkit']) {
+              const browser = await require('playwright')[name].launch();
+              console.log(`Pinned ${name} runtime ready: ${browser.version()}`);
+              await browser.close();
+            }
+          })().catch((error) => { console.error(error); process.exitCode = 1; });
+          NODE
       - name: Verify staging isolation and source packaging guards
         run: node --test scripts/wise-staging/deploy.test.mjs scripts/wise-staging/adapters.test.mjs scripts/wise-staging/audit/guards.test.mjs
       - name: Build isolated Wise fixture without provider credentials
@@ -400,7 +416,7 @@ jobs:
         env:
           PLAYWRIGHT_JSON_OUTPUT_FILE: test-results/webkit-price-alert-first-clicks.json
           PRICE_ALERT_DIAGNOSTICS: "1"
-        run: node ./node_modules/playwright/cli.js test --config=playwright.webkit.config.ts e2e/workspace-additions.spec.ts --grep="price alerts persist" --repeat-each=5 --retries=0 --max-failures=1 --reporter=list,json
+        run: node ./node_modules/playwright/cli.js test --config=playwright.webkit.config.ts e2e/workspace-additions.spec.ts --grep="price alert opens on the first click" --repeat-each=5 --retries=0 --max-failures=1 --reporter=list,json
       - name: Preserve price-alert first-click evidence
         if: always() && matrix.shard == 4 && steps.price_alert_first_clicks.outcome != 'skipped'
         uses: actions/upload-artifact@v4

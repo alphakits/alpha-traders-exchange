@@ -1,4 +1,4 @@
-import { expect, test, request, type Page } from "@playwright/test";
+import { expect, test, request, type Page, type TestInfo } from "@playwright/test";
 import { E2E_BASE_URL } from "./support/base-url";
 import lessonData from "../src/data/lessons.json";
 import providedLessons from "../src/data/lessons-provided.json";
@@ -54,23 +54,57 @@ async function installPriceAlertDiagnostics(page: Page) {
 
 const priceAlertDiagnosticsEnabled = process.env.PRICE_ALERT_DIAGNOSTICS === "1";
 
+async function attachPriceAlertDiagnostics(page: Page, testInfo: TestInfo) {
+  if (!priceAlertDiagnosticsEnabled || (testInfo.status === testInfo.expectedStatus && testInfo.retry === 0)) return;
+  const diagnostics = await page.evaluate(() =>
+    (window as Window & { __alphaPriceAlertDiagnostics?: unknown }).__alphaPriceAlertDiagnostics ?? { unavailable: true },
+  ).catch(() => ({ unavailable: true }));
+  await testInfo.attach("price-alert-disclosure-events", {
+    body: JSON.stringify(diagnostics, null, 2),
+    contentType: "application/json",
+  });
+}
+
 for (const locale of ["en", "ar"] as const) {
   const isAr = locale === "ar";
+  // Repeat disclosure interactions without spending the account's PATCH quota.
+  // Persistence/security coverage below retains its real saves and cleanup.
+  test.describe(`price-alert first click (${locale})`, () => {
+    test.beforeEach(async ({ page }) => {
+      if (priceAlertDiagnosticsEnabled) await installPriceAlertDiagnostics(page);
+    });
+    test.afterEach(async ({ page }, testInfo) => {
+      await attachPriceAlertDiagnostics(page, testInfo);
+    });
+    test(`price alert opens on the first click (${locale})`, async ({ page }) => {
+      let priceAlertPatches = 0;
+      page.on("request", request => {
+        if (request.method() === "PATCH" && new URL(request.url()).pathname === "/api/alpha-exchange/price-alerts") priceAlertPatches += 1;
+      });
+      const login = await page.request.post("/api/auth/login", { headers: { "x-forwarded-for": "198.51.100.231" }, data: { email: process.env.E2E_BUYER_EMAIL!, password: process.env.E2E_BUYER_PASSWORD!, rememberMe: true } });
+      expect(login.ok()).toBeTruthy();
+      await page.setViewportSize({ width: isAr ? 390 : 1280, height: 900 });
+      await page.goto(`/${locale}/usdt-exchange`);
+      const panel = page.getByRole("region", { name: isAr ? "تنبيه سعر USDT" : "USDT price alert" });
+      const save = panel.getByRole("button", { name: isAr ? "حفظ التنبيه" : "Save alert" });
+      await expect(save).toBeHidden();
+      await panel.locator("summary").click();
+      await expect(save).toBeEnabled();
+      await page.reload();
+      await expect(save).toBeHidden();
+      await panel.locator("summary").click();
+      await expect(save).toBeEnabled();
+      expect(priceAlertPatches).toBe(0);
+    });
+  });
+
   test.describe(`price-alert account cleanup (${locale})`, () => {
     test.beforeEach(async ({ page }) => {
       if (priceAlertDiagnosticsEnabled) await installPriceAlertDiagnostics(page);
     });
     test.afterEach(async ({ page }, testInfo) => {
       try {
-        if (priceAlertDiagnosticsEnabled && (testInfo.status !== testInfo.expectedStatus || testInfo.retry > 0)) {
-          const diagnostics = await page.evaluate(() =>
-            (window as Window & { __alphaPriceAlertDiagnostics?: unknown }).__alphaPriceAlertDiagnostics ?? { unavailable: true },
-          ).catch(() => ({ unavailable: true }));
-          await testInfo.attach("price-alert-disclosure-events", {
-            body: JSON.stringify(diagnostics, null, 2),
-            contentType: "application/json",
-          });
-        }
+        await attachPriceAlertDiagnostics(page, testInfo);
         if (testInfo.status === "passed") {
           const panel = page.getByRole("region", { name: isAr ? "تنبيه سعر USDT" : "USDT price alert" });
           await panel.screenshot({ path: `test-results/workspace-additions-${locale}-price-alert.png` });
