@@ -163,6 +163,16 @@ jobs:
             await connection.query('CREATE DATABASE alpha_wallet_dev_cancellation_backup_accepted');
             await connection.query('CREATE DATABASE alpha_wallet_dev_cancellation_backup_target');
             await connection.query('CREATE DATABASE alpha_wallet_dev_cancellation_backup_races');
+            await connection.query('CREATE DATABASE alpha_wallet_dev_payment_atomic');
+            await connection.query('CREATE DATABASE alpha_wallet_dev_payment_races');
+            await connection.query('CREATE DATABASE alpha_wallet_dev_payment_auth');
+            await connection.query('CREATE DATABASE alpha_wallet_dev_payment_backup_source');
+            await connection.query('CREATE DATABASE alpha_wallet_dev_payment_backup_accepted');
+            await connection.query('CREATE DATABASE alpha_wallet_dev_payment_backup_target');
+            await connection.query('CREATE DATABASE alpha_wallet_dev_payment_backup_races');
+            await connection.query('CREATE DATABASE alpha_wallet_dev_v5_source');
+            await connection.query('CREATE DATABASE alpha_wallet_dev_v5_race');
+            await connection.query('CREATE DATABASE alpha_wallet_dev_v5_restore');
           } finally { await connection.end(); }
           NODE
 
@@ -315,6 +325,40 @@ jobs:
             --race-connection-string 'postgresql://wallet_fixture:simulation-only@127.0.0.1:5432/alpha_wallet_dev_cancellation_backup_races' \
             2>test-results/alpha-wallet/postgres-cancellation-marketplace-backup.stderr.log \
             | tee test-results/alpha-wallet/postgres-cancellation-marketplace-backup.json
+
+      - name: Verify V5 no-transfer ledger, original history and isolated recovery
+        run: |
+          set -euo pipefail
+          node --conditions=react-server --import tsx scripts/alpha-wallet/postgres-v5-ledger.ts \
+            --fresh-simulation-databases \
+            --source-connection-string 'postgresql://wallet_fixture:simulation-only@127.0.0.1:5432/alpha_wallet_dev_v5_source' \
+            --race-connection-string 'postgresql://wallet_fixture:simulation-only@127.0.0.1:5432/alpha_wallet_dev_v5_race' \
+            --target-connection-string 'postgresql://wallet_fixture:simulation-only@127.0.0.1:5432/alpha_wallet_dev_v5_restore' \
+            2>test-results/alpha-wallet/postgres-v5-ledger.stderr.log \
+            | tee test-results/alpha-wallet/postgres-v5-ledger.json
+
+      - name: Verify buyer payment claims, dispute holds and current-authority writer races
+        run: |
+          set -euo pipefail
+          node --conditions=react-server --import tsx scripts/alpha-wallet/postgres-payment-marketplace.ts \
+            --fresh-simulation-databases \
+            --atomic-connection-string 'postgresql://wallet_fixture:simulation-only@127.0.0.1:5432/alpha_wallet_dev_payment_atomic' \
+            --race-connection-string 'postgresql://wallet_fixture:simulation-only@127.0.0.1:5432/alpha_wallet_dev_payment_races' \
+            --auth-connection-string 'postgresql://wallet_fixture:simulation-only@127.0.0.1:5432/alpha_wallet_dev_payment_auth' \
+            2>test-results/alpha-wallet/postgres-payment-marketplace.stderr.log \
+            | tee test-results/alpha-wallet/postgres-payment-marketplace.json
+
+      - name: Verify complete payment evidence recovery, quarantine and competing restores
+        run: |
+          set -euo pipefail
+          node --conditions=react-server --import tsx scripts/alpha-wallet/postgres-payment-marketplace-backup.ts \
+            --fresh-simulation-databases \
+            --source-connection-string 'postgresql://wallet_fixture:simulation-only@127.0.0.1:5432/alpha_wallet_dev_payment_backup_source' \
+            --accepted-source-connection-string 'postgresql://wallet_fixture:simulation-only@127.0.0.1:5432/alpha_wallet_dev_payment_backup_accepted' \
+            --target-connection-string 'postgresql://wallet_fixture:simulation-only@127.0.0.1:5432/alpha_wallet_dev_payment_backup_target' \
+            --race-connection-string 'postgresql://wallet_fixture:simulation-only@127.0.0.1:5432/alpha_wallet_dev_payment_backup_races' \
+            2>test-results/alpha-wallet/postgres-payment-marketplace-backup.stderr.log \
+            | tee test-results/alpha-wallet/postgres-payment-marketplace-backup.json
 
       - name: Install the locked Playwright Chromium browser
         run: node ./node_modules/playwright/cli.js install --with-deps chromium

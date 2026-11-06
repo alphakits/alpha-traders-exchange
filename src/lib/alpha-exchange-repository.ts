@@ -25,6 +25,11 @@ import { planDevelopmentPrepaymentCancellation, type DevelopmentPrepaymentCancel
   type DevelopmentPrepaymentCancellationMarketplace, type DevelopmentPrepaymentCancellationResult } from "@/lib/alpha-wallet/prepayment-cancellation";
 import { walletDigest as cancellationCanonicalDigest } from "@/lib/alpha-wallet/commands";
 import { assertCancellationMarketplaceContext, type CancellationMarketplaceContext } from "@/lib/alpha-wallet/cancellation-marketplace-coordination-store";
+import { assertPaymentMarketplaceContext, type PaymentMarketplaceContext } from "@/lib/alpha-wallet/payment-marketplace-coordination-store";
+import { assertDevelopmentPaymentEvidence, planDevelopmentPaymentClaim, planDevelopmentPaymentDispute,
+  DEVELOPMENT_PAYMENT_EVIDENCE_MAX_BYTES, type DevelopmentPaymentClaimDecision, type DevelopmentPaymentDisputeDecision,
+  type DevelopmentPaymentEvidence, type DevelopmentPaymentMarketplace, type DevelopmentPaymentMarketplaceResult,
+  type DevelopmentPaymentTrade } from "@/lib/alpha-wallet/payment-marketplace-canonical";
 import { isDemandReservedTrade } from "@/lib/usdt-demand-policy";
 import { hasSellerOperationalAccess } from "@/lib/seller-approval-verification";
 import type {
@@ -3640,6 +3645,336 @@ export async function withDevelopmentCancellationMarketplaceInTransaction<T>(
       },
       async snapshot() {
         try { return cancellationMarketplaceSnapshot(await checkCurrent(false)); }
+        catch (error) { await abort(); throw error; }
+      },
+    });
+    const result = await work(participant);
+    await checkCurrent(true); await transaction();
+    return result;
+  } catch (error) { await abort(); throw error; }
+  finally { active = false; }
+}
+
+/** Exact private normalized state. This basis is never a public or financial receipt. */
+export type DevelopmentPaymentMarketplaceBasis = {
+  rows: InitialAcceptanceRows;
+  events: Record<"notifications" | "audits", InitialAcceptanceRow[]>;
+  runtime: { version: string; updated_at: string };
+  evidenceContents: Array<{ id: string; contentBase64: string; contentDigest: string }>;
+};
+export type DevelopmentPaymentMarketplaceCanonical = {
+  request: PurchaseRequest; listing: MarketplaceListing; trade: DevelopmentPaymentTrade;
+  /** Complete private evidence for the target only, including exact persisted bytes. */
+  evidence: DevelopmentPaymentEvidence[];
+};
+export type DevelopmentPaymentMarketplaceDigests = {
+  requestDigest: string; listingDigest: string; tradeDigest: string; marketplaceDigest: string;
+};
+export type DevelopmentPaymentMarketplaceSnapshot = {
+  marketplace: DevelopmentPaymentMarketplace;
+  canonical: DevelopmentPaymentMarketplaceCanonical;
+  basis: DevelopmentPaymentMarketplaceBasis;
+  digests: DevelopmentPaymentMarketplaceDigests;
+};
+export type DevelopmentPaymentMarketplaceParticipant = Readonly<DevelopmentPaymentMarketplaceSnapshot & {
+  authorizeUpgrade(context: PaymentMarketplaceContext): Promise<void>;
+  claim(context: PaymentMarketplaceContext, decision: DevelopmentPaymentClaimDecision): Promise<DevelopmentPaymentMarketplaceResult>;
+  dispute(context: PaymentMarketplaceContext, decision: DevelopmentPaymentDisputeDecision): Promise<DevelopmentPaymentMarketplaceResult>;
+  snapshot(): Promise<DevelopmentPaymentMarketplaceSnapshot>;
+}>;
+export type { DevelopmentPaymentClaimDecision, DevelopmentPaymentDisputeDecision, DevelopmentPaymentMarketplaceResult };
+
+type PaymentMarketplaceRead = PrepaymentCancellationRead & {
+  evidence: DevelopmentPaymentEvidence[];
+  evidenceContents: DevelopmentPaymentMarketplaceBasis["evidenceContents"];
+};
+function paymentMarketplaceCheck(condition: unknown, message: string): asserts condition {
+  if (!condition) throw new Error(`Payment marketplace ${message}.`);
+}
+async function paymentMarketplaceNamespaces(tx: RepositorySql) {
+  const result = await tx.query<{ initial: boolean; cancellation: boolean; successor: boolean; correction: boolean }>(`SELECT
+    to_regnamespace('alpha_wallet_initial_marketplace_simulation') IS NOT NULL AS initial,
+    to_regnamespace('alpha_wallet_cancellation_marketplace_simulation') IS NOT NULL AS cancellation,
+    to_regnamespace('alpha_wallet_payment_marketplace_simulation') IS NOT NULL AS successor,
+    to_regnamespace('alpha_wallet_marketplace_simulation') IS NOT NULL AS correction
+    /* payment marketplace: explicit cancellation predecessor or payment successor */`);
+  const row = result.rows[0];
+  paymentMarketplaceCheck(result.rows.length === 1 && row?.initial === true && row.cancellation === true
+    && row.correction === false && typeof row.successor === "boolean", "requires the retained cancellation profile and refuses the correction profile");
+  return row;
+}
+async function readPaymentMarketplace(tx: RepositorySql, requestId: string): Promise<PaymentMarketplaceRead> {
+  // The old reader remains unchanged: its exact normalized/payload and physical
+  // trade checks apply to all retained lifecycle statuses. Only this new profile
+  // additionally reads bounded private bytes from their one canonical home.
+  const before = await readPrepaymentCancellation(tx, requestId);
+  const request = before.canonical.request;
+  paymentMarketplaceCheck(["accepted", "payment_sent", "cancelled"].includes(request.status), "has an unsupported canonical lifecycle state");
+  const rows = (await tx.query<{ id: string; content_base64: string | null; content_size: number | null }>(`SELECT e.id,
+      CASE WHEN octet_length(e.content) BETWEEN 1 AND $2
+        THEN replace(encode(e.content,'base64'),E'\\n','') ELSE NULL END AS content_base64,
+      octet_length(e.content) AS content_size
+    FROM alpha_exchange.evidence e
+    WHERE e.purchase_request_id=$1 OR e.payload->>'purchaseRequestId'=$1 ORDER BY e.sort_index,e.id
+    /* payment marketplace: bounded exact private evidence */`, [requestId, DEVELOPMENT_PAYMENT_EVIDENCE_MAX_BYTES])).rows;
+  paymentMarketplaceCheck(rows.length === before.canonical.rows.evidence.length && rows.length <= 1,
+    "requires at most one exact target buyer evidence object");
+  const evidence: DevelopmentPaymentEvidence[] = [];
+  const evidenceContents: PaymentMarketplaceRead["evidenceContents"] = [];
+  for (const [index, row] of rows.entries()) {
+    const normalized = before.canonical.rows.evidence[index];
+    paymentMarketplaceCheck(normalized?.id === row.id && typeof row.content_base64 === "string" && Number.isInteger(row.content_size)
+      && row.content_size! > 0 && row.content_size! <= DEVELOPMENT_PAYMENT_EVIDENCE_MAX_BYTES,
+    "requires exact bounded non-null stored evidence bytes");
+    const bytes = Buffer.from(row.content_base64, "base64");
+    paymentMarketplaceCheck(bytes.length === row.content_size && normalized.size_bytes === row.content_size
+      && bytes.toString("base64") === row.content_base64, "stored evidence length or encoding differs from its metadata");
+    const contentDigest = createHash("sha256").update(bytes).digest("hex");
+    const full: DevelopmentPaymentEvidence = { metadata: normalized.payload as unknown as TradeEvidenceFile,
+      contentBase64: row.content_base64, contentDigest };
+    assertDevelopmentPaymentEvidence(full, request);
+    evidence.push(full); evidenceContents.push({ id: row.id, contentBase64: row.content_base64, contentDigest });
+  }
+  return { ...before, evidence, evidenceContents };
+}
+function paymentMarketplaceSnapshot(read: PaymentMarketplaceRead): DevelopmentPaymentMarketplaceSnapshot {
+  const basis: DevelopmentPaymentMarketplaceBasis = {
+    rows: read.canonical.rows, events: read.events, runtime: read.runtime, evidenceContents: read.evidenceContents,
+  };
+  const canonical: DevelopmentPaymentMarketplaceCanonical = { request: read.canonical.request, listing: read.canonical.listing,
+    trade: read.canonical.rows.trades[0].payload as unknown as DevelopmentPaymentTrade, evidence: read.evidence };
+  return freezeCancellationSnapshot(structuredClone({ marketplace: read.marketplace, canonical, basis,
+    digests: { requestDigest: cancellationCanonicalDigest(canonical.request), listingDigest: cancellationCanonicalDigest(canonical.listing),
+      tradeDigest: cancellationCanonicalDigest(canonical.trade), marketplaceDigest: cancellationCanonicalDigest(basis) } }));
+}
+function assertPaymentMarketplaceBasis(before: PaymentMarketplaceRead, after: PaymentMarketplaceRead, result?: DevelopmentPaymentMarketplaceResult) {
+  if (!result) {
+    paymentMarketplaceCheck(isDeepStrictEqual(before, after), "canonical decision basis changed inside its transaction");
+    return;
+  }
+  const omit = (row: Record<string, unknown>, keys: string[]) => Object.fromEntries(Object.entries(row).filter(([key]) => !keys.includes(key)));
+  for (const name of ["users", "commissions", "enforcements"] as const) {
+    paymentMarketplaceCheck(isDeepStrictEqual(before.canonical.rows[name], after.canonical.rows[name]), "a canonical dependency changed outside payment effects");
+  }
+  for (const name of ["requests", "listings", "trades"] as const) {
+    const target = name === "requests" ? result.request : name === "listings" ? result.listing : result.trade;
+    const previous = before.canonical.rows[name], current = after.canonical.rows[name];
+    paymentMarketplaceCheck(previous.length === current.length, "canonical inventory changed outside payment effects");
+    for (let index = 0; index < previous.length; index++) {
+      const old = previous[index], next = current[index];
+      paymentMarketplaceCheck(old.id === next.id, "canonical inventory ordering changed outside payment effects");
+      const changed = old.id === target.id && (name !== "listings" || result.kind === "claim");
+      paymentMarketplaceCheck(changed
+        ? isDeepStrictEqual(omit(old, ["status", "updated_at", "payload"]), omit(next, ["status", "updated_at", "payload"]))
+          && isDeepStrictEqual(next.payload, JSON.parse(json(target)))
+        : isDeepStrictEqual(old, next), "canonical projection differs from exact payment effects");
+    }
+  }
+  for (const name of ["evidence", "disputes"] as const) {
+    const additions = name === "evidence" ? result.evidence.map(item => item.metadata) : result.disputes;
+    const previous = before.canonical.rows[name], current = after.canonical.rows[name];
+    paymentMarketplaceCheck(current.length === previous.length + additions.length, "canonical evidence or dispute inventory changed outside payment effects");
+    for (const old of previous) paymentMarketplaceCheck(isDeepStrictEqual(current.find(row => row.id === old.id), old),
+      "retained evidence or dispute changed outside payment effects");
+    for (const [index, addition] of additions.entries()) {
+      const next = current.find(row => row.id === addition.id);
+      paymentMarketplaceCheck(!previous.some(row => row.id === addition.id) && next && next.sort_index === index
+        && isDeepStrictEqual(next.payload, JSON.parse(json(addition))), "new evidence or dispute differs from exact payment effects");
+    }
+  }
+  const expectedEvidence = [...before.evidence, ...result.evidence];
+  paymentMarketplaceCheck(after.evidence.length === expectedEvidence.length
+    && expectedEvidence.every(item => isDeepStrictEqual(after.evidence.find(next => next.metadata.id === item.metadata.id), item)),
+  "exact evidence bytes changed outside payment effects");
+  for (const name of ["notifications", "audits"] as const) {
+    const additions = name === "notifications" ? result.notifications : result.auditLogs;
+    const updates = name === "notifications" ? result.notificationUpdates : [];
+    const previous = before.events[name], current = after.events[name];
+    paymentMarketplaceCheck(current.length === previous.length + additions.length, "canonical event inventory changed outside payment effects");
+    for (const old of previous) {
+      const next = current.find(row => row.id === old.id), update = updates.find(row => row.id === old.id);
+      paymentMarketplaceCheck(next && (update
+        ? isDeepStrictEqual(omit(old, ["is_read", "payload"]), omit(next, ["is_read", "payload"]))
+          && isDeepStrictEqual(next.payload, JSON.parse(json(update)))
+        : isDeepStrictEqual(old, next)), "a retained notification or audit changed outside payment effects");
+    }
+    for (const [index, addition] of additions.entries()) {
+      const next = current.find(row => row.id === addition.id);
+      paymentMarketplaceCheck(!previous.some(row => row.id === addition.id) && next && next.sort_index === index
+        && isDeepStrictEqual(next.payload, JSON.parse(json(addition))), "a payment event was replaced, removed or changed");
+    }
+  }
+  const fraction = /\.\d{3}(\d+)/.exec(after.runtime.updated_at)?.[1];
+  paymentMarketplaceCheck(after.runtime.version === (BigInt(before.runtime.version) + BigInt(1)).toString()
+    && (!fraction || !/[1-9]/.test(fraction)) && Date.parse(after.runtime.updated_at) === Date.parse(result.request.updatedAt),
+  "runtime fence changed outside payment effects");
+}
+function assertPaymentUpgradeBasis(before: PaymentMarketplaceRead, after: PaymentMarketplaceRead) {
+  paymentMarketplaceCheck(after.runtime.version === (BigInt(before.runtime.version) + BigInt(1)).toString()
+    && after.runtime.updated_at === before.runtime.updated_at, "successor upgrade must advance only the exact runtime version fence");
+  assertPaymentMarketplaceBasis(before, { ...after, runtime: before.runtime });
+}
+async function persistPaymentMarketplace(tx: RepositorySql, result: DevelopmentPaymentMarketplaceResult) {
+  const { request, listing, trade } = result, beforeStatus = result.kind === "claim" ? "accepted" : "payment_sent";
+  const changedRequest = await tx.query<{ id: string }>(`UPDATE alpha_exchange.purchase_requests SET status='payment_sent',
+    updated_at=$3::timestamptz,payload=$4::jsonb WHERE id=$1 AND trade_id=$2 AND status=$5 RETURNING id
+    /* payment marketplace: request persistence */`, [request.id, trade.id, request.updatedAt, json(request), beforeStatus]);
+  paymentMarketplaceCheck(changedRequest.rows.length === 1 && changedRequest.rows[0].id === request.id, "target update did not affect exactly one retained request");
+  const changedTrade = await tx.query<{ id: string }>(`UPDATE alpha_exchange.trades SET status='payment_sent',
+    updated_at=$3::timestamptz,payload=$4::jsonb WHERE id=$1 AND purchase_request_id=$2 AND status=$5 RETURNING id
+    /* payment marketplace: trade persistence */`, [trade.id, request.id, trade.updatedAt, json(trade), beforeStatus]);
+  paymentMarketplaceCheck(changedTrade.rows.length === 1 && changedTrade.rows[0].id === trade.id, "projection update did not affect exactly one retained trade");
+  if (result.kind === "claim") {
+    const changedListing = await tx.query<{ id: string }>(`UPDATE alpha_exchange.listings SET status='in_trade',
+      updated_at=$3::timestamptz,payload=$4::jsonb WHERE id=$1 AND active_trade_request_id=$2 AND status='matched' RETURNING id
+      /* payment marketplace: listing persistence */`, [listing.id, request.id, listing.updatedAt, json(listing)]);
+    paymentMarketplaceCheck(changedListing.rows.length === 1 && changedListing.rows[0].id === listing.id, "listing update did not affect exactly one representative lock");
+  }
+  for (const [index, entry] of result.evidence.entries()) {
+    const file = entry.metadata;
+    await tx.query(`INSERT INTO alpha_exchange.evidence
+      (id,purchase_request_id,side,uploaded_by_user_id,mime_type,file_name,size_bytes,uploaded_at,sort_index,payload,content)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8::timestamptz,$9,$10::jsonb,$11::bytea)
+      /* payment marketplace: exact private buyer evidence */`,
+    [file.id, file.purchaseRequestId, file.side, file.uploadedByUserId, file.mimeType, file.fileName, file.sizeBytes,
+      file.uploadedAt, index, json(file), Buffer.from(entry.contentBase64, "base64")]);
+  }
+  for (const notification of result.notificationUpdates) {
+    const changed = await tx.query<{ id: string }>(`UPDATE alpha_exchange.notifications SET is_read=true,payload=$3::jsonb
+      WHERE id=$1 AND user_id=$2 RETURNING id /* payment marketplace: reminder archive */`,
+    [notification.id, notification.userId, json(notification)]);
+    paymentMarketplaceCheck(changed.rows.length === 1 && changed.rows[0].id === notification.id, "reminder archive did not affect exactly one retained notification");
+  }
+  const events = { ...emptySnapshotCollections(), disputes: result.disputes, notifications: result.notifications };
+  for (const name of ["disputes", "notifications"] as const) {
+    const table = getTable(name);
+    await table.insert(tx, table.values(events), { evidenceContentById: new Map(), appendOnlyEvents: true });
+  }
+  // The new profile owns its new audit vocabulary without widening the frozen
+  // production/V3 AuditAction type or routing it through a misleading cast.
+  for (const [index, audit] of result.auditLogs.entries()) {
+    await tx.query(`INSERT INTO alpha_exchange.audit_logs
+      (id,action,actor_user_id,target_user_id,listing_id,purchase_request_id,created_at,sort_index,payload)
+      VALUES ($1,$2,$3,$4,$5,$6,$7::timestamptz,$8,$9::jsonb)
+      /* payment marketplace: exact profile audit */`,
+    [audit.id, audit.action, audit.actorUserId, audit.targetUserId ?? null, audit.listingId ?? null,
+      audit.purchaseRequestId ?? null, audit.createdAt, index, json(audit)]);
+  }
+  await tx.query("UPDATE alpha_exchange.runtime_meta SET version=version+1,updated_at=$1::timestamptz WHERE singleton=true", [request.updatedAt]);
+}
+
+/**
+ * Additive payment-profile participant. Earlier initial/cancellation contracts
+ * remain closed. The outer coordinator owns one guarded physical transaction,
+ * fixed current authentication, the bound V5 command and atomic publication.
+ * This participant fences canonical state before auth and allows one fully
+ * awaited mutation, or one explicit version-only upgrade, within that owner.
+ */
+export async function withDevelopmentPaymentMarketplaceInTransaction<T>(
+  options: { mode: "simulation-only"; tx: RepositorySql; requestId: string },
+  work: (participant: DevelopmentPaymentMarketplaceParticipant) => Promise<T>,
+): Promise<T> {
+  const { mode, tx, requestId } = options;
+  assertSimulationRuntime(mode);
+  let active = true, certified = false, used = false, upgradeStarted = false;
+  let transactionId: string | undefined;
+  let mutation: DevelopmentPaymentMarketplaceResult | undefined;
+  let mutationContext: PaymentMarketplaceContext | undefined, upgradeContext: PaymentMarketplaceContext | undefined;
+  const transaction = async () => {
+    assertSimulationRuntime(mode);
+    paymentMarketplaceCheck(active, "canonical participant is no longer active");
+    const result = await tx.query<{ transaction_id: string; isolation: string; read_only: string; development_mode: string | null }>(
+      `SELECT txid_current()::text AS transaction_id,current_setting('transaction_isolation') AS isolation,
+        current_setting('transaction_read_only') AS read_only,current_setting('alpha_wallet.development_schema',true) AS development_mode`);
+    assertSimulationRuntime(mode);
+    const row = result.rows[0];
+    paymentMarketplaceCheck(result.rows.length === 1 && typeof row?.transaction_id === "string" && /^[1-9][0-9]*$/.test(row.transaction_id)
+      && row.isolation === "serializable" && row.read_only === "off" && row.development_mode === mode
+      && (transactionId === undefined || transactionId === row.transaction_id), "requires its original writable SERIALIZABLE simulation transaction");
+    return row.transaction_id;
+  };
+  const abort = async () => {
+    if (!certified) return;
+    try {
+      const current = await tx.query<{ transaction_id: string }>("SELECT txid_current()::text AS transaction_id");
+      if (current.rows.length === 1 && current.rows[0].transaction_id === transactionId) {
+        await tx.query("SELECT 1 / 0 /* abort failed payment marketplace canonical participant */");
+      }
+    } catch { /* A replacement transaction is never cleanup authority. */ }
+  };
+  const scoped: RepositorySql = { async query<Row extends Record<string, unknown>>(sql: string, values?: unknown[]) {
+    await transaction(); const result = await tx.query<Row>(sql, values); await transaction(); return result;
+  } };
+  try {
+    transactionId = await transaction(); await transaction(); certified = true;
+    paymentMarketplaceCheck(initialAcceptanceId(requestId), "requires an exact canonical request identity");
+    const namespaces = await paymentMarketplaceNamespaces(scoped);
+    await scoped.query("SELECT pg_advisory_xact_lock(61422919,hashtext($1))", [requestId]);
+    await scoped.query("SELECT pg_advisory_xact_lock(61422917)");
+    const fence = await scoped.query<{ version: string }>("SELECT version::text AS version FROM alpha_exchange.runtime_meta WHERE singleton=true FOR UPDATE");
+    paymentMarketplaceCheck(fence.rows.length === 1 && /^[0-9]+$/.test(fence.rows[0].version), "runtime fence is missing or invalid");
+    await scoped.query(`SELECT l.id FROM alpha_exchange.listings l JOIN alpha_exchange.purchase_requests r ON r.listing_id=l.id
+      WHERE r.id=$1 ORDER BY l.id FOR UPDATE OF l /* payment marketplace: listing fence */`, [requestId]);
+    const basis = await readPaymentMarketplace(scoped, requestId);
+    const checkCurrent = async (final: boolean) => {
+      await transaction();
+      paymentMarketplaceCheck(!used || mutation !== undefined, "callback must await its complete canonical mutation");
+      paymentMarketplaceCheck(!upgradeStarted || upgradeContext !== undefined, "callback must await its complete upgrade authorization");
+      const currentNamespaces = await paymentMarketplaceNamespaces(scoped);
+      if (upgradeContext) {
+        await assertPaymentMarketplaceContext(upgradeContext, { tx, requestId, operation: "upgrade" });
+        paymentMarketplaceCheck(!final || currentNamespaces.successor, "upgrade did not install its successor profile");
+      } else paymentMarketplaceCheck(currentNamespaces.successor === namespaces.successor, "profile changed outside an explicit authorized upgrade");
+      if (mutationContext) await assertPaymentMarketplaceContext(mutationContext, {
+        tx, requestId, operation: mutation!.kind, actorUserId: mutation!.request.buyerId,
+      });
+      const current = await readPaymentMarketplace(scoped, requestId);
+      if (upgradeContext) {
+        if (!final && current.runtime.version === basis.runtime.version) assertPaymentMarketplaceBasis(basis, current);
+        else assertPaymentUpgradeBasis(basis, current);
+      } else assertPaymentMarketplaceBasis(basis, current, mutation);
+      return current;
+    };
+    const apply = async (context: PaymentMarketplaceContext, raw: DevelopmentPaymentClaimDecision | DevelopmentPaymentDisputeDecision,
+      kind: "claim" | "dispute") => {
+      try {
+        paymentMarketplaceCheck(!used && !upgradeStarted, "permits one upgrade authorization or canonical mutation only");
+        used = true;
+        const capturedContext = context, decision = structuredClone(raw);
+        await transaction();
+        await assertPaymentMarketplaceContext(capturedContext, { tx, requestId, actorUserId: decision.actorUserId, operation: kind });
+        paymentMarketplaceCheck((await paymentMarketplaceNamespaces(scoped)).successor, "mutation requires the explicitly installed payment profile");
+        paymentMarketplaceCheck(decision.requestId === requestId, "mutation targets another canonical request");
+        assertPaymentMarketplaceBasis(basis, await readPaymentMarketplace(scoped, requestId));
+        const next = kind === "claim"
+          ? planDevelopmentPaymentClaim(basis.marketplace, decision as DevelopmentPaymentClaimDecision)
+          : planDevelopmentPaymentDispute(basis.marketplace, decision as DevelopmentPaymentDisputeDecision, basis.evidence);
+        await persistPaymentMarketplace(scoped, next);
+        await assertPaymentMarketplaceContext(capturedContext, { tx, requestId, actorUserId: decision.actorUserId, operation: kind });
+        await transaction();
+        assertPaymentMarketplaceBasis(basis, await readPaymentMarketplace(scoped, requestId), next);
+        mutation = structuredClone(next); mutationContext = capturedContext;
+        return structuredClone(next);
+      } catch (error) { await abort(); throw error; }
+    };
+    const participant: DevelopmentPaymentMarketplaceParticipant = Object.freeze({ ...paymentMarketplaceSnapshot(basis),
+      async authorizeUpgrade(context: PaymentMarketplaceContext) {
+        try {
+          paymentMarketplaceCheck(!used && !upgradeStarted, "permits one upgrade authorization or canonical mutation only");
+          upgradeStarted = true;
+          const capturedContext = context;
+          await transaction();
+          await assertPaymentMarketplaceContext(capturedContext, { tx, requestId, operation: "upgrade" });
+          paymentMarketplaceCheck(basis.canonical.request.status === "accepted" || basis.canonical.request.status === "cancelled",
+            "only an accepted or already-cancelled predecessor may upgrade");
+          assertPaymentMarketplaceBasis(basis, await readPaymentMarketplace(scoped, requestId));
+          upgradeContext = capturedContext;
+        } catch (error) { await abort(); throw error; }
+      },
+      claim: (context, decision) => apply(context, decision, "claim"),
+      dispute: (context, decision) => apply(context, decision, "dispute"),
+      async snapshot() {
+        try { return paymentMarketplaceSnapshot(await checkCurrent(false)); }
         catch (error) { await abort(); throw error; }
       },
     });
