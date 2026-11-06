@@ -281,13 +281,13 @@ describe("native candidate binding", () => {
   });
 
   it.each([0, 1, -1, "0", "-1", "01", "1.0", "1e3", " 1", "+1", "", (BigInt(UINT256) + BigInt(1)).toString(), "9".repeat(79)])(
-    "refuses noncanonical or overflowing raw amount %s", amountRaw => {
+    "refuses noncanonical or overflowing raw amount case %# (%s)", amountRaw => {
       const value = fixture(), admission = captureDepositInboxManifest(value.manifest);
       refused(() => resolveDepositInboxCandidate(admission, value.workerId, { ...value.candidate, amountRaw }));
     });
 
   it.each([0, -1, "-1", "00", "01", "1.0", "1e3", " 0", "+0", "", (BigInt(UINT64) + BigInt(1)).toString()])(
-    "refuses noncanonical or overflowing event index %s", eventIndex => {
+    "refuses noncanonical or overflowing event index case %# (%s)", eventIndex => {
       const value = fixture(), admission = captureDepositInboxManifest(value.manifest);
       refused(() => resolveDepositInboxCandidate(admission, value.workerId, { ...value.candidate, eventIndex }));
     });

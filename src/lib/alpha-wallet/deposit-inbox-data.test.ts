@@ -112,7 +112,7 @@ describe("closed immutable JSON capture", () => {
 
 describe("actual serialized byte and structure bounds", () => {
   it.each([null, true, false, 42, Number.MIN_SAFE_INTEGER, [], {}, "", "é", "😀", "\u0000\b\n\"\\", ["😀\n", true, null],
-    { "\u0000\"é": ["😀\n\\", true, null, -9007199254740991] }])("counts exact UTF-8 and escaped JSON bytes for case %#", value => {
+    { "\u0000\"é": ["😀\n\\", true, null, -9007199254740991] }].map(value => ({ value })))("counts exact UTF-8 and escaped JSON bytes for case %#", ({ value }) => {
     const bytes = Buffer.byteLength(JSON.stringify(value), "utf8");
     expect(captureInboxData(value, { maxBytes: bytes })).toEqual(value);
     refused(() => captureInboxData(value, { maxBytes: bytes - 1 }), "RESOURCE_LIMIT");
@@ -167,7 +167,9 @@ describe("shallow capability options", () => {
     input.fetch = vi.fn(); expect(result.fetch).toBe(fetch); expect(fetch).not.toHaveBeenCalled();
   });
 
-  it.each([null, [], new Date(0), 1, "options", undefined])("refuses non-record options %s", value => {
+  it.each([{ label: "null", value: null }, { label: "empty-array", value: [] }, { label: "date", value: new Date(0) },
+    { label: "number", value: 1 }, { label: "string", value: "options" }, { label: "undefined", value: undefined }])("refuses non-record options $label", ({ label, value }) => {
+    if (label === "empty-array") expect(Array.isArray(value) && value.length === 0).toBe(true);
     refused(() => captureInboxOptions(value, []));
   });
 
