@@ -720,7 +720,13 @@ describe("shared observation input, context and policy capture", () => {
     codeOf(() => checkCheckpointFreshness(NOW, NaN, policy), "INVALID_EVIDENCE");
   });
 
-  it.each([null, undefined, [], 1, "input"])("rejects nonobject observer input %j as a typed error", value => {
+  it.each([
+    ["null", null],
+    ["undefined", undefined],
+    ["array", []],
+    ["number", 1],
+    ["string", "input"],
+  ])("rejects nonobject observer input %s as a typed error", (_label, value) => {
     codeOf(() => captureObserverInput(value), "INVALID_INPUT");
   });
 
