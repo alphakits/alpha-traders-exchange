@@ -1,18 +1,26 @@
 # Alpha Wallet development checkpoint
 
-Updated: **6 November 2026, 20:16:58 Asia/Jerusalem**. Latest verified implementation: `c2f078aa5960f835f82840977307dbfaedd096f2`; tested source tree `89694b4a2db33f5f2b0ed7f5c92f3b44b2011e0b`.
+Updated: **6 November 2026, 21:53:24 Asia/Jerusalem**. Latest verified implementation: `68ee52017b18631bfbd44acb3c5afea44a3c8223`; tested source tree `b16deed3ad860c77923d0d3d4780f37343812434`.
 
-**Development continues. Live launch remains off.** The read-only native BSC/TRON observers and valid eight MiB payment-proof correction are implemented, saved and verified. Exact-source CI passed **3,130 tests across 83 files**, zero failures/skips, **18 native PostgreSQL drills / 212 checks**, repository TypeScript, the offline demo and retained standalone English/Arabic Chromium rehearsal. The private V5 buyer claim/dispute lifecycle remains intact and still moves no principal or authorizes release.
+**Development continues. Live launch remains off.** Immutable deposit admission, timed native observation capture, exact replay and admitted preparation are implemented, saved and verified. Exact-source CI passed **3,604 tests across 87 files**, zero failures/skips, **18 native PostgreSQL drills / 212 checks**, repository TypeScript, the offline demo and retained standalone English/Arabic Chromium rehearsal. The durable inbox and recovery are still unfinished. The private V5 buyer claim/dispute lifecycle remains intact and moves no principal or authorizes release.
 
-## Current verified observer milestone
+## Current verified preparation milestone
 
-The [observer verification report](node-observer-verification-2026-11-06.md) and [machine-readable evidence](node-observer-verification-results.json) bind the complete current inventory to [CI run 42267049554](https://github.com/alphakits/alpha-traders-exchange/actions/runs/42267049554), job `128061714038`, completed `2026-11-06T18:16:58Z`. All 2,599 prior wallet cases plus 344 additions passed; authentication retains 87 cases and marketplace/storage retains 100. All 75 frozen contracts remain byte exact. The 400 focused cases are a verified subset, not additional tests.
+The [preparation verification report](deposit-preparation-verification-2026-11-06.md) and [machine-readable evidence](deposit-preparation-verification-results.json) bind the complete current inventory to [CI run 42280807815](https://github.com/alphakits/alpha-traders-exchange/actions/runs/42280807815), job `128109103023`, completed `2026-11-06T19:53:24Z`. All 3,130 prior cases remain. The 474 additions have distinct case identities; the 11 inherited duplicate occurrences remain unchanged. Wallet checks total 3,417 across 78 files; authentication retains 87 cases and marketplace/storage retains 100. All 75 frozen contracts and previous implementation files remain byte exact. The 474 focused cases are a subset of CI, not additional tests.
+
+The [implemented contract](deposit-observation-preparation.md) uses synthetic fixtures, fixed admission and a trusted synthetic context callback. Historical replay is separate from freshness for new admission; neither proves a provider, custody assignment, clock or persisted checkpoint. No database inbox, ledger credit, product route, provider account, receiving address/key or signer is connected.
+
+Initial source `c3b4739d7fc537b8703420d0c9c76a22672735c4` and run `42280538624` were superseded after the independent inventory audit found ambiguous parameterized test names and array-valued test rows. The corrected source above preserves 474 distinct tests. Only its final fresh CI run supplies this milestone's complete evidence.
+
+## Previous verified observer milestone
+
+The [observer verification report](node-observer-verification-2026-11-06.md) and [machine-readable evidence](node-observer-verification-results.json) bind the previous observer inventory to [CI run 42267049554](https://github.com/alphakits/alpha-traders-exchange/actions/runs/42267049554), job `128061714038`, completed `2026-11-06T18:16:58Z`. All 2,599 prior wallet cases plus 344 additions passed; authentication retains 87 cases and marketplace/storage retains 100. All 75 frozen contracts remain byte exact. The 400 focused cases are a verified subset, not additional tests.
 
 The implementation uses explicit injected synthetic node reads, keeps immutable response transcripts, and returns `creditAuthority: false` and `configured-node-consistency-only` assurance. It does not provide authenticated consensus, custody ownership, durable ingestion or a financial credit adapter. See the [observer contract](node-observer-design.md).
 
 The [recovery record](workspace-recovery-2026-11-06.md) explains why unavailable local-only commits `e162d0a7` and `397a2878` and their old local results are not current evidence. Saved remote checkpoint `7f6118af1bb70670991aae65e5e7775abd1c7f36` was the reconstruction base. Initial rebuilt commit `c6b2ad6d8f0d18074d8e774a0011c388663599f7` was followed by the corrected test-table commit above; its earlier CI run was cancelled, and only the final fresh run supplies this milestone's evidence.
 
-The user explicitly approved saving and continuing on `alphakits/alpha-traders-exchange`, branch `feature/alpha-wallet-dev-20261104`, on 6 November. That resolved the earlier automatic push-approval block. **No live launch is authorized.** The next [durable observation inbox](deposit-observation-ingestion-design.md) is a reviewed proposal only; its schema, admitted reader, timing trace/replay, recorder, candidate cursor and backup have not been implemented.
+The user explicitly approved saving and continuing on `alphakits/alpha-traders-exchange`, branch `feature/alpha-wallet-dev-20261104`, on 6 November. That resolved the earlier automatic push-approval block. **No live launch is authorized.** The [durable observation inbox](deposit-observation-ingestion-design.md) now has implemented admission, timed capture, replay and prepared evidence. Its isolated schema, recorder, persistent candidate cursor and backup remain a reviewed proposal.
 
 ## Authorization and source
 
@@ -22,9 +30,12 @@ Repository: `alphakits/alpha-traders-exchange`. Branch: `feature/alpha-wallet-de
 
 | Evidence | Exact source and status |
 | --- | --- |
-| Current verified observer implementation | `c2f078aa5960f835f82840977307dbfaedd096f2`; tree `89694b4a2db33f5f2b0ed7f5c92f3b44b2011e0b` |
-| Current complete development CI | [Run 42267049554](https://github.com/alphakits/alpha-traders-exchange/actions/runs/42267049554), job `128061714038`; 3,130 tests / 83 files, 18 native drills / 212 checks, TypeScript, demo and retained Chromium rehearsal |
-| Current downloaded evidence | Artifact `13529210555`, 2,120,342 bytes; SHA-256 `1d75dc19286e55e981eb424c14b4b8c64443b270cc744f7901e5110cbeed1484` matches GitHub; every extracted member matches the ZIP |
+| Current verified preparation implementation | `68ee52017b18631bfbd44acb3c5afea44a3c8223`; tree `b16deed3ad860c77923d0d3d4780f37343812434` |
+| Current complete development CI | [Run 42280807815](https://github.com/alphakits/alpha-traders-exchange/actions/runs/42280807815), job `128109103023`; 3,604 tests / 87 files, 18 native drills / 212 checks, TypeScript, demo and retained Chromium rehearsal |
+| Current downloaded evidence | Artifact `13536990473`, 2,136,172 bytes; SHA-256 `1865394ae14b95957aa87c65ccf9d03707ab1e234b02bb49fe36afbdf65da5de` matches GitHub; all 54 extracted members match the ZIP |
+| Previous verified observer implementation | `c2f078aa5960f835f82840977307dbfaedd096f2`; tree `89694b4a2db33f5f2b0ed7f5c92f3b44b2011e0b` |
+| Previous observer development CI | [Run 42267049554](https://github.com/alphakits/alpha-traders-exchange/actions/runs/42267049554), job `128061714038`; 3,130 tests / 83 files, 18 native drills / 212 checks, TypeScript, demo and retained Chromium rehearsal |
+| Previous observer downloaded evidence | Artifact `13529210555`, 2,120,342 bytes; SHA-256 `1d75dc19286e55e981eb424c14b4b8c64443b270cc744f7901e5110cbeed1484` matches GitHub; every extracted member matches the ZIP |
 | Saved V5 implementation | `621beaad00715ea81c7eb48b07a63c6137599314`; tree `0d7c97bd2998b0a51d2dbe7b5d126fb926a8249f` |
 | Historical V5 clean CI | [Run 42195918584](https://github.com/alphakits/alpha-traders-exchange/actions/runs/42195918584), job `127819018187`, attempt 1; success at `2026-11-06T09:51:29Z` |
 | Historical V5 full suite | 2,599 wallet / 71 files; 87 authentication / 5 files; 100 marketplace / 4 files; all 2,217 old wallet cases plus 382 new; zero failures/skips |
@@ -81,7 +92,7 @@ The native payment coordinator drill passed all 15 checks and emitted one 289-by
 
 ## Exact next engineering slice
 
-The rebuilt observer/upload source and evidence gate is complete. Implement the [proposed durable observation inbox](deposit-observation-ingestion-design.md), starting with immutable synthetic admission/attribution, admitted preparation with its additional timing trace, and exact transcript replay. Then add the isolated store, native event/transaction/block anchors, absorbing conflict quarantine, candidate progress and independent paused recovery. The first cursor tracks a fixed known-candidate job; complete chain scanning and historical backfill remain separate. Also define a **later explicit lifecycle contract** for trusted payment verification, actual seller-authorized release, dispute resolution and unpaid cancellation. Do not add those authorities to a V5 claim or widen a frozen reducer/profile silently. Preserve the pinned V4 fixtures and the full V1–V5 financial/canonical history.
+The observer/upload and admitted-preparation evidence gates are complete. Implement the [remaining durable observation inbox](deposit-observation-ingestion-design.md): the isolated store, deterministic durable command handling, native event/transaction/block anchors, absorbing conflict quarantine, candidate progress and independent paused recovery. Bind the existing synthetic preparation context to actual retained store history and candidate jobs. Deliver persistence and recovery together before any financial adapter can consume observations. The first cursor tracks a fixed known-candidate job; complete chain scanning and historical backfill remain separate. Also define a **later explicit lifecycle contract** for trusted payment verification, actual seller-authorized release, dispute resolution and unpaid cancellation. Do not add those authorities to a V5 claim or widen a frozen reducer/profile silently. Preserve the pinned V4 fixtures and the full V1–V5 financial/canonical history.
 
 1. Define what independently verifies bank/cash payment, how verification differs from buyer-uploaded proof, and which current actor may authorize release. Bind the exact request, buyer, seller, principal, asset, destination, quote and separate fees; matching totals alone is insufficient.
 2. Specify dispute-resolution authority and outcomes, including how a hold survives revocation, expiry, inconsistent evidence and uncertain replies. Define unpaid cancellation and its ordering against claims through a later explicit successor; **no new cancellation is supported in V5**. Owner force-cancel and expired inventory handling also require explicit contracts.

@@ -1,6 +1,6 @@
 # Admitted deposit observation preparation
 
-This is the first implemented phase of the [durable inbox design](deposit-observation-ingestion-design.md). It supplies development admission, bounded observation capture, historical replay and prepared evidence. It creates no database, persistent receipt, candidate job, custody claim, wallet credit or financial command. Every result has `mode: "simulation-only"` and `creditAuthority: false`.
+This is the first implemented phase of the [durable inbox design](deposit-observation-ingestion-design.md). It supplies development admission, bounded observation capture, historical replay and prepared evidence. It creates no database, persistent receipt, candidate job, custody claim, wallet credit or financial command. Prepared deposit observations and their verified preparation results explicitly carry `mode: "simulation-only"` and `creditAuthority: false`.
 
 ## Modules and API
 
@@ -34,7 +34,7 @@ const validated = await verifyPreparedDepositObservation({
 checkPreparedDepositAdmissionFreshness(validated, currentTimeMs);
 ```
 
-The trusted constructor supplies the manifest, physical store identity, worker, endpoint configuration and capabilities. The candidate cannot select another token, recipient, beneficiary, purpose, chain, policy or worker. Raw units and native event indices are exact decimal strings. Endpoint configuration must match the normalized HTTPS URL's SHA-256 and host commitment before any callback or node read. Actual URLs stay in the reader closure and do not appear in prepared envelopes or diagnostic errors.
+The trusted constructor supplies the manifest, configured store-instance identifier, worker, endpoint configuration and capabilities. The candidate cannot select another token, recipient, beneficiary, purpose, chain, policy or worker. Raw units and native event indices are exact decimal strings. Endpoint configuration must match the normalized HTTPS URL's SHA-256 and host commitment before any callback or node read. Actual URLs stay in the reader closure and do not appear in prepared envelopes or diagnostic errors.
 
 The context callback receives a frozen copy of `{ inboxId, storeInstanceId, manifestSha256, workerId, candidate, jobId }`. It must return the closed `development-deposit-preparation-context` version-1 snapshot, either as inert data or an unmodified native Promise. Plain thenables, accessors, Proxy values and Promise subclasses are refused. The snapshot binds the admitted assignment/source set, global checkpoint revision/hashes, optional retained source head and optional finite job cursor. Revisions and native head identities are validated, including TRON's height-bearing block ID.
 
@@ -65,3 +65,7 @@ New hashes use SHA-256 over UTF-8 `["alpha-wallet-deposit-inbox-v1", domain, val
 ## Remaining work
 
 The isolated SQL inbox, deterministic durable reducer, command receipts, transaction and block anchors, candidate jobs/cursors, unknown-COMMIT fencing, paused backups and quarantine-only restores remain under the proposed design. They must be delivered as a coherent persistence and recovery contract before any ingestion service or financial adapter uses this evidence. Wallet credit authorization, direction exclusion, reconciliation, real custody, signing, payout execution and product routes remain separate unfinished work. No deployment or launch is part of this phase.
+
+## Verified development evidence
+
+Implementation `68ee52017b18631bfbd44acb3c5afea44a3c8223`, tree `b16deed3ad860c77923d0d3d4780f37343812434`, passed [CI run 42280807815](https://github.com/alphakits/alpha-traders-exchange/actions/runs/42280807815) on **6 November 2026, 21:53:24 Asia/Jerusalem**. The complete run reports **3,604 passing tests across 87 files**, including all 3,130 predecessors and 474 distinct additions, with zero failures or skips. The 18 existing native PostgreSQL drills / 212 ordered checks, repository TypeScript, offline demo and retained English/Arabic Chromium rehearsal also passed. These native and browser checks retain previous contracts; they do not test a new durable inbox or product route. See the [verification report](deposit-preparation-verification-2026-11-06.md) and [machine-readable evidence](deposit-preparation-verification-results.json).
