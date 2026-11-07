@@ -320,7 +320,11 @@ async function main() {
       await bounded(Promise.all([secondStarted.promise, thirdStarted.promise]), "claim contenders started");
       distinctClaimBackends = new Set([firstPid, secondPid, thirdPid, legacyPid]).size === 4;
       assert(distinctClaimBackends);
-      await Promise.all([observeWait(observer, secondPid), observeWait(observer, thirdPid), observeWait(observer, legacyPid)]);
+      // The observer is one pg.Client: serialize its queries while all three
+      // independently owned contender transactions remain blocked by the first.
+      await observeWait(observer, secondPid);
+      await observeWait(observer, thirdPid);
+      await observeWait(observer, legacyPid);
     } finally { release.resolve(); }
     const [winner, retry] = await bounded(Promise.all([firstWork, secondWork]), "same-content competing claim results");
     await assert.rejects(bounded(thirdWork, "changed-content competing claim refusal"), (error: unknown) =>

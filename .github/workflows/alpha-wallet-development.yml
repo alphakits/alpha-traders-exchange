@@ -74,6 +74,9 @@ jobs:
             await connection.query('CREATE DATABASE alpha_wallet_dev_inbox_races');
             await connection.query('CREATE DATABASE alpha_wallet_dev_inbox_backup_source');
             await connection.query('CREATE DATABASE alpha_wallet_dev_inbox_backup_target');
+            await connection.query('CREATE DATABASE alpha_wallet_dev_fiat_source');
+            await connection.query('CREATE DATABASE alpha_wallet_dev_fiat_restore');
+            await connection.query('CREATE DATABASE alpha_wallet_dev_fiat_races');
           } finally { await connection.end(); }
           NODE
 
@@ -96,6 +99,16 @@ jobs:
             --target-connection-string 'postgresql://wallet_fixture:simulation-only@127.0.0.1:5432/alpha_wallet_dev_inbox_backup_target' \
             2>test-results/alpha-wallet/postgres-deposit-inbox-backup.stderr.log \
             | tee test-results/alpha-wallet/postgres-deposit-inbox-backup.json
+
+      - name: Verify isolated fiat evidence persistence and permanently quarantined recovery
+        run: |
+          set -euo pipefail
+          node --conditions=react-server --import tsx scripts/alpha-wallet/postgres-trusted-payment-journal.ts \
+            --source 'postgresql://wallet_fixture:simulation-only@127.0.0.1:5432/alpha_wallet_dev_fiat_source' \
+            --restore 'postgresql://wallet_fixture:simulation-only@127.0.0.1:5432/alpha_wallet_dev_fiat_restore' \
+            --race 'postgresql://wallet_fixture:simulation-only@127.0.0.1:5432/alpha_wallet_dev_fiat_races' \
+            2>test-results/alpha-wallet/postgres-trusted-payment-journal.stderr.log \
+            | tee test-results/alpha-wallet/postgres-trusted-payment-journal.json
 
       - name: Run the wallet unit and local persistence suite
         run: |
