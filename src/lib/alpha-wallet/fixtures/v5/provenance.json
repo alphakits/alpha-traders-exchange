@@ -1,0 +1,567 @@
+{
+  "purpose": "Independent frozen V5 accepted, claimed, disputed, cancelled and inherited-paused predecessor evidence; never regenerate for a successor.",
+  "sourceCommit": "343cb147a0e6c64423dd00fed1cfe6d148fa86e8",
+  "sourceTree": "37e6244dc7a5af42304ffdc356e9ec95dfa6112d",
+  "verifiedImplementationCommit": "6c06159b12c6c23fd51cdd8eb4dba7745aff54cb",
+  "verifiedImplementationTree": "23c6ca3b1bc4d381766af79fe00940531c8239af",
+  "verifiedRunId": 42327193683,
+  "checkoutAtCapture": "343cb147a0e6c64423dd00fed1cfe6d148fa86e8",
+  "capturedAt": "2026-11-07T10:40:17.501Z",
+  "engineVersion": "alpha-wallet-simulation-v5",
+  "backupFormatVersion": 5,
+  "backupScope": "isolated-v5-ledger",
+  "runtime": {
+    "node": "v24.22.1",
+    "platform": "linux",
+    "architecture": "x64",
+    "timezone": "UTC",
+    "pglite": "0.5.8"
+  },
+  "captureScriptSha256": "2fcb918194a66e0675eae279f12c4bb2b8e4dff02d28ba7989187bfe74aa6b26",
+  "sourceSha256": {
+    ".nvmrc": "d9f318747a126ce2247661af67852b185def7789492eabfad7bba322be087c33",
+    "data/alpha-exchange-db.json": "636d1db295d043cc031ef21d92871e8b1e73bf3efe99f488b6694fcb10d0c5aa",
+    "docs/alpha-wallet/cancellation-marketplace-guards.sql": "65371224f72b87423be26c8d1b3bbab05e2a67bf99cbe0e3de33e8b0aa94e3a5",
+    "docs/alpha-wallet/cancellation-marketplace-recovery-bootstrap.sql": "f86d805dd6c74317ac08d43e16470dfc77aa80c6ea9991cfdbabfee93f8e50d5",
+    "docs/alpha-wallet/cancellation-marketplace-recovery-canonical.sql": "de9d1d5ae1cf026fe21f06870d2dec786cce9535eb94d07e7e045846b4c2fdca",
+    "docs/alpha-wallet/cancellation-marketplace-tables.sql": "75e372779222fc45d7e35bd41a9c680e2b0e952d841d256f98fb603049062aee",
+    "docs/alpha-wallet/cancellation-marketplace-v4-migration.sql": "a994d7ae3887596b9a3d3ce034ef4842557f3720fbe2da9f2558a5c7f38ccf1c",
+    "docs/alpha-wallet/deposit-inbox-schema.sql": "3ec6ba4f36a397dc1246be9d51bb4664311d3b4ea18e146bc80c6a904ee1631d",
+    "docs/alpha-wallet/durable-schema.sql": "1a170370b07cb81d168ed347eca3e9c60adee8832f7b3248c267829857772914",
+    "docs/alpha-wallet/durable-v2-migration.sql": "6029ac496ca65200a469e1b13cddaf82def459c0ae67c056e467bec91ec27274",
+    "docs/alpha-wallet/durable-v3-migration.sql": "d9feb82e95f76771e66dec2e5f8fd6b275d83503f9a47b95f2283f03ed6a077d",
+    "docs/alpha-wallet/durable-v4-migration.sql": "a1f7e8a006a93b4f9c869b32ad4ab81d4316d7dd1edf81fe82e81d2dee356a85",
+    "docs/alpha-wallet/durable-v5-migration.sql": "ddbfde6630a9eeac66bddc9f46f416f35591dc19cf47f336e1e39df43324c34d",
+    "docs/alpha-wallet/initial-marketplace-guards.sql": "330da4477a778f60cb1295dfa792dea6e88b0c2f330977a6a10b3e9e2f744bdc",
+    "docs/alpha-wallet/initial-marketplace-recovery-bootstrap.sql": "9b02c41a5a841ea3f5a5d6052d789390d590c3e66226d909e0912fd6c27b1059",
+    "docs/alpha-wallet/initial-marketplace-recovery-canonical.sql": "5fde4c6d33971df4d465b6593c5a4199398f1458bb35a8a89d6d0b3b281dc8bc",
+    "docs/alpha-wallet/initial-marketplace-schema.sql": "18969c5c0a09fc6e2f75a3dff6234830de52b4398aad534219bfd353e80c1305",
+    "docs/alpha-wallet/initial-marketplace-tables.sql": "a2ad3e7073273d5b02c18c787d687d3ac4db77929d519d2a2fa5c6b3c364cbb9",
+    "docs/alpha-wallet/marketplace-coordination-guards.sql": "a4c0ccf6c2a2b32ecdb9369a44b54e9b7af5a801bbcf12e16e84b2d9b5b5bd16",
+    "docs/alpha-wallet/marketplace-coordination-schema.sql": "b4d5826776de3de5f7e0488c460a5325ef26ec4b98b4fda3ae897eb4ffb07e00",
+    "docs/alpha-wallet/marketplace-coordination-tables.sql": "1bc303426a3af2ee67122a3f6011a737d6c4dcbeaccce7c725ade4cfe80b4dc1",
+    "docs/alpha-wallet/marketplace-recovery-canonical-schema.sql": "6a18ffe696fee6b6f81c518d2678210b89afe0c8c435725c0bab158663cbbc30",
+    "docs/alpha-wallet/marketplace-recovery-receipts.sql": "052a74ac19abf27b8ef492bf3a4d4cfe2cf6ce983958793f2270f5f83189a648",
+    "docs/alpha-wallet/payment-marketplace-guards.sql": "493fa209d4a8c30911b618ddc9e2f01748a51c7abe46ebe9c3eb7b9b77e12dfc",
+    "docs/alpha-wallet/payment-marketplace-reason.sql": "078bf6ce93afea902c5f594cf63b788dadc68e6c2e6b956528cddb43e31fbf64",
+    "docs/alpha-wallet/payment-marketplace-recovery-bootstrap.sql": "15aec573acb6be035ae73f128e3b81389a5065a218566b5ed38fe06f6e69b73c",
+    "docs/alpha-wallet/payment-marketplace-recovery-canonical.sql": "ee5521fa375563f75e8e218e8ba88363078da59d2d1896c414c49f6859d0612d",
+    "docs/alpha-wallet/payment-marketplace-tables.sql": "dc480bf5accdc0cd23cd21a2a96a6ba6668cdd84f1abdbb3cc7658512a2c516a",
+    "docs/alpha-wallet/payment-marketplace-v5-migration.sql": "6203de57d96f1de8b7b02e996d6ea83c81316d46bc94b2c0864fb3e3b766bed0",
+    "docs/alpha-wallet/schema-draft.sql": "79f1727d8551a619ebd4981266c93ea3d18b7e653938dfd8edfe52f744b107b9",
+    "docs/alpha-wallet/trusted-payment-journal-schema.sql": "d766d351e07293aff1061f37311b4062200e58eb3ccf562883ab1cb928615410",
+    "package-lock.json": "2a5383feb86f55eeb950de0adf8806e91b10edbb2b4fba5631f325dc424a9bbb",
+    "package.json": "95b3d98b2537eea89dd2c015dfd6409dd1235ab4bf6c4a4d99442335294f5961",
+    "packages/contracts/src/cardless-withdrawal.ts": "d5a72e0e080f64e7eb61e1351a97de8f2befc01f88a0167a6342df600671cc38",
+    "packages/contracts/src/commission-amount.ts": "dfdc5205980524c7730bd3791bc79413a21e34f5afece8357e8f8aa3e8e271d3",
+    "packages/contracts/src/display-amount.ts": "a501375221c14f960dd17e8838481cbf26881413f194896f6a2e11ac6e67df93",
+    "packages/contracts/src/index.ts": "bafcd0fb7352ef2e404a053245fa7a98911d701e06e4ed36d9b9aba06818f9fd",
+    "packages/contracts/src/interface-access.ts": "3d5408f15ea0032a0c640f261f14f83b02ffc01812b97874780f9009cee89976",
+    "packages/contracts/src/israeli-banks.ts": "12a426e0575849c0b866eab4c3f6e930a6e94e582af20818bd118a5f816ae00f",
+    "packages/contracts/src/listing-trade-limits.ts": "3065e1f65865ff3b5605b03ea7ee6f350c9b7715b6f93081cff5b1f4ebb8cfa2",
+    "packages/contracts/src/marketplace-fees.ts": "754c6305368324a4541ee2f5e64184ac4e52e89ac1bb20b9ce15e3500da51097",
+    "packages/contracts/src/mobile-v1.ts": "42d33919e9a784e1185e538d9b68ca419b9010d7ca274062df5efe047086e3c5",
+    "packages/contracts/src/native-web-bridge.ts": "3128095e9a0e206e9cf9c3c2ae3c60636d1e7d0d4f8be3869850d6997116c1fb",
+    "packages/contracts/src/price-offer.ts": "27028410114debb1f8ffea6e1b0955cabb3b670a012d996c16598ccc1307853f",
+    "packages/contracts/src/remembered-login.ts": "f7fafaf210c293c47a7c8723e104a1ef9186bbc8251170f943132c351dd14f8d",
+    "packages/contracts/src/seller-metrics.ts": "d38e6cb504a42f5776a41f60ba5cf64648f8833724cc39bd5d317092ed30d92d",
+    "packages/contracts/src/trade-amount.ts": "4b369f8388328696ab1e91410254d3f8629f4da6fb37caea0899d08c53a0537c",
+    "packages/contracts/src/trade-chat.ts": "ff1e1e31cc27af0320947abb2edfe895f30c6fddcf719fc3bc0414a5e833b007",
+    "packages/contracts/src/trade-location.ts": "18b15f8c74f0e77983670ef745253de2d46bac8b335fd1b070ea7bebdd6cbbe9",
+    "packages/contracts/src/trade-receipt.ts": "d01fc753834923b9d3a09bbd910655dfa995546722d72d8c891fc821db060133",
+    "packages/contracts/src/trade-terms.ts": "e1e9446e1b423157480d09d00633f94a0958ba67cd89cfcccd6080a1d908f30e",
+    "packages/contracts/src/usd-ils-reference.ts": "93ef541df2932bfa618d8a2986383ba29b6be2e5231b28464d139178f7752f98",
+    "packages/contracts/src/user-presence.ts": "cdb22e5048f723ab2186044ffbf24299e76d33065e05c731de566ac1c78d07ed",
+    "packages/contracts/src/wallet-address.ts": "95fc527029f950c149ba9c8ab943f3559e519c9bfb21154776e3c2972df37966",
+    "packages/contracts/src/whatsapp-contact.ts": "d7501bc8a1be3030eaca79a7915fffbff55fc089e33bbb311ddbc8721244a57c",
+    "scripts/alpha-wallet/cancellation-marketplace-fixtures.ts": "cde3835d760ca5326fa4631a9fad716dc5f2e3046d3c0fd156eae751f8a9f07a",
+    "scripts/alpha-wallet/durable-fixtures.ts": "12139bcbf4e879258ee7001756c522d55ab2afe58f786286df85a40479fc9440",
+    "scripts/alpha-wallet/initial-marketplace-fixtures.ts": "ded4784a590355c1431590e1824c1dea520aa09a1c8ee1f3cbfcc81952b778e1",
+    "scripts/alpha-wallet/payment-marketplace-fixtures.ts": "0779c129f4b760f80ce92f9e475fcba90a2300e465f6d4fa2e9abdd25f913fe1",
+    "scripts/alpha-wallet/v3-durable-fixtures.ts": "f8af216ed727d0604158ebb2983fde9832ac97c626c7564d2cfac3ad0fb754f9",
+    "scripts/alpha-wallet/v4-durable-fixtures.ts": "32d3c25defa913a373a87a2b89a81f5f1f78fe6e7b94309bab846270fbd87cf8",
+    "scripts/alpha-wallet/v5-durable-fixtures.ts": "3558f59833dafa21ac4c9f13749090a0717e1ae56d9f2e243da3fa74f5e096f2",
+    "scripts/alpha-wallet/v5-engine-fixtures.ts": "5e9a19dae147c5fc7caea2b82484da49186a113444255133b877f5e72181ec9d",
+    "scripts/patch-dependency-security.mjs": "4ee6afb2d3ebd2f207941fe56e006a3b7583e5fe2a72f673c0a8880c40ae5f83",
+    "scripts/patch-expo-uri-decoder.mjs": "ec23a6df035c964fdef288d82ccbbd5996aefbea6a88523301eb6af9b137e3b3",
+    "src/lib/admin-announcement-attachment.ts": "0e2020edaf85dffbf31ca9ea0ca0cc7bc142400807d4299be6684c9bad223241",
+    "src/lib/age-eligibility.ts": "be25ebe187cac5411ad2a6ec352ec8c39033b145f6bcb8164615e27cd7efa943",
+    "src/lib/alpha-exchange-identity-directory.ts": "772724ff24416f1041779eaf223ff93bb401e55e05cf3bd75fa13a8b11c8aee2",
+    "src/lib/alpha-exchange-identity.ts": "10bbc07384b15b7d5eecc6c542f80fb57dc1749fb0706e7c7687b3e93396125e",
+    "src/lib/alpha-exchange-repository.ts": "10d9f77411ec8192b3871f902b94251735d66a5e88efb5e59890ec8798e8e293",
+    "src/lib/alpha-wallet/accepted-terms.ts": "a8711bf3c08eb74ba12c6cbcb3030b2b07fd78b7f77d3b9f9b4ffd989719dcf3",
+    "src/lib/alpha-wallet/access.ts": "cf3e332c1008ac8633f9e0c390cf9b0437ff20e46b895da20effe9922076bba4",
+    "src/lib/alpha-wallet/amounts.ts": "b24d8fea56a0c2c7f7948f2aaa73bcf31d1da0bbbc8a2e892e1798ec09f10011",
+    "src/lib/alpha-wallet/backup.ts": "8de50d3242914c775970134b13f489f73a0396529669826ee14b32975f583715",
+    "src/lib/alpha-wallet/cancellation-marketplace-auth.ts": "681f2a0e85e7202f5cec503c5547af0bde8c80ccd8cc359f9771eb758e29c6a3",
+    "src/lib/alpha-wallet/cancellation-marketplace-backup-manifest.ts": "79faae678b8027a2251efee2bbc33cb13738664002ad23a2608ee4f3426da969",
+    "src/lib/alpha-wallet/cancellation-marketplace-coordination-store.ts": "50f6d83ae07835b24bc37c3f3e2da0f1652d7958ede918ecf0f67d1c1f65534f",
+    "src/lib/alpha-wallet/cancellation-marketplace-coordinator.ts": "4aa9b01dd5417a490b44857c41f020d005772189ce779bc3299ccc2a26c7c364",
+    "src/lib/alpha-wallet/cancellation-marketplace-plan.ts": "739dfa0999f3cf8f1e9d7ca355b293a5c63bb4de609835f37000f6c4725bbc91",
+    "src/lib/alpha-wallet/chain-evidence.ts": "ade38868602e2335697520692532ea6461db8a7ba5adc54fca7bebcceda91ed8",
+    "src/lib/alpha-wallet/chain-observer-common.ts": "860027f2e5253f4e1fe6dc62b1d02fb964b8ece43d18d2a530cc539d9d082b0f",
+    "src/lib/alpha-wallet/chain-observer-rpc.ts": "bc3156fb88e58691ff6bd1966de71fb4ee3b9897e8baa45913229cbe6804e636",
+    "src/lib/alpha-wallet/commands.ts": "ede87aecd79de462b8e713babdcb1744a703e9039042abcd1e7d896dcd8dc877",
+    "src/lib/alpha-wallet/deposit-inbox-admission.ts": "5e2764b6a51b43a358f78c0e3476e4d7547650f176647624ab6da00a4e303f91",
+    "src/lib/alpha-wallet/deposit-inbox-data.ts": "19f4d86868bab650a37cb1c18e5364e344da5e1292d30d34e9b43f3c5fb5c551",
+    "src/lib/alpha-wallet/deposit-range-coverage.ts": "bcde244571b383499b7eff6a2011329ec86c1e61ca5ade51037cb9e0ac862ebf",
+    "src/lib/alpha-wallet/deposit-range-native.ts": "3d19f1350b83a04847107a4c74db7d22909c10d96d91f8531a5a6ec9567c979c",
+    "src/lib/alpha-wallet/durable-store.ts": "aee94a5f2314f21b20fa44eb5cc197ab9d68744ad30fb1a513fecd248e8feeff",
+    "src/lib/alpha-wallet/durable.ts": "ca07f0f696e272ad10da09ba463860b9aabe42b11aeb009e593a29fa315f5a35",
+    "src/lib/alpha-wallet/fixtures/v1/provenance.json": "0ffa77d72ef2e78da79645e22b588a8f573e787537bf775e8f92eec5af37b47a",
+    "src/lib/alpha-wallet/fixtures/v1/settlement-and-held-withdrawal.backup.json": "c4ee709415d1c129e9db31c1f90222cceffb4a2cfda2efc495cb6a974204e7ee",
+    "src/lib/alpha-wallet/fixtures/v1/settlement-and-held-withdrawal.state.json": "cbbbb90b83b8846f01e1ef46643ae42962ba7961cd189dc7e45736c229a3aada",
+    "src/lib/alpha-wallet/fixtures/v2/corrections-and-settlement.backup.json": "b649ac30737b4ea33523ae04f2db3f476357600d36d966f229d32299fab5d5bb",
+    "src/lib/alpha-wallet/fixtures/v2/corrections-and-settlement.state.json": "ab9f897ec37291db953ee63eb2161adbc42a4ec086def7db80d927a47e1bfa02",
+    "src/lib/alpha-wallet/fixtures/v2/provenance.json": "46cc3cf891507e89c78e6ad7b38be8535f95b29d15f1596afbe255f884069f74",
+    "src/lib/alpha-wallet/fixtures/v3/initial-acceptance.backup.json": "de6421f28fe3ca1ad34ae00d95860da2724ad29ce712f55aa8ef7279fd404426",
+    "src/lib/alpha-wallet/fixtures/v3/initial-acceptance.history.json": "03df5221f9935d197817c2c0348ecafbd30512284ef65fb49b51182455be4db7",
+    "src/lib/alpha-wallet/fixtures/v3/initial-acceptance.state.json": "442579ab1d75096074f59e4b57ccab56fde419e9bba1e34ddfeb6ee96bddaf1c",
+    "src/lib/alpha-wallet/fixtures/v3/provenance.json": "21692c9e7b5215caac76e16966862cdb45ef493a3e82baae506e2ee5d4121237",
+    "src/lib/alpha-wallet/fixtures/v4/accepted.backup.json": "ec8aa8478c484d7ad927bc9768640455e4a9845f46dadbbcf0d3049b67ca447a",
+    "src/lib/alpha-wallet/fixtures/v4/accepted.history.json": "25cda643febf72cdfef4565a5b5c0ec97b39384d192126e78b814c409ad16566",
+    "src/lib/alpha-wallet/fixtures/v4/accepted.state.json": "bb071ad3b0ab337782778deba620563d771f2d24a6eea5bd92614bb395d5db00",
+    "src/lib/alpha-wallet/fixtures/v4/cancelled.backup.json": "e6f95b5f47233c9d7772713bff740b22900b5fca38163656ade5139ad83d3074",
+    "src/lib/alpha-wallet/fixtures/v4/cancelled.history.json": "8f9a08aa3804d5684ac15064fb9152e61f5fcd25ac651a9c354d06e7b38b1f73",
+    "src/lib/alpha-wallet/fixtures/v4/cancelled.state.json": "28f7d16c17365b31f021aa482db475e13b6a7ebd549b7b4df9c17f86e7539e2a",
+    "src/lib/alpha-wallet/fixtures/v4/provenance.json": "6df46fce990671d46e518e56c2423aca76ce118ffa375a9ca2b2c5ef269f1333",
+    "src/lib/alpha-wallet/initial-acceptance-fixture.ts": "d217625582e61b82778ad0307a8d3f1d901e30c96e40ac914f1d3c2dee5c9be1",
+    "src/lib/alpha-wallet/initial-acceptance.ts": "9ebb4dfa7c01da02056687e4cf2ce41152817dd7b35d108b76ab7bff899d103a",
+    "src/lib/alpha-wallet/initial-marketplace-backup-manifest.ts": "34f1769523e6770920780f680272c0b5328a38d9b2c1adb7fb61bc2b88cb877d",
+    "src/lib/alpha-wallet/initial-marketplace-coordination-store.ts": "69e6bf4f3f10f94584b6032cd0057d298ab8713a7d1891bf674b593c8aa550c1",
+    "src/lib/alpha-wallet/initial-marketplace-coordinator.ts": "f1af34868857a1571778e903957a45c3686ee94d5dafd9903f88e14035b2c44a",
+    "src/lib/alpha-wallet/initial-marketplace-fixture.ts": "1c75586250fb2c4218838a9ad29e7b84619eb313f1823eabf33b2c5aa82a0f43",
+    "src/lib/alpha-wallet/ledger.ts": "a84d72d3d0a534d71b3a0993d570eda97b5894603254566c9ea74ca2e4082a64",
+    "src/lib/alpha-wallet/marketplace-account-authority.ts": "89202a152c350130e969193511a005f53238916f918dc768fd728625030b9f4f",
+    "src/lib/alpha-wallet/marketplace-auth.ts": "ae397de469eaf0bc2a8525afcd0b8435a7e502012f0b31e2682a9faae91e1556",
+    "src/lib/alpha-wallet/marketplace-mobile-auth.ts": "e6939a0e3b560d6432aa7b11c99156150e0036804df779670a035ddbcbebadec",
+    "src/lib/alpha-wallet/marketplace-mobile-fixture.ts": "510d79414ce246783e7af17ed91a5ca4441b89f42566181ca0ab9406c4d87e1d",
+    "src/lib/alpha-wallet/payment-marketplace-auth.ts": "eefd1cc5b48538e24acd6781f4e025759199b90aa39d339aca222cf988793f80",
+    "src/lib/alpha-wallet/payment-marketplace-backup-manifest.ts": "86c05f12aa6f40d4b62f0b03390535df6e0dbbd61b9143f505d29273a312517e",
+    "src/lib/alpha-wallet/payment-marketplace-backup.ts": "13df5fcfb93ec0bfa712627c94d5e4a104913b627e10f5017438467b616ba030",
+    "src/lib/alpha-wallet/payment-marketplace-canonical.ts": "6b7d77a7d40de19a45fd80c7de4aed93690bf48a1e21ed0400abfdc4529fba98",
+    "src/lib/alpha-wallet/payment-marketplace-coordination-store.ts": "ce7f353925d58c20025faadb8a49a5708e134a327d858f706ac297283a91f7e2",
+    "src/lib/alpha-wallet/payment-marketplace-coordinator.ts": "12c253a268e2feb84e11f18c56ed395d13eaf3735043bae89eee612b67d90060",
+    "src/lib/alpha-wallet/payment-marketplace-plan.ts": "f6a74404a21759538bb20b06902562fdd39c2b3aeb58d783694e084ffbb55775",
+    "src/lib/alpha-wallet/payment-marketplace-predecessor-verification.ts": "b91709bdf088a28e4a361a79b68fdffb4ce02f3853877b26982b08ed6f1db0a4",
+    "src/lib/alpha-wallet/payment-marketplace-recovery-store.ts": "fc70c0b8308d39792a3f863c4b1597ec3532138073cce34e02e5bf3745f82972",
+    "src/lib/alpha-wallet/prepayment-cancellation.ts": "5085f2540d105a0b2719fbf9f4ef37fc57edb5cced4ae3973626fadf724fef82",
+    "src/lib/alpha-wallet/runtime.ts": "ec3c10b23bac049df9b86bb451193e6ead1f1cbae1a336b02e85f546307bf1de",
+    "src/lib/alpha-wallet/sandbox.ts": "ca00563a69feee6086c4113f8c3072dfbd82c3522a59f2d200b2421645b2547d",
+    "src/lib/alpha-wallet/trusted-payment-evidence.ts": "b848fbb7e4f3fdd2691b1d7f90dbe0bab4d46b05401736c3acc9ef4d84e3fd41",
+    "src/lib/alpha-wallet/trusted-payment-fixture.ts": "70dea66099e62abdbfc4620f5b2e352896f70339dd3150260ac23a6506a88387",
+    "src/lib/alpha-wallet/trusted-payment-journal-model.ts": "55e4079c6027bc7f3f334cbaa518facb904c4750cbccb3f4095223e5cd4c9bad",
+    "src/lib/alpha-wallet/trusted-payment-journal-store.ts": "9bd00f6b7b34b8e33bb33d8edb1aea683da535842eefce59b2894838242d8e2b",
+    "src/lib/alpha-wallet/types.ts": "c6584047e00afd8d436e970529ac60429bf9071050418fbe2122a6b9dbf0bed7",
+    "src/lib/alpha-wallet/v2-commands.ts": "59ae929ca5e331a8a8493639bf1249d40ac33cc88e2eae07cf52ad8a809c1e33",
+    "src/lib/alpha-wallet/v2-engine.ts": "34411de6898374140b98459cd370762a7e21abb317a395cce1c89ea36dd8483a",
+    "src/lib/alpha-wallet/v2-kernel.ts": "3f74325bc24473d71729c95a03a4a8740599dc5b7e4d9502cc16857a33661608",
+    "src/lib/alpha-wallet/v3-backup.ts": "b0070e71a2a264d4e0ee4e1ce56f267d0be062f7957be21fbc9f653533d16eca",
+    "src/lib/alpha-wallet/v3-commands.ts": "f758a2decd5cb160b11b9f5bda27667671f803d55dfce3086b7d5c7022f11dad",
+    "src/lib/alpha-wallet/v3-durable.ts": "522bf73c846b5021c21e5788ac6e14f359d707b8b7b7cca25d88d34c62a52217",
+    "src/lib/alpha-wallet/v3-engine.ts": "367aad8c6f0519b013d283051d48a16597540d4bb32eed01465e841a0170e8ab",
+    "src/lib/alpha-wallet/v3-fixtures.ts": "7e616e83e5e6b6209fa24433a325b528cb261fd6336cd7a8f90077bd839d18fc",
+    "src/lib/alpha-wallet/v3-projections.ts": "64fc1e06d625570901dba23e5db98776d862c89153cda35a3afc3c42a3c16c29",
+    "src/lib/alpha-wallet/v4-backup.ts": "97659cc9a9746a213ebf2fa135ec2be79e2e98805f72c1282dc7c509bb269676",
+    "src/lib/alpha-wallet/v4-commands.ts": "ef2dee4b57d57a20d6c5cab326859f5f5a6a8b68cc4d1125d1803dc2f9dcf0c1",
+    "src/lib/alpha-wallet/v4-durable.ts": "92ab8b315b22c490a82294e2b55638dfceecc4544c39fffb0b4d2b129fc20f8b",
+    "src/lib/alpha-wallet/v4-engine.ts": "52cfda0bd97a4315554731a870c1dfabb8dfc577a9ef3ec21f55d5538a9f08e5",
+    "src/lib/alpha-wallet/v4-projections.ts": "13c6bb61d6eaf638d7c04f45def4dad5e1bd5f6ba2547747d4aca42ac3b7fc32",
+    "src/lib/alpha-wallet/v5-backup.ts": "0d9f9be01eaf2ccee5ed31845b113e1730c569b93310af4fabf8fd63f362f8f8",
+    "src/lib/alpha-wallet/v5-commands.ts": "b6d7956b6d2ce61f17471f9ada57f82e724a7ead78d05499707d53dbe54e3858",
+    "src/lib/alpha-wallet/v5-durable.ts": "598925ce427b26cad035b8a528f2ff3fbd2cc334a6c776730dc8603bc9e058f3",
+    "src/lib/alpha-wallet/v5-engine.ts": "ea2c0abc6d44bf2fedfeaaf2f3b69547399ccf435a47c12408e75f84f2a446ac",
+    "src/lib/alpha-wallet/v5-projections.ts": "1713ccfdcf3f26b4f313edc5cec2474765a779b335d7271f1b80e378244d470f",
+    "src/lib/alpha-wallet/versioned-durable.ts": "e093fd14b92aafda3b94c2cfbe0509e98d23a3b6fb8d7ee19a0113ef794264a2",
+    "src/lib/alpha-wallet/versioned-projections.ts": "e77921e3b30c88d982c563ca4c11db29ea9b3a9a5956464a102bf8ad6cc42acc",
+    "src/lib/client-ip.ts": "3f937e3a12bce95af5087db23e735a1270ae212a0d12eb8414bfa29d463de6bb",
+    "src/lib/file-content-validation.ts": "ff17b7316e04ad9117eace26325043d7f0d09fbfff0fce97bdb58bbaa530b3d8",
+    "src/lib/format-id.ts": "7fabbc5b24c22a9b72645ca78b4aad9f48fd49510a3fb09e0c3863f5058d25c1",
+    "src/lib/fx-reference-policy.ts": "0b2321bb64dfe4b8b687abf6712a2f4a442ac9f83448ce0d9349e2490d917069",
+    "src/lib/listing-commission-policy.ts": "fbfb58f861892d94e1d957ee6327f394d138fdd16302a3bd30267c3c52830d46",
+    "src/lib/marketplace-payment-methods.ts": "111649ad91a1bf380073da30f4300bebf2163e8553d295b90e56f19ef89d2b32",
+    "src/lib/mobile-api.ts": "1fca800565af91888fa180aef1b4ced9b62b76c9253c63671b2ad7aec8309160",
+    "src/lib/mobile-auth-store.ts": "8c4b943d781d783b261f4fa9490c116d5c7dca40f8ee4c9400ed9d96abf1a3e0",
+    "src/lib/mobile-auth.ts": "30455c36d41859915daa1e92bd046d704808f949f6745dcadcb2eb6e96ae53dd",
+    "src/lib/mobile-version-policy.ts": "c6c5d78b96d36067acd20a4700767b94bbb20c28debea3ba4f79c32edc214367",
+    "src/lib/network-access.ts": "2a495ae2fcaf091dcc782fa332377a5606b0d8c354494f3e4988a9deadde6fba",
+    "src/lib/phone-verification-exemptions.ts": "70a7e7ceaf07010828cd3573b2bea40ed03f0763af70fee526ed06df930ae551",
+    "src/lib/postgres-runtime.ts": "8882fcab163723096e6fd71c55f57696729138471c4d9a54b0bf79e742d26e93",
+    "src/lib/postgres-timeout-guard.ts": "1b78cc85fe05e0fa8377a893f6d3169062051f69185034d01c289662b9afcd15",
+    "src/lib/postgres-transaction.ts": "f5c5e874f868bff91fe28058a5cfef5431fbb97937f98847370a261736e734a2",
+    "src/lib/privacy-redaction.ts": "ab00e2dfb35784be6284f07402dca9ca90af22fc5380dc4c83a9353eadc868d7",
+    "src/lib/public-account-identity.ts": "378c1c0a8aee8943f1544775c0d1acb45d24231df931d0b4f0a4d4338608ebb7",
+    "src/lib/request-body.ts": "c552870a18e09493fa06abb9ca24bf6c528c728cd9c2c37117d28d41a939f7c0",
+    "src/lib/request-locale.ts": "3fb7e6a99b5e3bebfe65c1fe85e9a1f8b36af33679f2a168c8d80863999bc58e",
+    "src/lib/requestable-listing.ts": "34d327aabf97e215769ae4f97792c28a5b6a6a52fff33db54d651c80fa27c01c",
+    "src/lib/roles.ts": "5bb09c2289758ad1342c5a5b928f004efc2688f2026ca1bfd6db393e64069a25",
+    "src/lib/runtime-safety.ts": "c7db73ebf0bda242c8ab5b07d6bed31748478f74d5625005b77548b0a2765d3d",
+    "src/lib/seller-activity-metrics.ts": "5f507fa08142012241a3c3f7695c401a0a7cf2090d1c87f759f07e9c60b7af2e",
+    "src/lib/seller-approval-verification.ts": "87763e8505d632b3da11b5035d51997fbd95d45e3773c53c3c02745f3704724e",
+    "src/lib/seller-approval.ts": "bac91c328b674a69ec12da8b28ef9528f8dc11cac5108136fc8997534025472f",
+    "src/lib/structured-logging.ts": "ac77d25b4e9c8fd03b80ccebe9d694c7597ba5e41a9b331234e52b49309f36a9",
+    "src/lib/trade-amount-lock.ts": "0648606e186ec1d3bac5c47b6a129f7e7c4279cd4204cac2890ea72c7ed764bd",
+    "src/lib/trade-amount.ts": "4d85e58e77c849e63cd03f3f6feb8d5064742155772f6e3c4f34ffc48f73cb56",
+    "src/lib/trade-cancellation.ts": "9cb41e84d77bd52f70e8a37217adad034caac5288b7c257e9f92850a4718e298",
+    "src/lib/usdt-demand-policy.ts": "1778c6f01783a72c6bc72b1984ea5a7b2a7fa87e77083deb5c3ef4c3fa5279ba",
+    "src/lib/usdt-demand-schema-readiness.ts": "5e492fd9a09c49e67e71a26498fb632758b5ac69e4a426f7fe4819e28852be22",
+    "src/lib/usdt-demand-schema.ts": "0ade35adec5af958d4adb203e99bb77742af4486390de36d777a3aa493c642c8",
+    "src/lib/verification-bypass.ts": "84fe9d1eb9c77a282b1fb964f79ea3fb425de2e2773c75e38e3e7e7c05aafd22",
+    "src/lib/wise-bank-transfer.ts": "4cd970668da4f09587deade0ec57c35a48bcbddb99b9d529af09438c700b4aee",
+    "src/lib/wise-payments-capability.ts": "5b630267cbbd6512c380a28c87130731c87a365cd62cbba1f199866796a079fd",
+    "src/lib/wise-storage-crypto.ts": "083d5bd5cc2aa9c3cdcce776e65560298186071d1d37a716aa84ab50c1decd91",
+    "src/lib/wise-store-policy.ts": "6521a27e240806107fae7041aefc6f78f3a6b215b93995f695b70db8bf718ff7",
+    "src/types/alpha-exchange.ts": "e3596f85b5b72ff3012153168cad0c927640695180619b6a330a933737f6be16",
+    "src/types/market.ts": "0ceeb119198fd36ec82216b512c761e7f67570c03ac4858c77f71996eb9ac46f",
+    "src/types/usdt-demand.ts": "290a8bbab19ad27263e606425c384548f6aae3e448f2be299037b447855564b7",
+    "src/types/wise.ts": "ddf1d760a1ee2dfd9cd3d2bb218c4d0bbbb863017a401cba1a49bef373c7bc49",
+    "tsconfig.json": "3917f63418ca6b8d7922cd6f4f109be9fbeacf95cd91e3d27e31f366ef380c3b"
+  },
+  "files": {
+    "accepted.history.json": {
+      "bytes": 34942,
+      "sha256": "24540d799b3241f148ce30f54472a564449bd74602fee69235df340435f1af8c"
+    },
+    "accepted.state.json": {
+      "bytes": 34652,
+      "sha256": "1e51da42b0b4c84a6ad050c83ac10d89eef93a7cb5ed2556f93754a1c8ab2dbe"
+    },
+    "accepted.backup.json": {
+      "bytes": 37847,
+      "sha256": "8b04c245c5326979d18a4fb7c1b46093ae9e5706028a424adae769f236f194b5"
+    },
+    "accepted.retries.json": {
+      "bytes": 24912,
+      "sha256": "e0603957f79eb3d80b64acefb3864bf491c8ca7ebd6968b6b3a9374d34ef740e"
+    },
+    "claimed.history.json": {
+      "bytes": 44886,
+      "sha256": "3915279f81866e736d588b6a26e3a9cc090d58e66e014df8fb78ea6f4f567126"
+    },
+    "claimed.state.json": {
+      "bytes": 45594,
+      "sha256": "98fd3ed025fb89669aa0a656ce64293d8a7c7df1fd48fde396e9d4e7cd474120"
+    },
+    "claimed.backup.json": {
+      "bytes": 47789,
+      "sha256": "d1799c9bf97e8f25fa0df290d0ec9afdec7165d550036f6197ab760c4f26d91a"
+    },
+    "claimed.retries.json": {
+      "bytes": 44488,
+      "sha256": "139773937329ff6e7945e828d3f2d91020ba2264ad7eb8198b70ca2d6b84e925"
+    },
+    "disputed.history.json": {
+      "bytes": 54767,
+      "sha256": "d2cecdf2969d9af83a75f6bf71df071a219ad7bc4f98ed1fa59d6ccc862c3648"
+    },
+    "disputed.state.json": {
+      "bytes": 56524,
+      "sha256": "54196359cb0a35c79ec4ef1e6b2eec45d88180bde517ec9cc34a76518eb27378"
+    },
+    "disputed.backup.json": {
+      "bytes": 57672,
+      "sha256": "a4090d4fa92bcf45fbe8dfa29c72ee9dde151b6485afdbbf33221bb613388d5c"
+    },
+    "disputed.retries.json": {
+      "bytes": 63920,
+      "sha256": "e07c64cd528554069c2da933c6032a5f5ca7aa8ca1347b3e3494f4ddba5c4af2"
+    },
+    "cancelled.history.json": {
+      "bytes": 44459,
+      "sha256": "2aee453ca9f368e672132b74e98f3cdcffbdbed3dcdc37fac23ff6fe5ed80eb8"
+    },
+    "cancelled.state.json": {
+      "bytes": 45776,
+      "sha256": "01f98add35e6c69c7f39e7235ceae76171c8531bbf7592f861e8ee08f69ce4a9"
+    },
+    "cancelled.backup.json": {
+      "bytes": 47366,
+      "sha256": "80bf182b59b6667cad7f8d6ea25dc8488d139a0a83ae80fdb0378e09e69f8a33"
+    },
+    "cancelled.retries.json": {
+      "bytes": 43609,
+      "sha256": "7469493e2995a54be15edd81ba4cf826e8b624906b102cf32d7ce4250c6a7d52"
+    },
+    "inherited-paused.history.json": {
+      "bytes": 35972,
+      "sha256": "7b790e7bd6b8dbf7877bb0c22a40790206dd7d1b530323c9b3e8d41ff12327c9"
+    },
+    "inherited-paused.state.json": {
+      "bytes": 34997,
+      "sha256": "ac7e153b7a8cd0fdb9ef489ac0861ac9a9b558f9d506d9ef7f58c1baa4fd6a7b"
+    },
+    "inherited-paused.backup.json": {
+      "bytes": 38916,
+      "sha256": "92ba99ebf24429839966b79059df373b1c75c2195b44598852b23b4ee9715484"
+    },
+    "inherited-paused.retries.json": {
+      "bytes": 24920,
+      "sha256": "f14d52682d0b994b93d958c9dcd2998b8c8df5f80bc8cbfb31d10ba3ce8b2ddd"
+    }
+  },
+  "captures": {
+    "accepted": {
+      "checkpoint": {
+        "revision": 16,
+        "eventHash": "570189b73364336b6f4a81405fc5e10cf342fa9650acc3097f2599c3c9920762",
+        "stateHash": "5578d0fe5d4473f5460d05c5de270cf627b99f563285158bbf6b94c213756c16",
+        "lastCommandAtMs": 1800000000016
+      },
+      "pausedCheckpoint": {
+        "revision": 17,
+        "eventHash": "a1510611b8039feb83b34a7c7479fab8e793f68d9e2579ab3a27e9e655ebfc68",
+        "stateHash": "b1d181c52e0f37409b1721e735fc538c18355e453b81897627ca65040e4becf9",
+        "lastCommandAtMs": 1800000000017
+      },
+      "backupChecksum": "cd41a95ab0ba80800b1c105b2b2313655d10089b656f2d6b87a14436d5b98b25",
+      "commandCount": 16,
+      "sourcePaused": false,
+      "sourceV4Checkpoint": {
+        "revision": 15,
+        "eventHash": "edb7b6173a81683d57c6b065cff09d47017b82178ee3d72b852be37f1c05c632",
+        "stateHash": "c7d5e5c85ec661a71c9fa99ae10ad561dc97fa34557ad381ba446ffeaf4d49bc",
+        "lastCommandAtMs": 1800000000015
+      },
+      "originalPauseInherited": null,
+      "trade": {
+        "id": "v3-fixture-trade",
+        "status": "reserved",
+        "disputed": false,
+        "principalRaw": "200000000",
+        "reservedRaw": "200000000"
+      },
+      "claims": 0,
+      "disputes": 0,
+      "cancellations": 0,
+      "pause": {
+        "revision": 17,
+        "commandKey": "[\"operator\",\"fixture-operator\",\"pause\",\"frozen-v5-accepted-pause\"]",
+        "replayed": false,
+        "result": {
+          "halted": true
+        },
+        "eventHash": "a1510611b8039feb83b34a7c7479fab8e793f68d9e2579ab3a27e9e655ebfc68"
+      },
+      "retryProbeCount": 3,
+      "heldWithdrawal": {
+        "id": "withdrawal-v3-fixture-held-withdrawal",
+        "state": "submission_unknown",
+        "dispatchCount": 1,
+        "amountRaw": "25000000",
+        "providerReference": "sim-payout-withdrawal-v3-fixture-held-withdrawal"
+      }
+    },
+    "claimed": {
+      "checkpoint": {
+        "revision": 17,
+        "eventHash": "56542b26efbb48b60adad11cf9af2e2607fbe2ffb9f6ce84d6464488431d842e",
+        "stateHash": "450fadf6588ba93d3a16df9b211e4123f10b6e769b3c3abe35b4495b041d6380",
+        "lastCommandAtMs": 1800000000017
+      },
+      "pausedCheckpoint": {
+        "revision": 18,
+        "eventHash": "9d20f44c917c13fd37966a978ec4af23c557278bcbf1e67bb249d75f1ec897c9",
+        "stateHash": "8bab50160ef8a0e24580c97aef379dc3c2d8d77956a73e8f13aca39c09b75497",
+        "lastCommandAtMs": 1800000000018
+      },
+      "backupChecksum": "e172ba8a47c96e824474e7584dd87fc510439400c8f34a387ed00a194f905a91",
+      "commandCount": 17,
+      "sourcePaused": false,
+      "sourceV4Checkpoint": {
+        "revision": 15,
+        "eventHash": "edb7b6173a81683d57c6b065cff09d47017b82178ee3d72b852be37f1c05c632",
+        "stateHash": "c7d5e5c85ec661a71c9fa99ae10ad561dc97fa34557ad381ba446ffeaf4d49bc",
+        "lastCommandAtMs": 1800000000015
+      },
+      "originalPauseInherited": null,
+      "trade": {
+        "id": "v3-fixture-trade",
+        "status": "payment_reported",
+        "disputed": false,
+        "principalRaw": "200000000",
+        "reservedRaw": "200000000"
+      },
+      "claims": 1,
+      "disputes": 0,
+      "cancellations": 0,
+      "pause": {
+        "revision": 18,
+        "commandKey": "[\"operator\",\"fixture-operator\",\"pause\",\"frozen-v5-claimed-pause\"]",
+        "replayed": false,
+        "result": {
+          "halted": true
+        },
+        "eventHash": "9d20f44c917c13fd37966a978ec4af23c557278bcbf1e67bb249d75f1ec897c9"
+      },
+      "retryProbeCount": 5,
+      "heldWithdrawal": {
+        "id": "withdrawal-v3-fixture-held-withdrawal",
+        "state": "submission_unknown",
+        "dispatchCount": 1,
+        "amountRaw": "25000000",
+        "providerReference": "sim-payout-withdrawal-v3-fixture-held-withdrawal"
+      }
+    },
+    "disputed": {
+      "checkpoint": {
+        "revision": 18,
+        "eventHash": "2ae9918534ca73f8b7950605386a3e926ad98070d161f0e4fa7797cf8078dc28",
+        "stateHash": "8b92db4ef83abf9cae79290846f8339b1aac8514b286ab9700dc328e670b1a3b",
+        "lastCommandAtMs": 1800000000018
+      },
+      "pausedCheckpoint": {
+        "revision": 19,
+        "eventHash": "6b8bebb88f59f8d911bd82bf6029026ed17f5da5c2ce6dd496fdacc70ee69821",
+        "stateHash": "929629455ee82bdba8eaa315716cbcebb74081a2fbe6dce7ba1c67b60793cc57",
+        "lastCommandAtMs": 1800000000019
+      },
+      "backupChecksum": "44aabbaba5bc001c850f0a877d1e086b9f2b70d3fcb899cdc437c8114c31601b",
+      "commandCount": 18,
+      "sourcePaused": false,
+      "sourceV4Checkpoint": {
+        "revision": 15,
+        "eventHash": "edb7b6173a81683d57c6b065cff09d47017b82178ee3d72b852be37f1c05c632",
+        "stateHash": "c7d5e5c85ec661a71c9fa99ae10ad561dc97fa34557ad381ba446ffeaf4d49bc",
+        "lastCommandAtMs": 1800000000015
+      },
+      "originalPauseInherited": null,
+      "trade": {
+        "id": "v3-fixture-trade",
+        "status": "payment_reported",
+        "disputed": true,
+        "principalRaw": "200000000",
+        "reservedRaw": "200000000"
+      },
+      "claims": 1,
+      "disputes": 1,
+      "cancellations": 0,
+      "pause": {
+        "revision": 19,
+        "commandKey": "[\"operator\",\"fixture-operator\",\"pause\",\"frozen-v5-disputed-pause\"]",
+        "replayed": false,
+        "result": {
+          "halted": true
+        },
+        "eventHash": "6b8bebb88f59f8d911bd82bf6029026ed17f5da5c2ce6dd496fdacc70ee69821"
+      },
+      "retryProbeCount": 7,
+      "heldWithdrawal": {
+        "id": "withdrawal-v3-fixture-held-withdrawal",
+        "state": "submission_unknown",
+        "dispatchCount": 1,
+        "amountRaw": "25000000",
+        "providerReference": "sim-payout-withdrawal-v3-fixture-held-withdrawal"
+      }
+    },
+    "cancelled": {
+      "checkpoint": {
+        "revision": 17,
+        "eventHash": "da2a061e315e5e1d0b14abb3d8994e0e15843de3102d067e08ab5c710e21c22e",
+        "stateHash": "68e2b2c0a70ed227ea73e649ccb3642d0b575bf32c7cbdd32fb02bdfa0222791",
+        "lastCommandAtMs": 1800000000017
+      },
+      "pausedCheckpoint": {
+        "revision": 18,
+        "eventHash": "8dc640e911b1a42c4d8284179fd02dd1c57887f894d7e01e4cd295059ab65aed",
+        "stateHash": "f2376ed75e825d86b4e82d022fcf002025e59c5d08cafff2ee1a9a2b8f1eaa7f",
+        "lastCommandAtMs": 1800000000018
+      },
+      "backupChecksum": "a92418ccc9829037d8e976bd9dc3b2a9d1054c8739a0a8d4b8decc2c9dae52e0",
+      "commandCount": 17,
+      "sourcePaused": false,
+      "sourceV4Checkpoint": {
+        "revision": 16,
+        "eventHash": "a51b8f583c6a8e8a074902c458ca1e3339431e4a9d86cfccd2b2cbf15b889a86",
+        "stateHash": "64b9c273f909dd8340ad3557eea247fc6dbceed6ad3e74e288f84f559aa88aa6",
+        "lastCommandAtMs": 1800000000016
+      },
+      "originalPauseInherited": null,
+      "trade": {
+        "id": "v3-fixture-trade",
+        "status": "cancelled",
+        "disputed": false,
+        "principalRaw": "200000000",
+        "reservedRaw": "0"
+      },
+      "claims": 0,
+      "disputes": 0,
+      "cancellations": 1,
+      "pause": {
+        "revision": 18,
+        "commandKey": "[\"operator\",\"fixture-operator\",\"pause\",\"frozen-v5-cancelled-pause\"]",
+        "replayed": false,
+        "result": {
+          "halted": true
+        },
+        "eventHash": "8dc640e911b1a42c4d8284179fd02dd1c57887f894d7e01e4cd295059ab65aed"
+      },
+      "retryProbeCount": 5,
+      "heldWithdrawal": {
+        "id": "withdrawal-v3-fixture-held-withdrawal",
+        "state": "submission_unknown",
+        "dispatchCount": 1,
+        "amountRaw": "25000000",
+        "providerReference": "sim-payout-withdrawal-v3-fixture-held-withdrawal"
+      }
+    },
+    "inherited-paused": {
+      "checkpoint": {
+        "revision": 17,
+        "eventHash": "02cd4e0ea6c8f8cedc568e1b2e8660caa515d441aabff89b20bb1e605a0481e4",
+        "stateHash": "3db2f8d4265b3b613a068240229e354cbb6a23f017f12b291d49fe1d8b35ed70",
+        "lastCommandAtMs": 1800000000017
+      },
+      "pausedCheckpoint": {
+        "revision": 18,
+        "eventHash": "091cffeacc0252aed5ccbafb88f513706eb9bf8fc91ba438b439a7d216ae3770",
+        "stateHash": "da9500ab6f019ea3026be2c3b9ba4eeae89bf4b8a76d75058d072041eb88e0ab",
+        "lastCommandAtMs": 1800000000018
+      },
+      "backupChecksum": "2ac7e5dfa4a7a961f134875a36595bcd4ff69ec28f0622154ec0e9b0cabd88c8",
+      "commandCount": 17,
+      "sourcePaused": true,
+      "sourceV4Checkpoint": {
+        "revision": 16,
+        "eventHash": "ce0bc0529274e7bb86b97e6fca487a532737ee69ca576f2b1a3949db9cc7bb0d",
+        "stateHash": "9c08bad20f15878daace67daae7a43cd38bcd1344e845442df8a9c5a788a28a6",
+        "lastCommandAtMs": 1800000000016
+      },
+      "originalPauseInherited": "Operator emergency pause",
+      "trade": {
+        "id": "v3-fixture-trade",
+        "status": "reserved",
+        "disputed": false,
+        "principalRaw": "200000000",
+        "reservedRaw": "200000000"
+      },
+      "claims": 0,
+      "disputes": 0,
+      "cancellations": 0,
+      "pause": {
+        "revision": 18,
+        "commandKey": "[\"operator\",\"fixture-operator\",\"pause\",\"frozen-v5-inherited-paused-pause\"]",
+        "replayed": false,
+        "result": {
+          "halted": true
+        },
+        "eventHash": "091cffeacc0252aed5ccbafb88f513706eb9bf8fc91ba438b439a7d216ae3770"
+      },
+      "retryProbeCount": 3,
+      "heldWithdrawal": {
+        "id": "withdrawal-v3-fixture-held-withdrawal",
+        "state": "submission_unknown",
+        "dispatchCount": 1,
+        "amountRaw": "25000000",
+        "providerReference": "sim-payout-withdrawal-v3-fixture-held-withdrawal"
+      }
+    }
+  },
+  "limitations": [
+    "Synthetic isolated wallet fixtures only; no canonical account authority, bank source, keys, signer or live funds.",
+    "The frozen source list additionally retains original combined V5 recovery dependencies and helper-loaded SQL; these isolated captures do not establish new canonical recovery authority.",
+    "Every old V1–V5 command/result/hash and original receipt meaning is retained. New receipt interpretation requires a separate explicit profile.",
+    "Unpaused histories are compatibility evidence and never active restoration or resume authority. Exported backups are stopped and require fresh-target quarantine.",
+    "All histories retain a submission_unknown withdrawal with one original dispatch. Retry probes explicitly suppress a second dispatch.",
+    "These expectations were captured from the pinned predecessor, without invoking any successor, and do not themselves verify a later implementation."
+  ]
+}

@@ -1,0 +1,475 @@
+{
+  "mode": "simulation-only",
+  "sourcePaused": true,
+  "checkpoint": {
+    "revision": 17,
+    "eventHash": "a1510611b8039feb83b34a7c7479fab8e793f68d9e2579ab3a27e9e655ebfc68",
+    "stateHash": "b1d181c52e0f37409b1721e735fc538c18355e453b81897627ca65040e4becf9",
+    "lastCommandAtMs": 1800000000017
+  },
+  "probes": [
+    {
+      "label": "beginDispatch:exact",
+      "command": {
+        "version": 1,
+        "engineVersion": "alpha-wallet-simulation-v1",
+        "actor": {
+          "kind": "dispatcher",
+          "id": "fixture-dispatcher"
+        },
+        "requestId": "v3-fixture-old-dispatch",
+        "type": "beginDispatch",
+        "input": "withdrawal-v3-fixture-held-withdrawal"
+      },
+      "expected": {
+        "commandKey": "[\"dispatcher\",\"fixture-dispatcher\",\"beginDispatch\",\"v3-fixture-old-dispatch\"]",
+        "eventHash": "d77ac57c457dd2f36ac6911716a5a77099f92c2813ec528d1a298af198238972",
+        "replayed": true,
+        "result": {
+          "payout": {
+            "amountRaw": {
+              "$walletType": "bigint",
+              "value": "25000000"
+            },
+            "assetId": "tron-sim-usdt",
+            "destination": "sim://tron-sim-usdt/recipient/fixture-seller",
+            "dispatchCount": 1,
+            "id": "withdrawal-v3-fixture-held-withdrawal",
+            "kind": "withdrawal",
+            "providerReference": "sim-payout-withdrawal-v3-fixture-held-withdrawal",
+            "sellerId": "fixture-seller",
+            "state": "submission_unknown"
+          },
+          "shouldDispatch": false
+        },
+        "revision": 10
+      }
+    },
+    {
+      "label": "acceptInitialSellerRequest:exact",
+      "command": {
+        "version": 3,
+        "engineVersion": "alpha-wallet-simulation-v3",
+        "actor": {
+          "kind": "seller",
+          "id": "fixture-seller"
+        },
+        "requestId": "v3-fixture-seller-accept",
+        "type": "acceptInitialSellerRequest",
+        "input": {
+          "acceptanceKey": "b68327380f8734a21f5b412c2ccbb16da7a42f07680a54189cea3eb49ec87523",
+          "terms": {
+            "platformRequestId": "v3-fixture-request",
+            "platformTradeId": "v3-platform-8c9276fb3bbd91c17a08",
+            "platformListingId": "v3-market-66c1717aab37faffbf0a",
+            "walletListingId": "v3-fixture-listing",
+            "sellerId": "fixture-seller",
+            "buyerId": "fixture-buyer",
+            "assetId": "tron-sim-usdt",
+            "receivingNetwork": "TRC20",
+            "destination": "sim://tron-sim-usdt/recipient/fixture-buyer",
+            "currency": "ILS",
+            "paymentMethod": "Bank Transfer",
+            "paymentInstructionsDigest": "f4e5a37a29438ca64ef38816cd68ba6a013ca381eb0b7cd06f127928c7bc6495",
+            "priceMode": "listing_price",
+            "listingPriceAtRequest": "3.10",
+            "feePolicyVersion": "buyer_seller_1pct_v1",
+            "commissionCalculationVersion": "usdt_6dp_v2",
+            "usdtAmount": "200",
+            "pricePerUsdt": "3.10",
+            "fiatAmount": "626.20",
+            "principalRaw": "200000000",
+            "buyerFeeRaw": "2000000",
+            "sellerFeeRaw": "2000000",
+            "totalFeeRaw": "4000000",
+            "fiatTotalMinor": "62620"
+          },
+          "termsDigest": "67fcd37d11d878c88695940216639cad1e5ff474cf26a4ce59bc183bbe394ec2",
+          "sellerAction": {
+            "kind": "initial_seller_acceptance",
+            "requestedByUserId": "fixture-seller",
+            "requestId": "v3-fixture-request",
+            "faceToFaceSafetyAcknowledged": false
+          },
+          "buyerRequestEvidence": {
+            "kind": "retained_canonical_request",
+            "requestId": "v3-fixture-request",
+            "tradeId": "v3-platform-8c9276fb3bbd91c17a08",
+            "buyerId": "fixture-buyer",
+            "createdAt": "2027-01-15T07:59:59.014Z",
+            "requestDigest": "034f4a4dd0f5520d7a1c6894f87b6b98f65bf047c527e410d65ce61fd7b887e0",
+            "submissionTimelineEntryId": "v3-submission-8c9276fb3bbd91c17a08",
+            "submissionTimelineDigest": "e09663471bc6dd6311963a7b7884f85d8bae4accd595b43f59d5d614561c708a",
+            "termsDigest": "67fcd37d11d878c88695940216639cad1e5ff474cf26a4ce59bc183bbe394ec2",
+            "feePolicyVersion": "buyer_seller_1pct_v1",
+            "commissionCalculationVersion": "usdt_6dp_v2",
+            "buyerSafetyAcknowledged": true
+          },
+          "pricing": {
+            "source": "retained_request",
+            "walletListingPrice": "3.20",
+            "requiresFrozenPriceTransition": true
+          },
+          "preconditions": {
+            "requestUpdatedAt": "2027-01-15T07:59:59.014Z",
+            "requestDigest": "034f4a4dd0f5520d7a1c6894f87b6b98f65bf047c527e410d65ce61fd7b887e0",
+            "listingDigest": "68bf901d1ab6b6cdc39d2894e6d40e2f87371e82a82ab11590161825b3c2c40a",
+            "marketplaceDigest": "9439c420a3d5e8a40a5e3c3a5882011a7fed8d1dc05be4adb4dbd08f02e02dcd",
+            "usersDigest": "1980750eae0f3c6ebc552c6b6793dd4184d7385f9cde50805d2862dc8d5baa46",
+            "sellerInventoryDigest": "98a8296c435ce2c382c79f1f68e5526eda72428ea07c85196f7e2f1ae03dc88c",
+            "buyerHistoryDigest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "commissionsDigest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "legacyReviewsDigest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "enforcementDigest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "evidenceDigest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "disputesDigest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "walletRevision": 13,
+            "walletEventHash": "5b513571ebd5f2a4fcd2c9ac75a25f98ddd2200afda12b967dc826d752c751ff",
+            "walletStateDigest": "d46762b4c33e00f7d73bcfbfffc8d1f4ba6f59916b9acd1e801803c1926f5257",
+            "walletListingDigest": "72e4a477feb832eb01b7fc256b61faa15d9d033d8629663a6de0c0b24218698b",
+            "sellerActiveTradeCount": 0,
+            "walletSellerActiveTradeCount": 0
+          },
+          "reservation": {
+            "action": "reserve",
+            "assetId": "tron-sim-usdt",
+            "walletListingId": "v3-fixture-listing",
+            "walletTradeId": "v3-fixture-trade",
+            "principalRaw": "200000000",
+            "transferAmountRaw": "200000000",
+            "fromAccount": "listing:v3-fixture-listing",
+            "toAccount": "trade:v3-fixture-trade",
+            "expectedListingAvailableRaw": "500000000",
+            "expectedTradeReservedRaw": "0",
+            "availableForRequestRaw": "500000000"
+          },
+          "plannerInputDigest": "7c80953d0b891c5079b3577b0118ff790a2e31ef0702da4b5255eb5c35e9f644"
+        }
+      },
+      "expected": {
+        "commandKey": "[\"seller\",\"fixture-seller\",\"acceptInitialSellerRequest\",\"v3-fixture-seller-accept\"]",
+        "eventHash": "846e734f1ea118575af2ec1b7199005f9c0c3d1c1188338dc80ff4f056370223",
+        "replayed": true,
+        "result": {
+          "acceptanceKey": "b68327380f8734a21f5b412c2ccbb16da7a42f07680a54189cea3eb49ec87523",
+          "acceptedAtMs": 1800000000014,
+          "actorUserId": "fixture-seller",
+          "buyerId": "fixture-buyer",
+          "commandKey": "[\"seller\",\"fixture-seller\",\"acceptInitialSellerRequest\",\"v3-fixture-seller-accept\"]",
+          "commandRevision": 14,
+          "input": {
+            "acceptanceKey": "b68327380f8734a21f5b412c2ccbb16da7a42f07680a54189cea3eb49ec87523",
+            "buyerRequestEvidence": {
+              "buyerId": "fixture-buyer",
+              "buyerSafetyAcknowledged": true,
+              "commissionCalculationVersion": "usdt_6dp_v2",
+              "createdAt": "2027-01-15T07:59:59.014Z",
+              "feePolicyVersion": "buyer_seller_1pct_v1",
+              "kind": "retained_canonical_request",
+              "requestDigest": "034f4a4dd0f5520d7a1c6894f87b6b98f65bf047c527e410d65ce61fd7b887e0",
+              "requestId": "v3-fixture-request",
+              "submissionTimelineDigest": "e09663471bc6dd6311963a7b7884f85d8bae4accd595b43f59d5d614561c708a",
+              "submissionTimelineEntryId": "v3-submission-8c9276fb3bbd91c17a08",
+              "termsDigest": "67fcd37d11d878c88695940216639cad1e5ff474cf26a4ce59bc183bbe394ec2",
+              "tradeId": "v3-platform-8c9276fb3bbd91c17a08"
+            },
+            "plannerInputDigest": "7c80953d0b891c5079b3577b0118ff790a2e31ef0702da4b5255eb5c35e9f644",
+            "preconditions": {
+              "buyerHistoryDigest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+              "commissionsDigest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+              "disputesDigest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+              "enforcementDigest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+              "evidenceDigest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+              "legacyReviewsDigest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+              "listingDigest": "68bf901d1ab6b6cdc39d2894e6d40e2f87371e82a82ab11590161825b3c2c40a",
+              "marketplaceDigest": "9439c420a3d5e8a40a5e3c3a5882011a7fed8d1dc05be4adb4dbd08f02e02dcd",
+              "requestDigest": "034f4a4dd0f5520d7a1c6894f87b6b98f65bf047c527e410d65ce61fd7b887e0",
+              "requestUpdatedAt": "2027-01-15T07:59:59.014Z",
+              "sellerActiveTradeCount": 0,
+              "sellerInventoryDigest": "98a8296c435ce2c382c79f1f68e5526eda72428ea07c85196f7e2f1ae03dc88c",
+              "usersDigest": "1980750eae0f3c6ebc552c6b6793dd4184d7385f9cde50805d2862dc8d5baa46",
+              "walletEventHash": "5b513571ebd5f2a4fcd2c9ac75a25f98ddd2200afda12b967dc826d752c751ff",
+              "walletListingDigest": "72e4a477feb832eb01b7fc256b61faa15d9d033d8629663a6de0c0b24218698b",
+              "walletRevision": 13,
+              "walletSellerActiveTradeCount": 0,
+              "walletStateDigest": "d46762b4c33e00f7d73bcfbfffc8d1f4ba6f59916b9acd1e801803c1926f5257"
+            },
+            "pricing": {
+              "requiresFrozenPriceTransition": true,
+              "source": "retained_request",
+              "walletListingPrice": "3.20"
+            },
+            "reservation": {
+              "action": "reserve",
+              "assetId": "tron-sim-usdt",
+              "availableForRequestRaw": "500000000",
+              "expectedListingAvailableRaw": "500000000",
+              "expectedTradeReservedRaw": "0",
+              "fromAccount": "listing:v3-fixture-listing",
+              "principalRaw": "200000000",
+              "toAccount": "trade:v3-fixture-trade",
+              "transferAmountRaw": "200000000",
+              "walletListingId": "v3-fixture-listing",
+              "walletTradeId": "v3-fixture-trade"
+            },
+            "sellerAction": {
+              "faceToFaceSafetyAcknowledged": false,
+              "kind": "initial_seller_acceptance",
+              "requestId": "v3-fixture-request",
+              "requestedByUserId": "fixture-seller"
+            },
+            "terms": {
+              "assetId": "tron-sim-usdt",
+              "buyerFeeRaw": "2000000",
+              "buyerId": "fixture-buyer",
+              "commissionCalculationVersion": "usdt_6dp_v2",
+              "currency": "ILS",
+              "destination": "sim://tron-sim-usdt/recipient/fixture-buyer",
+              "feePolicyVersion": "buyer_seller_1pct_v1",
+              "fiatAmount": "626.20",
+              "fiatTotalMinor": "62620",
+              "listingPriceAtRequest": "3.10",
+              "paymentInstructionsDigest": "f4e5a37a29438ca64ef38816cd68ba6a013ca381eb0b7cd06f127928c7bc6495",
+              "paymentMethod": "Bank Transfer",
+              "platformListingId": "v3-market-66c1717aab37faffbf0a",
+              "platformRequestId": "v3-fixture-request",
+              "platformTradeId": "v3-platform-8c9276fb3bbd91c17a08",
+              "priceMode": "listing_price",
+              "pricePerUsdt": "3.10",
+              "principalRaw": "200000000",
+              "receivingNetwork": "TRC20",
+              "sellerFeeRaw": "2000000",
+              "sellerId": "fixture-seller",
+              "totalFeeRaw": "4000000",
+              "usdtAmount": "200",
+              "walletListingId": "v3-fixture-listing"
+            },
+            "termsDigest": "67fcd37d11d878c88695940216639cad1e5ff474cf26a4ce59bc183bbe394ec2"
+          },
+          "inputDigest": "06bdc3b8b87084be1e8299a85faa2e3dcb4c37bab45e714ec25976809aca6821",
+          "plannerInputDigest": "7c80953d0b891c5079b3577b0118ff790a2e31ef0702da4b5255eb5c35e9f644",
+          "platformRequestId": "v3-fixture-request",
+          "platformTradeId": "v3-platform-8c9276fb3bbd91c17a08",
+          "principalRaw": "200000000",
+          "termsDigest": "67fcd37d11d878c88695940216639cad1e5ff474cf26a4ce59bc183bbe394ec2",
+          "transferAmountRaw": "200000000",
+          "walletTradeId": "v3-fixture-trade"
+        },
+        "revision": 14
+      }
+    },
+    {
+      "label": "acceptInitialSellerRequest:business-identity",
+      "command": {
+        "version": 3,
+        "engineVersion": "alpha-wallet-simulation-v3",
+        "actor": {
+          "kind": "seller",
+          "id": "fixture-seller"
+        },
+        "requestId": "frozen-v5-accepted-2-retry",
+        "type": "acceptInitialSellerRequest",
+        "input": {
+          "acceptanceKey": "b68327380f8734a21f5b412c2ccbb16da7a42f07680a54189cea3eb49ec87523",
+          "terms": {
+            "platformRequestId": "v3-fixture-request",
+            "platformTradeId": "v3-platform-8c9276fb3bbd91c17a08",
+            "platformListingId": "v3-market-66c1717aab37faffbf0a",
+            "walletListingId": "v3-fixture-listing",
+            "sellerId": "fixture-seller",
+            "buyerId": "fixture-buyer",
+            "assetId": "tron-sim-usdt",
+            "receivingNetwork": "TRC20",
+            "destination": "sim://tron-sim-usdt/recipient/fixture-buyer",
+            "currency": "ILS",
+            "paymentMethod": "Bank Transfer",
+            "paymentInstructionsDigest": "f4e5a37a29438ca64ef38816cd68ba6a013ca381eb0b7cd06f127928c7bc6495",
+            "priceMode": "listing_price",
+            "listingPriceAtRequest": "3.10",
+            "feePolicyVersion": "buyer_seller_1pct_v1",
+            "commissionCalculationVersion": "usdt_6dp_v2",
+            "usdtAmount": "200",
+            "pricePerUsdt": "3.10",
+            "fiatAmount": "626.20",
+            "principalRaw": "200000000",
+            "buyerFeeRaw": "2000000",
+            "sellerFeeRaw": "2000000",
+            "totalFeeRaw": "4000000",
+            "fiatTotalMinor": "62620"
+          },
+          "termsDigest": "67fcd37d11d878c88695940216639cad1e5ff474cf26a4ce59bc183bbe394ec2",
+          "sellerAction": {
+            "kind": "initial_seller_acceptance",
+            "requestedByUserId": "fixture-seller",
+            "requestId": "v3-fixture-request",
+            "faceToFaceSafetyAcknowledged": false
+          },
+          "buyerRequestEvidence": {
+            "kind": "retained_canonical_request",
+            "requestId": "v3-fixture-request",
+            "tradeId": "v3-platform-8c9276fb3bbd91c17a08",
+            "buyerId": "fixture-buyer",
+            "createdAt": "2027-01-15T07:59:59.014Z",
+            "requestDigest": "034f4a4dd0f5520d7a1c6894f87b6b98f65bf047c527e410d65ce61fd7b887e0",
+            "submissionTimelineEntryId": "v3-submission-8c9276fb3bbd91c17a08",
+            "submissionTimelineDigest": "e09663471bc6dd6311963a7b7884f85d8bae4accd595b43f59d5d614561c708a",
+            "termsDigest": "67fcd37d11d878c88695940216639cad1e5ff474cf26a4ce59bc183bbe394ec2",
+            "feePolicyVersion": "buyer_seller_1pct_v1",
+            "commissionCalculationVersion": "usdt_6dp_v2",
+            "buyerSafetyAcknowledged": true
+          },
+          "pricing": {
+            "source": "retained_request",
+            "walletListingPrice": "3.20",
+            "requiresFrozenPriceTransition": true
+          },
+          "preconditions": {
+            "requestUpdatedAt": "2027-01-15T07:59:59.014Z",
+            "requestDigest": "034f4a4dd0f5520d7a1c6894f87b6b98f65bf047c527e410d65ce61fd7b887e0",
+            "listingDigest": "68bf901d1ab6b6cdc39d2894e6d40e2f87371e82a82ab11590161825b3c2c40a",
+            "marketplaceDigest": "9439c420a3d5e8a40a5e3c3a5882011a7fed8d1dc05be4adb4dbd08f02e02dcd",
+            "usersDigest": "1980750eae0f3c6ebc552c6b6793dd4184d7385f9cde50805d2862dc8d5baa46",
+            "sellerInventoryDigest": "98a8296c435ce2c382c79f1f68e5526eda72428ea07c85196f7e2f1ae03dc88c",
+            "buyerHistoryDigest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "commissionsDigest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "legacyReviewsDigest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "enforcementDigest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "evidenceDigest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "disputesDigest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "walletRevision": 13,
+            "walletEventHash": "5b513571ebd5f2a4fcd2c9ac75a25f98ddd2200afda12b967dc826d752c751ff",
+            "walletStateDigest": "d46762b4c33e00f7d73bcfbfffc8d1f4ba6f59916b9acd1e801803c1926f5257",
+            "walletListingDigest": "72e4a477feb832eb01b7fc256b61faa15d9d033d8629663a6de0c0b24218698b",
+            "sellerActiveTradeCount": 0,
+            "walletSellerActiveTradeCount": 0
+          },
+          "reservation": {
+            "action": "reserve",
+            "assetId": "tron-sim-usdt",
+            "walletListingId": "v3-fixture-listing",
+            "walletTradeId": "v3-fixture-trade",
+            "principalRaw": "200000000",
+            "transferAmountRaw": "200000000",
+            "fromAccount": "listing:v3-fixture-listing",
+            "toAccount": "trade:v3-fixture-trade",
+            "expectedListingAvailableRaw": "500000000",
+            "expectedTradeReservedRaw": "0",
+            "availableForRequestRaw": "500000000"
+          },
+          "plannerInputDigest": "7c80953d0b891c5079b3577b0118ff790a2e31ef0702da4b5255eb5c35e9f644"
+        }
+      },
+      "expected": {
+        "commandKey": "[\"seller\",\"fixture-seller\",\"acceptInitialSellerRequest\",\"v3-fixture-seller-accept\"]",
+        "eventHash": "846e734f1ea118575af2ec1b7199005f9c0c3d1c1188338dc80ff4f056370223",
+        "replayed": true,
+        "result": {
+          "acceptanceKey": "b68327380f8734a21f5b412c2ccbb16da7a42f07680a54189cea3eb49ec87523",
+          "acceptedAtMs": 1800000000014,
+          "actorUserId": "fixture-seller",
+          "buyerId": "fixture-buyer",
+          "commandKey": "[\"seller\",\"fixture-seller\",\"acceptInitialSellerRequest\",\"v3-fixture-seller-accept\"]",
+          "commandRevision": 14,
+          "input": {
+            "acceptanceKey": "b68327380f8734a21f5b412c2ccbb16da7a42f07680a54189cea3eb49ec87523",
+            "buyerRequestEvidence": {
+              "buyerId": "fixture-buyer",
+              "buyerSafetyAcknowledged": true,
+              "commissionCalculationVersion": "usdt_6dp_v2",
+              "createdAt": "2027-01-15T07:59:59.014Z",
+              "feePolicyVersion": "buyer_seller_1pct_v1",
+              "kind": "retained_canonical_request",
+              "requestDigest": "034f4a4dd0f5520d7a1c6894f87b6b98f65bf047c527e410d65ce61fd7b887e0",
+              "requestId": "v3-fixture-request",
+              "submissionTimelineDigest": "e09663471bc6dd6311963a7b7884f85d8bae4accd595b43f59d5d614561c708a",
+              "submissionTimelineEntryId": "v3-submission-8c9276fb3bbd91c17a08",
+              "termsDigest": "67fcd37d11d878c88695940216639cad1e5ff474cf26a4ce59bc183bbe394ec2",
+              "tradeId": "v3-platform-8c9276fb3bbd91c17a08"
+            },
+            "plannerInputDigest": "7c80953d0b891c5079b3577b0118ff790a2e31ef0702da4b5255eb5c35e9f644",
+            "preconditions": {
+              "buyerHistoryDigest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+              "commissionsDigest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+              "disputesDigest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+              "enforcementDigest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+              "evidenceDigest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+              "legacyReviewsDigest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+              "listingDigest": "68bf901d1ab6b6cdc39d2894e6d40e2f87371e82a82ab11590161825b3c2c40a",
+              "marketplaceDigest": "9439c420a3d5e8a40a5e3c3a5882011a7fed8d1dc05be4adb4dbd08f02e02dcd",
+              "requestDigest": "034f4a4dd0f5520d7a1c6894f87b6b98f65bf047c527e410d65ce61fd7b887e0",
+              "requestUpdatedAt": "2027-01-15T07:59:59.014Z",
+              "sellerActiveTradeCount": 0,
+              "sellerInventoryDigest": "98a8296c435ce2c382c79f1f68e5526eda72428ea07c85196f7e2f1ae03dc88c",
+              "usersDigest": "1980750eae0f3c6ebc552c6b6793dd4184d7385f9cde50805d2862dc8d5baa46",
+              "walletEventHash": "5b513571ebd5f2a4fcd2c9ac75a25f98ddd2200afda12b967dc826d752c751ff",
+              "walletListingDigest": "72e4a477feb832eb01b7fc256b61faa15d9d033d8629663a6de0c0b24218698b",
+              "walletRevision": 13,
+              "walletSellerActiveTradeCount": 0,
+              "walletStateDigest": "d46762b4c33e00f7d73bcfbfffc8d1f4ba6f59916b9acd1e801803c1926f5257"
+            },
+            "pricing": {
+              "requiresFrozenPriceTransition": true,
+              "source": "retained_request",
+              "walletListingPrice": "3.20"
+            },
+            "reservation": {
+              "action": "reserve",
+              "assetId": "tron-sim-usdt",
+              "availableForRequestRaw": "500000000",
+              "expectedListingAvailableRaw": "500000000",
+              "expectedTradeReservedRaw": "0",
+              "fromAccount": "listing:v3-fixture-listing",
+              "principalRaw": "200000000",
+              "toAccount": "trade:v3-fixture-trade",
+              "transferAmountRaw": "200000000",
+              "walletListingId": "v3-fixture-listing",
+              "walletTradeId": "v3-fixture-trade"
+            },
+            "sellerAction": {
+              "faceToFaceSafetyAcknowledged": false,
+              "kind": "initial_seller_acceptance",
+              "requestId": "v3-fixture-request",
+              "requestedByUserId": "fixture-seller"
+            },
+            "terms": {
+              "assetId": "tron-sim-usdt",
+              "buyerFeeRaw": "2000000",
+              "buyerId": "fixture-buyer",
+              "commissionCalculationVersion": "usdt_6dp_v2",
+              "currency": "ILS",
+              "destination": "sim://tron-sim-usdt/recipient/fixture-buyer",
+              "feePolicyVersion": "buyer_seller_1pct_v1",
+              "fiatAmount": "626.20",
+              "fiatTotalMinor": "62620",
+              "listingPriceAtRequest": "3.10",
+              "paymentInstructionsDigest": "f4e5a37a29438ca64ef38816cd68ba6a013ca381eb0b7cd06f127928c7bc6495",
+              "paymentMethod": "Bank Transfer",
+              "platformListingId": "v3-market-66c1717aab37faffbf0a",
+              "platformRequestId": "v3-fixture-request",
+              "platformTradeId": "v3-platform-8c9276fb3bbd91c17a08",
+              "priceMode": "listing_price",
+              "pricePerUsdt": "3.10",
+              "principalRaw": "200000000",
+              "receivingNetwork": "TRC20",
+              "sellerFeeRaw": "2000000",
+              "sellerId": "fixture-seller",
+              "totalFeeRaw": "4000000",
+              "usdtAmount": "200",
+              "walletListingId": "v3-fixture-listing"
+            },
+            "termsDigest": "67fcd37d11d878c88695940216639cad1e5ff474cf26a4ce59bc183bbe394ec2"
+          },
+          "inputDigest": "06bdc3b8b87084be1e8299a85faa2e3dcb4c37bab45e714ec25976809aca6821",
+          "plannerInputDigest": "7c80953d0b891c5079b3577b0118ff790a2e31ef0702da4b5255eb5c35e9f644",
+          "platformRequestId": "v3-fixture-request",
+          "platformTradeId": "v3-platform-8c9276fb3bbd91c17a08",
+          "principalRaw": "200000000",
+          "termsDigest": "67fcd37d11d878c88695940216639cad1e5ff474cf26a4ce59bc183bbe394ec2",
+          "transferAmountRaw": "200000000",
+          "walletTradeId": "v3-fixture-trade"
+        },
+        "revision": 14
+      }
+    }
+  ]
+}
