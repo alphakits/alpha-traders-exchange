@@ -65,6 +65,9 @@ function AccountVerificationContent({
 }: Props & { session: ReturnType<typeof useCanonicalSession> }) {
   const isAr = locale === "ar";
   const { user, isResolving: loading, error: sessionError, refresh } = session;
+  // A restored challenge appears in server HTML. Keep controls disabled until
+  // React can capture edits, so hydration cannot erase an early code entry.
+  const [hydrated, setHydrated] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [adultChecked, setAdultChecked] = useState(false);
@@ -114,6 +117,7 @@ function AccountVerificationContent({
 
   useEffect(() => {
     mounted.current = true;
+    setHydrated(true);
     return () => {
       mounted.current = false;
       const phone = phoneRequest.current;
@@ -220,7 +224,7 @@ function AccountVerificationContent({
   }, [verificationComplete, redirectSessionReady, locale, target]);
 
   async function confirmAdult() {
-    if (!user || !adultChecked || adultSignInRequired || !mounted.current || adultRequest.current) return;
+    if (!hydrated || !user || !adultChecked || adultSignInRequired || !mounted.current || adultRequest.current) return;
     const controller = new AbortController();
     adultRequest.current = controller;
     setSavingAdult(true);
@@ -259,7 +263,7 @@ function AccountVerificationContent({
   }
 
   async function sendOtp() {
-    if (!user || !mounted.current || phoneRequest.current || sendingOtp || verifyingOtp || cooldownSeconds > 0 || phoneVerificationChannels?.[phoneChannel] === false) return;
+    if (!hydrated || !user || !mounted.current || phoneRequest.current || sendingOtp || verifyingOtp || cooldownSeconds > 0 || phoneVerificationChannels?.[phoneChannel] === false) return;
     const current = new AbortController();
     phoneRequest.current = current;
     setSendingOtp(true);
@@ -297,7 +301,7 @@ function AccountVerificationContent({
   }
 
   async function verifyOtp() {
-    if (!user || !mounted.current || phoneRequest.current || sendingOtp || verifyingOtp || !sentPhone || !/^\d{6}$/.test(phoneForm.token)) return;
+    if (!hydrated || !user || !mounted.current || phoneRequest.current || sendingOtp || verifyingOtp || !sentPhone || !/^\d{6}$/.test(phoneForm.token)) return;
     const current = new AbortController();
     phoneRequest.current = current;
     setVerifyingOtp(true);
@@ -327,7 +331,7 @@ function AccountVerificationContent({
   }
 
   async function resendVerificationEmail() {
-    if (!user || !mounted.current || emailRequest.current) return;
+    if (!hydrated || !user || !mounted.current || emailRequest.current) return;
     const current = new AbortController();
     emailRequest.current = current;
     setResendingEmail(true);
@@ -415,6 +419,7 @@ function AccountVerificationContent({
                 type="button"
                 className="mt-4 w-full"
                 variant="secondary"
+                disabled={!hydrated}
                 loading={resendingEmail}
                 loadingLabel={isAr ? "جارٍ الإرسال..." : "Sending..."}
                 onClick={() => void resendVerificationEmail()}
@@ -453,7 +458,7 @@ function AccountVerificationContent({
                 <p className="mt-2 text-sm text-[#9CA3AF]">{isAr ? "تم التحقق من رقم هاتفك." : "Your phone number is verified."}</p>
               ) : (
                 <div className="mt-3 grid gap-3">
-                  <PhoneVerificationChannelPicker locale={locale} value={phoneChannel} onChange={setPhoneChannel} disabled={sendingOtp || verifyingOtp} channels={phoneVerificationChannels} />
+                  <PhoneVerificationChannelPicker locale={locale} value={phoneChannel} onChange={setPhoneChannel} disabled={!hydrated || sendingOtp || verifyingOtp} channels={phoneVerificationChannels} />
                   <p className="text-sm text-[#9CA3AF]">
                     {sentPhone
                       ? (isAr ? "إذا وصلك رمز، أدخله أدناه. لا تحتاج إلى طلب رمز جديد." : "If you already received a code, enter it below. You do not need to request another one.")
@@ -467,7 +472,7 @@ function AccountVerificationContent({
                       autoComplete="tel"
                       dir="ltr"
                       maxLength={30}
-                      disabled={sendingOtp || verifyingOtp}
+                      disabled={!hydrated || sendingOtp || verifyingOtp}
                       onChange={(event) => {
                         setPhoneForm((prev) => ({ ...prev, phone: event.target.value, token: "" }));
                         setSentPhone(null);
@@ -482,7 +487,7 @@ function AccountVerificationContent({
                       className="w-full sm:w-auto sm:min-w-[196px]"
                       loading={sendingOtp}
                       loadingLabel={isAr ? "جارٍ الإرسال..." : "Sending..."}
-                      disabled={!phoneForm.phone.trim() || verifyingOtp || cooldownSeconds > 0 || phoneVerificationChannels?.[phoneChannel] === false}
+                      disabled={!hydrated || !phoneForm.phone.trim() || verifyingOtp || cooldownSeconds > 0 || phoneVerificationChannels?.[phoneChannel] === false}
                       onClick={() => void sendOtp()}
                     >
                       {cooldownSeconds > 0
@@ -497,7 +502,7 @@ function AccountVerificationContent({
                       autoComplete="one-time-code"
                       dir="ltr"
                       maxLength={6}
-                      disabled={!sentPhone || sendingOtp || verifyingOtp}
+                      disabled={!hydrated || !sentPhone || sendingOtp || verifyingOtp}
                       onChange={(event) => setPhoneForm((prev) => ({ ...prev, token: normalizePhoneVerificationCodeInput(event.target.value) }))}
                       placeholder={isAr ? "رمز مكون من 6 أرقام" : "6-digit code"}
                       aria-label={isAr ? "رمز التحقق" : "Verification code"}
@@ -508,7 +513,7 @@ function AccountVerificationContent({
                       variant="secondary"
                       loading={verifyingOtp}
                       loadingLabel={isAr ? "جارٍ التحقق..." : "Verifying..."}
-                      disabled={!/^\d{6}$/.test(phoneForm.token) || !sentPhone || sendingOtp}
+                      disabled={!hydrated || !/^\d{6}$/.test(phoneForm.token) || !sentPhone || sendingOtp}
                       onClick={() => void verifyOtp()}
                     >
                       {isAr ? "تأكيد رقم الهاتف" : "Verify phone"}
@@ -534,11 +539,11 @@ function AccountVerificationContent({
           <div className="mt-4 rounded-2xl border border-[#C9A227]/30 bg-black/30 p-4">
             <h2 className="font-semibold">{isAr ? "العمر المطلوب: 18 عامًا أو أكثر" : "Age requirement: 18 or older"}</h2>
             <label className="mt-3 flex items-start gap-3 text-sm">
-              <input type="checkbox" checked={adultChecked} disabled={savingAdult}
+              <input type="checkbox" checked={adultChecked} disabled={!hydrated || savingAdult}
                 onChange={event => setAdultChecked(event.target.checked)} className="mt-1 h-4 w-4 accent-[#C9A227]" />
               {isAr ? "أؤكد أن عمري 18 عامًا أو أكثر." : "I confirm that I am 18 or older."}
             </label>
-            <Button type="button" className="mt-4 w-full" disabled={!adultChecked || loading || !user || adultSignInRequired}
+            <Button type="button" className="mt-4 w-full" disabled={!hydrated || !adultChecked || loading || !user || adultSignInRequired}
               loading={savingAdult} onClick={() => void confirmAdult()}>
               {isAr ? "حفظ التأكيد" : "Save confirmation"}
             </Button>
