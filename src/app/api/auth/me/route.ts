@@ -1,6 +1,8 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { AUTH_PHONE_VERIFIED_COOKIE_NAME, clearUserSession, getCurrentSessionToken, getCurrentSessionUser } from "@/lib/auth";
+import { AUTH_VERIFIED_COOKIE_NAME } from "@/lib/auth-constants";
+import { shouldUseSecureAuthCookie } from "@/lib/auth-cookie";
 import { isMarketplacePhoneVerificationDisabled } from "@/lib/phone-verification";
 import { isVerified } from "@/lib/verification-bypass";
 import { toClientSessionUser } from "@/lib/client-session-user";
@@ -9,7 +11,7 @@ import { logEvent } from "@/lib/structured-logging";
 
 const AUTH_RESPONSE_HEADERS = { "Cache-Control": "no-store, max-age=0" };
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   const routeStartedAt = Date.now();
   const timeline: Array<{ name: string; startTime: number; endTime: number; durationMs: number }> = [];
   const loadUserStartedAt = Date.now();
@@ -56,17 +58,33 @@ export async function GET() {
   }
 
   const cookieStore = await cookies();
+  const secureCookie = shouldUseSecureAuthCookie(request);
+  // Middleware uses this cookie only as a routing hint. Repair it from the
+  // authenticated account so a lost hint cannot trap a verified user on the
+  // verification screen; a stale positive hint must also be cleared.
+  const hasEmailVerificationHint = cookieStore.get(AUTH_VERIFIED_COOKIE_NAME)?.value === "1";
+  if (user.emailVerified !== true || !hasEmailVerificationHint) {
+    // Keep an existing correct hint intact, including a remembered login's
+    // expiry. Rewriting it without that expiry would make it session-only.
+    cookieStore.set(AUTH_VERIFIED_COOKIE_NAME, user.emailVerified === true ? "1" : "", {
+      httpOnly: true,
+      secure: secureCookie,
+      sameSite: "lax",
+      path: "/",
+      ...(user.emailVerified === true ? {} : { maxAge: 0 }),
+    });
+  }
   const verified = isMarketplacePhoneVerificationDisabled() || isVerified(user);
   if (verified) {
     cookieStore.set(AUTH_PHONE_VERIFIED_COOKIE_NAME, "1", {
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
+      secure: secureCookie,
       sameSite: "lax",
       path: "/",
     });
   } else {
     cookieStore.set(AUTH_PHONE_VERIFIED_COOKIE_NAME, "", {
-      httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "lax", path: "/", maxAge: 0,
+      httpOnly: true, secure: secureCookie, sameSite: "lax", path: "/", maxAge: 0,
     });
   }
   const routeMs = Date.now() - routeStartedAt;

@@ -118,6 +118,18 @@ describe("mobile phone verification routes", () => {
     expect(JSON.stringify(payload)).not.toContain("482901");
   });
 
+  it.each(["001234", "٠٠١٢٣٤", "۰۰۱۲۳۴"])("accepts localized six-digit code %s without losing leading zeroes", async code => {
+    const response = await verifyCode(request("verify-code", { phone: "+972501234567", code }));
+    expect(response.status).toBe(200);
+    expect(mocks.confirm).toHaveBeenCalledWith({ userId: user.id, phone: "+972501234567", code: "001234" });
+  });
+
+  it.each(["0012345", "٠٠١٢٣٤٥", "۰۰۱۲۳۴۵", "00 1234", "٠٠١٢٣a", "001234\n", 123456, null])("does not coerce or truncate malformed code %j", async code => {
+    const response = await verifyCode(request("verify-code", { phone: "+972501234567", code }));
+    expect(response.status).toBe(400);
+    expect(mocks.confirm).not.toHaveBeenCalled();
+  });
+
   it("enforces the authenticated send rate limit before creating a code", async () => {
     mocks.rate.mockResolvedValueOnce({ allowed: false, retryAfterSeconds: 30 });
 

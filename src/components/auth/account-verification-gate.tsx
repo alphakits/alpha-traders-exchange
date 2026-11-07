@@ -11,13 +11,17 @@ import { LogoutButton } from "@/components/auth/logout-button";
 import { PhoneVerificationChannelPicker } from "@/components/auth/phone-verification-channel-picker";
 import type { PhoneVerificationChannel, PhoneVerificationChannels } from "@/lib/phone-verification-channel";
 import { ClientRequestTimeoutError, fetchClientJson } from "@/lib/client-request-deadline";
+import { normalizePhoneVerificationCodeInput } from "@/lib/phone-verification-code";
+import type { PhoneVerificationRecovery } from "@/lib/phone-verification-recovery";
 
 type Props = {
   locale: "ar" | "en";
   redirectTo?: string;
+  initialUserId?: string;
   initialEmail: string;
   initialName: string;
   initialPhone?: string;
+  initialPhoneVerificationRecovery?: PhoneVerificationRecovery | null;
   phoneVerificationEnabled: boolean;
   phoneVerificationRequired?: boolean;
   adultConfirmationRequired?: boolean;
@@ -48,9 +52,11 @@ export function AccountVerificationGate(props: Props) {
 function AccountVerificationContent({
   locale,
   redirectTo,
+  initialUserId,
   initialEmail,
   initialName,
   initialPhone = "",
+  initialPhoneVerificationRecovery,
   phoneVerificationEnabled,
   phoneVerificationRequired = false,
   adultConfirmationRequired = false,
@@ -59,27 +65,51 @@ function AccountVerificationContent({
 }: Props & { session: ReturnType<typeof useCanonicalSession> }) {
   const isAr = locale === "ar";
   const { user, isResolving: loading, error: sessionError, refresh } = session;
+  // A restored challenge appears in server HTML. Keep controls disabled until
+  // React can capture edits, so hydration cannot erase an early code entry.
+  const [hydrated, setHydrated] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [adultChecked, setAdultChecked] = useState(false);
   const [savingAdult, setSavingAdult] = useState(false);
   const [adultSignInRequired, setAdultSignInRequired] = useState(false);
   const adultRequest = useRef<AbortController | null>(null);
+  const [redirectSessionReady, setRedirectSessionReady] = useState(false);
+  const redirectRead = useRef<object | null>(null);
+  const redirectStarted = useRef(false);
 
   const name = user?.fullName ?? initialName;
-  const initialAccountMatches = user?.email?.toLowerCase() === initialEmail.toLowerCase();
+  const initialAccountMatches = initialUserId
+    ? user?.id === initialUserId
+    : user?.email?.toLowerCase() === initialEmail.toLowerCase();
+  // Server props can survive a client account change. Only the exact account
+  // that owns this metadata may resume its challenge, never an email match.
+  const recovery = phoneVerificationEnabled && initialUserId === user?.id
+    && initialPhoneVerificationRecovery?.accountId === user?.id
+    && user?.isPhotoVerified !== true ? initialPhoneVerificationRecovery : null;
+  const pendingChallenge = recovery?.pendingChallenge;
+  const remainingFromSnapshot = (timestamp: string | null | undefined) => {
+    const remaining = Date.parse(timestamp ?? "") - Date.parse(recovery?.observedAt ?? "");
+    return Number.isFinite(remaining) ? Math.max(0, remaining) : 0;
+  };
   const [phoneForm, setPhoneForm] = useState({
     firstName: name.split(" ")[0] ?? "",
     lastName: name.split(" ").slice(1).join(" ") ?? "",
     displayName: name,
-    phone: user ? user.whatsappNumber || (initialAccountMatches ? initialPhone : "") : initialPhone,
+    phone: pendingChallenge?.phone ?? (user ? user.whatsappNumber || (initialAccountMatches ? initialPhone : "") : initialPhone),
     token: "",
   });
   const [sendingOtp, setSendingOtp] = useState(false);
   const [verifyingOtp, setVerifyingOtp] = useState(false);
   const [resendingEmail, setResendingEmail] = useState(false);
-  const [sentPhone, setSentPhone] = useState<string | null>(null);
-  const [cooldownSeconds, setCooldownSeconds] = useState(0);
+  const [sentPhone, setSentPhone] = useState<string | null>(pendingChallenge?.phone ?? null);
+  const [challengeExpiry, setChallengeExpiry] = useState<{ remainingMs: number } | null>(pendingChallenge
+    ? { remainingMs: remainingFromSnapshot(pendingChallenge.expiresAt) } : null);
+  const [resendDelay, setResendDelay] = useState<{ remainingMs: number } | null>(recovery?.resendAvailableAt
+    ? { remainingMs: remainingFromSnapshot(recovery.resendAvailableAt) } : null);
+  // Server-relative durations keep hydration stable and do not trust the phone's
+  // wall clock. Once mounted, monotonic elapsed time advances the countdown.
+  const [cooldownSeconds, setCooldownSeconds] = useState(Math.ceil(remainingFromSnapshot(recovery?.resendAvailableAt) / 1000));
   const [phoneChannel, setPhoneChannel] = useState<PhoneVerificationChannel>("sms");
   const phoneRequest = useRef<AbortController | null>(null);
   const emailRequest = useRef<AbortController | null>(null);
@@ -87,12 +117,14 @@ function AccountVerificationContent({
 
   useEffect(() => {
     mounted.current = true;
+    setHydrated(true);
     return () => {
       mounted.current = false;
       const phone = phoneRequest.current;
       const email = emailRequest.current;
       phoneRequest.current = null;
       emailRequest.current = null;
+      redirectRead.current = null;
       phone?.abort();
       email?.abort();
       adultRequest.current?.abort();
@@ -109,10 +141,31 @@ function AccountVerificationContent({
   }
 
   useEffect(() => {
-    if (cooldownSeconds <= 0) return;
-    const timer = window.setTimeout(() => setCooldownSeconds(value => Math.max(0, value - 1)), 1000);
+    if (resendDelay === null) return;
+    const deadline = performance.now() + resendDelay.remainingMs;
+    const update = () => {
+      const remaining = Math.max(0, Math.ceil((deadline - performance.now()) / 1000));
+      setCooldownSeconds(remaining);
+      if (remaining === 0) setResendDelay(null);
+    };
+    update();
+    const timer = window.setInterval(update, 1000);
+    return () => window.clearInterval(timer);
+  }, [resendDelay]);
+
+  useEffect(() => {
+    if (challengeExpiry === null) return;
+    const expire = () => {
+      setSentPhone(null);
+      setChallengeExpiry(null);
+      setPhoneForm(previous => ({ ...previous, token: "" }));
+      setStatus(null);
+    };
+    const remaining = challengeExpiry.remainingMs;
+    if (remaining <= 0) { expire(); return; }
+    const timer = window.setTimeout(expire, remaining);
     return () => window.clearTimeout(timer);
-  }, [cooldownSeconds]);
+  }, [challengeExpiry]);
 
   const target = useMemo(() => normalizeRedirectPath(redirectTo, locale), [redirectTo, locale]);
   const verificationReturn = `/${locale}/verify-account?redirectTo=${encodeURIComponent(`/${locale}${target === "/" ? "" : target}`)}`;
@@ -120,6 +173,8 @@ function AccountVerificationContent({
   const emailVerified = user?.emailVerified === true;
   const phoneVerified = user?.isPhotoVerified === true;
   const adultConfirmed = user?.adultConfirmed === true;
+  const verificationComplete = !loading && !sessionError && emailVerified
+    && (!phoneVerificationRequired || phoneVerified) && (!adultConfirmationRequired || adultConfirmed);
   const visibleError = error ?? (sessionError ? (isAr ? "تعذر تحميل حالة الحساب." : "Failed to load account state.") : null);
 
   useEffect(() => {
@@ -143,14 +198,33 @@ function AccountVerificationContent({
   }, [user]);
 
   useEffect(() => {
-    if (!loading && !sessionError && emailVerified && (!phoneVerificationRequired || phoneVerified)
-      && (!adultConfirmationRequired || adultConfirmed)) {
+    if (!verificationComplete || redirectSessionReady || redirectRead.current) return;
+    const request = {};
+    redirectRead.current = request;
+    // A verified SSR principal can still have stale routing cookies. Await the
+    // canonical response (coalescing its pending read) before leaving this page.
+    // The navigation effect rechecks the latest user instead of this closure.
+    void (async () => {
+      try {
+        const result = await refresh();
+        if (mounted.current && redirectRead.current === request && result === "authenticated") {
+          setRedirectSessionReady(true);
+        }
+      } finally {
+        if (redirectRead.current === request) redirectRead.current = null;
+      }
+    })();
+  }, [verificationComplete, redirectSessionReady, refresh]);
+
+  useEffect(() => {
+    if (verificationComplete && redirectSessionReady && !redirectStarted.current) {
+      redirectStarted.current = true;
       window.location.replace(`/${locale}${target === "/" ? "" : target}`);
     }
-  }, [loading, sessionError, emailVerified, phoneVerificationRequired, phoneVerified, adultConfirmationRequired, adultConfirmed, locale, target]);
+  }, [verificationComplete, redirectSessionReady, locale, target]);
 
   async function confirmAdult() {
-    if (!user || !adultChecked || adultSignInRequired || !mounted.current || adultRequest.current) return;
+    if (!hydrated || !user || !adultChecked || adultSignInRequired || !mounted.current || adultRequest.current) return;
     const controller = new AbortController();
     adultRequest.current = controller;
     setSavingAdult(true);
@@ -189,7 +263,7 @@ function AccountVerificationContent({
   }
 
   async function sendOtp() {
-    if (!user || !mounted.current || phoneRequest.current || sendingOtp || verifyingOtp || cooldownSeconds > 0 || phoneVerificationChannels?.[phoneChannel] === false) return;
+    if (!hydrated || !user || !mounted.current || phoneRequest.current || sendingOtp || verifyingOtp || cooldownSeconds > 0 || phoneVerificationChannels?.[phoneChannel] === false) return;
     const current = new AbortController();
     phoneRequest.current = current;
     setSendingOtp(true);
@@ -209,7 +283,9 @@ function AccountVerificationContent({
       if (!mounted.current || phoneRequest.current !== current) return;
       if (!res.ok || payload?.ok !== true) throw new Error(withSupportDetails(payload ?? {}, isAr ? "تعذر إرسال رمز التحقق." : "Failed to send verification code.", isAr));
       setSentPhone(phone);
+      setChallengeExpiry({ remainingMs: 10 * 60_000 });
       setPhoneForm(previous => ({ ...previous, token: "" }));
+      setResendDelay({ remainingMs: 60_000 });
       setCooldownSeconds(60);
       setStatus(payload.message ?? (isAr ? "تم إرسال رمز التحقق إلى هاتفك." : "Verification code sent to your phone."));
     } catch (err) {
@@ -225,7 +301,7 @@ function AccountVerificationContent({
   }
 
   async function verifyOtp() {
-    if (!user || !mounted.current || phoneRequest.current || sendingOtp || verifyingOtp || !sentPhone || !/^\d{6}$/.test(phoneForm.token)) return;
+    if (!hydrated || !user || !mounted.current || phoneRequest.current || sendingOtp || verifyingOtp || !sentPhone || !/^\d{6}$/.test(phoneForm.token)) return;
     const current = new AbortController();
     phoneRequest.current = current;
     setVerifyingOtp(true);
@@ -255,7 +331,7 @@ function AccountVerificationContent({
   }
 
   async function resendVerificationEmail() {
-    if (!user || !mounted.current || emailRequest.current) return;
+    if (!hydrated || !user || !mounted.current || emailRequest.current) return;
     const current = new AbortController();
     emailRequest.current = current;
     setResendingEmail(true);
@@ -343,6 +419,7 @@ function AccountVerificationContent({
                 type="button"
                 className="mt-4 w-full"
                 variant="secondary"
+                disabled={!hydrated}
                 loading={resendingEmail}
                 loadingLabel={isAr ? "جارٍ الإرسال..." : "Sending..."}
                 onClick={() => void resendVerificationEmail()}
@@ -381,11 +458,11 @@ function AccountVerificationContent({
                 <p className="mt-2 text-sm text-[#9CA3AF]">{isAr ? "تم التحقق من رقم هاتفك." : "Your phone number is verified."}</p>
               ) : (
                 <div className="mt-3 grid gap-3">
-                  <PhoneVerificationChannelPicker locale={locale} value={phoneChannel} onChange={setPhoneChannel} disabled={sendingOtp || verifyingOtp} channels={phoneVerificationChannels} />
+                  <PhoneVerificationChannelPicker locale={locale} value={phoneChannel} onChange={setPhoneChannel} disabled={!hydrated || sendingOtp || verifyingOtp} channels={phoneVerificationChannels} />
                   <p className="text-sm text-[#9CA3AF]">
-                    {isAr
-                      ? "أرسل رمزًا لهاتفك. تنتهي صلاحيته بعد 10 دقائق."
-                      : "Send a code to your phone. It expires in 10 minutes."}
+                    {sentPhone
+                      ? (isAr ? "إذا وصلك رمز، أدخله أدناه. لا تحتاج إلى طلب رمز جديد." : "If you already received a code, enter it below. You do not need to request another one.")
+                      : (isAr ? "أرسل رمزًا لهاتفك. تنتهي صلاحيته بعد 10 دقائق." : "Send a code to your phone. It expires in 10 minutes.")}
                   </p>
                   <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
                     <Input
@@ -395,10 +472,11 @@ function AccountVerificationContent({
                       autoComplete="tel"
                       dir="ltr"
                       maxLength={30}
-                      disabled={sendingOtp || verifyingOtp}
+                      disabled={!hydrated || sendingOtp || verifyingOtp}
                       onChange={(event) => {
                         setPhoneForm((prev) => ({ ...prev, phone: event.target.value, token: "" }));
                         setSentPhone(null);
+                        setChallengeExpiry(null);
                         setStatus(null);
                       }}
                       placeholder={isAr ? "رقم الهاتف (+972 / 05...)" : "Phone (+972 / 05...)"}
@@ -409,7 +487,7 @@ function AccountVerificationContent({
                       className="w-full sm:w-auto sm:min-w-[196px]"
                       loading={sendingOtp}
                       loadingLabel={isAr ? "جارٍ الإرسال..." : "Sending..."}
-                      disabled={!phoneForm.phone.trim() || verifyingOtp || cooldownSeconds > 0 || phoneVerificationChannels?.[phoneChannel] === false}
+                      disabled={!hydrated || !phoneForm.phone.trim() || verifyingOtp || cooldownSeconds > 0 || phoneVerificationChannels?.[phoneChannel] === false}
                       onClick={() => void sendOtp()}
                     >
                       {cooldownSeconds > 0
@@ -424,8 +502,8 @@ function AccountVerificationContent({
                       autoComplete="one-time-code"
                       dir="ltr"
                       maxLength={6}
-                      disabled={!sentPhone || sendingOtp || verifyingOtp}
-                      onChange={(event) => setPhoneForm((prev) => ({ ...prev, token: event.target.value.replace(/\D/g, "").slice(0, 6) }))}
+                      disabled={!hydrated || !sentPhone || sendingOtp || verifyingOtp}
+                      onChange={(event) => setPhoneForm((prev) => ({ ...prev, token: normalizePhoneVerificationCodeInput(event.target.value) }))}
                       placeholder={isAr ? "رمز مكون من 6 أرقام" : "6-digit code"}
                       aria-label={isAr ? "رمز التحقق" : "Verification code"}
                     />
@@ -435,7 +513,7 @@ function AccountVerificationContent({
                       variant="secondary"
                       loading={verifyingOtp}
                       loadingLabel={isAr ? "جارٍ التحقق..." : "Verifying..."}
-                      disabled={!/^\d{6}$/.test(phoneForm.token) || !sentPhone || sendingOtp}
+                      disabled={!hydrated || !/^\d{6}$/.test(phoneForm.token) || !sentPhone || sendingOtp}
                       onClick={() => void verifyOtp()}
                     >
                       {isAr ? "تأكيد رقم الهاتف" : "Verify phone"}
@@ -461,11 +539,11 @@ function AccountVerificationContent({
           <div className="mt-4 rounded-2xl border border-[#C9A227]/30 bg-black/30 p-4">
             <h2 className="font-semibold">{isAr ? "العمر المطلوب: 18 عامًا أو أكثر" : "Age requirement: 18 or older"}</h2>
             <label className="mt-3 flex items-start gap-3 text-sm">
-              <input type="checkbox" checked={adultChecked} disabled={savingAdult}
+              <input type="checkbox" checked={adultChecked} disabled={!hydrated || savingAdult}
                 onChange={event => setAdultChecked(event.target.checked)} className="mt-1 h-4 w-4 accent-[#C9A227]" />
               {isAr ? "أؤكد أن عمري 18 عامًا أو أكثر." : "I confirm that I am 18 or older."}
             </label>
-            <Button type="button" className="mt-4 w-full" disabled={!adultChecked || loading || !user || adultSignInRequired}
+            <Button type="button" className="mt-4 w-full" disabled={!hydrated || !adultChecked || loading || !user || adultSignInRequired}
               loading={savingAdult} onClick={() => void confirmAdult()}>
               {isAr ? "حفظ التأكيد" : "Save confirmation"}
             </Button>

@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { Alert, Pressable, StyleSheet, TextInput, View } from "react-native";
 import { Redirect, useRouter } from "expo-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { MobileNotificationPreferencesUpdateRequest } from "@alpha-traders/contracts";
+import { normalizePhoneVerificationCodeInput, type MobileNotificationPreferencesUpdateRequest } from "@alpha-traders/contracts";
 import { colors, radius, spacing, typography } from "@alpha-traders/design-tokens";
 import {
   getMobileNotificationPreferences,
@@ -199,7 +199,7 @@ export default function SettingsScreen() {
                   inputMode="numeric"
                   keyboardType="number-pad"
                   maxLength={6}
-                  onChangeText={(value) => setPhoneCode(value.replace(/\D/g, "").slice(0, 6))}
+                  onChangeText={(value) => setPhoneCode(normalizePhoneVerificationCodeInput(value))}
                   placeholder={isAr ? "رمز من 6 أرقام" : "6-digit code"}
                   placeholderTextColor={colors.textMuted}
                   style={[styles.input, styles.codeInput, isRTL && styles.rtlText]}

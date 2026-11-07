@@ -376,6 +376,34 @@ jobs:
             await browser.close();
           })().catch((error) => { console.error(error); process.exitCode = 1; });
           NODE
+      - name: Verify mandatory phone and age gates in WebKit
+        id: webkit_phone_gates
+        if: success() && matrix.shard == 1
+        env:
+          PLAYWRIGHT_JSON_OUTPUT_FILE: test-results/webkit-phone-results.json
+        run: node ./node_modules/playwright/cli.js test --config=playwright.webkit.phone-verification.config.ts --reporter=list,json
+      - name: Preserve WebKit phone and age evidence
+        if: always() && matrix.shard == 1 && steps.webkit_phone_gates.outcome != 'skipped'
+        uses: actions/upload-artifact@v4
+        with:
+          name: webkit-phone-age-gates
+          path: test-results/
+          if-no-files-found: error
+          retention-days: 14
+      - name: Repeat restored phone-code entry without retries
+        id: webkit_phone_recovery_repetitions
+        if: success() && matrix.shard == 1
+        env:
+          PLAYWRIGHT_JSON_OUTPUT_FILE: test-results/webkit-phone-recovery-repetitions.json
+        run: node ./node_modules/playwright/cli.js test --config=playwright.webkit.phone-verification.config.ts --grep="an existing SMS code" --repeat-each=5 --workers=1 --retries=0 --max-failures=1 --reporter=list,json
+      - name: Preserve repeated phone-code recovery evidence
+        if: always() && matrix.shard == 1 && steps.webkit_phone_recovery_repetitions.outcome != 'skipped'
+        uses: actions/upload-artifact@v4
+        with:
+          name: webkit-phone-recovery-repetitions
+          path: test-results/
+          if-no-files-found: error
+          retention-days: 14
       - name: Verify the first click after section navigation in WebKit
         if: matrix.shard == 1
         run: node scripts/check-section-navigation.mjs --browser=webkit
@@ -476,20 +504,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: webkit-profile-focus-regression
-          path: test-results/
-          if-no-files-found: error
-          retention-days: 14
-      - name: Verify mandatory phone and age gates in WebKit
-        id: webkit_phone_gates
-        if: success() && matrix.shard == 1
-        env:
-          PLAYWRIGHT_JSON_OUTPUT_FILE: test-results/webkit-phone-results.json
-        run: node ./node_modules/playwright/cli.js test --config=playwright.webkit.phone-verification.config.ts --reporter=list,json
-      - name: Preserve WebKit phone and age evidence
-        if: always() && matrix.shard == 1 && steps.webkit_phone_gates.outcome != 'skipped'
-        uses: actions/upload-artifact@v4
-        with:
-          name: webkit-phone-age-gates
           path: test-results/
           if-no-files-found: error
           retention-days: 14

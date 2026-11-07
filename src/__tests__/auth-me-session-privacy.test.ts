@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { NextRequest } from "next/server";
 import type { AlphaExchangeUser } from "@/types/alpha-exchange";
 
 const mocks = vi.hoisted(() => ({
@@ -25,7 +26,9 @@ vi.mock("@/lib/verification-bypass", () => ({
   isVerified: mocks.isVerified,
 }));
 
-import { GET } from "@/app/api/auth/me/route";
+import { GET as readSession } from "@/app/api/auth/me/route";
+
+const GET = (request = new NextRequest("https://www.alphatraders.co.il/api/auth/me")) => readSession(request);
 
 function rawUser(): AlphaExchangeUser {
   return {
@@ -72,6 +75,7 @@ function rawUser(): AlphaExchangeUser {
 }
 
 describe("GET /api/auth/me session privacy", () => {
+  afterEach(() => vi.unstubAllEnvs());
   beforeEach(() => {
     mocks.clearUserSession.mockReset();
     mocks.cookies.mockReset();
@@ -81,7 +85,7 @@ describe("GET /api/auth/me session privacy", () => {
     mocks.isMarketplacePhoneVerificationDisabled.mockReset();
     mocks.isVerified.mockReset();
 
-    mocks.cookies.mockResolvedValue({ set: vi.fn() });
+    mocks.cookies.mockResolvedValue({ get: vi.fn(), set: vi.fn() });
     mocks.getCurrentSessionToken.mockResolvedValue(null);
     mocks.isMarketplacePhoneVerificationDisabled.mockReturnValue(false);
     mocks.isVerified.mockReturnValue(true);
@@ -128,7 +132,7 @@ describe("GET /api/auth/me session privacy", () => {
 
   it("does not synthesize a phone-verified cookie for an email-only session", async () => {
     const setCookie = vi.fn();
-    mocks.cookies.mockResolvedValue({ set: setCookie });
+    mocks.cookies.mockResolvedValue({ get: vi.fn(), set: setCookie });
     mocks.getCurrentSessionUser.mockResolvedValue({
       ...rawUser(),
       verifiedPhone: undefined,
@@ -143,6 +147,34 @@ describe("GET /api/auth/me session privacy", () => {
     expect(response.status).toBe(200);
     expect(payload.user.isPhotoVerified).toBe(false);
     expect(setCookie).not.toHaveBeenCalledWith("alpha_exchange_phone_verified", "1", expect.any(Object));
+  });
+
+  it("repairs a missing email verification routing cookie from the authenticated account", async () => {
+    const setCookie = vi.fn();
+    mocks.cookies.mockResolvedValue({ get: vi.fn(), set: setCookie });
+    mocks.getCurrentSessionUser.mockResolvedValue(rawUser());
+
+    const response = await GET();
+
+    expect(response.status).toBe(200);
+    expect(setCookie).toHaveBeenCalledWith("alpha_exchange_verified", "1", expect.objectContaining({
+      httpOnly: true, sameSite: "lax", path: "/",
+    }));
+  });
+
+  it.each([false, undefined])("clears a stale verified-email hint when the account emailVerified is %s", async (emailVerified) => {
+    const setCookie = vi.fn();
+    mocks.cookies.mockResolvedValue({ get: vi.fn(), set: setCookie });
+    mocks.getCurrentSessionUser.mockResolvedValue({ ...rawUser(), emailVerified });
+    mocks.isVerified.mockReturnValue(true);
+
+    const response = await GET();
+
+    expect(response.status).toBe(200);
+    expect(setCookie).toHaveBeenCalledWith("alpha_exchange_verified", "", expect.objectContaining({
+      httpOnly: true, sameSite: "lax", path: "/", maxAge: 0,
+    }));
+    expect(setCookie).not.toHaveBeenCalledWith("alpha_exchange_verified", "1", expect.any(Object));
   });
 
   it("returns a retryable 503 without logging out a user when session storage fails", async () => {
@@ -162,5 +194,35 @@ describe("GET /api/auth/me session privacy", () => {
     expect(mocks.cookies).not.toHaveBeenCalled();
     expect(JSON.stringify(failureLog.mock.calls)).not.toContain("private details");
     failureLog.mockRestore();
+  });
+
+  it("preserves a remembered login's existing verified-email cookie and its expiry", async () => {
+    const setCookie = vi.fn();
+    mocks.cookies.mockResolvedValue({
+      get: vi.fn().mockReturnValue({ name: "alpha_exchange_verified", value: "1" }),
+      set: setCookie,
+    });
+    mocks.getCurrentSessionUser.mockResolvedValue(rawUser());
+
+    expect((await GET()).status).toBe(200);
+
+    expect(setCookie.mock.calls.some(([name]) => name === "alpha_exchange_verified")).toBe(false);
+  });
+
+  it.each([false, true])("uses the shared cookie security boundary for loopback and deployed requests (deployed=%s)", async deployed => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("ALPHA_E2E_TEST_SUPPORT", "1");
+    vi.stubEnv("ALPHA_E2E_LOOPBACK_ONLY", "1");
+    vi.stubEnv("AUTH_COOKIE_SECURE", "false");
+    for (const key of ["VERCEL_ENV", "SUPABASE_DB_URL", "DATABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"]) vi.stubEnv(key, undefined);
+    vi.stubEnv("VERCEL", deployed ? "1" : undefined);
+    const setCookie = vi.fn();
+    mocks.cookies.mockResolvedValue({ get: vi.fn(), set: setCookie });
+    mocks.getCurrentSessionUser.mockResolvedValue(rawUser());
+
+    expect((await GET(new NextRequest("http://localhost:3000/api/auth/me"))).status).toBe(200);
+
+    expect(setCookie).toHaveBeenCalledWith("alpha_exchange_verified", "1", expect.objectContaining({ secure: deployed }));
+    expect(setCookie).toHaveBeenCalledWith("alpha_exchange_phone_verified", "1", expect.objectContaining({ secure: deployed }));
   });
 });

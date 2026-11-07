@@ -1,10 +1,11 @@
 import { redirect } from "next/navigation";
 import { AccountVerificationGate } from "@/components/auth/account-verification-gate";
 import { getCurrentSessionUser } from "@/lib/auth";
-import { isMarketplacePhoneVerificationEnabled, needsMarketplacePhoneVerification } from "@/lib/phone-verification";
+import { isMarketplacePhoneVerificationEnabled, isMarketplacePhoneVerificationRequired } from "@/lib/phone-verification";
 import { buildPageMetadata } from "@/lib/seo";
 import { getPhoneVerificationChannels } from "@/lib/phone-verification-delivery";
 import { isAdultConfirmationRequired } from "@/lib/age-eligibility";
+import { getPhoneVerificationRecovery } from "@/lib/phone-verification-recovery";
 
 export const dynamic = "force-dynamic";
 
@@ -39,12 +40,14 @@ export default async function VerifyAccountPage({
     <AccountVerificationGate
       locale={locale as "ar" | "en"}
       redirectTo={typeof redirectTo === "string" ? redirectTo : undefined}
+      initialUserId={user.id}
       initialEmail={user.email}
       initialName={user.fullName}
       initialPhone={user.whatsappNumber}
+      initialPhoneVerificationRecovery={getPhoneVerificationRecovery(user)}
       phoneVerificationEnabled={isMarketplacePhoneVerificationEnabled()}
       phoneVerificationChannels={getPhoneVerificationChannels()}
-      phoneVerificationRequired={needsMarketplacePhoneVerification(user)}
+      phoneVerificationRequired={isMarketplacePhoneVerificationRequired()}
       adultConfirmationRequired={isAdultConfirmationRequired()}
     />
   );
