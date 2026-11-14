@@ -41,10 +41,16 @@ describe("request rules", () => {
     if (field === "role") Object.assign(user, { role: "guest", roles: [], sellerStatus: "rejected" });
     expect(() => assertDemandActor(user)).toThrow();
   });
-  it("does not require SMS phone verification when email and age checks pass", () => {
+  it("obeys the production phone-verification switch for demand actors", () => {
     const user = db.users[0];
     delete user.phoneVerifiedAt;
     delete user.verifiedPhone;
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("VERCEL", "1");
+    vi.stubEnv("ALPHA_EXCHANGE_PHONE_VERIFICATION_ENABLED", "true");
+    vi.stubEnv("ALPHA_EXCHANGE_PHONE_VERIFICATION_REQUIRED", "true");
+    expect(() => assertDemandActor(user)).toThrow();
+    vi.stubEnv("ALPHA_EXCHANGE_PHONE_VERIFICATION_REQUIRED", "false");
     expect(() => assertDemandActor(user)).not.toThrow();
   });
   it("supports eligible sellers requesting as buyers", () => expect(createDemand(db, "seller", { terms: demandTestTerms(), operationId: randomUUID() }, demandTestMarket()).requesterId).toBe("seller"));
