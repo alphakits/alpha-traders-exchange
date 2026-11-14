@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { marketplacePhoneVerificationDestination, isMarketplacePhoneVerificationRequired } from "@/lib/phone-verification";
 import { requireMarketplaceVerificationForTrading } from "@/lib/api-auth";
 
-const base = { id: "buyer-test", role: "buyer", roles: ["buyer"], emailVerified: true };
+const base = { id: "buyer-test", role: "buyer", roles: ["buyer"], emailVerified: true, ageEligibility: { method: "self_attestation_v1", confirmedAt: "2026-10-01T12:00:00.000Z" } };
 const verified = { verifiedPhone: "+972521234567", phoneVerifiedAt: "2026-10-01T12:00:00.000Z" };
 
 beforeEach(() => {
