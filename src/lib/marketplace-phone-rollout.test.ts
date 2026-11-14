@@ -14,6 +14,23 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllEnvs());
 
 describe("reviewed SMS requirement rollout", () => {
+  it("allows the owner-controlled production SMS-outage mode only with explicit false", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("VERCEL", "1");
+    vi.stubEnv("ALPHA_EXCHANGE_PHONE_VERIFICATION_REQUIRED", "false");
+    expect(isMarketplacePhoneVerificationRequired()).toBe(false);
+    expect(requireMarketplaceVerificationForTrading(base)).toBeNull();
+    expect(marketplacePhoneVerificationDestination(base, "/en/usdt-exchange", "en")).toBeNull();
+  });
+  it("keeps production phone verification required when the setting is missing or malformed", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("VERCEL", "1");
+    for (const value of [undefined, "", "no", "0", "true"]) {
+      if (value === undefined) vi.stubEnv("ALPHA_EXCHANGE_PHONE_VERIFICATION_REQUIRED", "");
+      else vi.stubEnv("ALPHA_EXCHANGE_PHONE_VERIFICATION_REQUIRED", value);
+      expect(isMarketplacePhoneVerificationRequired()).toBe(true);
+    }
+  });
   it("allows delivery testing before enforcing the requirement", () => {
     vi.stubEnv("ALPHA_EXCHANGE_PHONE_VERIFICATION_REQUIRED", "false");
     expect(isMarketplacePhoneVerificationRequired()).toBe(false);
