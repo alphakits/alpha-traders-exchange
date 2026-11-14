@@ -21,9 +21,13 @@ export function isMarketplacePhoneVerificationDisabled(env: NodeJS.ProcessEnv = 
   return allowsTestOnlyRuntime() && env.ALPHA_EXCHANGE_SKIP_PHONE_VERIFICATION === "1";
 }
 
-/** Production access fails closed regardless of delivery configuration. */
+/**
+ * Production keeps phone verification required by default. An explicit
+ * `false` is the owner-controlled temporary SMS-outage mode; no missing,
+ * malformed, test-only, or client-controlled value can disable the gate.
+ */
 export function isMarketplacePhoneVerificationRequired(env: NodeJS.ProcessEnv = process.env) {
-  if (isProductionSecurityRuntime()) return true;
+  if (isProductionSecurityRuntime()) return env.ALPHA_EXCHANGE_PHONE_VERIFICATION_REQUIRED?.trim().toLowerCase() !== "false";
   return isMarketplacePhoneVerificationEnabled(env)
     && isExplicitlyEnabled(env.ALPHA_EXCHANGE_PHONE_VERIFICATION_REQUIRED);
 }
