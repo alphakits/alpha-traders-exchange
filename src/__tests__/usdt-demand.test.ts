@@ -33,14 +33,19 @@ describe("request rules", () => {
   it.each(["2.84", "3.56", "3.201", "0", "NaN"])("rejects invalid/out-of-band price %s", p => expect(() => assertDemandPrice(p, demandTestMarket())).toThrow());
   it("does not round a fractional live ceiling upward", () => { expect(() => assertDemandPrice("3.56", demandTestMarket(3.205))).toThrow(); expect(assertDemandPrice("3.55", demandTestMarket(3.205))).toBe("3.55"); });
   it("rejects stale and unavailable quotes", () => { expect(() => assertDemandPrice("3.20", demandTestMarket(3.2, 120001))).toThrow(); const market = demandTestMarket(); market.unavailablePairs.push("usdtIls"); expect(() => assertDemandPrice("3.20", market)).toThrow(); });
-  it.each(["disabled", "email", "phone", "age", "role"])("denies an ineligible %s account", field => {
+  it.each(["disabled", "email", "age", "role"])("denies an ineligible %s account", field => {
     const user = db.users[0];
     if (field === "disabled") user.disabled = true;
     if (field === "email") user.emailVerified = false;
-    if (field === "phone") delete user.phoneVerifiedAt;
     if (field === "age") delete user.ageEligibility;
     if (field === "role") Object.assign(user, { role: "guest", roles: [], sellerStatus: "rejected" });
     expect(() => assertDemandActor(user)).toThrow();
+  });
+  it("does not require SMS phone verification when email and age checks pass", () => {
+    const user = db.users[0];
+    delete user.phoneVerifiedAt;
+    delete user.verifiedPhone;
+    expect(() => assertDemandActor(user)).not.toThrow();
   });
   it("supports eligible sellers requesting as buyers", () => expect(createDemand(db, "seller", { terms: demandTestTerms(), operationId: randomUUID() }, demandTestMarket()).requesterId).toBe("seller"));
   it.each(["..", "--"])("rejects a punctuation-only meeting city %s", city => {
