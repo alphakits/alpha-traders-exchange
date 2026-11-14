@@ -6,6 +6,7 @@ import type { DemandTerms, UsdtDemand } from "@/types/usdt-demand";
 import type { MarketSnapshot } from "@/types/market";
 import { isFxReferenceUsable } from "@/lib/fx-reference-policy";
 import { hasAdultConfirmation } from "@/lib/age-eligibility";
+import { needsMarketplacePhoneVerification } from "@/lib/phone-verification";
 import { hasRole } from "@/lib/roles";
 import { hasSellerOperationalAccess } from "@/lib/seller-approval-verification";
 import { isWisePaymentsEnabled } from "@/lib/wise-payments-capability";
@@ -77,7 +78,7 @@ export function assertDemandEnabled() {
   if (!demandEnabled()) throw new DemandError("FEATURE_UNAVAILABLE", "USDT requests are unavailable.", 404);
 }
 export function assertDemandActor(user: AlphaExchangeUser | undefined): asserts user is AlphaExchangeUser {
-  if (!user || user.disabled || !user.emailVerified || !hasAdultConfirmation(user)
+  if (!user || user.disabled || !user.emailVerified || needsMarketplacePhoneVerification(user) || !hasAdultConfirmation(user)
     || !(hasRole(user, "buyer") || hasSellerOperationalAccess(user))) {
     throw new DemandError("ACCESS_DENIED", "A verified adult exchange account is required.", 403);
   }
