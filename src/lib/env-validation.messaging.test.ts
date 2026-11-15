@@ -91,7 +91,7 @@ describe("production messaging configuration", () => {
     vi.stubEnv("ALPHA_EXCHANGE_PHONE_VERIFICATION_ENABLED", "false");
     vi.stubEnv("ALPHA_EXCHANGE_PHONE_VERIFICATION_REQUIRED", "true");
     vi.stubEnv("ALPHA_EXCHANGE_PHONE_VERIFICATION_PROVIDER", "disabled");
-    expect(validateEnv().errors.join("\\n")).toContain("Mandatory phone verification requires ALPHA_EXCHANGE_PHONE_VERIFICATION_ENABLED=true.");
+    expect(validateEnv().errors.join("\n")).toContain("Mandatory phone verification requires ALPHA_EXCHANGE_PHONE_VERIFICATION_ENABLED=true.");
   });
 
   it.each([
