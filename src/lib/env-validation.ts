@@ -53,7 +53,7 @@ const ENV_VARS: EnvVar[] = [
   { key: "TWILIO_SMS_MESSAGING_SERVICE_SID", required: false, description: "Twilio Messaging Service SID, taking precedence over SMS sender numbers" },
   { key: "ALPHA_EXCHANGE_TWILIO_SEND_ENABLED", required: false, description: "Explicitly enable all outbound Twilio SMS" },
   { key: "ALPHA_EXCHANGE_TWILIO_OTP_SEND_ENABLED", required: false, description: "Enable requested verification SMS without enabling trade notification SMS" },
-  { key: "ALPHA_EXCHANGE_PHONE_VERIFICATION_ENABLED", required: false, description: "Enable the OTP capability; set false when the provider is disabled during an outage" },
+  { key: "ALPHA_EXCHANGE_PHONE_VERIFICATION_ENABLED", required: false, description: "OTP configuration consistency marker; set false with REQUIRED=false during a provider outage" },
   { key: "ALPHA_EXCHANGE_PHONE_VERIFICATION_REQUIRED", required: false, description: "Require OTP for marketplace access; explicit false is the owner-controlled provider-outage mode" },
   { key: "ALPHA_EXCHANGE_PHONE_VERIFICATION_PROVIDER", required: false, description: "Phone verification transport: twilio SMS; WhatsApp is currently unavailable" },
   { key: "ALPHA_EXCHANGE_WHATSAPP_PROVIDER", required: false, description: "WhatsApp delivery provider: meta (default) or twilio" },
