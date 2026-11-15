@@ -111,9 +111,9 @@
     },
     {
       "name": "node-forge",
-      "version": "1.4.1",
+      "version": "1.4.3",
       "advisory": "GHSA-86w9-cpqp-85rv",
-      "source": "https://github.com/digitalbazaar/forge/releases/tag/v1.4.1",
+      "source": "https://github.com/digitalbazaar/forge/releases/tag/v1.4.3",
       "files": [
         {
           "path": "lib/rsa.js",
@@ -122,9 +122,9 @@
           "patchedSha256": "6632e195295ce76f6bb9131ee770dcd6cc1ee4ffac7906302208b00faf95a87f"
         }
       ],
-      "upstreamCommit": "8a917370ec51731e817c2d547b7329a58f8210af",
+      "upstreamCommit": "936b24d939dc7261ee37982576f9cf2b410084ee",
       "license": "(BSD-3-Clause OR GPL-2.0)",
-      "notes": "Upstream canonical DER verification supersedes the local nested-element and NULL-content backport. Keep the reviewed RSA source hash and malformed-signature regression tests."
+      "notes": "The fixed 1.4.3 release includes upstream canonical DER verification for GHSA-86w9-cpqp-85rv and security fixes for advisories affecting versions through 1.4.2. Keep the reviewed RSA source hash and malformed-signature regression tests."
     }
   ]
 }
