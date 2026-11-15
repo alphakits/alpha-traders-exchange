@@ -14,11 +14,21 @@ pages, reads, actions, and native APIs enforce the same canonical policy.
 The private session DTO reports the authorization result as a boolean and does
 not fabricate `verifiedPhone` or `phoneVerifiedAt` for an exempt account.
 
-Production enforcement does not depend on
-`ALPHA_EXCHANGE_PHONE_VERIFICATION_ENABLED` or
-`ALPHA_EXCHANGE_PHONE_VERIFICATION_REQUIRED`. Missing or false values cannot
+Production normally ignores
+`ALPHA_EXCHANGE_PHONE_VERIFICATION_ENABLED` and
+`ALPHA_EXCHANGE_PHONE_VERIFICATION_REQUIRED`; missing or false values cannot
 remove the requirement. Those switches and the skip flag remain useful only
-for isolated local fixtures; Vercel deployments reject test-runtime bypasses.
+for isolated local fixtures.
+
+For an owner-approved SMS outage, `ALPHA_EXCHANGE_PHONE_VERIFICATION_EMAIL_FALLBACK_UNTIL`
+may be set to an ISO-8601 UTC timestamp no more than seven days in the future.
+While the deadline is active, phone-code sending is disabled and email
+confirmation is the temporary account-verification path. Exchange actions
+still require a confirmed email, age confirmation, and the existing account,
+role, seller-approval, and commission checks. The supplied phone remains
+unverified; no phone-verification timestamp is created. At the deadline, the
+production phone gate turns back on automatically, regardless of the legacy
+feature-switch values.
 
 ## SMS delivery configuration
 
@@ -94,8 +104,9 @@ logout/login and preserves buyer and seller roles.
 
 Verification, recovery, support, legal, and account deletion remain reachable.
 Student browsing outside exchange pages remains available. An SMS delivery
-outage leaves unverified exchange access blocked. Disabling OTP sends pauses
-sending; feature flags do not relax production account access.
+outage leaves unverified exchange access blocked by default. The owner-approved,
+time-limited email fallback above is the only production exception; disabling
+OTP sends alone never relaxes production account access.
 
 ## Validation
 

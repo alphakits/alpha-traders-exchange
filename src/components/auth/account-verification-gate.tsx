@@ -24,6 +24,8 @@ type Props = {
   initialPhoneVerificationRecovery?: PhoneVerificationRecovery | null;
   phoneVerificationEnabled: boolean;
   phoneVerificationRequired?: boolean;
+  phoneVerificationEmailFallbackActive?: boolean;
+  phoneVerificationEmailFallbackUntil?: string | null;
   adultConfirmationRequired?: boolean;
   phoneVerificationChannels?: PhoneVerificationChannels;
 };
@@ -59,6 +61,8 @@ function AccountVerificationContent({
   initialPhoneVerificationRecovery,
   phoneVerificationEnabled,
   phoneVerificationRequired = false,
+  phoneVerificationEmailFallbackActive = false,
+  phoneVerificationEmailFallbackUntil,
   adultConfirmationRequired = false,
   phoneVerificationChannels,
   session,
@@ -392,6 +396,14 @@ function AccountVerificationContent({
             </div>
           </div>
         </div>
+
+        {phoneVerificationEmailFallbackActive ? (
+          <p role="status" className="mt-4 rounded-xl border border-sky-400/30 bg-sky-500/10 p-4 text-sm text-sky-100">
+            {isAr
+              ? `التحقق عبر البريد الإلكتروني متاح مؤقتًا حتى ${phoneVerificationEmailFallbackUntil ?? "تاريخ الانتهاء"}. يجب تأكيد بريدك الإلكتروني؛ رقم هاتفك سيبقى غير موثّق.`
+              : `Email verification is the temporary fallback until ${phoneVerificationEmailFallbackUntil ?? "the expiry date"}. Confirm your email to continue; your phone number will remain unverified.`}
+          </p>
+        ) : null}
 
         {loading ? <p className="mt-5 text-sm text-[#9CA3AF]">{isAr ? "جاري تحميل حالة التحقق..." : "Loading verification status..."}</p> : null}
 

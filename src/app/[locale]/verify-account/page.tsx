@@ -1,7 +1,12 @@
 import { redirect } from "next/navigation";
 import { AccountVerificationGate } from "@/components/auth/account-verification-gate";
 import { getCurrentSessionUser } from "@/lib/auth";
-import { isMarketplacePhoneVerificationEnabled, isMarketplacePhoneVerificationRequired } from "@/lib/phone-verification";
+import {
+  isMarketplacePhoneVerificationEmailFallbackActive,
+  isMarketplacePhoneVerificationEnabled,
+  isMarketplacePhoneVerificationRequired,
+  marketplacePhoneVerificationEmailFallbackUntilDate,
+} from "@/lib/phone-verification";
 import { buildPageMetadata } from "@/lib/seo";
 import { getPhoneVerificationChannels } from "@/lib/phone-verification-delivery";
 import { isAdultConfirmationRequired } from "@/lib/age-eligibility";
@@ -48,6 +53,8 @@ export default async function VerifyAccountPage({
       phoneVerificationEnabled={isMarketplacePhoneVerificationEnabled()}
       phoneVerificationChannels={getPhoneVerificationChannels()}
       phoneVerificationRequired={isMarketplacePhoneVerificationRequired()}
+      phoneVerificationEmailFallbackActive={isMarketplacePhoneVerificationEmailFallbackActive()}
+      phoneVerificationEmailFallbackUntil={marketplacePhoneVerificationEmailFallbackUntilDate()}
       adultConfirmationRequired={isAdultConfirmationRequired()}
     />
   );

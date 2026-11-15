@@ -138,7 +138,8 @@ for (const [name, boundary, expected] of [
   ["user-presence-store", "export type OwnerPresenceAnalytics", "97d2d9f3bd6996dec6ee9f48c1eabefe09c5cb6a929e1b499a3da097928f94c2"],
 ]) {
   test(`${name}: schema and non-reporting implementation remain unchanged`, () => {
-    const prefix = source(name).split(boundary)[0].replace(/^import .* from "@\/lib\/owner-analytics-reporting";\n/m, "");
+    const prefix = source(name).replace(/\r\n/g, "\n").split(boundary)[0]
+      .replace(/^import .* from "@\/lib\/owner-analytics-reporting";\n/m, "");
     assert.equal(crypto.createHash("sha256").update(prefix).digest("hex"), expected);
   });
 }

@@ -46,11 +46,19 @@ describe("AccountVerificationGate canonical session ownership", () => {
 
     render(
       <CanonicalSessionProvider initialSessionUser={unverifiedUser}>
-        <AccountVerificationGate locale="en" initialEmail="buyer@example.test" initialName="Buyer User" phoneVerificationEnabled={false} />
+        <AccountVerificationGate
+          locale="en"
+          initialEmail="buyer@example.test"
+          initialName="Buyer User"
+          phoneVerificationEnabled={false}
+          phoneVerificationEmailFallbackActive
+          phoneVerificationEmailFallbackUntil="2026-11-22"
+        />
       </CanonicalSessionProvider>,
     );
 
     expect(await screen.findByText("Verify your email to continue.")).toBeTruthy();
+    expect(screen.getByText("Email verification is the temporary fallback until 2026-11-22. Confirm your email to continue; your phone number will remain unverified.")).toBeTruthy();
     expect(screen.getByText("Email verification")).toBeTruthy();
     expect(screen.queryByText("Phone verification")).toBeNull();
     expect(screen.queryByRole("button", { name: "Send verification code" })).toBeNull();

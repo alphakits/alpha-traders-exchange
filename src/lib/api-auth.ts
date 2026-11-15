@@ -4,7 +4,10 @@ import { clearUserSession, getCurrentSessionToken, getCurrentSessionUserForAutho
 import { hasRole } from "@/lib/roles";
 import { hasSellerOperationalAccess } from "@/lib/seller-approval-verification";
 import { logEvent } from "@/lib/structured-logging";
-import { needsMarketplacePhoneVerification } from "@/lib/phone-verification";
+import {
+  isMarketplacePhoneVerificationEmailFallbackActive,
+  needsMarketplacePhoneVerification,
+} from "@/lib/phone-verification";
 import { isVerified } from "@/lib/verification-bypass";
 import { needsAdultConfirmation } from "@/lib/age-eligibility";
 
@@ -98,10 +101,14 @@ export function requireEmailVerificationForTrading(user: { id: string; role: str
  * Production actions require a verified phone or an exact owner-authorized account.
  * Local fixture switches cannot disable this boundary on a deployed host.
  */
-export function requirePhoneVerificationForTrading(user: { id: string; role: string; roles?: string[]; email?: string; verifiedPhone?: string; phoneVerifiedAt?: string; ageEligibility?: unknown }) {
+export function requirePhoneVerificationForTrading(user: { id: string; role: string; roles?: string[]; email?: string; emailVerified?: boolean; verifiedPhone?: string; phoneVerifiedAt?: string; ageEligibility?: unknown }) {
   if (needsAdultConfirmation(user)) return NextResponse.json({
     code: "AGE_CONFIRMATION_REQUIRED", error: "Confirm that you are 18 or older before using Alpha Exchange.",
   }, { status: 403, headers: AUTH_FAILURE_HEADERS });
+  if (isMarketplacePhoneVerificationEmailFallbackActive()) {
+    const emailVerification = requireEmailVerificationForTrading(user);
+    if (emailVerification) return emailVerification;
+  }
   if (!needsMarketplacePhoneVerification(user)) return null;
   logEvent("warn", {
     event: "permission_denied",
