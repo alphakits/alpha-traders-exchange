@@ -8,12 +8,18 @@ const buyer = {
   sellerStatus: "buyer",
   emailVerified: true,
   isPhotoVerified: false,
+  phoneVerificationRequired: false,
   adultConfirmed: true,
 } as unknown as NonNullable<Parameters<typeof buyRequestsDestination>[0]>;
 
 describe("Buy Requests navigation eligibility", () => {
   it("allows an email-verified adult buyer with a contact-only phone number", () => {
     expect(buyRequestsDestination(buyer, true)).toBe("/usdt-exchange/requests?scope=mine");
+  });
+
+  it("continues to hide the entry when phone verification is still required", () => {
+    expect(buyRequestsDestination({ ...buyer, phoneVerificationRequired: true }, true)).toBeNull();
+    expect(buyRequestsDestination({ ...buyer, phoneVerificationRequired: undefined }, true)).toBeNull();
   });
 
   it("continues to require email and adult confirmation", () => {
