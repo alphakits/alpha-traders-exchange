@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({ findUserById: vi.fn() }));
 vi.mock("@/lib/alpha-exchange-store", () => ({ findUserById: mocks.findUserById }));
 import { requireMobileApiUser } from "@/lib/mobile-api-auth";
-const user = { id: "buyer-test", role: "buyer", roles: ["buyer"], emailVerified: true };
+const user = { id: "buyer-test", role: "buyer", roles: ["buyer"], emailVerified: true, ageEligibility: { method: "self_attestation_v1", confirmedAt: "2026-10-01T12:00:00.000Z" } };
 const metadata = { appVersion: "999.0.0", buildNumber: "999", platform: "ios" as const, deviceId: "device-test", locale: "en" as const };
 const service = { validateAccessToken: vi.fn(), revokeDevice: vi.fn() };
 beforeEach(() => {
@@ -18,7 +18,17 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllEnvs());
 function request(path: string) { return new NextRequest(`https://example.test/api/mobile/v1/${path}`, { headers: { Authorization: "Bearer test-access-token" } }); }
 
-describe("mobile routes cannot bypass the SMS requirement", () => {
+function configureProductionSmsOutage() {
+  vi.stubEnv("NODE_ENV", "production");
+  vi.stubEnv("VERCEL", "1");
+  vi.stubEnv("ALPHA_EXCHANGE_PHONE_VERIFICATION_ENABLED", "false");
+  vi.stubEnv("ALPHA_EXCHANGE_PHONE_VERIFICATION_REQUIRED", "false");
+  vi.stubEnv("ALPHA_EXCHANGE_PHONE_VERIFICATION_PROVIDER", "disabled");
+  vi.stubEnv("ALPHA_EXCHANGE_TWILIO_OTP_SEND_ENABLED", "false");
+  vi.stubEnv("ALPHA_EXCHANGE_TWILIO_SEND_ENABLED", "false");
+}
+
+describe("mobile routes follow the server SMS requirement", () => {
   it.each(["marketplace/listings", "trades", "seller/listings", "admin/overview"])("blocks %s while preserving the authenticated device session", async path => {
     const result = await requireMobileApiUser(request(path), "request-test", metadata, service as never);
     expect(result.unauthorized?.status).toBe(403);
@@ -58,5 +68,32 @@ describe("mobile routes cannot bypass the SMS requirement", () => {
     mocks.findUserById.mockResolvedValue({ ...user, role, roles: [role] });
     const result = await requireMobileApiUser(request("trades"), "request-test", metadata, service as never);
     expect(result.unauthorized?.status).toBe(403);
+  });
+  it.each(["marketplace/listings", "trades", "seller/listings", "admin/overview"])("allows an email-confirmed adult on %s during a production SMS outage without fabricating phone verification", async path => {
+    configureProductionSmsOutage();
+    const result = await requireMobileApiUser(request(path), "request-test", metadata, service as never);
+    expect(result.user).toBe(user);
+    expect(result.unauthorized).toBeNull();
+    expect(result.user).not.toHaveProperty("verifiedPhone");
+    expect(result.user).not.toHaveProperty("phoneVerifiedAt");
+    expect(service.revokeDevice).not.toHaveBeenCalled();
+  });
+  it("still rejects an unconfirmed email and revokes its native session during a production SMS outage", async () => {
+    configureProductionSmsOutage();
+    mocks.findUserById.mockResolvedValue({ ...user, emailVerified: false });
+    const result = await requireMobileApiUser(request("trades"), "request-test", metadata, service as never);
+    expect(result.user).toBeNull();
+    expect(result.unauthorized?.status).toBe(401);
+    expect(await result.unauthorized?.json()).toMatchObject({ error: { code: "SESSION_REVOKED" } });
+    expect(service.revokeDevice).toHaveBeenCalledExactlyOnceWith("test-access-token", "account_unavailable");
+  });
+  it("still requires adult confirmation without revoking the native session during a production SMS outage", async () => {
+    configureProductionSmsOutage();
+    mocks.findUserById.mockResolvedValue({ ...user, ageEligibility: undefined });
+    const result = await requireMobileApiUser(request("trades"), "request-test", metadata, service as never);
+    expect(result.user).toBeNull();
+    expect(result.unauthorized?.status).toBe(403);
+    expect(await result.unauthorized?.json()).toMatchObject({ error: { code: "AGE_CONFIRMATION_REQUIRED" } });
+    expect(service.revokeDevice).not.toHaveBeenCalled();
   });
 });

@@ -5,6 +5,16 @@ import { requireMarketplaceVerificationForTrading } from "@/lib/api-auth";
 const base = { id: "buyer-test", role: "buyer", roles: ["buyer"], emailVerified: true, ageEligibility: { method: "self_attestation_v1", confirmedAt: "2026-10-01T12:00:00.000Z" } };
 const verified = { verifiedPhone: "+972521234567", phoneVerifiedAt: "2026-10-01T12:00:00.000Z" };
 
+function configureProductionSmsOutage() {
+  vi.stubEnv("NODE_ENV", "production");
+  vi.stubEnv("VERCEL", "1");
+  vi.stubEnv("ALPHA_EXCHANGE_PHONE_VERIFICATION_ENABLED", "false");
+  vi.stubEnv("ALPHA_EXCHANGE_PHONE_VERIFICATION_REQUIRED", "false");
+  vi.stubEnv("ALPHA_EXCHANGE_PHONE_VERIFICATION_PROVIDER", "disabled");
+  vi.stubEnv("ALPHA_EXCHANGE_TWILIO_OTP_SEND_ENABLED", "false");
+  vi.stubEnv("ALPHA_EXCHANGE_TWILIO_SEND_ENABLED", "false");
+}
+
 beforeEach(() => {
   vi.stubEnv("ALPHA_EXCHANGE_PHONE_VERIFICATION_ENABLED", "true");
   vi.stubEnv("ALPHA_EXCHANGE_PHONE_VERIFICATION_REQUIRED", "true");
@@ -15,21 +25,38 @@ afterEach(() => vi.unstubAllEnvs());
 
 describe("reviewed SMS requirement rollout", () => {
   it("allows the owner-controlled production SMS-outage mode only with explicit false", () => {
-    vi.stubEnv("NODE_ENV", "production");
-    vi.stubEnv("VERCEL", "1");
-    vi.stubEnv("ALPHA_EXCHANGE_PHONE_VERIFICATION_REQUIRED", "false");
+    configureProductionSmsOutage();
     expect(isMarketplacePhoneVerificationRequired()).toBe(false);
     expect(requireMarketplaceVerificationForTrading(base)).toBeNull();
     expect(marketplacePhoneVerificationDestination(base, "/en/usdt-exchange", "en")).toBeNull();
+    expect(base).not.toHaveProperty("verifiedPhone");
+    expect(base).not.toHaveProperty("phoneVerifiedAt");
   });
-  it("keeps production phone verification required when the setting is missing or malformed", () => {
+  it("keeps production phone verification required when the setting is missing or malformed", async () => {
     vi.stubEnv("NODE_ENV", "production");
     vi.stubEnv("VERCEL", "1");
     for (const value of [undefined, "", "no", "0", "true"]) {
-      if (value === undefined) vi.stubEnv("ALPHA_EXCHANGE_PHONE_VERIFICATION_REQUIRED", "");
-      else vi.stubEnv("ALPHA_EXCHANGE_PHONE_VERIFICATION_REQUIRED", value);
+      vi.stubEnv("ALPHA_EXCHANGE_PHONE_VERIFICATION_REQUIRED", value);
       expect(isMarketplacePhoneVerificationRequired()).toBe(true);
+      const blocked = requireMarketplaceVerificationForTrading(base);
+      expect(blocked?.status).toBe(403);
+      expect(await blocked?.json()).toMatchObject({ code: "PHONE_VERIFICATION_REQUIRED" });
     }
+  });
+  it("still denies unconfirmed email during a production SMS outage", async () => {
+    configureProductionSmsOutage();
+    const blocked = requireMarketplaceVerificationForTrading({ ...base, emailVerified: false });
+    expect(blocked?.status).toBe(403);
+    expect(await blocked?.json()).toMatchObject({ code: "EMAIL_VERIFICATION_REQUIRED" });
+  });
+  it("still denies missing adult confirmation during a production SMS outage", async () => {
+    configureProductionSmsOutage();
+    const account = { ...base, ageEligibility: undefined };
+    const blocked = requireMarketplaceVerificationForTrading(account);
+    expect(blocked?.status).toBe(403);
+    expect(await blocked?.json()).toMatchObject({ code: "AGE_CONFIRMATION_REQUIRED" });
+    expect(marketplacePhoneVerificationDestination(account, "/en/usdt-exchange", "en"))
+      .toBe("/en/verify-account?redirectTo=%2Fen%2Fusdt-exchange");
   });
   it("allows delivery testing before enforcing the requirement", () => {
     vi.stubEnv("ALPHA_EXCHANGE_PHONE_VERIFICATION_REQUIRED", "false");
