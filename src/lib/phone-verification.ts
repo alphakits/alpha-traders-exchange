@@ -8,8 +8,10 @@ function isExplicitlyEnabled(value: string | undefined) {
 }
 
 /**
- * Production participants verify their phone or match an exact owner-authorized account. Feature
- * switches are retained only for isolated local development and test fixtures.
+ * Controls whether the OTP capability is exposed to the application.
+ * Production keeps the capability path available; whether verification is
+ * required for access is decided separately by
+ * isMarketplacePhoneVerificationRequired().
  */
 export function isMarketplacePhoneVerificationEnabled(env: NodeJS.ProcessEnv = process.env) {
   if (isProductionSecurityRuntime()) return true;
@@ -21,9 +23,19 @@ export function isMarketplacePhoneVerificationDisabled(env: NodeJS.ProcessEnv = 
   return allowsTestOnlyRuntime() && env.ALPHA_EXCHANGE_SKIP_PHONE_VERIFICATION === "1";
 }
 
-/** Production access fails closed regardless of delivery configuration. */
+/** Explicit production outage policy; isolated local fixtures keep their existing rules. */
+export function isMarketplacePhoneVerificationOutageActive(env: NodeJS.ProcessEnv = process.env) {
+  return isProductionSecurityRuntime()
+    && env.ALPHA_EXCHANGE_PHONE_VERIFICATION_REQUIRED?.trim().toLowerCase() === "false";
+}
+
+/**
+ * Production keeps phone verification required by default. An explicit
+ * `false` is the owner-controlled temporary SMS-outage mode; no missing,
+ * malformed, test-only, or client-controlled value can disable the gate.
+ */
 export function isMarketplacePhoneVerificationRequired(env: NodeJS.ProcessEnv = process.env) {
-  if (isProductionSecurityRuntime()) return true;
+  if (isProductionSecurityRuntime()) return !isMarketplacePhoneVerificationOutageActive(env);
   return isMarketplacePhoneVerificationEnabled(env)
     && isExplicitlyEnabled(env.ALPHA_EXCHANGE_PHONE_VERIFICATION_REQUIRED);
 }
@@ -35,6 +47,7 @@ type MarketplaceVerificationUser = {
   roles?: string[];
   sellerStatus?: string;
   email?: string | null;
+  emailVerified?: boolean;
   verifiedPhone?: string | null;
   phoneVerifiedAt?: string | null;
   ageEligibility?: unknown;
@@ -51,6 +64,8 @@ export function marketplacePhoneVerificationDestination(
   pagePath: string,
   locale: "en" | "ar",
 ) {
-  if (!user || (!needsMarketplacePhoneVerification(user) && !needsAdultConfirmation(user))) return null;
+  if (!user) return null;
+  const needsEmailVerification = isMarketplacePhoneVerificationOutageActive() && user.emailVerified !== true;
+  if (!needsEmailVerification && !needsMarketplacePhoneVerification(user) && !needsAdultConfirmation(user)) return null;
   return phoneVerificationDestinationForPage(user, pagePath, locale);
 }

@@ -104,7 +104,7 @@ describe("demand email eligibility at durable delivery", () => {
     ["notice recipient changed", () => { state.db!.notifications.find(n => n.userId === "seller")!.userId = "seller-two"; }],
     ["recipient email changed", () => { state.db!.users.find(u => u.id === "seller")!.email = "changed@example.test"; }],
     ["recipient email no longer verified", () => { state.db!.users.find(u => u.id === "seller")!.emailVerified = false; }],
-    ["recipient phone verification removed", () => { delete state.db!.users.find(u => u.id === "seller")!.phoneVerifiedAt; }],
+    ["recipient phone verification removed while required", () => { vi.stubEnv("NODE_ENV", "production"); vi.stubEnv("VERCEL", "1"); vi.stubEnv("ALPHA_EXCHANGE_PHONE_VERIFICATION_REQUIRED", "true"); delete state.db!.users.find(u => u.id === "seller")!.phoneVerifiedAt; }],
     ["recipient adult confirmation removed", () => { delete state.db!.users.find(u => u.id === "seller")!.ageEligibility; }],
     ["seller profile hidden", () => { state.db!.users.find(u => u.id === "seller")!.isProfileHidden = true; }],
     ["seller on vacation", () => { state.db!.users.find(u => u.id === "seller")!.availabilityStatus = "vacation"; }],
@@ -117,6 +117,23 @@ describe("demand email eligibility at durable delivery", () => {
     expect(send).not.toHaveBeenCalled();
     expect(await job()).toMatchObject({ status: "suppressed", request_body: null, last_reason: "demand_no_longer_eligible" });
   });
+  it("delivers a queued notice when phone OTP is explicitly disabled for a production provider outage", async () => {
+    const { send } = await delayEmail();
+    const seller = state.db!.users.find(user => user.id === "seller")!;
+    delete seller.phoneVerifiedAt;
+    delete seller.verifiedPhone;
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("VERCEL", "1");
+    vi.stubEnv("ALPHA_EXCHANGE_PHONE_VERIFICATION_REQUIRED", "false");
+    await due();
+    expect(await runMarketplaceEmailSweep(send)).toMatchObject({ sent: 1, suppressed: 0 });
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(seller.phoneVerifiedAt).toBeUndefined();
+    expect(seller.verifiedPhone).toBeUndefined();
+    expect(seller.emailVerified).toBe(true);
+    expect(seller.ageEligibility).toBeDefined();
+  });
+
   it.each(["withdrawn", "listing_changed", "inventory_reserved", "event_changed"])("suppresses a delayed response when %s", async change => {
     const { send } = await delayEmail(true);
     if (change === "withdrawn") state.db!.usdtDemands![0].offers[0].state = "withdrawn";

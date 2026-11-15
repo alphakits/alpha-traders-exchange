@@ -122,6 +122,19 @@ describe("mobile notification preferences route", () => {
     expect(serialized).not.toContain("+972501234567");
   });
 
+  it("hides the phone OTP capability in the explicit production provider-outage mode", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("VERCEL", "1");
+    vi.stubEnv("ALPHA_EXCHANGE_PHONE_VERIFICATION_REQUIRED", "false");
+
+    const response = await GET(request("GET"));
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      capabilities: { phoneVerification: false, sms: false },
+      phone: { verified: true, masked: "+97•••67" },
+    });
+  });
+
   it("updates only allowlisted boolean preference fields", async () => {
     const response = await PATCH(request("PATCH", { email: true, inApp: false }));
 
@@ -173,6 +186,7 @@ describe("mobile notification preferences route", () => {
   it("persists SMS opt-in only when Twilio sending is explicitly enabled", async () => {
     vi.stubEnv("ALPHA_EXCHANGE_TWILIO_SEND_ENABLED", "true");
     vi.stubEnv("ALPHA_EXCHANGE_PHONE_VERIFICATION_ENABLED", "true");
+    vi.stubEnv("ALPHA_EXCHANGE_PHONE_VERIFICATION_REQUIRED", "true");
 
     const response = await PATCH(request("PATCH", { sms: true }));
 

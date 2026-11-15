@@ -1,6 +1,6 @@
-# Mandatory buyer and seller SMS verification
+# Phone contact and optional SMS verification
 
-Production buyers and sellers must verify a unique phone before using Alpha Exchange.
+Production registration continues to collect a valid WhatsApp/phone contact number. Email confirmation remains mandatory before account access and marketplace actions. Phone ownership is not asserted unless a real OTP has been completed. During a Twilio outage, the owner may explicitly disable the phone-verification requirement while keeping email, age confirmation, role, seller approval, and all trade/commission controls intact.
 On 4 October 2026 the owner explicitly authorized exceptions for three existing
 accounts: `alphatradersai@gmail.com`, `claudiahttps11@gmail.com`, and
 `jozenmark834@yahoo.com`. Exceptions require both the exact existing immutable
@@ -9,16 +9,24 @@ Email alone, aliases, recreated accounts, roles, cookies, client booleans, and
 user-editable auth metadata cannot grant an exception. Email verification and
 normal account, role, seller-approval, and commission restrictions still apply.
 
-Every other unverified account goes to `/verify-account` after login; marketplace
-pages, reads, actions, and native APIs enforce the same canonical policy.
+While phone verification is required, every other phone-unverified account goes
+to `/verify-account` after login; marketplace pages, reads, actions, and native
+APIs enforce the same canonical policy.
 The private session DTO reports the authorization result as a boolean and does
 not fabricate `verifiedPhone` or `phoneVerifiedAt` for an exempt account.
 
-Production enforcement does not depend on
-`ALPHA_EXCHANGE_PHONE_VERIFICATION_ENABLED` or
-`ALPHA_EXCHANGE_PHONE_VERIFICATION_REQUIRED`. Missing or false values cannot
-remove the requirement. Those switches and the skip flag remain useful only
-for isolated local fixtures; Vercel deployments reject test-runtime bypasses.
+Production phone verification is required by default. Only an explicit server-side
+`ALPHA_EXCHANGE_PHONE_VERIFICATION_REQUIRED=false` disables the OTP gate during
+a provider outage; missing, malformed, or any other value keeps it required.
+`ALPHA_EXCHANGE_PHONE_VERIFICATION_ENABLED` must also be `false` while the
+provider is disabled because startup environment validation checks it. The
+production access gate is controlled by `ALPHA_EXCHANGE_PHONE_VERIFICATION_REQUIRED`;
+the test-only skip flag cannot bypass deployed security.
+The outage mode has no automatic expiry. Restore OTP enforcement only through an
+explicit configuration change after delivery is working again. An unconfirmed
+email still blocks marketplace API access and protected pages during the outage,
+including for an existing session. Verification and recovery pages remain
+reachable.
 
 ## SMS delivery configuration
 
@@ -27,10 +35,12 @@ server environment, never in source, logs, screenshots, or review notes.
 
 | Variable | Value |
 | --- | --- |
-| `ALPHA_EXCHANGE_PHONE_VERIFICATION_PROVIDER` | `twilio` |
-| `ALPHA_EXCHANGE_TWILIO_OTP_SEND_ENABLED` | `true` when SMS sending is ready |
+| `ALPHA_EXCHANGE_PHONE_VERIFICATION_PROVIDER` | `disabled` during the outage; `twilio` when restored |
+| `ALPHA_EXCHANGE_TWILIO_OTP_SEND_ENABLED` | `false` during the outage; `true` only when SMS sending is ready |
+| `ALPHA_EXCHANGE_PHONE_VERIFICATION_ENABLED` | `false` during the outage so production env validation accepts a disabled provider; `true` when restoring OTP |
+| `ALPHA_EXCHANGE_PHONE_VERIFICATION_REQUIRED` | `false` during the owner-approved outage; `true` to restore OTP enforcement |
 | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` | Existing server-only credentials |
-| `ALPHA_EXCHANGE_TWILIO_SEND_ENABLED` | Independent trade-notification setting |
+| `ALPHA_EXCHANGE_TWILIO_SEND_ENABLED` | `false` during the outage; `true` only when SMS delivery is restored |
 
 The OTP switch permits a member-requested verification code independently of
 trade-notification SMS. It does not subscribe members to notifications.
@@ -87,15 +97,17 @@ and all accounts, contact fields, sessions, trades, and history are preserved.
 Original retired verification values are retained in an inaccessible private
 reconciliation table, and the runtime version advances to invalidate stale writes.
 
-Changing the saved contact number clears verification and requires another SMS.
+Changing the saved contact number clears verification. When phone verification
+is required, the member must complete another SMS verification.
 A forged phone cookie, stale exception boolean, client field, or restored page
 cannot authorize marketplace access. Actual verification persists across
 logout/login and preserves buyer and seller roles.
 
 Verification, recovery, support, legal, and account deletion remain reachable.
-Student browsing outside exchange pages remains available. An SMS delivery
-outage leaves unverified exchange access blocked. Disabling OTP sends pauses
-sending; feature flags do not relax production account access.
+Student browsing outside exchange pages remains available. An SMS delivery outage can be handled by explicitly setting the production
+requirement to `false`; unverified numbers remain unverified and are never
+fabricated as OTP-verified. Email confirmation, age confirmation, role checks,
+seller approval, and transaction controls remain enforced.
 
 ## Validation
 
