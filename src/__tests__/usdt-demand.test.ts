@@ -42,6 +42,22 @@ describe("request rules", () => {
     if (field === "role") Object.assign(user, { role: "guest", roles: [], sellerStatus: "rejected" });
     expect(() => assertDemandActor(user)).toThrow();
   });
+  it("allows confirmed-email Buy Request actors without phone only during the production SMS fallback", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("VERCEL", "1");
+    vi.stubEnv("ALPHA_EXCHANGE_PHONE_VERIFICATION_EMAIL_FALLBACK_UNTIL", new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString());
+    const user = db.users[0];
+    delete user.verifiedPhone;
+    delete user.phoneVerifiedAt;
+
+    expect(() => assertDemandActor(user)).not.toThrow();
+    expect(user).not.toHaveProperty("verifiedPhone");
+    expect(user).not.toHaveProperty("phoneVerifiedAt");
+    expect(createDemand(db, user.id, { terms: demandTestTerms(), operationId: randomUUID() }, demandTestMarket()).requesterId).toBe(user.id);
+
+    user.emailVerified = false;
+    expect(() => assertDemandActor(user)).toThrow();
+  });
   it("supports eligible sellers requesting as buyers", () => expect(createDemand(db, "seller", { terms: demandTestTerms(), operationId: randomUUID() }, demandTestMarket()).requesterId).toBe("seller"));
   it.each(["..", "--"])("rejects a punctuation-only meeting city %s", city => {
     expect(() => createDemand(db, "buyer", { terms: { ...demandTestTerms(), paymentMethod: "Face-to-Face (Meet in Person)", city }, operationId: randomUUID() }, demandTestMarket())).toThrow(/meeting city/);
