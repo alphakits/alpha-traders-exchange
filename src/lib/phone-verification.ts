@@ -8,8 +8,10 @@ function isExplicitlyEnabled(value: string | undefined) {
 }
 
 /**
- * Production participants verify their phone or match an exact owner-authorized account. Feature
- * switches are retained only for isolated local development and test fixtures.
+ * Controls whether the OTP capability is exposed to the application.
+ * Production keeps the capability path available; whether verification is
+ * required for access is decided separately by
+ * isMarketplacePhoneVerificationRequired().
  */
 export function isMarketplacePhoneVerificationEnabled(env: NodeJS.ProcessEnv = process.env) {
   if (isProductionSecurityRuntime()) return true;
