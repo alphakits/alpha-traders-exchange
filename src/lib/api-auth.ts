@@ -70,11 +70,9 @@ export function hasPhoneVerification(user: { id?: string; disabled?: boolean; em
 }
 
 /**
- * Email verification remains independently required. Marketplace routes use
- * requireMarketplaceVerificationForTrading to enforce mandatory SMS verification.
- *
- * This gate uses the server-resolved session user only. It has no cookie,
- * client-state, or environment-flag bypass.
+ * Email verification remains independently required for marketplace actions.
+ * The separate phone gate below follows the fail-closed server-side outage
+ * policy in phone-verification.ts and never fabricates phone ownership.
  */
 export function requireEmailVerificationForTrading(user: { id: string; role: string; emailVerified?: boolean }) {
   if (user.emailVerified === true) return null;
@@ -95,8 +93,9 @@ export function requireEmailVerificationForTrading(user: { id: string; role: str
 }
 
 /**
- * Production actions require a verified phone or an exact owner-authorized account.
- * Local fixture switches cannot disable this boundary on a deployed host.
+ * Adult confirmation always remains required. Phone OTP is required in
+ * production unless the owner explicitly enables the documented provider-
+ * outage mode on the server; local fixture switches cannot alter that policy.
  */
 export function requirePhoneVerificationForTrading(user: { id: string; role: string; roles?: string[]; email?: string; verifiedPhone?: string; phoneVerifiedAt?: string; ageEligibility?: unknown }) {
   if (needsAdultConfirmation(user)) return NextResponse.json({
