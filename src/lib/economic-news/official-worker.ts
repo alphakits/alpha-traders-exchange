@@ -19,7 +19,7 @@ export async function runOfficialNewsSync(now = Date.now()) {
     if (age < 0 || event.timing !== "exact" || newsDayKey(event.scheduledAt, "Asia/Jerusalem") < start) return false;
     // Unpublished reports stay eligible even if the official publisher is late.
     // Check today's published reports each minute, older corrections hourly.
-    return (event.actual === null && !event.outcome) || age < 24 * 60 * 60_000 || minute % 60 === 0;
+    return (event.actual === null && !event.outcome && !event.resultUnavailable) || age < 24 * 60 * 60_000 || minute % 60 === 0;
   });
   const collected = await collectOfficialResults(due, now);
   const checkedAt = Date.now();

@@ -1,5 +1,44 @@
 # USD News delivery
 
+## Recovery verification — 15 November 2026
+
+The official schedule was rechecked through 29 November using the BLS,
+Census, BEA, Federal Reserve and DOL calendars. All 37 existing event IDs and
+their history remain. The current-week anchor is 9–16 November; the schedule
+and results verification timestamps are `2026-11-15T18:00:10Z`.
+
+The curated fallback now includes the already persisted November results:
+CPI 0.4% monthly / core 0.3%; initial claims 200K with the prior week revised
+from 189K to 191K; PPI and core PPI 0.3%, with prior readings revised from
+1.3% to 1.4% and 0.7% to 0.8% respectively. Core PPI is Table 1's FD49104
+(excluding foods and energy), not the series excluding trade services.
+
+BLS explicitly could not publish the October annual CPI comparison because
+October 2025 comparison data were not collected. This is stored as a sourced,
+bilingual `resultUnavailable` notice, with no numeric actual. The UI explains
+the absence instead of promising a pending number; it creates no result alert
+or positive/negative interpretation. Notices require a confirmed publication,
+cannot coexist with numeric actuals or speech outcomes, and stay hidden before
+publication. The runtime parser requires the matching publication/period,
+explicit missing-data explanation, and the annual All-items table cell.
+Headline PPI parsing now captures the official prior-month revision.
+
+Runtime results remain authoritative when newer. An older stored result cannot
+overwrite a newer editorial notice. Published notices are rechecked on the
+same hourly cadence as older numeric results. The 6 November Bowman discussion
+still has no verified transcript/summary; its schedule is not publication proof.
+
+Sources checked:
+
+- https://www.bls.gov/news.release/archives/cpi_11102026.htm
+- https://www.bls.gov/news.release/archives/ppi_11132026.htm (Table 1)
+- https://www.dol.gov/ui/data.pdf (12 November release)
+- https://www.bls.gov/schedule/2026/11_sched.htm
+- https://www.census.gov/economic-indicators/calendar-listview-2026.html
+- https://www.bea.gov/news/schedule
+- https://www.federalreserve.gov/newsevents/2026-november.htm
+- https://oui.doleta.gov/unemploy/archive.asp (including the 25 November exception)
+
 ## Result and integration verification — 1 November 2026
 
 The checked calendar includes Q3 advance GDP at 3.4% (29 October) and Q3

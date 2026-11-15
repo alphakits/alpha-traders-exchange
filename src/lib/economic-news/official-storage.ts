@@ -54,7 +54,7 @@ export function validatedOfficialResult(calendar: WeeklyCalendar, result: Offici
     || Date.parse(result.checkedAt) > now || Date.parse(result.checkedAt) < Date.parse(original.scheduledAt)
     || !/^[a-f0-9]{64}(?::[a-f0-9]{64})?$/.test(result.sourceHash)) return false;
   for (const key of ["agency", "title", "titleAr", "scheduledAt", "timing", "kind", "reference"] as const) if (result.event[key] !== original[key]) return false;
-  if (result.event.actual === null && !result.event.outcome) return false;
+  if (result.event.actual === null && !result.event.outcome && !result.event.resultUnavailable) return false;
   const verified = result.checkedAt > calendar.verifiedAt ? result.checkedAt : calendar.verifiedAt;
   return weeklyCalendarSchema.safeParse({ ...calendar, resultsVerifiedAt: verified, events: [result.event] }).success;
 }
@@ -93,7 +93,7 @@ export function mergeOfficialResults(calendar: WeeklyCalendar, results: Official
   for (const result of results) {
     if (!validatedOfficialResult(calendar, result, now)) continue;
     const index = merged.events.findIndex(event => event.id === result.event.id);
-    if (Date.parse(result.checkedAt) < baseline && (merged.events[index].actual !== null || merged.events[index].outcome)) continue;
+    if (Date.parse(result.checkedAt) < baseline && (merged.events[index].actual !== null || merged.events[index].outcome || merged.events[index].resultUnavailable)) continue;
     merged.events[index] = structuredClone(result.event);
     if (result.checkedAt > (merged.resultsVerifiedAt ?? merged.verifiedAt)) merged.resultsVerifiedAt = result.checkedAt;
   }

@@ -38,6 +38,17 @@ beforeEach(async () => {
 afterAll(async () => { await state.db.close(); });
 
 describe("server-only runtime News results on real PostgreSQL semantics", () => {
+  it("persists an official unavailability notice and protects a newer editorial notice", async () => {
+    const notice: OfficialResult = { ...result, event: { ...result.event, actual: null,
+      resultUnavailable: { en: "The source did not publish this result.", ar: "لم ينشر المصدر هذه النتيجة." } } };
+    expect(await saveOfficialResults(lease, calendar, [notice], now, {})).toBe(1);
+    const feed = await readOfficialWeeklyNewsFeed(now);
+    expect(feed.events.find(e => e.id === claims.id)).toMatchObject({ actual: null, resultUnavailable: notice.event.resultUnavailable });
+    const prepared = structuredClone(calendar);
+    prepared.resultsVerifiedAt = "2026-10-29T12:31:00Z";
+    prepared.events = prepared.events.map(e => e.id === claims.id ? notice.event : e);
+    expect(mergeOfficialResults(prepared, [result], now).events.find(e => e.id === claims.id)?.actual).toBeNull();
+  });
   it("publishes a result immediately through the existing feed without rebuilding the snapshot", async () => {
     expect(await saveOfficialResults(lease, calendar, [result], now, {})).toBe(1);
     const feed = await readOfficialWeeklyNewsFeed(now);

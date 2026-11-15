@@ -21,6 +21,18 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks());
 
 describe("one-minute official News worker", () => {
+  it("rechecks an officially unavailable result hourly without treating it as a late report", async () => {
+    const prepared = structuredClone(calendar);
+    const old = prepared.events.find(e => e.id === "official-dol-initial-claims-20261022")!;
+    old.actual = null;
+    old.resultUnavailable = { en: "Unavailable from source.", ar: "غير متاح من المصدر." };
+    old.publishedAt = old.scheduledAt;
+    mocks.read.mockResolvedValue({ calendar: prepared });
+    await runOfficialNewsSync(releaseTime + 60_000);
+    expect(mocks.collect.mock.calls[0][0].some((e: { id: string }) => e.id === old.id)).toBe(false);
+    await runOfficialNewsSync(Date.parse("2026-10-29T13:00:00Z"));
+    expect(mocks.collect.mock.calls[1][0].some((e: { id: string }) => e.id === old.id)).toBe(true);
+  });
   it("can collect a newly due release on the next minute without any deploy or alert path", async () => {
     vi.spyOn(Date, "now").mockReturnValue(releaseTime + 60_000);
     await runOfficialNewsSync(releaseTime - 1);

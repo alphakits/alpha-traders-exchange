@@ -27,6 +27,7 @@ export function weeklyNewsFeed(calendar: WeeklyCalendar, now: number, eventId?: 
         scheduledAt: event.scheduledAt, currency: "USD" as const, impact: "high" as const,
         actual: event.publishedAt && Date.parse(event.publishedAt) <= now && Date.parse(event.scheduledAt) <= now ? event.actual : null,
         outcome: event.publishedAt && Date.parse(event.publishedAt) <= now && Date.parse(event.scheduledAt) <= now ? event.outcome : undefined,
+        resultUnavailable: event.publishedAt && Date.parse(event.publishedAt) <= now && Date.parse(event.scheduledAt) <= now ? event.resultUnavailable : undefined,
         publishedAt: event.publishedAt && Date.parse(event.publishedAt) <= now ? event.publishedAt : null,
         forecast: null, previous: event.previous, revised: event.revised, reference: event.reference,
         source: sourceNames[event.agency], sourceUrl: event.sourceUrl,

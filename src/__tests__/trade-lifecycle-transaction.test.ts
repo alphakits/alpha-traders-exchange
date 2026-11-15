@@ -155,6 +155,9 @@ describe("canonical trade lifecycle transaction", () => {
     expect(query.mock.calls.some(([sql]) => /^(insert|update|delete)\b/i.test(sql))).toBe(false);
     expect(query.mock.calls.some(([sql]) => /begin|rollback|pg_advisory_xact_lock/.test(sql))).toBe(false);
     const probe = query.mock.calls.find(([sql]) => sql.includes("json_agg"))![0];
+    expect(probe).toContain("from target_trade");
+    expect(probe).toContain("where (select read_only_retry from lifecycle_mode)");
+    expect(probe).not.toContain("lifecycle_requests");
     for (const table of ["notifications", "commissions", "listings", "trust_snapshots"]) expect(probe).not.toContain(`alpha_exchange.${table}`);
   });
 

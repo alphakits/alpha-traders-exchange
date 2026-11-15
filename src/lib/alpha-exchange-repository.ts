@@ -2638,16 +2638,17 @@ export class AlphaExchangeRepository {
       // guard, but cannot write. Its response needs the canonical request,
       // identities, evidence and disputes, not unrelated financial/history rows.
       // Keep legacy unnumbered records on the complete read path.
-      const retryModeSql = trustReconciliation ? `with lifecycle_mode as materialized (select exists (
-        select 1 from alpha_exchange.purchase_requests where payload->'trustReconciliation'->>'requestedAt' is not null
-          and payload->'trustReconciliation'->>'reconciledAt' is null
-      ) as has_pending_trust) ` : lifecycleProjection ? `with target_trade as materialized (
-        select id, seller_id, buyer_id, status, payload from alpha_exchange.purchase_requests where id = $1
+      const targetModeSql = `with target_trade as materialized (
+        select id, seller_id, buyer_id, status, payload, sort_index from alpha_exchange.purchase_requests where id = $1
       ), lifecycle_mode as materialized (select exists (
         select 1 from target_trade
           where payload->>'displayNumber' ~ '^[1-9][0-9]*$'
           and (status = $2 or ($2 = 'completed' and status in ('review_open', 'completed', 'locked')))
-      ) as read_only_retry), lifecycle_requests as materialized (
+      ) as read_only_retry)`;
+      const retryModeSql = trustReconciliation ? `with lifecycle_mode as materialized (select exists (
+        select 1 from alpha_exchange.purchase_requests where payload->'trustReconciliation'->>'requestedAt' is not null
+          and payload->'trustReconciliation'->>'reconciledAt' is null
+      ) as has_pending_trust) ` : lifecycleProjection ? `${targetModeSql}, lifecycle_requests as materialized (
         select * from alpha_exchange.purchase_requests where id = $1
           or (not (select read_only_retry from lifecycle_mode) and (
             seller_id = (select seller_id from target_trade)
@@ -2656,8 +2657,9 @@ export class AlphaExchangeRepository {
           ))
       ) ` : "";
       const retryReadTables = new Set<SnapshotTableName>(["users", "seller_applications", "purchase_requests", "evidence", "disputes"]);
-      const authorityFilter = `where id = $3
-                or id in (select seller_id from target_trade union select buyer_id from target_trade)
+      const retryAuthorityFilter = `where id = $3
+                or id in (select seller_id from target_trade union select buyer_id from target_trade)`;
+      const authorityFilter = `${retryAuthorityFilter}
                 or (not (select read_only_retry from lifecycle_mode)${scopedParticipantUsers ? ` and (
                   payload->>'role' in ('owner', 'admin')
                   or payload->'roles' ?| array['owner', 'admin']
@@ -2674,12 +2676,12 @@ export class AlphaExchangeRepository {
         or exists (select 1 from alpha_exchange.listings where coalesce(payload->>'displayNumber', '') !~ '^[1-9][0-9]{0,14}$')`;
       const columns = (onlyCommittedRetry = false) => selectedNames.filter(name => !onlyCommittedRetry || retryReadTables.has(name)).map(name => {
         const filteredListings = scopePaymentListings && !onlyCommittedRetry;
-        const filter = scopedAuthorityUsers && name === "users" ? (filteredListings ? "" : authorityFilter)
+        const filter = scopedAuthorityUsers && name === "users" ? (onlyCommittedRetry ? retryAuthorityFilter : filteredListings ? "" : authorityFilter)
           : filteredListings && name === "listings" ? listingFilter : filters[name] ?? "";
         // Compute the canonical request dependency set once per statement.
         // Both account authorization and request state consume that same set,
         // instead of rescanning histories separately for each participant side.
-        const source = lifecycleProjection && name === "purchase_requests" ? "lifecycle_requests"
+        const source = lifecycleProjection && name === "purchase_requests" ? (onlyCommittedRetry ? "target_trade" : "lifecycle_requests")
           : filteredListings && name === "users" ? "lifecycle_users" : `alpha_exchange.${name}`;
         const aggregate = `coalesce((select json_agg(json_build_object('payload', payload, 'sort_index', sort_index) order by sort_index asc) from ${source} ${filter}), '[]'::json)`;
         const projection = trustReconciliation ? `case when (select has_pending_trust from lifecycle_mode) then ${aggregate} else '[]'::json end`
@@ -2706,8 +2708,12 @@ export class AlphaExchangeRepository {
           ? `case when (select read_only_retry from lifecycle_mode) then ${identities} else '[]'::json end` : identities} as identity_directory`;
         const usersCte = scopePaymentListings && !onlyCommittedRetry
           ? `, lifecycle_users as materialized (select id, payload, sort_index from alpha_exchange.users ${authorityFilter}) ` : "";
-        return `${retryModeSql}${usersCte}select
-          (select version::text from alpha_exchange.runtime_meta where singleton = true) as version${trustReconciliation ? ", (select has_pending_trust from lifecycle_mode) as has_pending_trust" : lifecycleProjection ? ", (select read_only_retry from lifecycle_mode) as read_only_retry" : ""}${selected.length ? `,\n${selected.join(",\n")}` : ""}${identityColumn}${onlyCommittedRetry ? "" : boundsSql}`;
+        // A changing command needs no data at all from its optimistic probe.
+        // A committed retry needs only the target (never sibling histories).
+        // The separate locked statement still takes a fresh snapshot of every
+        // dependency before any decision that could mutate state.
+        return `${onlyCommittedRetry ? targetModeSql + " " : retryModeSql}${usersCte}select
+          (select version::text from alpha_exchange.runtime_meta where singleton = true) as version${trustReconciliation ? ", (select has_pending_trust from lifecycle_mode) as has_pending_trust" : lifecycleProjection ? ", (select read_only_retry from lifecycle_mode) as read_only_retry" : ""}${selected.length ? `,\n${selected.join(",\n")}` : ""}${identityColumn}${onlyCommittedRetry ? " where (select read_only_retry from lifecycle_mode)" : boundsSql}`;
       };
       let row: ReadRow | undefined;
       // A retry of committed state is one atomic read, still followed by every

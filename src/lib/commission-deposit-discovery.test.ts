@@ -10,7 +10,7 @@ const bsc = (extra = {}) => ({ hash: `0x${TX}`, from: "sender", to: BSC, value: 
 const internal = (extra = {}) => ({ id: "1234567890", txId: "410678442518", coin: "USDT", network: "TRX", address: TRON, amount: "5.00000100", status: 1, transferType: 1, insertTime: Date.now(), travelRuleStatus: 0, ...extra });
 const enableBinance = () => { vi.stubEnv("ALPHA_EXCHANGE_BINANCE_READ_API_KEY", "read-key"); vi.stubEnv("ALPHA_EXCHANGE_BINANCE_READ_API_SECRET", "read-secret"); };
 beforeEach(() => { vi.unstubAllEnvs(); vi.stubEnv("ALPHA_EXCHANGE_ETHERSCAN_API_KEY", "index-key"); });
-afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
+afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); vi.useRealTimers(); });
 describe("TRON deposit discovery", () => {
   it("reads subsequent pages and keeps credentials on the configured host", async () => {
     vi.stubEnv("ALPHA_EXCHANGE_TRONGRID_API_KEY", "tron-key");
@@ -121,6 +121,7 @@ describe("Binance read-only internal deposit verification", () => {
     enableBinance(); vi.stubGlobal("fetch", vi.fn(async (input, init) => {
       const url = new URL(String(input)); const sig = url.searchParams.get("signature"); url.searchParams.delete("signature");
       expect(sig).toBe(createHmac("sha256", "read-secret").update(url.searchParams.toString()).digest("hex"));
+      expect(url.searchParams.has("status")).toBe(false);
       expect(url.origin + url.pathname).toBe("https://api.binance.com/sapi/v1/capital/deposit/hisrec"); expect(init.method).toBe("GET"); expect(init.redirect).toBe("error");
       expect(init.headers["X-MBX-APIKEY"]).toBe("read-key"); return json([internal()]);
     }));
@@ -144,6 +145,7 @@ describe("Binance read-only internal deposit verification", () => {
 
     expect(scan).toMatchObject({ configured: true, complete: true, pages: 2 });
     expect(scan.deposits).toHaveLength(201);
+    expect(scan.diagnostics).toMatchObject({ observedRows: 201, acceptedRows: 201, rejectedRows: 0, rejectedReasons: {} });
     expect(requests.map((url) => url.searchParams.get("offset"))).toEqual(["0", "200"]);
     expect(requests[1].searchParams.get("startTime")).toBe(requests[0].searchParams.get("startTime"));
     expect(requests[1].searchParams.get("endTime")).toBe(requests[0].searchParams.get("endTime"));
@@ -193,7 +195,8 @@ describe("Binance read-only internal deposit verification", () => {
 
     const scan = await scanBinanceCommissionDeposits(Date.now() - 6 * 89 * 24 * 60 * 60_000);
 
-    expect(scan).toEqual({ configured: true, complete: false, pages: 5, deposits: [] });
+    expect(scan).toMatchObject({ configured: true, complete: false, pages: 5, deposits: [],
+      diagnostics: { observedRows: 0, acceptedRows: 0, rejectedRows: 0, latestObservedTimestamp: null, latestAcceptedTimestamp: null } });
     expect(fetchMock).toHaveBeenCalledTimes(5);
   });
   it.each([
@@ -225,5 +228,122 @@ describe("Binance read-only internal deposit verification", () => {
     expect((await verifyBinanceInternalCommissionDeposit({ ...input, signature: "binance-deposit:987654321" })).verified).toBe(false);
     vi.stubGlobal("fetch", vi.fn(async () => { throw new Error("secret provider detail"); }));
     const result = await verifyBinanceInternalCommissionDeposit(input); expect(result).toMatchObject({ verified: false, pending: true }); expect(result.notes).not.toContain("secret");
+  });
+  describe("bounded receiving-history diagnostics", () => {
+    beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(new Date("2026-11-04T17:53:00.000Z")); enableBinance(); });
+    it("distinguishes an empty response from nonempty history containing only non-successful deposits", async () => {
+      const timestamp = Date.now() - 25_000;
+      vi.stubGlobal("fetch", vi.fn(async (input) => {
+        expect(new URL(String(input)).searchParams.has("status")).toBe(false);
+        return json([internal({ status: 0, insertTime: timestamp }), internal({ status: 6, insertTime: timestamp }), internal({ status: 8, insertTime: timestamp })]);
+      }));
+      const withheld = await scanBinanceCommissionDeposits(Date.now() - 60_000);
+      expect(withheld).toMatchObject({ complete: true, deposits: [], diagnostics: {
+        observedRows: 3, acceptedRows: 0, rejectedRows: 3, recentObservedRows: 3, recentAcceptedRows: 0, recentRejectedRows: 3,
+        rejectedReasons: { status_pending: 1, status_credited_locked: 1, status_waiting_confirmation: 1 },
+        recentRejectedReasons: { status_pending: 1, status_credited_locked: 1, status_waiting_confirmation: 1 },
+        latestObservedTimestamp: timestamp, latestAcceptedTimestamp: null,
+        latestRejectedAtByReason: { status_pending: timestamp, status_credited_locked: timestamp, status_waiting_confirmation: timestamp },
+      } });
+      vi.stubGlobal("fetch", vi.fn(async () => json([])));
+      expect(await scanBinanceCommissionDeposits(Date.now() - 60_000)).toMatchObject({ complete: true, deposits: [], diagnostics: {
+        observedRows: 0, acceptedRows: 0, rejectedRows: 0, rejectedReasons: {}, recentRejectedReasons: {},
+        latestObservedTimestamp: null, latestAcceptedTimestamp: null, latestRejectedAtByReason: {},
+      } });
+    });
+    it.each([
+      [{ status: 2 }, "status_rejected"], [{ status: 7 }, "status_wrong_deposit"], [{ status: "1" }, "invalid_status"],
+      [{ coin: "USDC" }, "asset_mismatch"], [{ network: "ETH" }, "unsupported_network"],
+      [{ address: "wrong" }, "destination_mismatch"], [{ transferType: 2 }, "unsupported_transfer_type"],
+      [{ transferType: "1" }, "unsupported_transfer_type"], [{ travelRuleStatus: 1 }, "travel_rule_not_cleared"],
+      [{ travelRuleStatus: "0" }, "travel_rule_not_cleared"], [{ amount: "5.00000100001" }, "invalid_amount"],
+      [{ amount: 5.000001 }, "invalid_amount"], [{ amount: "0" }, "invalid_amount"],
+      [{ id: "not-a-deposit-id" }, "invalid_reference"], [{ id: 1234567890 }, "invalid_reference"],
+      [{ txId: `${TX}:0`, transferType: 0 }, "invalid_reference"],
+      [{ insertTime: "not-a-time" }, "invalid_timestamp"], [{ insertTime: 1 }, "before_scan_window"],
+    ])("reports only a fixed rejection reason without widening acceptance: %j", async (extra, reason) => {
+      vi.stubGlobal("fetch", vi.fn(async () => json([internal(extra)])));
+      expect(await scanBinanceCommissionDeposits(Date.now() - 60_000)).toMatchObject({ complete: true, deposits: [], diagnostics: {
+        observedRows: 1, acceptedRows: 0, rejectedRows: 1, rejectedReasons: { [String(reason)]: 1 },
+      } });
+    });
+    it.each([0, 6, 8])("does not verify a receipt with observed status %s", async (status) => {
+      vi.stubGlobal("fetch", vi.fn(async () => json([internal({ status })])));
+      expect(await verifyBinanceInternalCommissionDeposit({ signature: "binance-deposit:1234567890", network: "TRC20", recipient: TRON,
+        amount: 5.000001, earliestTimestamp: Date.now() - 60_000 })).toMatchObject({ verified: false, pending: true });
+    });
+    it("preserves valid internal and public receipt identities while counting rejected observations across pages", async () => {
+      const timestamp = Date.now() - 30_000;
+      const newerTimestamp = timestamp + 1_000;
+      vi.stubGlobal("fetch", vi.fn(async (input) => {
+        const offset = Number(new URL(String(input)).searchParams.get("offset"));
+        return json(offset === 0 ? Array.from({ length: 200 }, () => internal({ network: "ETH", insertTime: timestamp }))
+          : [internal({ insertTime: timestamp }), internal({ network: "BSC", address: BSC.toUpperCase(), txId: TX.toUpperCase(), transferType: 0, insertTime: newerTimestamp })]);
+      }));
+      const scan = await scanBinanceCommissionDeposits(Date.now() - 60_000);
+      expect(scan).toMatchObject({ complete: true, pages: 2, diagnostics: {
+        observedRows: 202, acceptedRows: 2, rejectedRows: 200, recentObservedRows: 202, recentAcceptedRows: 2, recentRejectedRows: 200,
+        rejectedReasons: { unsupported_network: 200 }, recentRejectedReasons: { unsupported_network: 200 },
+        latestObservedTimestamp: newerTimestamp, latestAcceptedTimestamp: newerTimestamp,
+        latestRejectedAtByReason: { unsupported_network: timestamp },
+      } });
+      expect(scan.deposits).toEqual([
+        { network: "TRC20", signature: "binance-deposit:1234567890", payer: "", amountMicros: 5_000_001, timestamp },
+        { network: "BEP20", signature: `0x${TX}`, payer: "", amountMicros: 5_000_001, timestamp: newerTimestamp },
+      ]);
+    });
+    it("retains rejected-row paging and incomplete-history bounds", async () => {
+      vi.stubGlobal("fetch", vi.fn(async (input) => {
+        const offset = Number(new URL(String(input)).searchParams.get("offset"));
+        return json(offset < 1_000 ? Array.from({ length: 200 }, () => internal({ status: 6 })) : [internal()]);
+      }));
+      const since = Date.now() - 60_000;
+      const first = await scanBinanceCommissionDeposits(since, { until: Date.now() });
+      expect(first).toMatchObject({ complete: false, pages: 5, deposits: [], continuation: { offset: 1_000 }, diagnostics: {
+        observedRows: 1_000, acceptedRows: 0, rejectedRows: 1_000, rejectedReasons: { status_credited_locked: 1_000 },
+      } });
+      const next = await scanBinanceCommissionDeposits(since, first.continuation);
+      expect(next).toMatchObject({ complete: true, pages: 1, diagnostics: { observedRows: 1, acceptedRows: 1, rejectedRows: 0 } });
+      expect(next.deposits).toHaveLength(1);
+    });
+    it("counts recent rows against scan-start time and retains valid older rejection times", async () => {
+      const now = Date.now();
+      const recentBoundary = now - 15 * 60_000;
+      const older = recentBoundary - 1;
+      vi.stubGlobal("fetch", vi.fn(async () => json([
+        internal({ network: "ETH", insertTime: recentBoundary }), internal({ network: "ETH", insertTime: older }),
+        internal({ status: 6, insertTime: older - 1 }), internal({ address: "wrong", insertTime: now + 1 }),
+        internal({ insertTime: now + 10 * 60_000 }), internal({ insertTime: "invalid" }),
+        internal({ insertTime: now - 2 * 60_000, completeTime: now }),
+      ])));
+      const scan = await scanBinanceCommissionDeposits(now - 60_000);
+      expect(scan).toMatchObject({ complete: true, deposits: [], diagnostics: {
+        observedRows: 7, acceptedRows: 0, rejectedRows: 7, observedAt: now, recentWindowMs: 900_000,
+        recentObservedRows: 2, recentRejectedRows: 2, recentRejectedReasons: { unsupported_network: 1, before_scan_window: 1 },
+        latestObservedTimestamp: now + 1, latestAcceptedTimestamp: null,
+        latestRejectedAtByReason: { unsupported_network: recentBoundary, status_credited_locked: older - 1,
+          destination_mismatch: now + 1, before_scan_window: now - 2 * 60_000 },
+      } });
+      expect(scan.diagnostics!.latestRejectedAtByReason).not.toHaveProperty("invalid_timestamp");
+      vi.stubGlobal("fetch", vi.fn(async () => json([internal({ network: "ETH", insertTime: now - 61 * 60_000 })])));
+      expect(await scanBinanceCommissionDeposits(now - 2 * 60 * 60_000, { until: now - 60 * 60_000 })).toMatchObject({ diagnostics: {
+        observedRows: 1, recentObservedRows: 0, recentRejectedReasons: {}, latestRejectedAtByReason: { unsupported_network: now - 61 * 60_000 },
+      } });
+    });
+    it("does not put raw account records, arbitrary provider text, credentials or signed requests into diagnostics", async () => {
+      const privateValues = ["raw-provider-private-value", "private-account-address", "private-transaction-reference", "777.123456", "private-status", "read-key", "read-secret"];
+      vi.stubGlobal("fetch", vi.fn(async () => json([
+        internal({ amount: "777.123456", privateField: privateValues[0] }),
+        internal({ address: privateValues[1], txId: privateValues[2], amount: "777.123456" }),
+        internal({ status: privateValues[4], network: privateValues[0] }), null, "raw-provider-private-value", [],
+      ])));
+      const scan = await scanBinanceCommissionDeposits(Date.now() - 60_000);
+      expect(scan.deposits).toHaveLength(1);
+      expect(scan.diagnostics).toMatchObject({ observedRows: 6, acceptedRows: 1, rejectedRows: 5,
+        rejectedReasons: { destination_mismatch: 1, invalid_status: 1, malformed_record: 3 } });
+      const serialized = JSON.stringify(scan.diagnostics);
+      for (const value of [...privateValues, TRON, TX, "1234567890", "https://", "signature=", "X-MBX-APIKEY"]) expect(serialized).not.toContain(value);
+      expect(Object.values(scan.diagnostics!.rejectedReasons).every(value => Number.isSafeInteger(value))).toBe(true);
+    });
   });
 });

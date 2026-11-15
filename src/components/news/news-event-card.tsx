@@ -19,6 +19,7 @@ export function EventCard({ event, locale, timeZone, now, selected = false, week
   const status = newsEventStatus(event, now);
   const released = status === "released";
   const published = status === "published";
+  const unavailable = status === "not_published";
   const meaning = newsResultMeaning(event, locale, now);
   const resultTone = { positive: styles.resultPositive, negative: styles.resultNegative, neutral: styles.resultNeutral }[meaning.tone];
   const toneLabel = isAr ? { positive: "إيجابي", negative: "سلبي", neutral: "محايد" }[meaning.tone]
@@ -29,18 +30,18 @@ export function EventCard({ event, locale, timeZone, now, selected = false, week
   const title = newsEventTitle(event, locale);
   const labels = isAr ? {
     released: "نتيجة مؤكدة", scheduled: "قادم", awaiting: weekly ? "النتيجة غير مضافة" : "بانتظار النتيجة",
-    tentative: "الموعد غير مؤكد", no_numeric_result: "بانتظار ملخص مؤكد", published: "صدر الملخص",
+    tentative: "الموعد غير مؤكد", no_numeric_result: "بانتظار ملخص مؤكد", published: "صدر الملخص", not_published: "لم ينشر المصدر النتيجة",
   } : {
     released: "Confirmed result", scheduled: "Upcoming", awaiting: weekly ? "Result not added" : "Awaiting result",
-    tentative: "Time unconfirmed", no_numeric_result: "Summary pending", published: "Summary available",
+    tentative: "Time unconfirmed", no_numeric_result: "Summary pending", published: "Summary available", not_published: "Not published by source",
   };
   const resultItems = [
     { label: isAr ? "النتيجة الفعلية" : "Actual", value: released ? event.actual : null, tone: released ? resultTone : styles.missing, result: true,
-      missing: isAr ? (status === "awaiting" ? "غير مضافة" : "لم تصدر بعد") : (status === "awaiting" ? "Not added" : "Pending") },
+      missing: unavailable ? (isAr ? "لم تُنشر" : "Not published") : isAr ? (status === "awaiting" ? "غير مضافة" : "لم تصدر بعد") : (status === "awaiting" ? "Not added" : "Pending") },
     { label: isAr ? "المتوقع" : "Forecast", value: event.forecast, tone: styles.forecast, missing: isAr ? "غير متاح" : "Not available" },
     { label: isAr ? "السابق" : "Previous", value: event.previous, tone: styles.previous, missing: isAr ? "غير متاح" : "Not available" },
   ];
-  const action = published ? (isAr ? "ماذا حدث؟" : "What happened") : released || status === "awaiting"
+  const action = published || unavailable ? (isAr ? "ماذا حدث؟" : "What happened") : released || status === "awaiting"
     ? (isAr ? "عرض النتائج" : "View results")
     : event.kind === "speech" ? (isAr ? "عرض التفاصيل" : "View details")
       : (isAr ? "عرض التوقعات" : "View expectations");
@@ -71,6 +72,7 @@ export function EventCard({ event, locale, timeZone, now, selected = false, week
         </summary>
         <div className={styles.expandedContent}>
           {published ? <div className={styles.outcome}><h4>{isAr ? "ماذا حدث؟" : "What happened"}</h4><p>{event.outcome?.[locale]}</p></div> : null}
+          {unavailable ? <div className={styles.outcome}><h4>{isAr ? "لماذا لا توجد نتيجة؟" : "Why no result?"}</h4><p>{event.resultUnavailable?.[locale]}</p></div> : null}
           {event.kind === "release" || released ? (
             <dl className={styles.results} style={{ gridTemplateColumns: `repeat(${resultItems.length}, minmax(0, 1fr))` }}>
               {resultItems.map((item) => <div key={item.label} className={styles.resultCell}>

@@ -74,6 +74,26 @@ function tableRow(html: string, label: RegExp): string[] | null {
   return matches.find(cells => cells.length > 1 && label.test(cells[0])) ?? null;
 }
 
+function annualCpiUnavailableInTableA(html: string, month: string, year: string): boolean {
+  // A dash only proves absence for the annual column in the known Table A
+  // layout. Never borrow a header or an All items row from another table.
+  const tables = [...html.matchAll(/<table\b[^>]*>[^]*?<\/table>/gi)].map(match => match[0])
+    .filter(table => {
+      const caption = /<caption\b[^>]*>([^]*?)<\/caption>/i.exec(table)?.[1];
+      return caption && /^Table A\. Percent changes in CPI for All Urban Consumers \(CPI-U\): U\.S\. city average$/i.test(officialText(caption));
+    });
+  if (tables.length !== 1 || !months.includes(month)) return false;
+  const table = tables[0];
+  const headerRows = [...table.matchAll(/<tr\b[^>]*>([^]*?)<\/tr>/gi)]
+    .map(row => [...row[1].matchAll(/<th\b[^>]*>([^]*?)<\/th>/gi)].map(cell => officialText(cell[1])));
+  const annualHeader = new RegExp(`^Un-?\\s*adjusted 12-mos\\. ended ${esc(month.slice(0, 3))}\\.? ${esc(year)}$`, "i");
+  const header = headerRows.find(cells => cells.some(cell => /^Seasonally adjusted changes from preceding month$/i.test(cell)));
+  if (header?.length !== 3 || !annualHeader.test(header[2])) return false;
+  const allItems = tableRow(table, /^All items$/i);
+  return allItems?.length === 9 && allItems.slice(1, 8).every(value => /^-?\d+(?:\.\d+)?$/.test(value))
+    && allItems[8] === "-";
+}
+
 // Fail closed when publication identity, period, units, or a known series is missing.
 // These parsers never use an unrelated number or a changed current-release page for an older event.
 export function parseOfficialResult(event: CalendarEvent, document: OfficialDocument, now: number, supplementary?: OfficialDocument): OfficialResult | null {
@@ -87,6 +107,7 @@ export function parseOfficialResult(event: CalendarEvent, document: OfficialDocu
   let previous = event.previous;
   let revised: string | null = null;
   let outcome: CalendarEvent["outcome"];
+  let resultUnavailable: CalendarEvent["resultUnavailable"];
   if (key === "official-dol-initial-claims") {
     const ref = /^Week ending (\d{1,2}) (\w{3}) (\d{4})$/.exec(reference);
     const monthName = ref && months.find(name => name.startsWith(ref[2]));
@@ -125,7 +146,18 @@ export function parseOfficialResult(event: CalendarEvent, document: OfficialDocu
       if (!m || !new RegExp(`${family} -+ ${esc(reference)}\\b`, "i").test(text)) return null;
       if (key.endsWith("core-cpi-mom")) actual = change(text, `index for all items less food and energy ${percent} in ${m}`);
       else if (key.endsWith("cpi-mom")) actual = change(text, `Consumer Price Index for All Urban Consumers \\(CPI-U\\) ${percent} on a seasonally adjusted basis in ${m}`);
-      else if (key.endsWith("cpi-yoy")) actual = change(text, `Over the last 12 months, the all items index ${percent} before seasonal adjustment`);
+      else if (key.endsWith("cpi-yoy")) {
+        actual = change(text, `Over the last 12 months, the all items index ${percent} before seasonal adjustment`);
+        const comparison = `${m} ${Number(month![2]) - 1}`;
+        if (actual === null && annualCpiUnavailableInTableA(document.html ?? "", m, month![2])
+          && new RegExp(`BLS did not collect survey data for ${esc(comparison)} because of a lapse in appropriations`, "i").test(text)
+          && new RegExp(`BLS cannot publish 12-month percent changes for ${esc(reference)}\\b`, "i").test(text)) {
+          resultUnavailable = {
+            en: `BLS did not publish the ${reference} annual CPI change because the comparison data for ${comparison} were not collected.`,
+            ar: "لم ينشر مكتب إحصاءات العمل التغير السنوي لمؤشر أسعار المستهلكين لهذه الفترة لعدم جمع بيانات فترة المقارنة من العام السابق.",
+          };
+        }
+      }
       else if (key.endsWith("core-ppi-mom")) {
         const html = supplementary?.html ?? "";
         // Table 1: FD49104 excludes foods/energy, NOT trade services. Six numeric columns follow the weight.
@@ -136,7 +168,11 @@ export function parseOfficialResult(event: CalendarEvent, document: OfficialDocu
         if (row?.length === 10 && row[1] === "FD" && row[2] === "49104" && /Seasonally adjusted 1-month/i.test(header)
           && last?.[1].toLowerCase() === m.slice(0, 3).toLowerCase() && last[2] === month![2]
           && row.slice(3).every(v => /^-?\d+(?:\.\d+)?$/.test(v))) { actual = `${row[9]}%`; revised = `${row[8]}%`; }
-      } else if (key.endsWith("ppi-mom")) actual = change(text, `Producer Price Index for final demand ${percent} in ${m}, seasonally adjusted`);
+      } else if (key.endsWith("ppi-mom")) {
+        actual = change(text, `Producer Price Index for final demand ${percent} in ${m}, seasonally adjusted`);
+        const previousMonth = months[(months.indexOf(m) + 11) % 12];
+        revised = change(text, `Final demand prices ${percent} in ${previousMonth}`);
+      }
       else if (key.endsWith("nfp")) {
         const lead = new RegExp(`Total nonfarm payroll employment ([^.]{0,180})`, "i").exec(text)?.[1];
         if (lead?.includes(m)) {
@@ -191,8 +227,8 @@ export function parseOfficialResult(event: CalendarEvent, document: OfficialDocu
       }
     }
   }
-  if (actual === null && !outcome) return null;
-  return { event: { ...event, actual, previous, revised: revised ?? event.revised, ...(outcome ? { outcome } : {}),
+  if (actual === null && !outcome && !resultUnavailable) return null;
+  return { event: { ...event, actual, previous, revised: revised ?? event.revised, resultUnavailable, ...(outcome ? { outcome } : {}),
     publishedAt: event.scheduledAt, sourceUrl: document.url }, sourceHash: supplementary ? `${document.sha256}:${supplementary.sha256}` : document.sha256,
   checkedAt: new Date(now).toISOString().replace(/\.\d{3}Z$/, "Z") };
 }

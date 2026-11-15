@@ -27,6 +27,18 @@ describe("USD News page", () => {
     vi.stubGlobal("fetch", vi.fn().mockImplementation(async () => new Response(JSON.stringify(feed))));
   });
   afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); vi.clearAllMocks(); vi.restoreAllMocks(); });
+  it.each(["en", "ar"] as const)("explains an officially unpublished result without showing a pending or numeric reading in %s", locale => {
+    const resultUnavailable = { en: "BLS could not publish the annual comparison.", ar: "تعذر على مكتب إحصاءات العمل نشر المقارنة السنوية." };
+    const unavailable = { ...event, scheduledAt: "2026-09-22T12:30:00Z", publishedAt: "2026-09-22T12:30:00Z", resultUnavailable, forecast: null };
+    render(<NewsPage locale={locale} initialFeed={{ ...feed, mode: "weekly", events: [unavailable] }} initialNow={now} />);
+    const card = document.querySelector("article")!;
+    expect(card.querySelector("summary")?.textContent).toContain(locale === "en" ? "Not published by source" : "لم ينشر المصدر النتيجة");
+    fireEvent.click(card.querySelector("summary")!);
+    expect(card.textContent).toContain(resultUnavailable[locale]);
+    expect(card.querySelector("dd")?.textContent).toBe(locale === "en" ? "Not published" : "لم تُنشر");
+    expect(card.querySelector("[data-result-tone]")).toBeNull();
+    expect(card.textContent).not.toContain(locale === "en" ? "The result will appear" : "ستظهر النتيجة");
+  });
   it.each(["en", "ar"] as const)("uses consistent result colors in closed and opened cards in %s", locale => {
     const past = "2026-09-22T12:30:00Z";
     const events = [
