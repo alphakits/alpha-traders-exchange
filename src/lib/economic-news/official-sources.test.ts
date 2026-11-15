@@ -17,6 +17,40 @@ const durable = "For release at 8:30 AM EDT Tuesday, October 27, 2026 MONTHLY AD
 const retail = "For release at 8:30 AM EDT Thursday, October 15, 2026 ADVANCE MONTHLY SALES FOR RETAIL AND FOOD SERVICES, SEPTEMBER 2026 Table 1. Retail & food services, total 600 601 602 603 604 605 Table 2. Estimated Percent Change, adjusted for seasonal variations Retail & food services, total 0.8 6.3 1.3 5.6 1.2 5.5 Total (excl. motor vehicle & parts) 0.9 7.2 1.4 6.3 1.3 6.2 Table 3.";
 
 describe("strict official publication parsing (recorded-format fixtures, no live network)", () => {
+  it("distinguishes an officially unavailable annual CPI result from an unpublished report", () => {
+    const e = event("bls-cpi-yoy", { scheduledAt: "2026-11-10T13:30:00Z", reference: "October 2026" });
+    const text = "Transmission embargoed until 8:30 a.m. (ET) Tuesday, November 10, 2026 CONSUMER PRICE INDEX - OCTOBER 2026 BLS did not collect survey data for October 2025 because of a lapse in appropriations. BLS cannot publish 12-month percent changes for October 2026 for indexes where October 2025 data are unavailable.";
+    const html = '<table><caption>Table A. Percent changes in CPI for All Urban Consumers (CPI-U): U.S. city average</caption>'
+      + '<thead><tr><th rowspan="2"></th><th colspan="7">Seasonally adjusted changes from preceding month</th>'
+      + '<th rowspan="2">Un-<br>adjusted<br>12-mos.<br>ended<br>Oct.<br>2026</th></tr>'
+      + '<tr><th>Apr. 2026</th><th>May 2026</th><th>Jun. 2026</th><th>Jul. 2026</th><th>Aug. 2026</th><th>Sep. 2026</th><th>Oct. 2026</th></tr></thead>'
+      + '<tbody><tr><th>All items</th><td>0.6</td><td>0.5</td><td>-0.4</td><td>0.1</td><td>0.4</td><td>0.6</td><td>0.4</td><td>-</td></tr></tbody></table>';
+    const parsed = parseOfficialResult(e, document(text, html), now)?.event;
+    expect(parsed).toMatchObject({ actual: null, publishedAt: e.scheduledAt });
+    expect(parsed?.resultUnavailable?.en).toContain("October 2025");
+    expect(parsed?.resultUnavailable?.ar).toBeTruthy();
+    expect(parseOfficialResult(e, document(text, html.replace("<td>-</td>", "<td>3.7</td>")), now)).toBeNull();
+    expect(parseOfficialResult(e, document(text.replace("October 2025", "September 2025"), html), now)).toBeNull();
+    expect(parseOfficialResult(e, document(text), now)).toBeNull();
+    expect(parseOfficialResult(e, document(text, html), Date.parse(e.scheduledAt) - 1)).toBeNull();
+    for (const changed of [
+      html.replace("Table A.", "Table B."),
+      html.replace("Oct.<br>2026", "Sep.<br>2026"),
+      html.replace("Oct.<br>2026", "Oct.<br>2025"),
+      html.replace("12-mos.", "1-mo."),
+      html.replace("<td>0.6</td>", ""),
+      html.replace("<td>0.6</td>", "<td>-</td>"),
+      html.replace("<caption>", "<div>").replace("</caption>", "</div>"),
+      '<table><tr><th>All items</th><td>3.7</td><td>-</td></tr></table>',
+      html.replace("All items", "Food") + '<table><tr><th>All items</th><td>0.6</td><td>0.5</td><td>-0.4</td><td>0.1</td><td>0.4</td><td>0.6</td><td>0.4</td><td>-</td></tr></table>',
+    ]) expect(parseOfficialResult(e, document(text, changed), now)).toBeNull();
+  });
+  it("retains the original PPI comparison and records the official prior-month revision", () => {
+    const e = event("bls-ppi-mom", { scheduledAt: "2026-11-13T13:30:00Z", reference: "October 2026", previous: "1.3%", revised: null });
+    const text = "Transmission embargoed until 8:30 a.m. (ET) Friday, November 13, 2026 PRODUCER PRICE INDEXES - OCTOBER 2026 The Producer Price Index for final demand rose 0.3 percent in October, seasonally adjusted. Final demand prices advanced 1.4 percent in September and 0.4 percent in August.";
+    expect(parseOfficialResult(e, document(text), now)?.event).toMatchObject({ actual: "0.3%", previous: "1.3%", revised: "1.4%" });
+    expect(parseOfficialResult(e, document(text.replace("1.4 percent in September", "1.4 percent in August")), now)?.event.revised).toBeNull();
+  });
   it("confirms claims, original previous and revision for the exact week", () => {
     expect(parseOfficialResult(event("dol-initial-claims", { scheduledAt: "2026-10-22T12:30:00Z", reference: "Week ending 17 Oct 2026" }), document(claims), now)?.event)
       .toMatchObject({ actual: "194K", previous: "199K", revised: "200K", publishedAt: "2026-10-22T12:30:00Z" });

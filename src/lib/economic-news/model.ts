@@ -20,6 +20,7 @@ export type NewsEvent = {
   kind: "release" | "speech";
   corrected?: boolean;
   outcome?: { en: string; ar: string };
+  resultUnavailable?: { en: string; ar: string };
   publishedAt?: string | null;
 };
 
@@ -113,6 +114,8 @@ export function newsEventTitle(event: NewsEvent, locale: NewsLocale) {
 }
 
 export function newsEventStatus(event: NewsEvent, now: number) {
+  if (event.kind === "release" && event.resultUnavailable && event.actual === null && event.publishedAt
+    && Date.parse(event.publishedAt) <= now && Date.parse(event.scheduledAt) <= now) return "not_published";
   if (event.actual !== null && Date.parse(event.scheduledAt) <= now) return "released";
   if (event.kind === "speech" && event.outcome && event.publishedAt
     && Date.parse(event.publishedAt) <= now && Date.parse(event.scheduledAt) <= now) return "published";

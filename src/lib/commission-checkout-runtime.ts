@@ -77,8 +77,14 @@ export async function getCommissionCheckoutRuntime() {
         networks: [...new Set(pending.map(checkout => checkout.network))], store: postgresCommissionHistoryStore(pool),
         scanners: { TRC20: scanTronCommissionDeposits, BEP20: scanBep20CommissionDeposits, BINANCE_DEPOSITS: scanBinanceCommissionDeposits } });
       const result = await workflow.reconcile({ deposits: history.deposits, deadline, limit: 2 });
+      // Fixed diagnostic fields only: never log persisted provider cursors or receipt details.
+      const providerHealth = JSON.stringify(Object.fromEntries(Object.entries(history.providers).map(([provider, health]) => [provider, {
+        configured: health.configured, complete: health.complete, pages: health.pages ?? 0, deposits: health.deposits ?? 0,
+        ...(health.error ? { error: health.error } : {}),
+        ...(health.diagnostics ? { diagnostics: health.diagnostics } : {}),
+      }])));
       return { enabled: true, pendingCheckouts: pending.length, scanned: history.scanned,
-        complete: history.complete, incompleteNetworks: history.incompleteNetworks, checkpointConflict: history.checkpointConflict, ...result };
+        complete: history.complete, incompleteNetworks: history.incompleteNetworks, checkpointConflict: history.checkpointConflict, providerHealth, ...result };
     },
   };
 }

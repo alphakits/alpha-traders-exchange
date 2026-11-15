@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
 import snapshot from "./weekly-calendar.json";
-import { newsEventId, shouldAlertForRelease, WEEKLY_NEWS_STALE_AFTER_MS } from "./model";
+import { newsEventId, newsEventStatus, shouldAlertForRelease, WEEKLY_NEWS_STALE_AFTER_MS } from "./model";
 import { weeklyCalendarSchema } from "./weekly-schema";
 import { readWeeklyNewsFeed, weeklyNewsFeed } from "./weekly";
 
@@ -38,6 +38,22 @@ const scenario = weeklyCalendarSchema.parse({
 const scenarioChecked = Date.parse(scenario.resultsVerifiedAt!);
 
 describe("free weekly official calendar", () => {
+  it("requires sourced bilingual unavailability evidence and hides it before publication", () => {
+    const resultUnavailable = { en: "The source could not publish this comparison.", ar: "لم يتمكن المصدر من نشر هذه المقارنة." };
+    const event = { ...scenario.events[0], actual: null, resultUnavailable };
+    const data = { ...scenario, events: [event] };
+    expect(weeklyCalendarSchema.safeParse(data).success).toBe(true);
+    const published = weeklyNewsFeed(data, scenarioChecked).events[0];
+    expect(published).toMatchObject({ actual: null, resultUnavailable });
+    expect(newsEventStatus(published, scenarioChecked)).toBe("not_published");
+    expect(shouldAlertForRelease(undefined, published, scenarioChecked, true)).toBe(false);
+    const before = weeklyNewsFeed(data, Date.parse(event.publishedAt!) - 1).events[0];
+    expect(before.resultUnavailable).toBeUndefined();
+    expect(newsEventStatus(before, Date.parse(event.publishedAt!) - 1)).toBe("scheduled");
+    for (const invalid of [{ ...event, actual: "0%" }, { ...event, kind: "speech" }, { ...event, publishedAt: null }, { ...event, resultUnavailable: { en: "English only" } }]) {
+      expect(weeklyCalendarSchema.safeParse({ ...data, events: [invalid] }).success).toBe(false);
+    }
+  });
   it("validates the deployed snapshot and keeps results factual with no live source freshness or forecasts", () => {
     const feed = readWeeklyNewsFeed(checked);
     expect(feed).toMatchObject({ mode: "weekly", status: "ready", provider: null });

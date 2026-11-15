@@ -6,7 +6,7 @@ import type { CommissionDeposit, DepositScan, DepositScanProgress } from "./comm
 type Network = "TRC20" | "BEP20";
 type Provider = "TRC20" | "BEP20" | "BINANCE_DEPOSITS";
 type Scanner = (since: number, progress?: DepositScanProgress) => Promise<DepositScan>;
-type ProviderState = { configured: boolean; complete: boolean; pages?: number; deposits?: number; progress?: DepositScanProgress; error?: string };
+type ProviderState = { configured: boolean; complete: boolean; pages?: number; deposits?: number; progress?: DepositScanProgress; error?: string; diagnostics?: DepositScan["diagnostics"] };
 interface HistoryState {
   schema: 1;
   since: number;
@@ -103,9 +103,11 @@ export async function discoverCommissionHistory(input: {
       pages += value.pages;
       if (value.configured && !value.complete && (!value.continuation || value.continuation.until !== state.until)) {
         // Older scanner implementations remain fail-closed; no fabricated cursor.
-        state.providers[provider] = { configured: true, complete: false, pages: value.pages, deposits: value.deposits.length, error: "provider_continuation_unavailable" };
+        state.providers[provider] = { configured: true, complete: false, pages: value.pages, deposits: value.deposits.length, error: "provider_continuation_unavailable",
+          ...(value.diagnostics ? { diagnostics: value.diagnostics } : {}) };
       } else {
-        state.providers[provider] = { configured: value.configured, complete: value.complete, pages: value.pages, deposits: value.deposits.length, progress: value.continuation };
+        state.providers[provider] = { configured: value.configured, complete: value.complete, pages: value.pages, deposits: value.deposits.length, progress: value.continuation,
+          ...(value.diagnostics ? { diagnostics: value.diagnostics } : {}) };
       }
       state.deposits = mergeDeposits(state.deposits, value.deposits.filter(deposit => deposit.timestamp <= state.until));
     }

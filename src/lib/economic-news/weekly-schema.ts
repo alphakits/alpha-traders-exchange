@@ -24,6 +24,7 @@ const eventSchema = z.object({
   reference: z.string().min(1).max(80).nullable(),
   publishedAt: utc.nullable(),
   outcome: z.object({ en: z.string().trim().min(1).max(600), ar: z.string().trim().min(1).max(900) }).strict().optional(),
+  resultUnavailable: z.object({ en: z.string().trim().min(1).max(600), ar: z.string().trim().min(1).max(900) }).strict().optional(),
   sourceUrl: z.url(),
 }).strict();
 
@@ -70,12 +71,13 @@ export const weeklyCalendarSchema = z.object({
     } catch { invalid("Invalid source URL"); }
     const scheduled = Date.parse(event.scheduledAt);
     if (scheduled < start || scheduled >= end) invalid("Event outside snapshot coverage");
-    if ((event.actual !== null || event.outcome) && (!event.publishedAt || Date.parse(event.publishedAt) > resultsVerified
+    if ((event.actual !== null || event.outcome || event.resultUnavailable) && (!event.publishedAt || Date.parse(event.publishedAt) > resultsVerified
       || Date.parse(event.publishedAt) < scheduled || event.timing !== "exact")) {
       invalid("Actual needs a confirmed publication at or after release and before verification");
     }
     if (event.outcome && event.kind !== "speech") invalid("Text outcomes belong to speeches and statements");
-    if (event.actual === null && !event.outcome && event.publishedAt !== null) invalid("Publication time requires a confirmed result or statement summary");
+    if (event.resultUnavailable && (event.kind !== "release" || event.actual !== null || event.outcome)) invalid("A source unavailability notice requires a release without a numeric result or speech outcome");
+    if (event.actual === null && !event.outcome && !event.resultUnavailable && event.publishedAt !== null) invalid("Publication time requires a confirmed result, source notice or statement summary");
   });
 });
 

@@ -7,7 +7,7 @@ import {
   submitSellerCommissionWalletPayment,
 } from "@/lib/alpha-exchange-store";
 import {
-  scanTronCommissionDeposits, scanBep20CommissionDeposits, scanBinanceCommissionDeposits,
+  scanTronCommissionDeposits, scanBep20CommissionDeposits, scanBinanceCommissionDeposits, type DepositScan,
 } from "@/lib/commission-deposit-discovery";
 import { discoverCommissionHistory, getCommissionHistoryStore } from "@/lib/commission-deposit-history";
 import { normalizeTransactionHash } from "@/lib/tx-hash-utils";
@@ -39,7 +39,7 @@ function emptySummary() {
   return {
     candidates: 0, scannedTransfers: 0, matched: 0, verified: 0, pending: 0, rejected: 0, errors: 0, legacyMatched: 0, historyComplete: true,
     skippedUsed: 0, retriedRejected: 0, unmatchedAmount: 0, baseAmountOnly: 0, ambiguous: 0, beforeIntent: 0,
-    providers: {} as Record<string, { configured: boolean; complete: boolean; pages: number; deposits: number; error?: string; fallback?: string }>,
+    providers: {} as Record<string, { configured: boolean; complete: boolean; pages: number; deposits: number; error?: string; fallback?: string; diagnostics?: DepositScan["diagnostics"] }>,
   };
 }
 async function reconcileUnsubmittedCommissionPayments(deadline: number) {
@@ -72,6 +72,7 @@ async function reconcileUnsubmittedCommissionPayments(deadline: number) {
     const fallback = provider === "BEP20" && binanceHistoryComplete ? "BINANCE_DEPOSITS" : undefined;
     summary.providers[provider] = { configured: value.configured, complete: value.complete, pages: value.pages ?? 0, deposits: value.deposits ?? 0,
       ...(value.error ? { error: value.error } : {}),
+      ...(value.diagnostics ? { diagnostics: value.diagnostics } : {}),
       fallback: !value.configured || !value.complete ? fallback : undefined,
     };
     if (value.configured && !value.complete && !fallback) summary.errors++;
