@@ -332,6 +332,69 @@ describe("AlphaExchangeAdminDashboard admin destinations", () => {
     expect(vi.mocked(fetch).mock.calls.filter(([, init]) => init?.method === "PATCH")).toHaveLength(1);
   });
 
+  it.each(["unknown", "saved"] as const)("closes an unresolved %s account dialog without locking other accounts or replaying the pending command", async outcome => {
+    navigationState.search = "section=users";
+    const first = { id: "pending-account", fullName: "AT-100001 (First Buyer)", role: "buyer", roles: ["buyer"], sellerStatus: "buyer", disabled: false, email: "first@example.test", createdAt: "2026-09-26T12:00:00Z" };
+    const second = { ...first, id: "other-account", fullName: "AT-100002 (Other Buyer)", email: "other@example.test" };
+    let disabled = false;
+    let failedRead = false;
+    vi.mocked(fetch).mockImplementation(async (input, init) => {
+      if (init?.method === "POST") {
+        if (outcome === "unknown") throw new TypeError("Connection lost before the result was received");
+        failedRead = true;
+        return Response.json({ success: true });
+      }
+      if (String(input).includes("sms-deliveries")) return Response.json({ deliveries: [] });
+      return failedRead ? new Response(null, { status: 503 })
+        : Response.json({ ...adminPayload([]), users: [{ ...first, disabled }, second] });
+    });
+    render(<AlphaExchangeAdminDashboard isOwner />);
+    const accountButton = (name: string) => within(screen.getByRole("row", { name: new RegExp(name) })).getByRole("button", { name: "Manage account" }) as HTMLButtonElement;
+    await screen.findByText(first.fullName);
+    fireEvent.click(accountButton("First Buyer"));
+    let dialog = screen.getByRole("dialog");
+    fireEvent.change(within(dialog).getByLabelText("Reason (required for the audit record)"), { target: { value: "Test account access change" } });
+    fireEvent.submit(dialog.querySelector("form")!);
+    await screen.findByText(outcome === "unknown" ? /result could not be confirmed/ : /current account state could not be reconciled/);
+    const pending = () => JSON.parse(sessionStorage.getItem("alpha-owner-pending-operations-v1")!);
+    const writes = () => vi.mocked(fetch).mock.calls.filter(([, init]) => init?.method === "POST" || init?.method === "PATCH");
+    expect(pending()).toMatchObject([{ targetId: first.id, command: "disable", outcome }]);
+    expect(writes()).toHaveLength(1);
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Close" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(accountButton("Other Buyer").disabled).toBe(false);
+    expect(screen.getByText("Actions awaiting verification")).toBeTruthy();
+    expect(pending()).toHaveLength(1);
+    fireEvent.click(accountButton("Other Buyer"));
+    dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByText(second.fullName)).toBeTruthy();
+    expect((within(dialog).getByRole("button", { name: "Confirm action" }) as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(within(dialog).getByRole("button", { name: "Close" }));
+    expect(writes()).toHaveLength(1);
+
+    fireEvent.click(screen.getByRole("button", { name: "Verify current state" }));
+    dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByText(/previous action still needs verification/)).toBeTruthy();
+    expect((within(dialog).getByRole("button", { name: "Confirm action" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.submit(dialog.querySelector("form")!);
+    failedRead = false;
+    fireEvent.click(within(dialog).getByRole("button", { name: "Refresh account" }));
+    await screen.findByText(/account state is not yet confirmed/);
+    expect(pending()).toHaveLength(1);
+    expect(writes()).toHaveLength(1);
+    expect((within(dialog).getByRole("button", { name: "Confirm action" }) as HTMLButtonElement).disabled).toBe(true);
+
+    disabled = true;
+    fireEvent.click(within(dialog).getByRole("button", { name: "Refresh account" }));
+    await screen.findByText(/refreshed account confirms the change/);
+    expect(pending()).toEqual([]);
+    expect(writes()).toHaveLength(1);
+    fireEvent.click(within(dialog).getByRole("button", { name: "Close" }));
+    expect(accountButton("First Buyer").disabled).toBe(false);
+    expect(accountButton("Other Buyer").disabled).toBe(false);
+  });
+
   it("retains an ambiguous rank receipt until the owner acknowledges audit verification, without replaying a write", async () => {
     const seller = { id: "rank-seller", fullName: "AT-123456 (Test Seller)", role: "approved_seller", roles: ["approved_seller"], sellerPrestigeRank: "gold" };
     sessionStorage.setItem("alpha-owner-pending-operations-v1", JSON.stringify([{ id: "pending-rank", targetId: seller.id, command: "rank", value: "gold", outcome: "unknown" }]));
