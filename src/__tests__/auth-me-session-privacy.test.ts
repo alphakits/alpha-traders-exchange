@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   getCurrentSessionToken: vi.fn(),
   getCurrentSessionUser: vi.fn(),
   isMarketplacePhoneVerificationDisabled: vi.fn(),
+  isMarketplacePhoneVerificationRequired: vi.fn(),
   isVerified: vi.fn(),
 }));
 
@@ -21,7 +22,10 @@ vi.mock("@/lib/auth", () => ({
 }));
 
 vi.mock("next/headers", () => ({ cookies: mocks.cookies }));
-vi.mock("@/lib/phone-verification", () => ({ isMarketplacePhoneVerificationDisabled: mocks.isMarketplacePhoneVerificationDisabled }));
+vi.mock("@/lib/phone-verification", () => ({
+  isMarketplacePhoneVerificationDisabled: mocks.isMarketplacePhoneVerificationDisabled,
+  isMarketplacePhoneVerificationRequired: mocks.isMarketplacePhoneVerificationRequired,
+}));
 vi.mock("@/lib/verification-bypass", () => ({
   isVerified: mocks.isVerified,
 }));
@@ -83,6 +87,8 @@ describe("GET /api/auth/me session privacy", () => {
     mocks.getCurrentSessionToken.mockReset();
     mocks.getCurrentSessionUser.mockReset();
     mocks.isMarketplacePhoneVerificationDisabled.mockReset();
+    mocks.isMarketplacePhoneVerificationRequired.mockReset();
+    mocks.isMarketplacePhoneVerificationRequired.mockReturnValue(true);
     mocks.isVerified.mockReset();
 
     mocks.cookies.mockResolvedValue({ get: vi.fn(), set: vi.fn() });
