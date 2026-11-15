@@ -40,6 +40,7 @@ vi.mock("@/lib/mobile-api-auth", () => ({
 
 vi.mock("@/lib/phone-verification", () => ({
   isMarketplacePhoneVerificationDisabled: () => false,
+  isMarketplacePhoneVerificationRequired: () => true,
 }));
 
 vi.mock("@/lib/verification-bypass", () => ({
