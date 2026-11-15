@@ -16,6 +16,7 @@ import { normalizeRolesForUser, resolvePrimaryRole } from "@/lib/roles";
 import { isVerified } from "@/lib/verification-bypass";
 import { isAccountPhoneVerificationExempt } from "@/lib/phone-verification-exemptions";
 import { hasAdultConfirmation } from "@/lib/age-eligibility";
+import { isMarketplacePhoneVerificationEmailFallbackActive } from "@/lib/phone-verification";
 
 /**
  * The intentionally small, browser-safe representation of the current user.
@@ -55,6 +56,8 @@ export type ClientSessionUser = {
   adultConfirmed?: boolean;
   /** Server-resolved exception for one of the three authorized existing accounts. */
   phoneVerificationExempt?: boolean;
+  /** Server-resolved temporary access policy; never evidence of a verified phone. */
+  phoneVerificationEmailFallbackActive?: boolean;
   buyerVerificationStatus?: "not_started" | "otp_sent" | "verified";
   onboardingSelection?: OnboardingSelection;
   onboardingCompletedAt?: string;
@@ -183,6 +186,7 @@ export function toClientSessionUser(
     isPhotoVerified: options.isPhotoVerified ?? isVerified(user),
     adultConfirmed: hasAdultConfirmation(user),
     phoneVerificationExempt: isAccountPhoneVerificationExempt(user),
+    phoneVerificationEmailFallbackActive: isMarketplacePhoneVerificationEmailFallbackActive(),
     buyerVerificationStatus: user.buyerVerificationStatus,
     onboardingSelection: user.onboardingSelection,
     onboardingCompletedAt: user.onboardingCompletedAt,
