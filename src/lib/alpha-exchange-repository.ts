@@ -2914,6 +2914,23 @@ export class AlphaExchangeRepository {
     }
   }
 
+  /** A fresh scalar check keeps idle email sweeps from loading trade history. */
+  async hasPendingDemandEmailNotifications(): Promise<boolean> {
+    await this.ensureReady();
+    const pool = this.pool;
+    if (this.usesMemoryFallback || !pool) {
+      return getLatestAvailableFallbackSnapshot().notifications.some(notice => notice.demandEmail?.state === "pending");
+    }
+    const result = await queryReadWithRetry<{ has_pending: boolean }>(pool,
+      `select exists (
+        select 1 from alpha_exchange.notifications
+        where payload->'demandEmail'->>'state' = 'pending'
+      ) as has_pending`, undefined, "pending_demand_email_notifications");
+    const pending = result.rows[0]?.has_pending;
+    if (typeof pending !== "boolean") throw new Error("Demand email preparation status is unavailable.");
+    return pending;
+  }
+
   /**
    * Loads complete rows for a small, explicit set of snapshot tables plus the
    * canonical runtime version. Critical trade mutations use this instead of
@@ -3957,6 +3974,35 @@ export class AlphaExchangeRepository {
       return fallback;
     }
 
+  }
+
+  /** Fresh validation inputs for the scheduled commission no-work check. */
+  async loadCommissionReconciliationProbe(): Promise<SnapshotWithVersion> {
+    await this.ensureReady();
+    const pool = this.pool;
+    if (this.usesMemoryFallback || !pool) return getLatestAvailableFallbackSnapshot();
+    // This detached projection is only a no-work check, never a write basis.
+    // Exact-amount validation needs trade quantity/policy and the shortfall
+    // ledger, but neither chat/receipt bytes nor unrelated audit history.
+    const result = await pool.query<AggregatedSnapshotRow>(`
+      select
+        (select version::text from alpha_exchange.runtime_meta where singleton = true) as version,
+        coalesce((select json_agg(payload order by sort_index) from alpha_exchange.commissions), '[]'::json) as commissions,
+        coalesce((select json_agg(jsonb_build_object(
+          'id', request.payload->'id',
+          'usdtAmount', request.payload->'usdtAmount',
+          'feePolicyVersion', request.payload->'feePolicyVersion'
+        ) order by request.sort_index)
+          from alpha_exchange.purchase_requests request
+          where exists (select 1 from alpha_exchange.commissions commission
+            where commission.payload->>'purchaseRequestId' = request.id)
+        ), '[]'::json) as purchase_requests,
+        coalesce((select json_agg(payload order by sort_index) from alpha_exchange.audit_logs
+          where payload->'newValue'->>'kind' in ('commission_shortfall_balance_v1', 'commission_shortfall_applied_v1')
+        ), '[]'::json) as audit_logs`);
+    const row = result.rows[0];
+    if (!row || row.version == null) throw new Error("Commission reconciliation state is unavailable.");
+    return attachVersion(snapshotFromAggregatedRow(row, ["commissions", "purchase_requests", "audit_logs"]), Number(row.version));
   }
 
   /**

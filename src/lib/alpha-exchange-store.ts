@@ -5791,14 +5791,18 @@ async function markCommissionOverdue(db: AlphaExchangeDb, record: CommissionReco
   }
 }
 
+function needsCommissionOverdueNotification(record: CommissionRecord, nowMs: number) {
+  if (record.paymentStatus === "paid" || !record.dueAt || record.overdueNotifiedAt) return false;
+  const dueMs = new Date(record.dueAt).getTime();
+  return Boolean(dueMs) && !Number.isNaN(dueMs) && dueMs <= nowMs;
+}
+
 async function applyCommissionOverdueRules(db: AlphaExchangeDb) {
   let changed = false;
   const nowMs = Date.now();
 
   for (const record of db.commissionRecords) {
-    if (record.paymentStatus === "paid" || !record.dueAt) continue;
-    const dueMs = new Date(record.dueAt).getTime();
-    if (!dueMs || Number.isNaN(dueMs) || dueMs > nowMs || record.overdueNotifiedAt) continue;
+    if (!needsCommissionOverdueNotification(record, nowMs)) continue;
     changed = true;
     await markCommissionOverdue(db, record, SYSTEM_ACTOR_USER_ID);
   }
@@ -15955,6 +15959,20 @@ export async function getPurchaseRequestsForAdmin(dbInput?: AlphaExchangeDb, vie
 
 /** Canonical persisted intents, without unrelated admin dashboard work. */
 export async function getCommissionRecordsForAutomaticReconciliation() {
+  const repository = await getAlphaExchangeRepository();
+  if (typeof repository.loadCommissionReconciliationProbe === "function") {
+    const probe = normalizeDb(await repository.loadCommissionReconciliationProbe());
+    const nowMs = Date.now();
+    const needsCanonicalEffects = probe.commissionRecords.some((record) => (
+      needsCommissionOverdueNotification(record, nowMs)
+      || (record.paymentVerificationStatus === "verified"
+        && normalizeCommissionPaymentStatus(record.paymentStatus, record.dueAt) !== "paid")
+    ));
+    // Validation may change this scratch projection. Discard it whenever work
+    // is needed and reread through the existing canonical/locked write path.
+    // Never persist a partial trade or acknowledge a speculative allocation.
+    if (!needsCanonicalEffects && !ensureCommissionPaymentExpectedAmounts(probe)) return probe.commissionRecords;
+  }
   const db = await readDbWithPersistedCommissionPaymentExpectedAmounts();
   return db.commissionRecords;
 }
@@ -17310,7 +17328,7 @@ export async function reverifyPendingCommissionPayments(input?: { limit?: number
   if (!commissionWallet.available) {
     throw new Error(commissionWallet.error);
   }
-  const db = await readDb({ bypassCache: true });
+  const db = await readDbForSelectedTables(["commissions"]);
   const candidates = db.commissionRecords
     .filter((record) => (
       record.paymentVerificationStatus === "pending_verification"

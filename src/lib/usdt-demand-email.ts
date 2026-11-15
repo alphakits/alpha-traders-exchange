@@ -61,7 +61,12 @@ export async function canDeliverDemandEmail(recipientId: string, email: string, 
 /** Durable notification intents + provider idempotency. Delivery is independently off by default. */
 export async function queueDemandEmails() {
   if (!deliveryEnabled()) return;
-  const db = await (await getAlphaExchangeRepository()).loadSelectedSnapshot(DEMAND_TABLES);
+  const repository = await getAlphaExchangeRepository();
+  // Idle scheduler ticks need only an existence check. Any pending work still
+  // reloads canonical eligibility below and is rechecked by durable delivery.
+  // An intent arriving after an empty check remains pending for the next tick.
+  if (!await repository.hasPendingDemandEmailNotifications()) return;
+  const db = await repository.loadSelectedSnapshot(DEMAND_TABLES);
   const notices = db.notifications.filter(n => n.demandEmail?.state === "pending").slice(0, 30);
   if (!notices.length) return;
   const market = await getMarketSnapshot();

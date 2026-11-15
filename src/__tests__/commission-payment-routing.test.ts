@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AlphaExchangeDb } from "@/types/alpha-exchange";
+import { getAlphaExchangeRepository } from "@/lib/alpha-exchange-repository";
 
 vi.mock("@/lib/postgres-runtime", () => ({
   getRuntimePostgresPool: () => null,
@@ -210,6 +211,7 @@ describe("commission wallet payment routing", () => {
 
   afterEach(() => {
     clearMarketplaceEmailAttempts();
+    vi.restoreAllMocks();
     vi.unstubAllEnvs();
     vi.unstubAllGlobals();
     invalidateAlphaExchangeStoreCache();
@@ -577,6 +579,120 @@ describe("commission wallet payment routing", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  it("polls fresh commission records without loading unrelated history or writing when no payment is eligible", async () => {
+    await getAdminPrepDashboardData();
+    const repository = await getAlphaExchangeRepository();
+    const pending = {
+      ...currentCommission(),
+      paymentNetwork: "TRC20" as const,
+      recipientWalletAddress: TRC20_WALLET,
+      paymentSignature: VERIFIED_TRON_TX_A,
+      paymentVerificationStatus: "pending_verification" as const,
+    };
+    const projected = {
+      ...seedDb(),
+      users: [],
+      commissionRecords: [
+        { ...pending, id: "already-paid", paymentStatus: "paid" as const },
+        { ...pending, id: "not-submitted", paymentVerificationStatus: undefined },
+        { ...pending, id: "terminal-failure", paymentVerificationStatus: "failed" as const },
+        { ...pending, id: "missing-signature", paymentSignature: undefined },
+        { ...pending, id: "unsupported-rail", paymentNetwork: "ERC20" as const },
+        { ...pending, id: "wrong-recipient", recipientWalletAddress: "unrelated-wallet" },
+        { ...pending, id: "wrong-bep20-recipient", paymentNetwork: "BEP20" as const },
+      ],
+    };
+    const selectedRead = vi.spyOn(repository, "loadSelectedSnapshot")
+      .mockResolvedValueOnce(projected)
+      .mockResolvedValueOnce({ ...projected, commissionRecords: [] });
+    const fullRead = vi.spyOn(repository, "loadSnapshot")
+      .mockRejectedValue(new Error("Unrelated history must not be loaded by an idle poll"));
+    const write = vi.spyOn(repository, "saveSnapshot");
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    for (let poll = 0; poll < 2; poll++) {
+      await expect(reverifyPendingCommissionPayments()).resolves.toEqual({
+        checked: 0, verified: 0, stillPending: 0, failed: 0, errors: 0,
+      });
+    }
+
+    expect(selectedRead.mock.calls).toEqual([[["commissions"]], [["commissions"]]]);
+    expect(fullRead).not.toHaveBeenCalled();
+    expect(write).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when the fresh commission poll cannot be read", async () => {
+    const repository = await getAlphaExchangeRepository();
+    vi.spyOn(repository, "loadSelectedSnapshot").mockRejectedValue(new Error("Commission read unavailable"));
+    const fullRead = vi.spyOn(repository, "loadSnapshot");
+    const write = vi.spyOn(repository, "saveSnapshot");
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(reverifyPendingCommissionPayments()).rejects.toThrow("Commission read unavailable");
+
+    expect(fullRead).not.toHaveBeenCalled();
+    expect(write).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("rechecks canonical ownership before verifying a candidate from the commission-only poll", async () => {
+    const repository = await getAlphaExchangeRepository();
+    const candidate = {
+      ...currentCommission(),
+      paymentNetwork: "TRC20" as const,
+      recipientWalletAddress: TRC20_WALLET,
+      paymentSignature: VERIFIED_TRON_TX_A,
+      paymentVerificationStatus: "pending_verification" as const,
+    };
+    vi.spyOn(repository, "loadSelectedSnapshot").mockResolvedValue({
+      ...seedDb(), users: [], commissionRecords: [candidate],
+    });
+    currentCommission().sellerId = "another-seller";
+    const fullRead = vi.spyOn(repository, "loadSnapshot");
+    const write = vi.spyOn(repository, "saveSnapshot");
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(reverifyPendingCommissionPayments()).resolves.toEqual({
+      checked: 1, verified: 0, stillPending: 0, failed: 0, errors: 1,
+    });
+
+    expect(fullRead).toHaveBeenCalledOnce();
+    expect(write).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(currentCommission()).toMatchObject({ sellerId: "another-seller", paymentStatus: "pending" });
+  });
+
+  it("does not verify an eligible commission after the polling deadline", async () => {
+    const repository = await getAlphaExchangeRepository();
+    vi.spyOn(repository, "loadSelectedSnapshot").mockResolvedValue({
+      ...seedDb(),
+      users: [],
+      commissionRecords: [{
+        ...currentCommission(),
+        paymentNetwork: "TRC20",
+        recipientWalletAddress: TRC20_WALLET,
+        paymentSignature: VERIFIED_TRON_TX_A,
+        paymentVerificationStatus: "pending_verification",
+      }],
+    });
+    const fullRead = vi.spyOn(repository, "loadSnapshot");
+    const write = vi.spyOn(repository, "saveSnapshot");
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(reverifyPendingCommissionPayments({ deadline: Date.now() - 1 })).resolves.toEqual({
+      checked: 0, verified: 0, stillPending: 0, failed: 0, errors: 0,
+    });
+
+    expect(fullRead).not.toHaveBeenCalled();
+    expect(write).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("automatically settles and unlocks a payment after TRON finality", async () => {
     const db = globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb;
     addCommissionRequest(db, "request-1", "listing-1");
@@ -596,7 +712,12 @@ describe("commission wallet payment routing", () => {
     const originalSubmittedAt = submitted.commission.paymentSubmittedAt;
     expect(submitted.verification).toMatchObject({ verified: false, pending: true });
 
-    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse(tronReceipt())));
+    const repository = await getAlphaExchangeRepository();
+    const projected = { ...seedDb(), users: [], commissionRecords: [structuredClone(currentCommission())] };
+    const selectedRead = vi.spyOn(repository, "loadSelectedSnapshot").mockResolvedValue(projected);
+    const fullRead = vi.spyOn(repository, "loadSnapshot");
+    const fetchMock = vi.fn(async () => jsonResponse(tronReceipt()));
+    vi.stubGlobal("fetch", fetchMock);
     await expect(reverifyPendingCommissionPayments({ limit: 4 })).resolves.toEqual({
       checked: 1,
       verified: 1,
@@ -604,6 +725,10 @@ describe("commission wallet payment routing", () => {
       failed: 0,
       errors: 0,
     });
+
+    expect(selectedRead).toHaveBeenCalledWith(["commissions"]);
+    expect(fullRead).toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledOnce();
 
     expect(currentCommission()).toMatchObject({
       paymentStatus: "paid",
