@@ -1,7 +1,9 @@
 import { publicAccountId } from "./public-account-identity";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { toAdminSellerSummary, toAdminUserSummary, toClientSessionUser } from "@/lib/client-session-user";
 import type { AlphaExchangeUser } from "@/types/alpha-exchange";
+
+afterEach(() => vi.unstubAllEnvs());
 
 describe("toClientSessionUser", () => {
   it("does not exempt an unrelated account or fabricate a verified phone", () => {
@@ -11,6 +13,32 @@ describe("toClientSessionUser", () => {
     expect(toClientSessionUser(ordinary)).toMatchObject({ phoneVerificationExempt: false, isPhotoVerified: false });
     expect(JSON.stringify(toClientSessionUser(ordinary))).not.toContain("alphatradersai@gmail.com");
   });
+  it("exposes the server phone requirement without fabricating phone verification", () => {
+    const user = {
+      id: "contact-only-buyer",
+      fullName: "Contact Only Buyer",
+      email: "buyer@example.test",
+      role: "buyer",
+      sellerStatus: "buyer",
+      whatsappNumber: "+972500000000",
+      emailVerified: true,
+    } as AlphaExchangeUser;
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("VERCEL", "1");
+    vi.stubEnv("ALPHA_EXCHANGE_PHONE_VERIFICATION_REQUIRED", "true");
+    expect(toClientSessionUser(user)).toMatchObject({
+      phoneVerificationRequired: true,
+      isPhotoVerified: false,
+    });
+    vi.stubEnv("ALPHA_EXCHANGE_PHONE_VERIFICATION_REQUIRED", "false");
+    expect(toClientSessionUser(user)).toMatchObject({
+      phoneVerificationRequired: false,
+      isPhotoVerified: false,
+    });
+    expect(user.verifiedPhone).toBeUndefined();
+    expect(user.phoneVerifiedAt).toBeUndefined();
+  });
+
   it("runtime-allowlists the client session and excludes present and future persistence-only fields", () => {
     const user = {
       id: "user-1", fullName: "Buyer", email: "buyer@example.test", passwordHash: "secret-password-hash", whatsappNumber: "+972500000000",
