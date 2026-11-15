@@ -77,6 +77,23 @@ function configureWhatsApp(authentication: boolean) {
 }
 
 describe("production messaging configuration", () => {
+  it("accepts an explicit phone OTP outage mode without weakening email or age policy", () => {
+    vi.stubEnv("ALPHA_EXCHANGE_PHONE_VERIFICATION_ENABLED", "false");
+    vi.stubEnv("ALPHA_EXCHANGE_PHONE_VERIFICATION_REQUIRED", "false");
+    vi.stubEnv("ALPHA_EXCHANGE_PHONE_VERIFICATION_PROVIDER", "disabled");
+    vi.stubEnv("ALPHA_EXCHANGE_TWILIO_OTP_SEND_ENABLED", "false");
+    vi.stubEnv("ALPHA_EXCHANGE_TWILIO_SEND_ENABLED", "false");
+    expect(getPhoneVerificationChannels()).toEqual({ sms: false, whatsapp: false });
+    expect(validateEnv().errors).toEqual([]);
+  });
+
+  it("rejects required OTP when the provider capability is disabled", () => {
+    vi.stubEnv("ALPHA_EXCHANGE_PHONE_VERIFICATION_ENABLED", "false");
+    vi.stubEnv("ALPHA_EXCHANGE_PHONE_VERIFICATION_REQUIRED", "true");
+    vi.stubEnv("ALPHA_EXCHANGE_PHONE_VERIFICATION_PROVIDER", "disabled");
+    expect(validateEnv().errors.join("\\n")).toContain("Mandatory phone verification requires ALPHA_EXCHANGE_PHONE_VERIFICATION_ENABLED=true.");
+  });
+
   it.each([
     ["TWILIO_SMS_FROM", "AlphaTrader"],
     ["TWILIO_SMS_FROM", "+15551234567"],
