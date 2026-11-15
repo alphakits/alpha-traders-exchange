@@ -122,11 +122,12 @@ test("personal Wise USD accounts and Buy Request complete locally with private p
     const offered = await ok(await seller.post(`/api/alpha-exchange/usdt-requests/${demand.id}/offers`, { data: {
       listingId, revision, price: "1.00", operationId: randomUUID(),
     } }));
-    // The hard navigation can cancel the departing document's demand refresh.
+    // The hard navigation can cancel the departing demand or footer market read.
     // Retain WebKit's exact native diagnostic only if the newly committed
-    // document proves the same owner's Wise request and the seller's new offer.
+    // document proves both the market feed and the same owner's Wise request
+    // with the seller's new offer.
     phase = "reload request with seller response";
-    await browserErrorAudit.navigate(page, () => page.goto(`/en/usdt-exchange/requests/${demand.id}?offer=${offered.id}`), {
+    await browserErrorAudit.navigate(page, () => page.goto(`/en/usdt-exchange/requests/${demand.id}?offer=${offered.id}`), [marketDestinationFeed(baseURL!), {
       url: new URL(`/api/alpha-exchange/usdt-requests/${demand.id}`, baseURL).href,
       label: "same Wise demand workspace",
       validateBody: body => {
@@ -138,7 +139,7 @@ test("personal Wise USD accounts and Buy Request complete locally with private p
           && request.currency === "USD" && request.bankTransferProvider === "wise"
           && request.offers.some(offer => offer.id === offered.id && offer.price === "1.00" && offer.state === "open" && offer.available);
       },
-    });
+    }]);
     phase = "review response";
     await page.getByRole("button", { name: "Review response", exact: true }).click();
     await page.getByLabel("Your personal Wise account for sending USD", { exact: true }).selectOption(buyerAccount);
