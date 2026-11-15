@@ -11,7 +11,7 @@ import {
 } from "@/lib/whatsapp-notifications";
 import type { NotificationPreferences } from "@/types/alpha-exchange";
 import { isTwilioSendEnabled } from "@/lib/notification-platform";
-import { isMarketplacePhoneVerificationEnabled } from "@/lib/phone-verification";
+import { isMarketplacePhoneVerificationRequired } from "@/lib/phone-verification";
 import { getPhoneVerificationChannels } from "@/lib/phone-verification-delivery";
 
 const traditionalPreferenceKeys = [
@@ -90,7 +90,7 @@ export async function GET(request: NextRequest) {
     whatsapp: await whatsappPayload(user.id, user.preferredLocale),
     phone: phonePayload(user),
     capabilities: {
-      phoneVerification: isMarketplacePhoneVerificationEnabled(),
+      phoneVerification: isMarketplacePhoneVerificationRequired(),
       phoneVerificationChannels: getPhoneVerificationChannels(),
       sms: isTwilioSendEnabled(),
     },
@@ -188,7 +188,7 @@ export async function PATCH(request: NextRequest) {
       whatsapp,
       phone: phonePayload(user),
       capabilities: {
-        phoneVerification: isMarketplacePhoneVerificationEnabled(),
+        phoneVerification: isMarketplacePhoneVerificationRequired(),
         sms: isTwilioSendEnabled(),
       },
     });
