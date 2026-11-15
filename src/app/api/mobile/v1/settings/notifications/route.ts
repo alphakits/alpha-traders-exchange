@@ -22,7 +22,7 @@ import {
   type WhatsAppChannelStatus,
 } from "@/lib/whatsapp-notifications";
 import { isTwilioSendEnabled } from "@/lib/notification-platform";
-import { isMarketplacePhoneVerificationEnabled } from "@/lib/phone-verification";
+import { isMarketplacePhoneVerificationRequired } from "@/lib/phone-verification";
 
 type NotificationUser = {
   id: string;
@@ -76,7 +76,7 @@ async function responsePayload(
         : null,
     },
     capabilities: {
-      phoneVerification: isMarketplacePhoneVerificationEnabled(),
+      phoneVerification: isMarketplacePhoneVerificationRequired(),
       phoneVerificationChannels: getPhoneVerificationChannels(),
       sms: isTwilioSendEnabled(),
     },
