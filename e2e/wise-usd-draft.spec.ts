@@ -154,6 +154,9 @@ test("personal Wise USD accounts and Buy Request complete locally with private p
     const matched = await ok(await matching);
     const trade = matched.purchase;
     await expect(page).toHaveURL(new RegExp(`/trade-room/${trade.id}`));
+    // A URL change precedes the room's first authoritative stream snapshot.
+    // Prove that the initial room is live before exercising its hard reload.
+    await expect(page.getByTestId("trade-room-summary")).toContainText("Live updates: Connected");
     expect(trade.currency).toBe("USD");
     expect(trade.bankTransferProvider).toBe("wise");
     expect(JSON.stringify(matched)).not.toContain("00002002002");
@@ -165,6 +168,7 @@ test("personal Wise USD accounts and Buy Request complete locally with private p
     const premature = await seller.patch(path, { data: { status: "usdt_release_pending" } });
     expect(premature.ok()).toBe(false);
     await ok(await seller.patch(path, { data: { status: "accepted", safetyAcknowledged: true } }));
+    await expect(page.getByRole("button", { name: "Reveal Bank Details", exact: true })).toBeVisible();
     phase = "reload accepted Trade Room";
     // The departing document can cancel its account-safety read in WebKit.
     // Preserve that exact native diagnostic only if the new main document
