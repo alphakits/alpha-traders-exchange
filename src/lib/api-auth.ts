@@ -4,7 +4,7 @@ import { clearUserSession, getCurrentSessionToken, getCurrentSessionUserForAutho
 import { hasRole } from "@/lib/roles";
 import { hasSellerOperationalAccess } from "@/lib/seller-approval-verification";
 import { logEvent } from "@/lib/structured-logging";
-import { needsMarketplacePhoneVerification } from "@/lib/phone-verification";
+import { isMarketplacePhoneVerificationOutageActive, needsMarketplacePhoneVerification } from "@/lib/phone-verification";
 import { isVerified } from "@/lib/verification-bypass";
 import { needsAdultConfirmation } from "@/lib/age-eligibility";
 
@@ -96,11 +96,16 @@ export function requireEmailVerificationForTrading(user: { id: string; role: str
  * Adult confirmation always remains required. Phone OTP is required in
  * production unless the owner explicitly enables the documented provider-
  * outage mode on the server; local fixture switches cannot alter that policy.
+ * During that outage, this direct gate also requires a confirmed email.
  */
-export function requirePhoneVerificationForTrading(user: { id: string; role: string; roles?: string[]; email?: string; verifiedPhone?: string; phoneVerifiedAt?: string; ageEligibility?: unknown }) {
+export function requirePhoneVerificationForTrading(user: { id: string; role: string; roles?: string[]; email?: string; emailVerified?: boolean; verifiedPhone?: string; phoneVerifiedAt?: string; ageEligibility?: unknown }) {
   if (needsAdultConfirmation(user)) return NextResponse.json({
     code: "AGE_CONFIRMATION_REQUIRED", error: "Confirm that you are 18 or older before using Alpha Exchange.",
   }, { status: 403, headers: AUTH_FAILURE_HEADERS });
+  if (isMarketplacePhoneVerificationOutageActive()) {
+    const emailVerification = requireEmailVerificationForTrading(user);
+    if (emailVerification) return emailVerification;
+  }
   if (!needsMarketplacePhoneVerification(user)) return null;
   logEvent("warn", {
     event: "permission_denied",

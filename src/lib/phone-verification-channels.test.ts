@@ -41,6 +41,21 @@ describe("member-selected phone verification channels", () => {
     expect(mocks.sms).not.toHaveBeenCalled();
     expect(mocks.whatsapp).not.toHaveBeenCalled();
   });
+  it.each([undefined, "sms", "whatsapp"] as const)("blocks %s OTP delivery in the production SMS-outage configuration", async channel => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("VERCEL", "1");
+    vi.stubEnv("ALPHA_EXCHANGE_PHONE_VERIFICATION_ENABLED", "false");
+    vi.stubEnv("ALPHA_EXCHANGE_PHONE_VERIFICATION_REQUIRED", "false");
+    vi.stubEnv("ALPHA_EXCHANGE_PHONE_VERIFICATION_PROVIDER", "disabled");
+    vi.stubEnv("ALPHA_EXCHANGE_TWILIO_OTP_SEND_ENABLED", "false");
+    vi.stubEnv("ALPHA_EXCHANGE_TWILIO_SEND_ENABLED", "false");
+
+    expect(getPhoneVerificationChannels()).toEqual({ sms: false, whatsapp: false });
+    expect(await sendPhoneVerificationCode({ phone: "+972501234567", code: "482901", channel }))
+      .toMatchObject({ ok: false, retryable: false, supportCode: "OTP_PROVIDER_CONFIGURATION" });
+    expect(mocks.sms).not.toHaveBeenCalled();
+    expect(mocks.whatsapp).not.toHaveBeenCalled();
+  });
   it("checks unavailable channels and the self-sender configuration before generating a code", () => {
     mocks.readiness.mockReturnValue({ readyToSend: false });
     expect(phoneVerificationDeliveryPreflight("+972501234567", "whatsapp")).toMatchObject({ ok: false, supportCode: "OTP_PROVIDER_CONFIGURATION" });

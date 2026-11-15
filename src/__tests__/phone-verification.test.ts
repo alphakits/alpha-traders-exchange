@@ -12,6 +12,7 @@ describe("marketplace phone verification flag", () => {
     role: "buyer",
     roles: ["buyer"],
     email: "buyer@example.com",
+    emailVerified: true,
     ageEligibility: { method: "self_attestation_v1", confirmedAt: "2026-10-01T12:00:00.000Z" },
   };
 

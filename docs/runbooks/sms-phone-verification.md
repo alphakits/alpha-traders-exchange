@@ -9,8 +9,9 @@ Email alone, aliases, recreated accounts, roles, cookies, client booleans, and
 user-editable auth metadata cannot grant an exception. Email verification and
 normal account, role, seller-approval, and commission restrictions still apply.
 
-Every other unverified account goes to `/verify-account` after login; marketplace
-pages, reads, actions, and native APIs enforce the same canonical policy.
+While phone verification is required, every other phone-unverified account goes
+to `/verify-account` after login; marketplace pages, reads, actions, and native
+APIs enforce the same canonical policy.
 The private session DTO reports the authorization result as a boolean and does
 not fabricate `verifiedPhone` or `phoneVerifiedAt` for an exempt account.
 
@@ -21,6 +22,11 @@ a provider outage; missing, malformed, or any other value keeps it required.
 provider is disabled because startup environment validation checks it. The
 production access gate is controlled by `ALPHA_EXCHANGE_PHONE_VERIFICATION_REQUIRED`;
 the test-only skip flag cannot bypass deployed security.
+The outage mode has no automatic expiry. Restore OTP enforcement only through an
+explicit configuration change after delivery is working again. An unconfirmed
+email still blocks marketplace API access and protected pages during the outage,
+including for an existing session. Verification and recovery pages remain
+reachable.
 
 ## SMS delivery configuration
 
@@ -91,7 +97,8 @@ and all accounts, contact fields, sessions, trades, and history are preserved.
 Original retired verification values are retained in an inaccessible private
 reconciliation table, and the runtime version advances to invalidate stale writes.
 
-Changing the saved contact number clears verification and requires another SMS.
+Changing the saved contact number clears verification. When phone verification
+is required, the member must complete another SMS verification.
 A forged phone cookie, stale exception boolean, client field, or restored page
 cannot authorize marketplace access. Actual verification persists across
 logout/login and preserves buyer and seller roles.
