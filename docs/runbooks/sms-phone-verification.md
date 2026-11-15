@@ -29,6 +29,7 @@ server environment, never in source, logs, screenshots, or review notes.
 | --- | --- |
 | `ALPHA_EXCHANGE_PHONE_VERIFICATION_PROVIDER` | `disabled` during the outage; `twilio` when restored |
 | `ALPHA_EXCHANGE_TWILIO_OTP_SEND_ENABLED` | `false` during the outage; `true` only when SMS sending is ready |
+| `ALPHA_EXCHANGE_PHONE_VERIFICATION_ENABLED` | `false` during the outage so production env validation accepts a disabled provider; `true` when restoring OTP |
 | `ALPHA_EXCHANGE_PHONE_VERIFICATION_REQUIRED` | `false` during the owner-approved outage; `true` to restore OTP enforcement |
 | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` | Existing server-only credentials |
 | `ALPHA_EXCHANGE_TWILIO_SEND_ENABLED` | Independent trade-notification setting |
