@@ -27,7 +27,7 @@ type Props = {
   onRefresh: () => Promise<OwnerAccountTarget | null>;
   /** Mount the sole dashboard-level dialog immediately, independently of filtered table rows. */
   initiallyOpen?: boolean;
-  /** Called only when no request or unresolved readback remains. */
+  /** Release the dialog host after a request settles; durable recovery remains per account. */
   onDismiss?: () => void;
 };
 
@@ -97,9 +97,9 @@ export function OwnerAccountControls({ locale, target, isOwner, onRefresh, initi
     if (submitting.current) return;
     setOpen(false);
     triggerRef.current?.focus();
-    // Unknown/saved-but-unreconciled commands must survive closing the dialog.
-    // The root host is not discarded until a canonical readback confirms the result.
-    if (!pendingVerification.current) onDismiss?.();
+    // The durable pending marker restores this account's unresolved command on
+    // reopen. Release the root dialog so unrelated accounts remain reachable.
+    onDismiss?.();
   }
   async function refresh(): Promise<boolean> {
     try {

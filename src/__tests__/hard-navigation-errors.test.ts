@@ -1,7 +1,7 @@
 import { EventEmitter } from "node:events";
 import type { Frame, Page, Request, Response } from "@playwright/test";
 import { describe, expect, it } from "vitest";
-import { createHardNavigationErrorAudit, unblockedAccountDestinationFeed } from "../../e2e/support/hard-navigation-errors";
+import { createHardNavigationErrorAudit, marketDestinationFeed, unblockedAccountDestinationFeed } from "../../e2e/support/hard-navigation-errors";
 import { E2E_BASE_URL } from "../../e2e/support/base-url";
 
 const marketUrl = `${E2E_BASE_URL}/api/market/center`;
@@ -450,6 +450,93 @@ describe("multiple explicit destination feed audit", () => {
       fixture.respondJson(validDemandBody()); fixture.respondJson({ blocked: false }, { url: accountUrl });
     }, feeds);
     expect(audit.errors).toEqual([error.message]);
+    expect(audit.report().navigationCancellations).toEqual([]);
+  });
+});
+
+describe("Wise workspace reload with its shared footer market feed", () => {
+  const baseURL = "http://localhost:3227";
+  const market = marketDestinationFeed(baseURL);
+  const demand = { ...demandFeed, url: new URL("/api/alpha-exchange/usdt-requests/demand-synthetic", baseURL).href };
+  const feeds = [market, demand];
+  const pageUrl = new URL("/en/usdt-exchange/requests/demand-synthetic", baseURL).href;
+  const marketBody = { snapshot: { pairs: { btcUsdt: { price: 118200 }, ethUsdt: { price: 3800 }, usdtIls: { price: 3.3 } } } };
+
+  it("requires the fresh destination market response as well as the authenticated request before retaining a native cancellation", async () => {
+    const audit = createHardNavigationErrorAudit("webkit"), fixture = fakePage(pageUrl);
+    const nativeError = refusal(market.url);
+    let settled = false;
+    const pending = audit.navigate(fixture.page, async () => {
+      fixture.error(nativeError);
+      fixture.commit(); fixture.respondJson(validDemandBody(), { url: demand.url });
+    }, feeds).then(() => { settled = true; });
+    await Promise.resolve(); await Promise.resolve();
+    expect(settled).toBe(false);
+    expect(fixture.pendingResponseCount()).toBe(1);
+    expect(audit.report().navigationCancellations).toEqual([]);
+
+    fixture.respondJson(marketBody, { url: market.url }); await pending;
+
+    expect(audit.errors).toEqual([]);
+    expect(audit.report().navigationCancellations).toEqual([expect.objectContaining({
+      message: nativeError.message, stack: nativeError.stack, feedUrl: market.url, feedStatus: 200,
+    })]);
+  });
+
+  it.each([
+    { label: "invalid market prices", body: { snapshot: { pairs: { btcUsdt: { price: 0 } } } }, status: 200 },
+    { label: "failed market response", body: marketBody, status: 503 },
+  ])("retains the native error despite a healthy demand response when there are $label", async ({ body, status }) => {
+    const audit = createHardNavigationErrorAudit("webkit"), fixture = fakePage(pageUrl);
+    const nativeError = refusal(market.url);
+    await expect(audit.navigate(fixture.page, async () => {
+      fixture.error(nativeError); fixture.commit();
+      fixture.respondJson(validDemandBody(), { url: demand.url });
+      fixture.respondJson(body, { url: market.url, status });
+    }, feeds)).rejects.toThrow(/Destination market feed/);
+    expect(audit.errors).toEqual([nativeError.message]);
+    expect(audit.report().navigationCancellations).toEqual([]);
+  });
+
+  it("does not use healthy market data to excuse an incorrect authenticated demand identity", async () => {
+    const audit = createHardNavigationErrorAudit("webkit"), fixture = fakePage(pageUrl);
+    const nativeError = refusal(market.url);
+    await expect(audit.navigate(fixture.page, async () => {
+      fixture.error(nativeError); fixture.commit();
+      fixture.respondJson(marketBody, { url: market.url });
+      fixture.respondJson({ ...validDemandBody(), actorId: "another-buyer" }, { url: demand.url });
+    }, feeds)).rejects.toThrow(/Destination authenticated Buy Requests feed/);
+    expect(audit.errors).toEqual([nativeError.message]);
+    expect(audit.report().navigationCancellations).toEqual([]);
+  });
+
+  it("does not accept a departing document's market response as fresh destination proof", async () => {
+    const audit = createHardNavigationErrorAudit("webkit"), fixture = fakePage(pageUrl);
+    const nativeError = refusal(market.url);
+    const pending = audit.navigate(fixture.page, async () => {
+      fixture.error(nativeError);
+      const oldRequest = fixture.startRequest();
+      fixture.commit();
+      fixture.respondJson(validDemandBody(), { url: demand.url });
+      fixture.respondJson(marketBody, { url: market.url, request: oldRequest });
+    }, feeds);
+    const rejected = expect(pending).rejects.toThrow("Destination response timed out");
+    await Promise.resolve(); await Promise.resolve();
+    expect(fixture.pendingResponseCount()).toBe(1);
+    fixture.failResponses(); await rejected;
+    expect(audit.errors).toEqual([nativeError.message]);
+    expect(audit.report().navigationCancellations).toEqual([]);
+  });
+
+  it("still fails a market diagnostic after the replacement document commits", async () => {
+    const audit = createHardNavigationErrorAudit("webkit"), fixture = fakePage(pageUrl);
+    const nativeError = refusal(market.url);
+    await audit.navigate(fixture.page, async () => {
+      fixture.commit(); fixture.error(nativeError);
+      fixture.respondJson(validDemandBody(), { url: demand.url });
+      fixture.respondJson(marketBody, { url: market.url });
+    }, feeds);
+    expect(audit.errors).toEqual([nativeError.message]);
     expect(audit.report().navigationCancellations).toEqual([]);
   });
 });

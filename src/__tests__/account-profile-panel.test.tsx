@@ -591,12 +591,18 @@ describe("AccountProfilePanel", () => {
   });
 
   it("keeps the new account's profile when the previous account's refresh arrives late", async () => {
-    vi.stubGlobal("EventSource", MockEventSource as unknown as typeof EventSource);
     const firstProfile = makePayload("buyer");
     const secondProfile = { ...makePayload("buyer"), profile: { ...firstProfile.profile, id: "buyer-second-account", bio: "Second account private biography" } };
     const firstUser = { ...firstProfile.profile, sellerStatus: "buyer" as const, preferredNetworks: [], languages: ["English"], city: "", createdAt: firstProfile.profile.memberSince };
     const secondUser = { ...firstUser, id: secondProfile.profile.id };
     let currentUser = firstUser;
+    const firstAccountStreams: MockEventSource[] = [];
+    vi.stubGlobal("EventSource", class extends MockEventSource {
+      constructor(url: string) {
+        super(url);
+        if (currentUser.id === firstUser.id) firstAccountStreams.push(this);
+      }
+    } as unknown as typeof EventSource);
     let firstReads = 0;
     let resolveOld!: (response: Response) => void;
     stubProfileFetch(vi.fn(async (input: RequestInfo | URL) => {
@@ -608,7 +614,12 @@ describe("AccountProfilePanel", () => {
     }));
     render(<CanonicalSessionProvider initialSessionUser={firstUser}><AccountProfilePanel locale="en" /></CanonicalSessionProvider>);
     await screen.findByText(publicAccountId({ id: firstUser.id }));
-    act(() => eventSourceInstances.at(-1)!.emit("notifications"));
+    // Profile rendering can finish before its notification-stream effect.
+    // Select a fresh stream created for this account, not an earlier fixture.
+    await waitFor(() => expect(firstAccountStreams.length).toBeGreaterThan(0));
+    const firstAccountStream = firstAccountStreams.at(-1)!;
+    expect(firstAccountStream.url).toBe("/api/alpha-exchange/notifications/stream");
+    act(() => firstAccountStream.emit("notifications"));
     await waitFor(() => expect(firstReads).toBe(2));
     currentUser = secondUser;
     await act(async () => { window.dispatchEvent(new Event("alpha-auth-changed")); });

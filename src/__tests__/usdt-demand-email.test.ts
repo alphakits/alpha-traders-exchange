@@ -7,11 +7,12 @@ import type { AlphaExchangeDb } from "@/types/alpha-exchange";
 import type { MarketSnapshot } from "@/types/market";
 
 const state = vi.hoisted(() => ({ pool: null as Pool | null, db: null as AlphaExchangeDb | null,
-  market: null as MarketSnapshot | null, enqueue: vi.fn(), marketRead: vi.fn(), mutate: vi.fn() }));
+  market: null as MarketSnapshot | null, enqueue: vi.fn(), marketRead: vi.fn(), mutate: vi.fn(), pending: vi.fn(), load: vi.fn() }));
 vi.mock("@/lib/postgres-runtime", () => ({ getRuntimePostgresPool: () => state.pool }));
 vi.mock("@/lib/structured-logging", () => ({ logEvent: vi.fn() }));
 vi.mock("@/lib/alpha-exchange-repository", () => ({ getAlphaExchangeRepository: async () => ({
-  loadSelectedSnapshot: async () => structuredClone(state.db),
+  hasPendingDemandEmailNotifications: state.pending,
+  loadSelectedSnapshot: state.load,
 }) }));
 vi.mock("@/lib/market-service", () => ({ getMarketSnapshot: state.marketRead }));
 vi.mock("@/lib/usdt-demand-store", () => ({ DEMAND_TABLES: [], mutateDemands: state.mutate }));
@@ -64,6 +65,8 @@ beforeAll(async () => {
 beforeEach(async () => {
   vi.stubEnv("ALPHA_USDT_REQUESTS_ENABLED", "1"); vi.stubEnv("ALPHA_USDT_REQUEST_EMAIL_DELIVERY_ENABLED", "1");
   vi.resetAllMocks(); state.pool = pool; state.db = demandTestDb(); state.market = demandTestMarket();
+  state.pending.mockImplementation(async () => state.db!.notifications.some(notice => notice.demandEmail?.state === "pending"));
+  state.load.mockImplementation(async () => structuredClone(state.db));
   state.marketRead.mockImplementation(async () => state.market);
   state.mutate.mockImplementation(async (fn: (db: AlphaExchangeDb) => unknown) => fn(state.db!));
   createDemand(state.db, "buyer", { terms: demandTestTerms(), operationId: randomUUID() }, state.market);
@@ -195,8 +198,30 @@ describe("demand email eligibility at durable delivery", () => {
     state.db!.notifications.forEach(notice => { notice.demandEmail!.state = "queued"; });
     state.marketRead.mockRejectedValueOnce(new Error("quote temporarily unavailable"));
     await queueDemandEmails();
+    expect(state.pending).toHaveBeenCalledTimes(1);
+    expect(state.load).not.toHaveBeenCalled();
     expect(state.marketRead).not.toHaveBeenCalled();
     expect(state.enqueue).not.toHaveBeenCalled();
+  });
+
+  it("rechecks canonical pending intents after the empty-queue preflight", async () => {
+    state.pending.mockImplementationOnce(async () => {
+      state.db!.notifications.forEach(notice => { notice.demandEmail!.state = "queued"; });
+      return true;
+    });
+    await queueDemandEmails();
+    expect(state.load).toHaveBeenCalledTimes(1);
+    expect(state.enqueue).not.toHaveBeenCalled();
+    expect(state.mutate).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when the pending-intent lookup is unavailable", async () => {
+    state.pending.mockRejectedValueOnce(new Error("database lookup unavailable"));
+    await expect(queueDemandEmails()).rejects.toThrow("database lookup unavailable");
+    expect(state.load).not.toHaveBeenCalled();
+    expect(state.enqueue).not.toHaveBeenCalled();
+    expect(state.mutate).not.toHaveBeenCalled();
+    expect(state.db!.notifications.every(notice => notice.demandEmail?.state === "pending")).toBe(true);
   });
 
   it.each(["ALPHA_USDT_REQUESTS_ENABLED", "ALPHA_USDT_REQUEST_EMAIL_DELIVERY_ENABLED"])("keeps preparation off unless %s is explicitly enabled", async flag => {

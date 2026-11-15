@@ -11,7 +11,10 @@ const state = vi.hoisted(() => ({
   enqueue: vi.fn(),
 }));
 vi.mock("@/lib/alpha-exchange-repository", () => ({
-  getAlphaExchangeRepository: async () => ({ loadSelectedSnapshot: async () => structuredClone(state.db) }),
+  getAlphaExchangeRepository: async () => ({
+    hasPendingDemandEmailNotifications: async () => state.db!.notifications.some(notice => notice.demandEmail?.state === "pending"),
+    loadSelectedSnapshot: async () => structuredClone(state.db),
+  }),
 }));
 vi.mock("@/lib/market-service", () => ({ getMarketSnapshot: async () => state.market }));
 vi.mock("@/lib/usdt-demand-store", () => ({
