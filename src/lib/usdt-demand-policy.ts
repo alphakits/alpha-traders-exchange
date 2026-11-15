@@ -80,7 +80,7 @@ export function assertDemandEnabled() {
 export function assertDemandActor(user: AlphaExchangeUser | undefined): asserts user is AlphaExchangeUser {
   if (!user || user.disabled || !user.emailVerified || needsMarketplacePhoneVerification(user) || !hasAdultConfirmation(user)
     || !(hasRole(user, "buyer") || hasSellerOperationalAccess(user))) {
-    throw new DemandError("ACCESS_DENIED", "A verified adult exchange account is required.", 403);
+    throw new DemandError("ACCESS_DENIED", "An email-confirmed adult exchange account is required.", 403);
   }
 }
 export function canRespond(db: AlphaExchangeDb, seller: AlphaExchangeUser | undefined, requesterId: string) {
