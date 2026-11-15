@@ -17,8 +17,10 @@ not fabricate `verifiedPhone` or `phoneVerifiedAt` for an exempt account.
 Production phone verification is required by default. Only an explicit server-side
 `ALPHA_EXCHANGE_PHONE_VERIFICATION_REQUIRED=false` disables the OTP gate during
 a provider outage; missing, malformed, or any other value keeps it required.
-`ALPHA_EXCHANGE_PHONE_VERIFICATION_ENABLED` controls the verification UI and
-local fixture behavior; the test-only skip flag cannot bypass deployed security.
+`ALPHA_EXCHANGE_PHONE_VERIFICATION_ENABLED` must also be `false` while the
+provider is disabled because startup environment validation checks it. The
+production access gate is controlled by `ALPHA_EXCHANGE_PHONE_VERIFICATION_REQUIRED`;
+the test-only skip flag cannot bypass deployed security.
 
 ## SMS delivery configuration
 
@@ -32,7 +34,7 @@ server environment, never in source, logs, screenshots, or review notes.
 | `ALPHA_EXCHANGE_PHONE_VERIFICATION_ENABLED` | `false` during the outage so production env validation accepts a disabled provider; `true` when restoring OTP |
 | `ALPHA_EXCHANGE_PHONE_VERIFICATION_REQUIRED` | `false` during the owner-approved outage; `true` to restore OTP enforcement |
 | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` | Existing server-only credentials |
-| `ALPHA_EXCHANGE_TWILIO_SEND_ENABLED` | Independent trade-notification setting |
+| `ALPHA_EXCHANGE_TWILIO_SEND_ENABLED` | `false` during the outage; `true` only when SMS delivery is restored |
 
 The OTP switch permits a member-requested verification code independently of
 trade-notification SMS. It does not subscribe members to notifications.
