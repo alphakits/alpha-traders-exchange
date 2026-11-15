@@ -54,6 +54,7 @@ vi.mock("@/lib/supabase-auth-provider", () => ({
 
 vi.mock("@/lib/phone-verification", () => ({
   isMarketplacePhoneVerificationDisabled: phoneVerificationMocks.isMarketplacePhoneVerificationDisabled,
+  isMarketplacePhoneVerificationRequired: () => true,
 }));
 
 vi.mock("@/lib/verification-bypass", () => ({
