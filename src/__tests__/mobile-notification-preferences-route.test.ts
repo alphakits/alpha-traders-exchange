@@ -186,6 +186,7 @@ describe("mobile notification preferences route", () => {
   it("persists SMS opt-in only when Twilio sending is explicitly enabled", async () => {
     vi.stubEnv("ALPHA_EXCHANGE_TWILIO_SEND_ENABLED", "true");
     vi.stubEnv("ALPHA_EXCHANGE_PHONE_VERIFICATION_ENABLED", "true");
+    vi.stubEnv("ALPHA_EXCHANGE_PHONE_VERIFICATION_REQUIRED", "true");
 
     const response = await PATCH(request("PATCH", { sms: true }));
 
