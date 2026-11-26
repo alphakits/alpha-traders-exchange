@@ -29,15 +29,15 @@ export function isIctMentorshipIntakeOpen(now: number = Date.now()) {
 export function mentorshipFees(phase: MentorshipPhase) {
   if (phase === "standard") return ICT_MENTORSHIP_OFFER;
   if (phase === "november") return ICT_MENTORSHIP_OFFER.novemberFees;
-  // The invitation specifies a minimum December increase, not final fees.
+  // Mark confirms December tuition for each starting point.
   return null;
 }
 
 export function ictMentorshipOfferSummary(locale: "en" | "ar", phase: MentorshipPhase = mentorshipPhase()) {
   const isAr = locale === "ar";
   if (phase === "december") return isAr
-    ? "ديسمبر آخر شهر لقبول طلاب جدد. ترتفع الرسوم بنسبة 10% على الأقل. استفسر من مارك عن الرسوم حسب خبرتك قبل الانضمام."
-    : "December is the final intake. Tuition rises by at least 10%. Ask Mark to confirm the fee for your starting point before you enrol.";
+    ? "ديسمبر آخر شهر لقبول طلاب جدد. ترتفع الرسوم بنسبة 10%. استفسر من مارك عن الرسوم حسب خبرتك قبل الانضمام."
+    : "December is the final intake. Tuition rises by 10%. Ask Mark to confirm the fee for your starting point before you enrol.";
   const fees = mentorshipFees(phase);
   if (!fees) return isAr ? "انتهى التسجيل لعام 2026." : "The 2026 intake has closed.";
   const summary = isAr
@@ -45,6 +45,6 @@ export function ictMentorshipOfferSummary(locale: "en" | "ar", phase: Mentorship
     : `ICT Mentorship is one programme with Mark. Tuition is ${fees.experiencedFee} for people with around one to two years in the markets who are struggling to apply what they have learned, or ${fees.beginnerFee} for someone starting from zero.`;
   if (phase === "standard") return summary;
   return summary + (isAr
-    ? " تشمل الأسعار خصم 10% عند التسجيل حتى 30 نوفمبر. ديسمبر آخر شهر لقبول طلاب جدد، وترتفع فيه الرسوم بنسبة 10% على الأقل."
-    : " These fees include 10% off when you enrol by November 30. December is the final intake, and tuition rises by at least 10%.");
+    ? " تشمل الأسعار خصم 10% عند التسجيل حتى 30 نوفمبر. ديسمبر آخر شهر لقبول طلاب جدد، وترتفع فيه الرسوم بنسبة 10%."
+    : " These fees include 10% off when you enrol by November 30. December is the final intake, and tuition rises by 10%.");
 }

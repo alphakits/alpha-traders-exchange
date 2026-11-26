@@ -45,7 +45,7 @@ it.each(["en", "ar"] as const)("keeps the %s tuition, FAQ and enquiry reply in s
   expect(learningInformationReply(locale)).toContain("₪6,750");
   now.mockReturnValue(Date.parse("2026-11-30T22:00:00.000Z"));
   const december = await page();
-  const increase = locale === "ar" ? "بنسبة 10% على الأقل" : "at least 10%";
+  const increase = locale === "ar" ? "ترتفع الرسوم بنسبة 10%." : "Tuition rises by 10%.";
   expect(december).toContain(increase);
   expect(december).toContain('name="experience"');
   expect(december).not.toMatch(/6,030|6,750|6,700|7,500/);

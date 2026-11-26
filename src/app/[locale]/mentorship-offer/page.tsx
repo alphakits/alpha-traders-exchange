@@ -53,9 +53,9 @@ export default async function MentorshipOfferPage({ params }: PageProps) {
               <div><dt>{t("You have 1–2 years in the markets", "إلك سنة أو سنتين بالسوق")}</dt><dd>{currencyText(fees.experiencedFee)}</dd></div>
               <div><dt>{t("You’re starting from zero", "بتبلّش من الصفر")}</dt><dd>{currencyText(fees.beginnerFee)}</dd></div>
             </dl>
-            <p className={styles.note}>{t("December is the final intake. Tuition rises by at least 10%.", "ديسمبر آخر شهر لقبول طلاب جدد، وفيه بترتفع الرسوم بنسبة 10% على الأقل.")}</p>
+            <p className={styles.note}>{t("December is the final intake. Tuition rises by 10%.", "ديسمبر آخر شهر لقبول طلاب جدد، وفيه بترتفع الرسوم بنسبة 10%.")}</p>
           </>
-        ) : <p className={styles.note}>{t("Tuition rises by at least 10% in December. Send your enquiry by December 31, Israel time. Mark will confirm your fee before you enrol.", "بترتفع الرسوم في ديسمبر بنسبة 10% على الأقل. ابعت استفسارك حتى 31 ديسمبر بتوقيت إسرائيل، ومارك بأكّد لك السعر قبل التسجيل.")}</p>}
+        ) : <p className={styles.note}>{t("Tuition rises by 10% in December. Send your enquiry by December 31, Israel time. Mark will confirm your fee before you enrol.", "بترتفع الرسوم في ديسمبر بنسبة 10%. ابعت استفسارك حتى 31 ديسمبر بتوقيت إسرائيل، ومارك بأكّد لك السعر قبل التسجيل.")}</p>}
         <div className={styles.nextStep}>
           <MentorshipLink href="/learn-with-mark" locale={locale} className={styles.cta}>
             {t("Open the full ICT mentorship", "شوف برنامج ICT Mentorship كامل")}<ArrowRight size={17} aria-hidden="true" />

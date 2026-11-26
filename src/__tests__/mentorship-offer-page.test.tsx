@@ -31,7 +31,7 @@ it.each(["ar", "en"] as const)("opens the public %s invitation before the protec
   expect(new URL(next.headers.get("location")!).searchParams.get("redirectTo")).toBe(`/${locale}/learn-with-mark`);
   vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-11-30T22:00:00Z"));
   const december = await page();
-  expect(december).toContain(locale === "en" ? "at least 10%" : "10% على الأقل");
+  expect(december).toContain(locale === "en" ? "rises by 10% in December" : "بترتفع الرسوم في ديسمبر بنسبة 10%");
   expect(december).not.toMatch(/6,030|6,750/);
   vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-12-31T22:00:00Z"));
   await expect(page()).rejects.toMatchObject({ digest: `NEXT_REDIRECT;replace;/${locale}/learn-trading-free;307;` });
