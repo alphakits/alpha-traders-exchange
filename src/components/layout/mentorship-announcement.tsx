@@ -1,6 +1,5 @@
 "use client";
 
-import { ArrowRight, GraduationCap } from "lucide-react";
 import { useEffect, useRef, useSyncExternalStore } from "react";
 import type { AppLocale } from "@/i18n/routing";
 import { usePathname, useRouter } from "@/i18n/navigation";
@@ -28,6 +27,49 @@ function subscribeToCampaign(change: () => void) {
   };
 }
 
+const increaseAt = mentorshipBoundaries[1];
+
+const minute = 60_000;
+
+function minutesUntilIncrease() {
+  return Math.max(0, Math.ceil((increaseAt - Date.now()) / minute));
+}
+
+function subscribeToCountdown(change: () => void) {
+  let timer: number | undefined;
+  function sync() {
+    window.clearTimeout(timer);
+    change();
+    const remaining = increaseAt - Date.now();
+    if (remaining > 0 && !document.hidden) {
+      timer = window.setTimeout(sync, remaining % minute || minute);
+    }
+  }
+  sync();
+  document.addEventListener("visibilitychange", sync);
+  window.addEventListener("pageshow", sync);
+  return () => {
+    window.clearTimeout(timer);
+    document.removeEventListener("visibilitychange", sync);
+    window.removeEventListener("pageshow", sync);
+  };
+}
+
+function Countdown({ isAr }: { isAr: boolean }) {
+  // Server and hydration use placeholders, then the visitor gets the real time.
+  const remaining = useSyncExternalStore<number | null>(subscribeToCountdown, minutesUntilIncrease, () => null);
+  const days = remaining === null ? "–" : Math.floor(remaining / 1_440);
+  const hours = remaining === null ? "–" : Math.floor(remaining / 60) % 24;
+  const minutes = remaining === null ? "–" : remaining % 60;
+
+  return (
+    <span className={styles.clock} dir={isAr ? "rtl" : "ltr"} role="timer" aria-live="off"
+      aria-label={isAr ? "الوقت المتبقي لزيادة السعر" : "Time until the price increase"}>
+      {isAr ? `${days}ي ${hours}س ${minutes}د` : `${days}d ${hours}h ${minutes}m`}
+    </span>
+  );
+}
+
 export function MentorshipAnnouncement({ locale, initialPhase }: { locale: AppLocale; initialPhase: MentorshipPhase }) {
   const phase = useSyncExternalStore(subscribeToCampaign, mentorshipPhase, () => initialPhase);
   const path = usePathname();
@@ -47,26 +89,29 @@ export function MentorshipAnnouncement({ locale, initialPhase }: { locale: AppLo
   if (phase !== "november" && phase !== "december") return null;
   const isAr = locale === "ar";
   const november = phase === "november";
-  const title = november
-    ? (isAr ? "تعلّم التداول مع مارك" : "ICT mentorship with Mark")
-    : (isAr ? "آخر دفعة منتورشيب مع مارك" : "Mark’s final ICT mentorship intake");
-  const offer = november
-    ? (isAr ? "خصم 10% حتى 30 نوفمبر" : "10% off through Nov 30")
-    : (isAr ? "زيادة 10% على الأقل" : "Tuition up at least 10%");
-  const detail = november
-    ? (isAr ? "زيادة 10% على الأقل في ديسمبر" : "December prices rise at least 10%")
-    : (isAr ? "التسجيل حتى 31 ديسمبر" : "Enrol by Dec 31");
-  const phoneDetail = november ? (isAr ? "بديسمبر زيادة 10% أو أكثر" : "Dec prices up 10%+") : detail;
+  const title = isAr ? "ICT Mentorship مع مارك" : "ICT mentorship with Mark";
+  const price = isAr
+    ? <>السعر <bdi dir="ltr">+10%</bdi>{november && " في 1 ديسمبر"}</>
+    : november ? "Price +10% Dec 1" : "Price +10%";
+  const action = november ? (isAr ? "انضم" : "Join") : (isAr ? "التفاصيل" : "Details");
+
   return (
-    <aside className={styles.band} data-mentorship-announcement={phase} aria-label={isAr ? "إعلان المنتورشيب" : "Mentorship announcement"}>
-      <MentorshipLink locale={locale} href={onOffer ? "/mentorship-offer#offer-details" : "/mentorship-offer"} replace={onOffer} className={styles.link}>
-        <span className={styles.emblem} aria-hidden="true"><GraduationCap size={18} strokeWidth={1.6} /></span>
-        <span className={styles.copy}>
+    <aside className={styles.band} data-mentorship-announcement={phase}
+      aria-label={isAr ? "إعلان المنتورشيب" : "Mentorship announcement"}>
+      <div className={styles.inner}>
+        <div className={styles.copy}>
           <strong className={styles.title}>{title}</strong>
-          <span className={styles.terms}><span className={styles.offer}>{offer}</span><span className={styles.detail}><span className={styles.fullDetail}>{detail}</span><span className={styles.phoneDetail}>{phoneDetail}</span></span></span>
-        </span>
-        <span className={styles.action}><span>{isAr ? "تفاصيل العرض" : "View offer"}</span><ArrowRight size={14} strokeWidth={1.8} aria-hidden="true" /></span>
-      </MentorshipLink>
+          <div className={styles.detail}>
+            <span className={styles.price}>{price}</span>
+            <span aria-hidden="true">·</span>
+            {november ? <Countdown isAr={isAr} /> : <span>{isAr ? "التسجيل حتى 31 ديسمبر" : "Enrol by Dec 31"}</span>}
+          </div>
+        </div>
+        <MentorshipLink locale={locale} href={onOffer ? "/mentorship-offer#offer-details" : "/mentorship-offer"}
+          replace={onOffer} className={styles.action}>
+          {action} <span aria-hidden="true">{isAr ? "←" : "→"}</span>
+        </MentorshipLink>
+      </div>
     </aside>
   );
 }

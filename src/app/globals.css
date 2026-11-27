@@ -57,7 +57,7 @@ header + [data-mentorship-announcement] {
 
 /* Keep anchors and keyboard focus below the additional sticky row. */
 html:has(.alpha-site-header [data-mentorship-announcement]) {
-  scroll-padding-top: calc(8.5rem + var(--safe-area-top));
+  scroll-padding-top: calc(8rem + var(--safe-area-top));
 }
 @media (min-width: 80rem) {
   html:has(.alpha-site-header [data-mentorship-announcement]) {
