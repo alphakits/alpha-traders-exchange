@@ -29,8 +29,10 @@ function subscribeToCampaign(change: () => void) {
 
 const increaseAt = mentorshipBoundaries[1];
 
-function secondsUntilIncrease() {
-  return Math.max(0, Math.ceil((increaseAt - Date.now()) / 1_000));
+const minute = 60_000;
+
+function minutesUntilIncrease() {
+  return Math.max(0, Math.ceil((increaseAt - Date.now()) / minute));
 }
 
 function subscribeToCountdown(change: () => void) {
@@ -40,7 +42,7 @@ function subscribeToCountdown(change: () => void) {
     change();
     const remaining = increaseAt - Date.now();
     if (remaining > 0 && !document.hidden) {
-      timer = window.setTimeout(sync, remaining % 1_000 || 1_000);
+      timer = window.setTimeout(sync, remaining % minute || minute);
     }
   }
   sync();
@@ -55,24 +57,15 @@ function subscribeToCountdown(change: () => void) {
 
 function Countdown({ isAr }: { isAr: boolean }) {
   // Server and hydration use placeholders, then the visitor gets the real time.
-  const seconds = useSyncExternalStore<number | null>(subscribeToCountdown, secondsUntilIncrease, () => null);
-  const remaining = seconds ?? 0;
-  const units = [
-    { label: isAr ? "أيام" : "Days", value: Math.floor(remaining / 86_400) },
-    { label: isAr ? "ساعات" : "Hrs", value: Math.floor(remaining / 3_600) % 24 },
-    { label: isAr ? "دقائق" : "Min", value: Math.floor(remaining / 60) % 60 },
-    { label: isAr ? "ثواني" : "Sec", value: remaining % 60 },
-  ];
+  const remaining = useSyncExternalStore<number | null>(subscribeToCountdown, minutesUntilIncrease, () => null);
+  const days = remaining === null ? "–" : Math.floor(remaining / 1_440);
+  const hours = remaining === null ? "–" : Math.floor(remaining / 60) % 24;
+  const minutes = remaining === null ? "–" : remaining % 60;
 
   return (
-    <span className={styles.clock} dir="ltr" role="timer" aria-live="off"
+    <span className={styles.clock} dir={isAr ? "rtl" : "ltr"} role="timer" aria-live="off"
       aria-label={isAr ? "الوقت المتبقي لزيادة السعر" : "Time until the price increase"}>
-      {units.map(({ label, value }) => (
-        <span key={label} className={styles.unit}>
-          <b>{seconds === null ? "––" : String(value).padStart(2, "0")}</b>
-          <small>{label}</small>
-        </span>
-      ))}
+      {isAr ? `${days}ي ${hours}س ${minutes}د` : `${days}d ${hours}h ${minutes}m`}
     </span>
   );
 }
@@ -97,28 +90,26 @@ export function MentorshipAnnouncement({ locale, initialPhase }: { locale: AppLo
   const isAr = locale === "ar";
   const november = phase === "november";
   const title = isAr ? "ICT Mentorship مع مارك" : "ICT mentorship with Mark";
-  const detail = november
-    ? (isAr ? "السعر بزيد 10% يوم 1 ديسمبر" : "Price increases 10% on December 1")
-    : (isAr ? "السعر الجديد بزيادة 10% صار ساري · التسجيل حتى 31 ديسمبر" : "The new +10% price is in effect · Enrol by Dec 31");
-  const action = november
-    ? (isAr ? "انضم بالسعر الحالي" : "Join at today’s price")
-    : (isAr ? "تفاصيل المنتورشيب" : "View mentorship");
+  const price = isAr
+    ? <>السعر <bdi dir="ltr">+10%</bdi>{november && " في 1 ديسمبر"}</>
+    : november ? "Price +10% Dec 1" : "Price +10%";
+  const action = november ? (isAr ? "انضم" : "Join") : (isAr ? "التفاصيل" : "Details");
 
   return (
     <aside className={styles.band} data-mentorship-announcement={phase}
       aria-label={isAr ? "إعلان المنتورشيب" : "Mentorship announcement"}>
       <div className={styles.inner}>
         <div className={styles.copy}>
-          <div className={styles.titleRow}>
-            <strong>{title}</strong>
-            <bdi className={styles.badge} dir="ltr">+10%</bdi>
+          <strong className={styles.title}>{title}</strong>
+          <div className={styles.detail}>
+            <span className={styles.price}>{price}</span>
+            <span aria-hidden="true">·</span>
+            {november ? <Countdown isAr={isAr} /> : <span>{isAr ? "التسجيل حتى 31 ديسمبر" : "Enrol by Dec 31"}</span>}
           </div>
-          <span className={styles.detail}>{detail}</span>
         </div>
-        {november && <Countdown isAr={isAr} />}
         <MentorshipLink locale={locale} href={onOffer ? "/mentorship-offer#offer-details" : "/mentorship-offer"}
           replace={onOffer} className={styles.action}>
-          {action}
+          {action} <span aria-hidden="true">{isAr ? "←" : "→"}</span>
         </MentorshipLink>
       </div>
     </aside>

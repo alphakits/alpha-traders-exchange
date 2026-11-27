@@ -57,16 +57,11 @@ header + [data-mentorship-announcement] {
 
 /* Keep anchors and keyboard focus below the additional sticky row. */
 html:has(.alpha-site-header [data-mentorship-announcement]) {
-  scroll-padding-top: calc(13.25rem + var(--safe-area-top));
-}
-@media (min-width: 60.0625rem) {
-  html:has(.alpha-site-header [data-mentorship-announcement]) {
-    scroll-padding-top: calc(9.25rem + var(--safe-area-top));
-  }
+  scroll-padding-top: calc(8rem + var(--safe-area-top));
 }
 @media (min-width: 80rem) {
   html:has(.alpha-site-header [data-mentorship-announcement]) {
-    scroll-padding-top: calc(12.5rem + var(--safe-area-top));
+    scroll-padding-top: calc(11rem + var(--safe-area-top));
   }
 }
 
